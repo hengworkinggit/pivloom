@@ -1,0 +1,25 @@
+# Local credentials and machine configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+.DS_Store
+
+# Dependencies, builds and caches
+node_modules/
+.next/
+dist/
+build/
+.turbo/
+.cache/
+coverage/
+*.tsbuildinfo
+*.log
+
+# Local deployment state and temporary artifacts
+.vercel/
+.output/
+tmp/
+temp/
