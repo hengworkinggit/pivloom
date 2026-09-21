@@ -1,0 +1,19 @@
+{
+  "name": "pivloom",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @pivloom/web",
+    "build": "npm run build --workspace @pivloom/web",
+    "start": "npm run start --workspace @pivloom/web",
+    "typecheck": "npm run typecheck --workspace @pivloom/web",
+    "lint": "npm run lint --workspace @pivloom/web",
+    "test": "npm run test --workspace @pivloom/web"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
