@@ -1,0 +1,45 @@
+{
+  "at": "2026-09-22T11:54:58.768Z",
+  "runId": "c3950836-b862-4060-84dc-114af0836ba4",
+  "projectId": "3c866a6a-26e9-4af4-89d4-d84127b7d430",
+  "captureLabel": "activity-reload-contract-final",
+  "boot": "af8ab50d-1a1b-44e4-ace5-ab304a4f6ae9",
+  "terminal": {
+    "state": "failed",
+    "code": "CHECK_BLOCKED",
+    "phase": "persist",
+    "finishedAt": "2026-09-22T11:43:07.116Z",
+    "summary": "浏览器或检查过程未完成，当前候选尚未通过检查。"
+  },
+  "assertions": {
+    "threeIndependentSessions": true,
+    "roleHandoffChain": true,
+    "reviewerHandoffVersion": true,
+    "boundCheckScope": true,
+    "boundSandboxVersion": true,
+    "failedCandidateNotPromoted": true,
+    "operationReleased": true,
+    "modelLeaseReleased": true
+  },
+  "actualEvidence": {
+    "savedObservations": 0,
+    "savedArtifacts": 0,
+    "reloadCalled": false,
+    "productBehaviorVerification": "NOT_VERIFIED",
+    "note": "A browser_click and record_behavior have successful activity events, but blocked receipt has no retained action observations. Diagnostic Chrome evidence is separate and cannot substitute for this product review."
+  },
+  "diagnostic": {
+    "before": "activity-form-ref-before.json",
+    "after": "activity-form-ref-fix.json",
+    "confirmedCompatibilityFailure": "Valid CLI multi-attribute ref groups were omitted, setting truncated=true; browser_form rejects incomplete observations before any form action.",
+    "historicalCauseLimit": "Original form arguments and RuntimeError detail were not persisted. This sufficient blocker is reproduced on the same candidate, but an additional malformed-argument error in the original call cannot be excluded."
+  },
+  "checks": {
+    "browserFixtureTests": 22,
+    "typecheck": "PASS",
+    "lint": "PASS",
+    "realModelsCalled": 0,
+    "productStateModified": false,
+    "diagnosticSessionsClosed": true
+  }
+}

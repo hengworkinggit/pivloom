@@ -1,0 +1,65 @@
+{
+  "kind": "isolated-production-Coordinator-stream-diagnostic",
+  "startedAt": "2026-09-22T12:08:18.448Z",
+  "requests": [
+    {
+      "index": 1,
+      "status": 200,
+      "thinkingType": null,
+      "maxTokens": 4096,
+      "headersMs": 4995,
+      "lastChunkMs": 5130,
+      "thinkingChars": 38,
+      "textChars": 0,
+      "toolArgumentChars": 2,
+      "chunks": 7,
+      "done": true
+    },
+    {
+      "index": 2,
+      "status": 200,
+      "thinkingType": null,
+      "maxTokens": 4096,
+      "headersMs": 4978,
+      "lastChunkMs": 56957,
+      "thinkingChars": 4355,
+      "textChars": 190,
+      "toolArgumentChars": 1496,
+      "chunks": 860,
+      "done": true
+    },
+    {
+      "index": 3,
+      "status": 200,
+      "thinkingType": null,
+      "maxTokens": 4096,
+      "headersMs": 6045,
+      "lastChunkMs": 22363,
+      "thinkingChars": 674,
+      "textChars": 33,
+      "toolArgumentChars": 1516,
+      "chunks": 419,
+      "done": true
+    }
+  ],
+  "outcome": "completed",
+  "cleanup": {
+    "leaseReleased": true
+  },
+  "scope": "Actual model requests using existing encrypted profile; no application Run, sandbox, plan persistence, source or current mutation.",
+  "decision": {
+    "kind": "plan",
+    "behaviorCount": 5
+  },
+  "usage": {
+    "input": 3950,
+    "output": 3145,
+    "total": 10039,
+    "cachedTokens": null,
+    "modelCalls": 3,
+    "toolCalls": 3,
+    "elapsedMs": 84565.27121100001,
+    "source": "partial"
+  },
+  "finishedAt": "2026-09-22T12:09:43.138Z"
+}

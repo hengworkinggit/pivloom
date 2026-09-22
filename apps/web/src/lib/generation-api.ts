@@ -1,9 +1,9 @@
 import {
   CreateRunRequestSchema, CreateRunResponseSchema, RunDetailResponseSchema,
-  RevisionFilesResponseSchema, RevisionFileResponseSchema, PreviewResponseSchema,
-  type CreateRunRequest, type RunEvent,
+  RevisionFilesResponseSchema, RevisionFileResponseSchema, PreviewResponseSchema, RevisionCheckResponseSchema,
+  type CreateRunRequest, type RunEvent, type ReviewArtifact,
 } from "@pivloom/contracts";
-import type { ApiWorkspace } from "./api-workspace";
+import { WorkspaceError, type ApiWorkspace } from "./api-workspace";
 import { readDraft, saveDraft } from "./drafts";
 import { readRunEvents } from "./run-events";
 
@@ -22,13 +22,28 @@ export const savePendingSubmission = (ownerId: string, projectId: string, submis
   saveDraft(ownerId, pendingKey(projectId), JSON.stringify(submission));
 export const clearPendingSubmission = (ownerId: string, projectId: string) => saveDraft(ownerId, pendingKey(projectId), "");
 
-export function createGenerationApi(api: Pick<ApiWorkspace, "request" | "requestStream">) {
+export function createGenerationApi(api: Pick<ApiWorkspace, "request" | "requestStream" | "requestBlob">) {
   return {
     start: async (projectId: string, submission: RunSubmission) => CreateRunResponseSchema.parse(await api.request(`/projects/${encodeURIComponent(projectId)}/runs`, {
       method: "POST", headers: { "Idempotency-Key": submission.key },
       body: JSON.stringify(CreateRunRequestSchema.parse(submission.body)),
     })),
     getRun: async (runId: string) => RunDetailResponseSchema.parse(await api.request(`/runs/${encodeURIComponent(runId)}`)),
+    getCheck: async (revisionId: string) => {
+      const result = RevisionCheckResponseSchema.safeParse(await api.request(`/revisions/${encodeURIComponent(revisionId)}/check`));
+      if (!result.success) throw new WorkspaceError("INVALID_CHECK", "检查记录格式不正确，请重新读取。");
+      return result.data.check;
+    },
+    getArtifact: async (checkId: string, artifact: ReviewArtifact, signal?: AbortSignal) => {
+      const image = await api.requestBlob(`/checks/${encodeURIComponent(checkId)}/artifacts/${encodeURIComponent(artifact.id)}`, { signal });
+      if (image.type !== "image/png" || image.size > 2 * 1024 * 1024) throw new Error("检查截图格式或大小不正确。");
+      const bytes = await image.arrayBuffer();
+      const pngHeader = [137, 80, 78, 71, 13, 10, 26, 10];
+      if (!pngHeader.every((value, index) => new Uint8Array(bytes)[index] === value)) throw new Error("检查截图格式不正确。");
+      const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (value) => value.toString(16).padStart(2, "0")).join("");
+      if (hash !== artifact.sha256) throw new Error("检查截图与已保存记录不一致，请重新加载。");
+      return image;
+    },
     getFiles: async (revisionId: string) => RevisionFilesResponseSchema.parse(await api.request(`/revisions/${encodeURIComponent(revisionId)}/files`)),
     getFile: async (revisionId: string, path: string) => RevisionFileResponseSchema.parse(await api.request(`/revisions/${encodeURIComponent(revisionId)}/file?path=${encodeURIComponent(path)}`)),
     getPreview: async (projectId: string, revisionId: string) => PreviewResponseSchema.parse(await api.request(`/projects/${encodeURIComponent(projectId)}/preview?revisionId=${encodeURIComponent(revisionId)}`)).preview,

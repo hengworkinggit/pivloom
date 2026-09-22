@@ -1,4 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import Fastify from "fastify";
 import type { Preview } from "@pivloom/contracts";
 
@@ -25,11 +26,25 @@ export function createPreviewGateway(options: { publicOrigin: string; appOrigin:
   const publicOrigin = new URL(options.publicOrigin);
   const sandboxOrigin = new URL(options.sandboxOrigin).origin;
   const appOrigin = new URL(options.appOrigin).origin;
+  const localPreview = publicOrigin.hostname === "localhost";
+  if (isIP(publicOrigin.hostname.replace(/^\[|\]$/g, "")))
+    throw new Error("Preview requires a DNS hostname; IP origins cannot isolate revisions");
   if (publicOrigin.origin === appOrigin) throw new Error("Preview requires an independent origin");
+  // Production app and preview DNS must share a site. Do not guess public
+  // suffixes here; deployment owns that DNS relationship and this scheme check.
+  if (!localPreview && publicOrigin.protocol !== new URL(appOrigin).protocol)
+    throw new Error("Preview and workbench require the same URL scheme");
   const entries = new Map<string, PreviewEntry>();
   const app = Fastify({ logger: false, bodyLimit: 1024 });
+  function revisionOrigin(revisionId: string) {
+    const origin = new URL(publicOrigin);
+    origin.hostname = `${revisionId}.${publicOrigin.hostname}`;
+    return origin;
+  }
   app.addHook("onRequest", async (request, reply) => {
-    if (request.headers.host !== publicOrigin.host) return reply.code(403).send("预览来源无效。");
+    const revisionId = (request.params as { revisionId?: unknown } | null)?.revisionId;
+    if (typeof revisionId !== "string" || !uuid.test(revisionId) || request.headers.host !== revisionOrigin(revisionId).host)
+      return reply.code(403).send("预览来源无效。");
     reply.header("cache-control", "no-store");
     reply.header("referrer-policy", "no-referrer");
     reply.header("x-content-type-options", "nosniff");
@@ -41,7 +56,7 @@ export function createPreviewGateway(options: { publicOrigin: string; appOrigin:
     const expired = entry.revoked || Date.parse(entry.expiresAt) <= Date.now();
     return {
       state: expired ? "expired" : "ready", revisionId: entry.revisionId, sourceHash: entry.sourceHash,
-      url: expired ? null : `${publicOrigin.origin}/p/${entry.revisionId}/enter/${entry.capability}`,
+      url: expired ? null : `${revisionOrigin(entry.revisionId).origin}/p/${entry.revisionId}/enter/${entry.capability}`,
       expiresAt: entry.expiresAt, error: expired ? "预览已到期，源码仍已保存。" : null,
     };
   }
@@ -51,7 +66,7 @@ export function createPreviewGateway(options: { publicOrigin: string; appOrigin:
     if (!entry || !matches(request.params.capability, entry.capability)) return reply.code(404).send("找不到预览。");
     if (view(entry).state !== "ready") return reply.code(410).send("预览已到期，源码仍已保存。");
     const maxAge = Math.max(0, Math.floor((Date.parse(entry.expiresAt) - Date.now()) / 1000));
-    reply.header("set-cookie", `${cookieName}=${entry.capability}; Path=/p/${entry.revisionId}/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${publicOrigin.protocol === "https:" ? "; Secure" : ""}`);
+    reply.header("set-cookie", `${cookieName}=${entry.capability}; Path=/p/${entry.revisionId}/; HttpOnly; SameSite=${localPreview ? "None" : "Lax"}; Max-Age=${maxAge}${localPreview || publicOrigin.protocol === "https:" ? "; Secure" : ""}`);
     return reply.code(303).header("location", `/p/${entry.revisionId}/`).send();
   });
   app.route<{ Params: { revisionId: string; "*": string } }>({

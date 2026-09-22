@@ -15,6 +15,7 @@ import {
 import { createServiceModel } from "./pi.js";
 import { RuntimeError, type ModelConfig, type ProbeEvent, type ProbeEventSink } from "./types.js";
 import { createRoleTokenTracker, type RunTokenBudget, type TokenUsage } from "./token-budget.js";
+import { MODEL_REQUEST_TIMEOUT_MS, RUN_DEADLINE_MS, providerRetrySettings } from "./budgets.js";
 
 export type CoordinatorDecision = { kind: "plan"; plan: Plan } | { kind: "clarification"; question: string };
 export interface CoordinatorMetadata {
@@ -67,7 +68,7 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
     throw new RuntimeError("TOOL_BUDGET_EXCEEDED", "本次任务工具调用预算已耗尽");
   const maxToolCalls = Math.min(Math.floor(requestedToolBudget), 80);
   const deadline = new AbortController(), failureAbort = new AbortController();
-  const expiresAt = Date.now() + Math.min(Math.max(input.timeoutMs ?? 600_000, 1), 600_000);
+  const expiresAt = Date.now() + Math.min(Math.max(input.timeoutMs ?? RUN_DEADLINE_MS, 1), RUN_DEADLINE_MS);
   const timer = setTimeout(() => deadline.abort(), Math.max(1, expiresAt - Date.now()));
   const signal = AbortSignal.any([input.signal, deadline.signal, failureAbort.signal]);
   let isolated: string | undefined;
@@ -122,13 +123,15 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
     await active();
     isolated = await mkdtemp(join(tmpdir(), "pivloom-coordinator-"));
     const { runtime, model } = await createServiceModel(input.modelConfig, signal);
-    const settings = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false, provider: { timeoutMs: 90000, maxRetries: 0 } }, cacheWarming: "off", defaultProjectTrust: "never" });
+    const settings = SettingsManager.inMemory({ compaction: { enabled: false }, retry: providerRetrySettings(), cacheWarming: "off", defaultProjectTrust: "never" });
     const loader = new DefaultResourceLoader({
       cwd: isolated, agentDir: isolated, settingsManager: settings, noExtensions: true, noSkills: true,
       noPromptTemplates: true, noThemes: true, noContextFiles: true,
       systemPrompt: [
         "You are the Coordinator for a frontend React application builder. You only have project_summary, submit_plan and request_clarification. You cannot read host files, execute commands, write source, create sandboxes, delegate roles or change service state.",
         "Use the supplied project summary to preserve the original request and clarification answers. Produce 1–5 observable behavior targets with concrete preconditions, actions and expected results. For an existing revision preserve at least one previous behavior with the same id, precondition, action, expected and required fields.",
+        "Reviewer starts in a fresh isolated browser and can navigate/reload the bound app, fill/select/click/press controls and inspect DOM/source. Write acceptance steps using those capabilities: verify initial empty state before adding records, and persistence by reloading. Do not require developer tools, manually clearing storage, editing DOM or backend access as test steps. Use the smallest dataset that distinguishes the requested behavior; do not invent extra business requirements.",
+        "Each behavior target must include a meaningful interaction from the requested workflow and an observed result. Combine static initial-state assertions with the first actual business flow, such as requested form validation, instead of a standalone open-and-look target. Preserve every explicit requirement, including the initial empty state; do not add arbitrary clicks or new functionality just to produce action evidence. The exact previous-behavior preservation rule above still applies.",
         "Every explicitly requested observable behavior MUST have required: true. Use required: false only for unrequested refinements. Never downgrade explicitly requested persistence or saving results to an optional behavior.",
         "Use reasonable defaults for reversible choices such as colors and layout. Ask one concise, essential business question only when implementation would otherwise guess important meaning. Do not ask again about information already supplied.",
         "Ask ONLY ONE essential question that blocks the core behavior. Use a single line of at most 300 characters with at most one question mark, only at the end. No checklist, numbered list, compound questions, or options about optional history, export, rounding or layout. Use reasonable defaults for such secondary details. Never assume a missing business formula: ask only for that formula when it is the blocker.",
@@ -196,7 +199,7 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
       }) };
       try {
         return tokens.stream(maxTokens, input.modelConfig.fetch, (modelFetch) => runtime.streamSimple(selected, providerContext, { ...options, fetch: modelFetch, transport: "sse",
-          timeoutMs: Math.max(1, Math.min(90000, expiresAt - Date.now())), maxRetries: 0, maxTokens }));
+          timeoutMs: Math.max(1, Math.min(MODEL_REQUEST_TIMEOUT_MS, expiresAt - Date.now())), maxRetries: 0, maxTokens }));
       } catch (error) {
         if (error instanceof RuntimeError) throw fail(error);
         throw error;
@@ -215,6 +218,11 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
         receivedStream = true;
         void emit({ type: "model.stream.started", requestNumber, message: "协调者已收到实际模型响应" }).catch(() => {});
       }
+    });
+    session.subscribe((event) => {
+      if (event.type !== "auto_retry_start" || Date.now() >= expiresAt) return;
+      void emit({ type: "model.stream.started", requestNumber,
+        message: `协调者请求第 ${event.attempt}/${event.maxAttempts} 次瞬态失败，${event.delayMs}ms 后重试` }).catch(() => {});
     });
     session.agent.shouldStopAfterTurn = () => Boolean(decision) || calls.length >= maxToolCalls;
     checkSignal();

@@ -4,7 +4,7 @@
 
 2026-09-22沙箱决定：采用OpenSandbox Docker + gVisor systrap，已在授权服务器通过沙箱基础设施实测；Pi保留，E2B不再是前置。已验证文件/命令、React构建、Chrome、跨origin iframe、取消、TTL和清理。完整Pi生成与Supabase联调、联合容量及正式产品E2E仍待通过。详见[实测记录](sandbox-g0-results.md)与[方案依据](sandbox-options.md)。本地开发/E2E使用localhost或隧道，不依赖公网域名。
 
-**当前已实现 Mock 前端，真实后端、模型与隔离沙箱链路尚未实现，本文所有正式产品用例均为 NOT_RUN。** 第 11 节的 PASS 仅指 Codex 内置浏览器在独立夹具上的能力探针；已有 Mock 前端验证另见[实际记录](frontend-verification.md)，不能继承为正式通过。
+**本文定义验收标准，正式实现与逐模块验收正在推进。** 当前实测见[基础设施](foundation-validation-2026-09-22.md)、[真实生成](generation-validation-2026-09-22.md)、[规划](planning-validation-2026-09-22.md)和[Reviewer](reviewer-validation-2026-09-22.md)记录；没有相应实际证据的用例仍是 NOT_RUN。第 11 节的 PASS 仅为独立浏览器能力探针；[Mock 前端记录](frontend-verification.md)不能继承为正式通过。
 
 每个 [DEV 模块](tickets/real-development-v1/README.md) 实现后立即执行该票的相关 E2E 与必要集成断言，通过后才能关闭并解除依赖。缺少前置条件记录 BLOCKED，保持 issue 打开；发布回归不能替代模块即时验证。
 
@@ -33,7 +33,7 @@
 | Staging | 接真实模型/OpenSandbox/Supabase 的完整联调 | HTTPS 与正式拓扑一致；合成数据；故障测试不得影响正常评审 |
 | Online Demo | 发布候选的最后核验 | 故障注入关闭；使用提供给评审的入口；只做正常流程和明确允许的测试项目操作 |
 
-每份测试报告必须填写真实 URL、build commit/版本、API boot ID、模型 profile、沙箱镜像digest、浏览器环境和测试时间。当前没有已部署 URL；示例 localhost 地址不是已经启动的产品。
+每份测试报告必须填写真实 URL、build commit/版本、API boot ID、模型 profile、沙箱镜像digest、浏览器环境和测试时间。已部署环境以各次实测记录为准；示例地址本身不证明服务可用或公网交付完成。
 
 ### 2.2 账号
 
@@ -131,13 +131,13 @@ var preview = richTab.playwright.frameLocator('iframe[title="应用预览"]');
 
 ### 3.4 等待与失败处理
 
-以可见阶段和有界 locator 等待为主，不用固定长 sleep 判断完成。单次等待最长不超过 60 秒，随后观察状态、错误和进度并继续；总任务等待以服务端 10 分钟上限及少量网络余量为限。出现终态立即判断，不盲等满时长。
+以可见阶段和有界 locator 等待为主，不用固定长 sleep 判断完成。单次等待最长不超过 60 秒，随后观察状态、错误和进度并继续；总任务等待以服务端 20 分钟上限及少量网络余量为限。出现终态立即判断，不盲等满时长。三角色 run 的实测墙钟、单请求上限与 provider 瞬态重试策略见 TRD §12.4。
 
 如果预期节点不在快照中，先检查页面是否进入错误/登录/加载状态；刷新观察或截图后定位，不点击猜测的旧编号。发现 blocker 停止依赖它的用例，继续独立用例；修复后复测失败步骤及受影响主流程。
 
 ## 4. 发布关键路径用例
 
-下面所有 E 用例的当前结果都是 **NOT_RUN**。记录中的“通过”是判定标准，不是已发生的测试结果。`证据` 中的服务器查询是补证，与 UI 操作结果分别记录。
+下面 E 用例中的“通过”是判定标准，实际结果以开头链接的逐模块报告为准；没有实测记录的项目为 **NOT_RUN**。`证据` 中的服务器查询是补证，与 UI 操作结果分别记录。
 
 ### E01 · 登录与进入项目列表 · P0
 
@@ -383,7 +383,7 @@ var preview = richTab.playwright.frameLocator('iframe[title="应用预览"]');
 | I10 浏览器 adapter | refs 失效、导航越界、命令参数注入、输出路径、超时、close | 仅允许受控动作/来源，拒绝跨 session refs；JSON/截图正确处理；观察重试不盲重放写动作 |
 | I11 生产部署 | 构建产物、单实例配置、proxy/SSE、故障开关、schema/bucket 权限 | 正常前端资源齐全；API/SSE 可用；生产禁止 TEST_PROFILE；anon 不能直接读私有数据；无宿主执行生成代码 |
 
-I01–I12 当前均 NOT_RUN。测试名只是实现建议，不代表已经有测试文件。只为上述真实风险编写必要断言，不为每个文案写镜像实现的测试。
+I01–I12 的实际执行范围和结果以逐模块报告为准，未执行部分仍为 NOT_RUN。测试名本身不代表已经通过。只为上述真实风险编写必要断言，不为每个文案写镜像实现的测试。
 
 ### 8.2 故障 profile 设计
 

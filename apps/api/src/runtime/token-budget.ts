@@ -1,6 +1,7 @@
 import type { AssistantMessage, AssistantMessageEventStream, Usage } from "@earendil-works/pi-ai";
 import type { RoleUsage } from "@pivloom/contracts";
 import { RuntimeError } from "./types.js";
+import { RUN_TOKEN_LIMIT } from "./budgets.js";
 
 type ProviderUsage = Pick<Usage, "input" | "output" | "cacheRead" | "cacheWrite" | "totalTokens">;
 interface TokenSample { input: number | null; output: number | null; total: number | null; cachedTokens: number | null }
@@ -16,9 +17,9 @@ export interface RunTokenBudget {
 }
 
 /** One ledger per run, shared by every role and correction request. */
-export function createRunTokenBudget(limitTokens = 60_000): RunTokenBudget {
-  if (!Number.isSafeInteger(limitTokens) || limitTokens < 1 || limitTokens > 60_000)
-    throw new RuntimeError("TOKEN_BUDGET_INVALID", "Token 预算必须在 1 到 60,000 之间");
+export function createRunTokenBudget(limitTokens = RUN_TOKEN_LIMIT): RunTokenBudget {
+  if (!Number.isSafeInteger(limitTokens) || limitTokens < 1 || limitTokens > RUN_TOKEN_LIMIT)
+    throw new RuntimeError("TOKEN_BUDGET_INVALID", `Token 预算必须在 1 到 ${RUN_TOKEN_LIMIT.toLocaleString("en-US")} 之间`);
   let accountedTokens = 0, requests = 0, pendingRequests = 0, unreportedRequests = 0;
   return {
     reserve(estimatedInputTokens, maxOutputTokens) {

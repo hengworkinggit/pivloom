@@ -4,9 +4,11 @@ const config: NextConfig = {
   devIndicators: false,
   poweredByHeader: false,
   async headers() {
-    const previewOrigin = new URL(process.env.PREVIEW_BASE_URL ?? "http://localhost:45311").origin;
+    const previewBase = new URL(process.env.PREVIEW_BASE_URL ?? "http://localhost:45311");
+    // Each revision uses its own host; keep the configured scheme and port.
+    const previewOrigins = `${previewBase.protocol}//*.${previewBase.host}`;
     return [{ source: "/:path*", headers: [
-      { key: "Content-Security-Policy", value: `frame-src 'self' ${previewOrigin}; object-src 'none'; base-uri 'self'; frame-ancestors 'none'` },
+      { key: "Content-Security-Policy", value: `frame-src 'self' ${previewOrigins}; object-src 'none'; base-uri 'self'; frame-ancestors 'none'` },
       { key: "Referrer-Policy", value: "no-referrer" },
     ] }];
   },

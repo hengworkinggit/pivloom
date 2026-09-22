@@ -193,6 +193,7 @@ export function createApiWorkspace(identity: IdentityPort, transport: typeof fet
     } finally { requests.delete(controller); }
   }
   const request = (path: string, init: RequestInit = {}): Promise<unknown> => authorizedRequest(path, init, readJson);
+  const requestBlob = (path: string, init: RequestInit = {}): Promise<Blob> => authorizedRequest(path, init, (response) => response.blob());
   const requestStream = (path: string, consume: (response: Response, signal: AbortSignal) => Promise<void>, init: RequestInit = {}): Promise<void> =>
     authorizedRequest(path, init, consume);
   return {
@@ -203,7 +204,7 @@ export function createApiWorkspace(identity: IdentityPort, transport: typeof fet
     retry: async () => { unsubscribe?.(); initialized = false; await initialize(); },
     login,
     logout,
-    request, requestStream,
+    request, requestStream, requestBlob,
     listProjects: async (cursor?: string) => ProjectListResponseSchema.parse(await request(`/projects${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`)),
     createProject: async (title?: string) => {
       const body = CreateProjectRequestSchema.parse(title ? { title } : {});

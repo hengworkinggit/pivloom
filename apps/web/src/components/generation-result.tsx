@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Code2, Copy, ExternalLink, FileCode2, FileJson2, LoaderCircle, Monitor, RotateCcw, Smartphone } from "lucide-react";
-import type { Preview, Revision } from "@pivloom/contracts";
+import type { Check, Preview, Revision } from "@pivloom/contracts";
 import type { GenerationApi } from "@/lib/generation-api";
 import { usePrivateQuery } from "@/lib/use-workspace";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { GenerationReview } from "./generation-review";
 
 function SourceViewer({ revision, generation }: { revision: Revision; generation: GenerationApi }) {
   const manifestLoader = useCallback(async () => {
@@ -59,8 +60,8 @@ function previewUrl(preview: Preview | null, revision: Revision | null, origin: 
   } catch { return null; }
 }
 
-export function GenerationResult({ revision, preview, generation, active }: {
-  revision: Revision | null; preview: Preview | null; generation: GenerationApi; active: boolean;
+export function GenerationResult({ revision, preview, generation, active, latestCheck, checking = false }: {
+  revision: Revision | null; preview: Preview | null; generation: GenerationApi; active: boolean; latestCheck?: Check | null; checking?: boolean;
 }) {
   const [tab, setTab] = useState<"preview" | "code">("preview");
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
@@ -91,7 +92,8 @@ export function GenerationResult({ revision, preview, generation, active }: {
         {url && <a className="icon-button" href={url} target="_blank" rel="noopener noreferrer" aria-label="在新标签页打开预览"><ExternalLink size={15} /></a>}
       </div>}
     </div>
-    {revision && <div className="previous-version-note">{candidate ? "候选已保存 · 尚未检查" : "已保存版本"}{active ? " · 新任务正在执行，当前显示此版本" : ""}</div>}
+    {revision && <><div className="previous-version-note">{candidate ? "候选已保存" : "已保存版本"}{active ? " · 新任务正在执行，当前显示此版本" : ""}</div>
+      <GenerationReview key={`${revision.id}:${checking}`} revision={revision} latestCheck={latestCheck} generation={generation} checking={checking} /></>}
     <div id="code-panel" role="tabpanel" aria-labelledby="code-tab" className="code-panel" hidden={tab !== "code"}>
       {tab === "code" && (revision ? <SourceViewer key={revision.id} revision={revision} generation={generation} /> : <div className="preview-empty"><Code2 size={28} /><h2>还没有生成源码</h2><p>候选保存后，可以查看对应的多文件快照。</p></div>)}
     </div>

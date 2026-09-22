@@ -5,6 +5,7 @@ import { afterEach, expect, test } from "vitest";
 import type { Handoff } from "@pivloom/contracts";
 import { runCandidate } from "../../src/generation/candidate.js";
 import { createRunTokenBudget } from "../../src/runtime/token-budget.js";
+import { RUN_DEADLINE_MINUTES } from "../../src/runtime/budgets.js";
 import type {
   SandboxConnection,
   SandboxConnector,
@@ -193,7 +194,7 @@ test("a later token budget rejection retains real provider usage in the failed c
   const result = await runCandidate({
     runId: randomUUID(), revisionId: randomUUID(), prompt: "创建奖金计算器",
     modelConfig: model.config, sandboxConfig, signal: new AbortController().signal,
-    tokenBudget: createRunTokenBudget(),
+    tokenBudget: createRunTokenBudget(60_000),
   }, { sandboxConnector: remote.connector });
   expect(result).toMatchObject({ status: "failed", cleanup: "confirmed", error: { code: "TOKEN_BUDGET_EXCEEDED" },
     usage: { input: 58_000, output: 10, total: 58_010, modelCalls: 1, toolCalls: 1, cachedTokens: null, source: "partial" } });
@@ -501,7 +502,7 @@ test("a parent run deadline reports RUN_TIMEOUT and confirmed cleanup rather tha
     onEvent: async (event) => { if (event.type === "model.stream.started") controller.abort("RUN_TIMEOUT"); },
   }, { sandboxConnector: remote.connector });
   expect(result).toMatchObject({
-    status: "failed", cleanup: "confirmed", error: { code: "RUN_TIMEOUT", message: expect.stringContaining("10 分钟") },
+    status: "failed", cleanup: "confirmed", error: { code: "RUN_TIMEOUT", message: expect.stringContaining(`${RUN_DEADLINE_MINUTES} 分钟`) },
   });
   expect(remote.isLive()).toBe(false);
   expect(result).not.toHaveProperty("preview");

@@ -64,6 +64,7 @@
 - **正式成功门槛**：未检查或检查失败的 Revision 一律不得成为 current。早期 Builder-only 联调在检查组件未就绪时以 CHECK_BLOCKED 明确结束 Run，释放生成锁；仅保留撤销写权限、关闭 Chrome 后受短 TTL 管理的“尚未检查”候选预览，不由 finally 立即销毁。完整 E04/E12 在真实 Reviewer 接入后重跑；不绕过正式门槛，不称为团队完成。完整开发完成定义包含协调、检查及有限修复。
 - **预览与失败候选**：新候选和旧成功预览使用不同沙箱；每轮修复新建候选与浏览器 session。失败候选源码和 Check 持久保留，活沙箱可清理。查看指定候选时使用有效绑定，失效后从该 Revision 显式重建；不调用模型、不新建 Revision、不 promote。构建失败仅显示源码和问题，构建通过且预览有效才展示带警示 iframe。
 - **检查与修复**：BrowserPort基于OpenSandbox/gVisor沙箱内agent-browser CLI；动作和后续观察由工具保存，报告校验 run、roleRun、attempt、revision、hash、sandbox 与 browser session。required 行为均通过才通过；基础设施受阻记 blocked，不进入盲目代码修复。attempt 为 0/1/2，总预算优先；末次失败保留问题和旧 current。用户 iframe 与检查浏览器是不同会话。
+- **预算校准**：2026-09-22 首次三角色集成后，每 Run 统一 Token 上限为 200,000，Reviewer 每 attempt 上限为 300 秒，仍受 Run 10 分钟、单请求 90 秒和 80 次工具调用限制。所有角色、纠正与修复共用账本，请求前预留，缺报、错误或中止不释放未知用量；校准依据见 TRD §12.4，不代替真实 E2E 验收。
 - **停止与恢复**：停止同时传播到 Pi、远端命令与浏览器；确认结束前为 cancel_requested/cleanup pending，阻止新生成。停止与最终提交通过同一锁确定先后，迟到结果不得推进。进程重启将遗留 Run 标 interrupted；用户重试，不自动重放 shell。
 - **API 概要**：统一鉴权 `/api/v1`，提供项目创建/读取、提交 Run、任务状态/取消/SSE、Revision 文件/Check/附件查询、预览状态与显式恢复。SSE 支持 cursor 重放和去重；断线不取消任务，状态查询兜底。所有资源逐项 owner 校验，文件读取限定在快照 manifest。
 - **界面接入**：以服务端真实状态替换 Mock adapter，正式模式不能自动退回假数据。默认结果卡只显示改动摘要、检查结论、问题与动作，细节可展开。会话、源码、版本和预览必须一致；生成应用 localStorage 不承诺跨来源迁移，预览不承诺永久托管。

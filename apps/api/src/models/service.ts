@@ -8,6 +8,7 @@ import type { PivloomDatabase } from "../data/database.js";
 import { ApiFailure } from "../routes/errors.js";
 import type { CredentialVault } from "./credentials.js";
 import { createModelFetch, validateModelEndpoint } from "./transport.js";
+import { MODEL_REQUEST_TIMEOUT_MS } from "../runtime/budgets.js";
 import { testModelConnection } from "./probe.js";
 
 interface Row {
@@ -237,7 +238,10 @@ export function createModelProfileService(database: PivloomDatabase, vault: Cred
         return {
           profile: publicProfile(frozen),
           apiKey: await credential(client, ownerId, frozen.id, frozen.current_version),
-          fetch: createModelFetch(frozen.base_url),
+          // The transport deadline must match the run's per-request budget; a
+          // shorter transport default would abort requests the role budget
+          // still allows and mislabel them as provider timeouts.
+          fetch: createModelFetch(frozen.base_url, { timeoutMs: MODEL_REQUEST_TIMEOUT_MS }),
         };
       });
     },

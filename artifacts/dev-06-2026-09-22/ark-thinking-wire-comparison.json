@@ -1,0 +1,101 @@
+{
+  "probe": "ark-thinking-strict-wire-comparison",
+  "mode": "real-provider",
+  "startedAt": "2026-09-22T12:15:55.463Z",
+  "limits": {
+    "requests": 2,
+    "timeoutMs": 25000,
+    "maxTokens": 512,
+    "maxRetries": 0
+  },
+  "requests": [
+    {
+      "kind": "baseline",
+      "startedAt": "2026-09-22T12:15:55.710Z",
+      "status": 200,
+      "httpRequests": 1,
+      "thinkingCharacters": 154,
+      "textCharacters": 0,
+      "toolArgumentCharacters": 22,
+      "usage": {
+        "input": 193,
+        "output": 45,
+        "total": 238,
+        "cached": 0
+      },
+      "wire": {
+        "sha256": "fd87f0c95b4c06acbda7e0b8b75f0894a87245f468c65ef6230722f3cf2e056f",
+        "thinking": null,
+        "instructionRole": "system",
+        "maxOutput": 512,
+        "storePresent": false
+      },
+      "headersAfterMs": 7684,
+      "stopReason": "toolUse",
+      "toolCallCount": 1,
+      "expectedToolCall": true,
+      "finalThinkingCharacters": 154,
+      "elapsedMs": 8278
+    },
+    {
+      "kind": "thinking-disabled",
+      "startedAt": "2026-09-22T12:16:03.988Z",
+      "status": 400,
+      "httpRequests": 1,
+      "thinkingCharacters": 0,
+      "textCharacters": 0,
+      "toolArgumentCharacters": 0,
+      "usage": null,
+      "wire": {
+        "sha256": "c6cc29b708d41a62de8e8cb87ab71b38220bc103c1899c1c3590b14c2a805f47",
+        "thinking": "disabled",
+        "instructionRole": "system",
+        "maxOutput": 512,
+        "storePresent": false
+      },
+      "headersAfterMs": 1262,
+      "error": {
+        "code": "InvalidParameter",
+        "param": null,
+        "reason": "thinking.type `disabled` is not supported by this model"
+      },
+      "stopReason": "error",
+      "toolCallCount": 0,
+      "expectedToolCall": false,
+      "finalThinkingCharacters": 0,
+      "elapsedMs": 1266
+    }
+  ],
+  "cleanup": {
+    "leaseReleased": true,
+    "runtimeCredentialRemoved": true,
+    "activeExactLeaseCount": 0
+  },
+  "leaseId": "15150dc7-ed12-4713-b386-b9bcbc84c739",
+  "wireDifference": [
+    "thinking"
+  ],
+  "totalHttpRequests": 2,
+  "finishedAt": "2026-09-22T12:16:05.261Z",
+  "conclusion": {
+    "wireComparison": "Actual Pi outbound JSON was asserted identical after removal of the thinking field. Both requests used system role, omitted store, max output 512, and zero retries.",
+    "baseline": "Accepted; one expected harmless tool call and 154 thinking characters.",
+    "thinkingDisabled": "Rejected by the provider with HTTP 400 / InvalidParameter and an explicit unsupported-model reason.",
+    "implication": "Do not enable this thinking-disabled compatibility setting for the tested Ark Coding v3 glm-5.3-flash profile.",
+    "limitation": "This bounded comparison does not establish the cause of prior Coordinator 90-second timeouts or predict large-context generation duration."
+  },
+  "scope": {
+    "endpoint": "https://ark.cn-beijing.volces.com/api/coding/v3",
+    "model": "glm-5.3-flash",
+    "profileId": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+    "profileVersion": 1,
+    "providerApi": "openai-completions",
+    "piVersion": "0.86.1",
+    "productionChanges": false,
+    "profileChanges": false,
+    "runCreated": false,
+    "sandboxCreated": false,
+    "thinkingContentStored": false,
+    "credentialsStored": false
+  }
+}

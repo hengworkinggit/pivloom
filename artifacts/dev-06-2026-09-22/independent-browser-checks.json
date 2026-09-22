@@ -1,0 +1,161 @@
+{
+  "baseline": "964abd5",
+  "worktree": true,
+  "driver": "Codex IAB/CUA, browser 2; per-record tabs",
+  "records": [
+    {
+      "at": "2026-09-22T10:09:14.585407+00:00",
+      "projectId": "3c866a6a-26e9-4af4-89d4-d84127b7d430",
+      "runId": "b3418824-1d24-4540-8f15-f0bb1cc967c5",
+      "revisionId": "204020d5-2f48-4f2e-b3a0-d6467bc9badf",
+      "moduleStatus": "FAIL",
+      "steps": [
+        {
+          "action": "Create project and send unmodified E2E requirement A through UI",
+          "observed": "Coordinator, Builder, Reviewer appear independently; live candidate rendered",
+          "status": "PASS"
+        },
+        {
+          "action": "Click Submit Registration with empty name and email in independent user iframe",
+          "observed": "请输入姓名 and 请输入邮箱 alerts; list remains empty",
+          "status": "PASS"
+        },
+        {
+          "action": "Continue invalid-email and valid-registration checks",
+          "observed": "Task ends TOKEN_BUDGET_EXCEEDED, preview revoked and sandbox destroyed; UI explains model budget failure, current remains null",
+          "status": "NOT_RUN"
+        }
+      ],
+      "note": "Partial UI observations do not constitute E04/E05/E21 success."
+    },
+    {
+      "at": "2026-09-22T10:18:52.869846+00:00",
+      "projectId": "3c866a6a-26e9-4af4-89d4-d84127b7d430",
+      "runId": "c5800e8d-5313-4c98-8c8e-7106c071ea02",
+      "revisionId": "8428d0a9-17eb-42cb-b1ae-752848478569",
+      "moduleStatus": "FAIL",
+      "steps": [
+        {
+          "action": "Independent iframe: empty submit and not-an-email submit",
+          "observed": "Required-name/email and invalid-email Chinese errors; no new rows",
+          "status": "PASS"
+        },
+        {
+          "action": "Add 林舟/design, 田禾/development, 宋宁/design; confirm 田禾; search 林; refresh preview",
+          "observed": "Three unique records; only 田禾 confirmed; search 林 returns only 林舟; refresh preserves all three rows and status",
+          "status": "PASS"
+        },
+        {
+          "action": "Attempt 390px responsive check",
+          "observed": "Viewport API did not resize target tab (actual DOM width1006); task later failed and revoked preview before frame measurement",
+          "status": "NOT_RUN"
+        },
+        {
+          "action": "Observe product Reviewer completion",
+          "observed": "19 tool calls and17 model calls, then TOKEN_BUDGET_EXCEEDED. No Check or promotion",
+          "status": "FAIL"
+        }
+      ],
+      "note": "Cua fill(\"\") left search text unchanged; keyboard select-all/backspace cleared it. No duplicate submission replay."
+    },
+    {
+      "at": "2026-09-22T10:45:48.485843+00:00",
+      "tab": 31,
+      "projectId": "87659d66-3557-4d35-b15f-48f54d0862ce",
+      "runId": "e2d72481-79ba-4660-a1d4-0df43aab2dac",
+      "revisionId": "13732808-7bb9-4825-b40e-555b473579ce",
+      "moduleStatus": "FAIL",
+      "steps": [
+        {
+          "action": "Open first B preview",
+          "observed": "Two books from an older project appear before input. UI source App.tsx uses reading-list.books.v1; loadBooks missing value defaults to empty. Shared preview origin leaks browser data between revisions.",
+          "status": "FAIL"
+        },
+        {
+          "action": "View index.html and src/App.tsx using code UI",
+          "observed": "Actual saved source displayed; seven-file candidate.",
+          "status": "PASS"
+        },
+        {
+          "action": "390px workspace viewport",
+          "observed": "innerWidth=390, documentElement.scrollWidth=390.",
+          "status": "PASS"
+        },
+        {
+          "action": "Observe reviewer terminal outcome",
+          "observed": "TOKEN_BUDGET_EXCEEDED; no Check/current, not accepted.",
+          "status": "FAIL"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-22T10:45:48.485937+00:00",
+      "tab": 33,
+      "scope": "Synthetic origin-isolation fixture, not product E2E",
+      "steps": [
+        {
+          "action": "Open two sibling *.localhost iframes; write same storage key through each visible button; reload outer page",
+          "observed": "Both authenticated with HttpOnly SameSite=None Secure host-only cookie. A write leaves B empty; after both writes and refresh each displays its own hostname.",
+          "status": "PASS"
+        }
+      ]
+    },
+    {
+      "at": "2026-09-22T11:16:09.638170+00:00",
+      "tab": 31,
+      "projectId": "87659d66-3557-4d35-b15f-48f54d0862ce",
+      "runId": "89a94525-b34f-487e-bd02-a73cc04ad111",
+      "revisionId": "78e52067-b882-430a-be2b-da2857f70cf3",
+      "sourceHash": "28c056c8ec59422dcd24e1686043d5fbdbef7dee0fbcd030104303e885cd7afb",
+      "moduleStatus": "FAIL",
+      "steps": [
+        {
+          "action": "Open isolated revision subdomain iframe",
+          "observed": "Initial book count0; no old data appears; scripts/assets load under CSP and host-only cookie",
+          "status": "PASS"
+        },
+        {
+          "action": "Empty submit, add 海边的地图/作者甲 and 晨间笔记/作者乙, mark first read, filter read/unread/all, refresh preview",
+          "observed": "Required error; each added once; total2/read1; filters show correct book; reload preserves both and state",
+          "status": "PASS"
+        },
+        {
+          "action": "390px workspace and source UI",
+          "observed": "Workspace width/scrollWidth390; iframe width/scrollWidth370; index.html and src/App.tsx display actual saved seven-file source",
+          "status": "PASS"
+        },
+        {
+          "action": "Reviewer completion and expandable details",
+          "observed": "Review5-minute timeout; all5items blocked, currentnull; no screenshots or passed Check",
+          "status": "FAIL"
+        }
+      ],
+      "screenshot": "Conversation IAB screenshot of 390px book preview with2records/read1; no filesystem path claimed."
+    },
+    {
+      "at": "2026-09-22T11:50:51.819995+00:00",
+      "projectId": "3c866a6a-26e9-4af4-89d4-d84127b7d430",
+      "runId": "c3950836-b862-4060-84dc-114af0836ba4",
+      "revisionId": "897dc019-44b7-4a2c-b732-86c022aec159",
+      "source": "Codex IAB tabs34/36 direct UI",
+      "status": "PARTIAL",
+      "businessChecks": {
+        "initialEmpty": "PASS",
+        "emptySubmit": "PASS: 请填写姓名/邮箱, zero added",
+        "invalidEmail": "PASS: not-an-email rejected",
+        "threeAdds": "PASS: 林舟/田禾/宋宁, unique rows, 设计/开发",
+        "confirm": "PASS: 田禾 已确认",
+        "nameSearch": "PASS: 林 only 林舟",
+        "emailSearch": "PASS: tianhe@ only 田禾 已确认",
+        "clearSearch": "PASS: all3 restored",
+        "sameOriginRefresh": "PASS: all3 and confirmed state persisted",
+        "readActualSource": "PASS: index.html + src/App.tsx, browser localStorage and custom required/email regex visible",
+        "desktop": "PASS: innerWidth1280 scrollWidth1280",
+        "mobile": "PASS: innerWidth390 scrollWidth390; iframe370 scrollWidth370; result navigation accessible",
+        "blockedDetails": "PASS:5items expandable; no fabricated screenshots"
+      },
+      "screenshots": "Conversation IAB screenshot call about19:49, tab36. No local screenshot file claimed.",
+      "productCheck": "BLOCKED: browser_form started then CHECK_BLOCKED; no current promotion; not a completed #7 E2E."
+    }
+  ]
+}

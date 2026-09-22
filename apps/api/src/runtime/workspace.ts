@@ -43,6 +43,10 @@ export interface SandboxConnection {
 }
 export interface SandboxConnector {
   create(config: SandboxConfig, runId: string): Promise<SandboxConnection>;
+  connect?(
+    config: SandboxConfig,
+    sandboxId: string,
+  ): Promise<SandboxConnection>;
 }
 export function sandboxConnectionConfig(
   config: SandboxConfig,
@@ -79,91 +83,107 @@ const realConnector: SandboxConnector = {
       env: {},
       metadata: { app: "pivloom", run_id: runId },
     });
-    return {
-      sandboxId: sandbox.id,
-      kill: () => sandbox.kill(),
-      close: () => sandbox.close(),
-      async isRunning() {
-        try {
-          await sandbox.getInfo();
-          return true;
-        } catch (e) {
-          if (e instanceof SandboxApiException && e.statusCode === 404)
-            return false;
-          throw e;
-        }
-      },
-      renew: async (seconds) => {
-        await sandbox.renew(seconds);
-      },
-      async endpoint(port) {
-        const ep = await sandbox.getEndpoint(port);
-        return {
-          url: `${new URL(config.baseUrl).protocol}//${ep.endpoint}`,
-          headers: { ...ep.headers, "OPEN-SANDBOX-API-KEY": config.apiKey },
-        };
-      },
-      async run(command, options) {
-        const start = await sandbox.commands.run(command, {
-          background: true,
-          workingDirectory: options.cwd,
-          timeoutSeconds: Math.ceil(options.timeoutMs / 1000),
-          uid: options.uid,
-          gid: options.uid,
-          envs: {},
-        });
-        if (!start.id || start.error)
-          throw new RuntimeError("COMMAND_START_FAILED", "远程命令未启动");
-        const id = start.id;
-        return {
-          id,
-          interrupt: () => sandbox.commands.interrupt(id),
-          async wait() {
-            const deadline = Date.now() + options.timeoutMs + 5000;
-            let cursor: number | undefined;
-            let output = "";
-            for (;;) {
-              const logs = await sandbox.commands.getBackgroundCommandLogs(
+    return adaptSandbox(sandbox, config);
+  },
+  async connect(config, sandboxId) {
+    const sandbox = await Sandbox.connect({
+      connectionConfig: sandboxConnectionConfig(config),
+      sandboxId,
+      readyTimeoutSeconds: 30,
+    });
+    return adaptSandbox(sandbox, config);
+  },
+};
+function adaptSandbox(
+  sandbox: Sandbox,
+  config: SandboxConfig,
+): SandboxConnection {
+  return {
+    sandboxId: sandbox.id,
+    kill: () => sandbox.kill(),
+    close: () => sandbox.close(),
+    async isRunning() {
+      try {
+        await sandbox.getInfo();
+        return true;
+      } catch (e) {
+        if (e instanceof SandboxApiException && e.statusCode === 404)
+          return false;
+        throw e;
+      }
+    },
+    renew: async (seconds) => {
+      await sandbox.renew(seconds);
+    },
+    async endpoint(port) {
+      const ep = await sandbox.getEndpoint(port);
+      return {
+        url: `${new URL(config.baseUrl).protocol}//${ep.endpoint}`,
+        headers: { ...ep.headers, "OPEN-SANDBOX-API-KEY": config.apiKey },
+      };
+    },
+    async run(command, options) {
+      const start = await sandbox.commands.run(command, {
+        background: true,
+        workingDirectory: options.cwd,
+        timeoutSeconds: Math.ceil(options.timeoutMs / 1000),
+        uid: options.uid,
+        gid: options.uid,
+        envs: {},
+      });
+      if (!start.id || start.error)
+        throw new RuntimeError("COMMAND_START_FAILED", "远程命令未启动");
+      const id = start.id;
+      return {
+        id,
+        interrupt: () => sandbox.commands.interrupt(id),
+        async wait() {
+          const deadline = Date.now() + options.timeoutMs + 5000;
+          let cursor: number | undefined;
+          let output = "";
+          for (;;) {
+            const logs = await sandbox.commands.getBackgroundCommandLogs(
+              id,
+              cursor,
+            );
+            cursor = logs.cursor;
+            if (logs.content) {
+              output = (output + logs.content).slice(-2_000_000);
+              options.onOutput?.(logs.content);
+            }
+            const status = await sandbox.commands.getCommandStatus(id);
+            if (!status.running) {
+              // The process may print after our first log read but before the
+              // status request reports completion. Drain once after exit.
+              const finalLogs = await sandbox.commands.getBackgroundCommandLogs(
                 id,
                 cursor,
               );
-              cursor = logs.cursor;
-              if (logs.content) {
-                output = (output + logs.content).slice(-2_000_000);
-                options.onOutput?.(logs.content);
+              if (finalLogs.content) {
+                output = (output + finalLogs.content).slice(-2_000_000);
+                options.onOutput?.(finalLogs.content);
               }
-              const status = await sandbox.commands.getCommandStatus(id);
-              if (!status.running) {
-                // The process may print after our first log read but before the
-                // status request reports completion. Drain once after exit.
-                const finalLogs =
-                  await sandbox.commands.getBackgroundCommandLogs(id, cursor);
-                if (finalLogs.content) {
-                  output = (output + finalLogs.content).slice(-2_000_000);
-                  options.onOutput?.(finalLogs.content);
-                }
-                return {
-                  exitCode: status.exitCode ?? 1,
-                  stdoutTail: output,
-                  stderrTail: status.error ?? "",
-                };
-              }
-              if (Date.now() > deadline)
-                throw new RuntimeError(
-                  "COMMAND_TIMEOUT",
-                  "远程命令超时，必须清理候选沙箱",
-                );
-              await new Promise((resolve) => setTimeout(resolve, 180));
+              return {
+                exitCode: status.exitCode ?? 1,
+                stdoutTail: output,
+                stderrTail: status.error ?? "",
+              };
             }
-          },
-        };
-      },
-      read: (path) => sandbox.files.readBytes(path),
-      write: (path, data) =>
-        sandbox.files.writeFiles([{ path, data, mode: 600 }]),
-    };
-  },
-};
+            if (Date.now() > deadline)
+              throw new RuntimeError(
+                "COMMAND_TIMEOUT",
+                "远程命令超时，必须清理候选沙箱",
+              );
+            await new Promise((resolve) => setTimeout(resolve, 180));
+          }
+        },
+      };
+    },
+    read: (path) => sandbox.files.readBytes(path),
+    write: (path, data) =>
+      sandbox.files.writeFiles([{ path, data, mode: 600 }]),
+  };
+}
 interface Resource {
   connection: SandboxConnection;
   handle: WorkspaceHandle;
@@ -212,6 +232,35 @@ export class OpenSandboxWorkspace implements WorkspacePort {
       sandboxId,
       state: r.state,
     }));
+  }
+  async connect(handle: WorkspaceHandle): Promise<void> {
+    if (this.registered.has(handle.sandboxId))
+      throw new RuntimeError("SANDBOX_ALREADY_REGISTERED", "沙箱已经登记");
+    if (!this.connector.connect)
+      throw new RuntimeError(
+        "SANDBOX_CONNECT_UNAVAILABLE",
+        "沙箱连接能力不可用",
+      );
+    const connection = await this.connector.connect(
+      this.config,
+      handle.sandboxId,
+    );
+    if (
+      connection.sandboxId !== handle.sandboxId ||
+      this.registered.has(handle.sandboxId)
+    ) {
+      await connection.close();
+      throw new RuntimeError(
+        "SANDBOX_CONNECT_REJECTED",
+        "沙箱连接与登记不一致",
+      );
+    }
+    this.registered.set(handle.sandboxId, {
+      connection,
+      handle: { ...handle },
+      state: "active",
+      writable: false,
+    });
   }
   async create(input: {
     runId: string;
@@ -267,6 +316,7 @@ export class OpenSandboxWorkspace implements WorkspacePort {
     files: Record<string, string>,
     helper: string,
   ): Promise<void> {
+    this.assertWritable(handle);
     const r = this.requireResource(handle);
     const setup = await this.executeService(
       handle,
@@ -285,11 +335,14 @@ export class OpenSandboxWorkspace implements WorkspacePort {
   async read(
     handle: WorkspaceHandle,
     relativePath: string,
+    options: { signal?: AbortSignal } = {},
   ): Promise<Uint8Array> {
-    const r = await this.io(handle, {
-      op: "read",
-      path: sourcePath(relativePath),
-    });
+    const r = await this.io(
+      handle,
+      { op: "read", path: sourcePath(relativePath) },
+      options,
+    );
+    options.signal?.throwIfAborted();
     if (typeof r.data !== "string")
       throw new RuntimeError("INVALID_FILE_RESPONSE", "源码响应格式错误");
     return Buffer.from(r.data, "base64");
@@ -309,15 +362,20 @@ export class OpenSandboxWorkspace implements WorkspacePort {
       data: Buffer.from(data).toString("base64"),
     });
   }
-  async listSourceFiles(handle: WorkspaceHandle): Promise<SourceFile[]> {
-    const r = await this.io(handle, { op: "list" });
+  async listSourceFiles(
+    handle: WorkspaceHandle,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<SourceFile[]> {
+    const r = await this.io(handle, { op: "list" }, options);
+    options.signal?.throwIfAborted();
     if (!Array.isArray(r.files))
       throw new RuntimeError("INVALID_FILE_RESPONSE", "源码列表格式错误");
     const files: SourceFile[] = [];
     for (const path of r.files) {
       if (typeof path !== "string")
         throw new RuntimeError("INVALID_FILE_RESPONSE", "源码路径格式错误");
-      const content = await this.read(handle, path);
+      const content = await this.read(handle, path, options);
+      options.signal?.throwIfAborted();
       files.push({
         path,
         content,
@@ -471,17 +529,21 @@ export class OpenSandboxWorkspace implements WorkspacePort {
   private async io(
     handle: WorkspaceHandle,
     request: Record<string, unknown>,
+    options: { signal?: AbortSignal } = {},
   ): Promise<Record<string, unknown>> {
+    options.signal?.throwIfAborted();
     const staging = `/tmp/pivloom-io/${randomUUID()}.json`;
     await this.requireResource(handle).connection.write(
       staging,
       Buffer.from(JSON.stringify(request)),
     );
+    options.signal?.throwIfAborted();
     const r = await this.executeService(
       handle,
       `node /opt/pivloom/source-io.mjs ${shellQuote(staging)}`,
       { uid: 0 },
     );
+    options.signal?.throwIfAborted();
     if (r.exitCode !== 0)
       throw new RuntimeError(
         "SOURCE_OPERATION_FAILED",

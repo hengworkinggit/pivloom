@@ -1,13 +1,13 @@
 "use client";
 
 import { LoaderCircle, TriangleAlert } from "lucide-react";
-import { TerminalRunStates, type RoleRun, type Run, type RunEvent, type RunPhase } from "@pivloom/contracts";
+import { TerminalRunStates, type Check, type RoleRun, type Run, type RunEvent, type RunPhase } from "@pivloom/contracts";
 import { LoomMark } from "./brand";
 import { GenerationPlan } from "./generation-plan";
 
 const phaseLabels: Record<RunPhase, string> = {
   plan: "正在整理需求", provision: "正在准备构建环境", implement: "正在编写应用",
-  build: "正在检查与构建", snapshot: "正在保存源码快照", review: "正在处理检查结果",
+  build: "正在检查与构建", snapshot: "正在保存源码快照", review: "正在检查关键流程",
   persist: "正在保存结果", cleanup: "正在清理执行资源",
 };
 const eventLabels: Partial<Record<RunEvent["type"], string>> = {
@@ -49,14 +49,14 @@ export function GenerationActivity({ run, events, roles = [] }: { run: Run; even
   </article>;
 }
 
-export function GenerationOutcome({ run, candidateSaved }: { run: Run; candidateSaved: boolean }) {
+export function GenerationOutcome({ run, candidateSaved, check }: { run: Run; candidateSaved: boolean; check?: Check | null }) {
   if (!TerminalRunStates.has(run.state)) return null;
-  const unchecked = run.error?.code === "CHECK_BLOCKED";
-  const heading = unchecked && candidateSaved ? "候选已保存 · 尚未检查"
+  const unchecked = run.error?.code === "CHECK_BLOCKED" && !check;
+  const heading = check ? { passed: "关键流程检查通过", failed: "关键流程检查未通过", blocked: "关键流程检查受阻" }[check.verdict] : unchecked && candidateSaved ? "候选已保存 · 尚未检查"
     : unchecked ? "检查尚未完成" : run.state === "completed" ? "版本已保存"
       : run.state === "needs_input" ? "还需要一点信息" : run.state === "cancelled" ? "任务已停止" : "这次生成未完成";
   return <div className="run-notice generation-outcome" role="status" data-testid="run-result">
-    <TriangleAlert size={16} /><div><strong>{heading}</strong><p id={run.state === "needs_input" && run.clarification ? "clarification-question" : undefined}>{run.state === "needs_input" && run.clarification ? run.clarification.question : run.error?.message ?? run.summary ?? "可以查看已保存的任务记录。"}</p>
+    <TriangleAlert size={16} /><div><strong>{heading}</strong><p id={run.state === "needs_input" && run.clarification ? "clarification-question" : undefined}>{run.state === "needs_input" && run.clarification ? run.clarification.question : check?.summary ?? run.error?.message ?? run.summary ?? "可以查看已保存的任务记录。"}</p>
       {run.state === "needs_input" && run.clarification && <p>本次任务已结束。填写回答后会接着原需求继续。</p>}
       {unchecked && candidateSaved && <p>构建与源码保存已完成，行为检查尚未完成。此候选尚未成为当前版本。</p>}
       <details><summary>任务详情</summary><p className="generation-identifier">{run.id}</p>{run.error && <p>{run.error.code}</p>}</details>

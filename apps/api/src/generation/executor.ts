@@ -3,9 +3,12 @@ import type { RoleUsage, RunPhase } from "@pivloom/contracts";
 import type { GenerationRepository, StoredRun } from "../data/generation.js";
 import type { ModelProfileService } from "../models/service.js";
 import type { SourceStore } from "../storage/source.js";
+import type { ArtifactStore } from "../storage/artifacts.js";
+import { runReview } from "./review.js";
 import { RuntimeError, type ProbeEvent, type SandboxConfig, type TrustedBuildRecord } from "../runtime/types.js";
 import { runCoordinator } from "../runtime/coordinator.js";
 import { createRunTokenBudget, type TokenUsage } from "../runtime/token-budget.js";
+import { RUN_DEADLINE_MINUTES } from "../runtime/budgets.js";
 import { ApiFailure } from "../routes/errors.js";
 import { destroyCandidateSandbox, runCandidate, type CandidateSnapshot } from "./candidate.js";
 import type { PreviewGateway } from "./preview.js";
@@ -25,10 +28,10 @@ function storedUsage(usage: TokenUsage): RoleUsage {
 
 /** Single-process dispatcher. Only persisted, newly accepted runs enter here. */
 export function createGenerationExecutor(options: {
-  repository: GenerationRepository; models: ModelProfileService; sources: SourceStore;
+  repository: GenerationRepository; models: ModelProfileService; sources: SourceStore; artifacts: ArtifactStore;
   previews: PreviewGateway; sandbox: SandboxConfig; maxSandboxes: number;
 }) {
-  const { repository, models, sources, previews, sandbox } = options;
+  const { repository, models, sources, artifacts, previews, sandbox } = options;
   const tasks = new Map<string, Task>();
   const resources = new Map<string, Resource>();
   let closing = false;
@@ -160,29 +163,46 @@ export function createGenerationExecutor(options: {
         return;
       }
       await repository.completeBuilder(run.ownerId, run.id, { summary: "源码已生成并通过可信构建。", usage: activeUsage });
-      await save(result.snapshot, "passed", result.trustedBuild);
+      const candidateRevision = await save(result.snapshot, "passed", result.trustedBuild);
       task.controller.signal.throwIfAborted();
       await repository.bindPreview(run.ownerId, run.id, {
         ...result.preview, markerVerified: true, writeRevoked: true, chromeClosed: true,
       });
       previews.register({ ...result.preview, ownerId: run.ownerId, projectId: run.projectId });
-      await repository.finishFailed(run.ownerId, run.id, {
-        code: "CHECK_BLOCKED", message: "候选已保存并可预览，业务检查尚未接入。", retryable: false,
-        summary: "已生成应用并通过构建。当前为尚未检查的候选，可查看预览和源码。",
-        resultRevisionId, cleanupState: "clear",
+      await repository.queueReviewer(run.ownerId, run.id, { revisionId: candidateRevision.id });
+      const reviewer = await repository.startReviewer(run.ownerId, run.id);
+      activeRoleId = reviewer.role.id;
+      activeUsage = undefined;
+      phase = "review";
+      const checked = await runReview({
+        binding: reviewer.scope, sessionId: reviewer.role.sessionId, handoff: reviewer.handoff,
+        expiresAt: result.preview.expiresAt,
+        source: await sources.verify(candidateRevision.source), sources, artifacts,
+        sandboxConfig: sandbox, modelConfig, tokenBudget, signal: task.controller.signal,
+        maxToolCalls: 80 - planning.toolCalls.length - result.toolCalls.length,
+        onEvent: recordEvent(reviewer.role.id),
+        assertActive: () => repository.assertRoleActive(run.ownerId, run.id, {
+          roleRunId: reviewer.role.id, attempt: reviewer.role.attempt, role: "reviewer",
+        }),
       });
+      activeUsage = checked.usage ? storedUsage(checked.usage) : undefined;
+      await repository.finishReview(run.ownerId, run.id, { receipt: checked.receipt, usage: activeUsage });
       retained = true;
     } catch (error) {
       if (error instanceof RuntimeError && error.usage) activeUsage = storedUsage(error.usage);
       let confirmed = true;
       if (resource && resources.has(resource.sandboxId)) confirmed = await destroy(resource).catch(() => false);
       const failure = task.controller.signal.aborted
-        ? new ApiFailure(503, task.controller.signal.reason === "RUN_TIMEOUT" ? "RUN_TIMEOUT" : "SERVICE_RESTARTED", task.controller.signal.reason === "RUN_TIMEOUT" ? "生成超过 10 分钟，已停止。" : "服务停止了本次执行，已保存的内容保留。", true)
+        ? new ApiFailure(503, task.controller.signal.reason === "RUN_TIMEOUT" ? "RUN_TIMEOUT" : "SERVICE_RESTARTED", task.controller.signal.reason === "RUN_TIMEOUT" ? `生成超过 ${RUN_DEADLINE_MINUTES} 分钟，已停止。` : "服务停止了本次执行，已保存的内容保留。", true)
         : error instanceof ApiFailure ? error
           : error instanceof RuntimeError && error.code === "AGENT_OUTPUT_INVALID"
-            ? new ApiFailure(503, "AGENT_OUTPUT_INVALID", "需求整理结果未通过校验，请补充说明后重试。", true)
+            ? new ApiFailure(503, "AGENT_OUTPUT_INVALID", phase === "review" ? "检查结果未通过格式或证据校验，请稍后重试。" : "需求整理结果未通过校验，请补充说明后重试。", true)
             : error instanceof RuntimeError && error.code === "TOKEN_BUDGET_EXCEEDED"
               ? new ApiFailure(503, "TOKEN_BUDGET_EXCEEDED", "本次任务的模型用量预算已耗尽，请缩小需求后重试。", true)
+            : error instanceof RuntimeError && ["TOOL_BUDGET_EXCEEDED", "MODEL_FAILED", "MODEL_REQUEST_TIMEOUT", "ROLE_NOT_ACTIVE"].includes(error.code)
+                ? new ApiFailure(503, error.code, error.message, true)
+            : error instanceof RuntimeError && phase === "review"
+                ? new ApiFailure(503, "CHECK_BLOCKED", "检查过程或浏览器关闭尚未完成，候选未被接受。", true)
             : new ApiFailure(503, "GENERATION_FAILED", "生成或保存未完成，请稍后重试。", true);
       await repository.finishFailed(run.ownerId, run.id, {
         code: failure.code, message: failure.message, retryable: failure.retryable,

@@ -1,0 +1,12 @@
+{
+  "at": "2026-09-22T11:46:54.544Z",
+  "scope": "Independent synthetic Chrome diagnostic; not product Reviewer evidence or E2E",
+  "runId": "c3950836-b862-4060-84dc-114af0836ba4",
+  "sandboxId": "bb2fb575-6a0f-413e-9bd2-038917ab999f",
+  "sessionId": "pivloom-9782301c-1b79-4762-96d1-3eb58521ae0c",
+  "steps": [],
+  "closed": true,
+  "outcome": "failed",
+  "error": "BROWSER_TIMEOUT",
+  "note": "Initial diagnostic from local host through SSH transport failed during browser.open at the unchanged 15s operation deadline. No form action ran. The later remote diagnostic uses a separate Chrome session."
+}

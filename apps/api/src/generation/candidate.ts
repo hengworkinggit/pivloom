@@ -10,6 +10,7 @@ import {
 } from "../runtime/generation.js";
 import { runBuilder, type BuilderResult } from "../runtime/pi.js";
 import type { RunTokenBudget } from "../runtime/token-budget.js";
+import { RUN_DEADLINE_MINUTES, RUN_DEADLINE_MS } from "../runtime/budgets.js";
 import { createSourceSnapshot } from "../runtime/snapshot.js";
 import {
   OpenSandboxWorkspace,
@@ -109,7 +110,7 @@ export async function runCandidate(
   const started = Date.now();
   const deadline = new AbortController();
   const eventAbort = new AbortController();
-  const timer = setTimeout(() => deadline.abort(), 600_000);
+  const timer = setTimeout(() => deadline.abort(), RUN_DEADLINE_MS);
   const signal = AbortSignal.any([
     input.signal,
     deadline.signal,
@@ -271,7 +272,7 @@ export async function runCandidate(
       prompt: builderPrompt,
       signal,
       onEvent: sink,
-      timeoutMs: Math.max(1, 600_000 - (Date.now() - started)),
+      timeoutMs: Math.max(1, RUN_DEADLINE_MS - (Date.now() - started)),
       maxToolCalls: input.maxToolCalls ?? 80,
       tokenBudget: input.tokenBudget,
       sessionId: input.sessionId,
@@ -343,7 +344,7 @@ export async function runCandidate(
     if (error instanceof RuntimeError && error.usage) usage = { ...error.usage };
     const timedOut = deadline.signal.aborted || input.signal.aborted && input.signal.reason === "RUN_TIMEOUT";
     const runtimeError = timedOut
-      ? new RuntimeError("RUN_TIMEOUT", "本次生成超过 10 分钟，已停止")
+      ? new RuntimeError("RUN_TIMEOUT", `本次生成超过 ${RUN_DEADLINE_MINUTES} 分钟，已停止`)
       : eventFailure
       ? eventError()
       : input.signal.aborted

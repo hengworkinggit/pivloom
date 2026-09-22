@@ -133,7 +133,7 @@ export function useGenerationState(projectId: string) {
           setConnection("connected");
           setView((previous) => previous && previous.run?.id === event.runId
             ? { ...previous, events: mergeRunEvents(previous.events, [event], event.runId) } : previous);
-          if (["run.phase", "role.started", "role.completed", "revision.saved", "preview.ready", "run.finished"].includes(event.type)) void refresh();
+          if (["run.phase", "role.started", "role.completed", "revision.saved", "preview.ready", "check.completed", "run.finished"].includes(event.type)) void refresh();
         }, controller.signal);
       } catch (reason) {
         if (controller.signal.aborted) return;

@@ -16,6 +16,26 @@ function fixtureStore() {
 }
 const scope = () => ({ ownerId: randomUUID(), projectId: randomUUID(), revisionId: randomUUID() });
 
+test.each([
+  { name: "unsupported extension", path: "private-fixture-name.tsbuildinfo", content: "private-fixture-content", reason: "FILE_EXTENSION" },
+  { name: "content control character", path: "private-fixture-name.tsx", content: "private-fixture-content\u001b", reason: "CONTROL_CHARACTER" },
+  { name: "invalid UTF-8", path: "private-fixture-name.tsx", content: Uint8Array.from([255, 254]), reason: "UTF8" },
+])("source rejection identifies $name without disclosing source or making storage requests", async ({ path, content, reason }) => {
+  let calls = 0;
+  const store = createSourceStore({ url: "https://fixture.invalid", secret: "unused", objects: {
+    upload: async () => { calls++; }, download: async () => { calls++; return new Uint8Array(); }, list: async () => [],
+  } });
+  let failure: unknown;
+  try { await store.save(scope(), "fixture-template", [{ path, content }]); } catch (error) { failure = error; }
+  const expected = reason === "FILE_EXTENSION"
+    ? `[FILE_EXTENSION:.tsbuildinfo]`      // static, bounded extension only
+    : `[${reason}]`;
+  expect(failure).toMatchObject({ code: "INVALID_SOURCE", message: expect.stringContaining(expected) });
+  expect(String(failure)).not.toContain("private-fixture-name");
+  expect(String(failure)).not.toContain("private-fixture-content");
+  expect(calls).toBe(0);
+});
+
 test("a UTF-8 source snapshot preserves the exact BOM and multibyte content through gzip roundtrip", async () => {
   const store = fixtureStore();
   const saved = await store.save(scope(), "fixture-template", [{ path: "README.md", content: Uint8Array.from([239, 187, 191, 228, 189, 160]) }]);
@@ -49,7 +69,7 @@ test.each([
   [{ path: "src/.env.local.ts", content: "key" }],
   [{ path: "src/file.ts", content: "linked", kind: "symlink" as const }],
   [{ path: "src/binary.ts", content: Uint8Array.from([255, 254, 0]) }],
-  [{ path: "image.png", content: "unsupported binary format" }],
+  [{ path: "payload.exe", content: "unsupported binary format" }],
   [{ path: "same.ts", content: "one" }, { path: "same.ts", content: "two" }],
   [{ path: "large.ts", content: "a".repeat(512 * 1024 + 1) }],
   Array.from({ length: 201 }, (_, index) => ({ path: `file${index}.ts`, content: "a" })),

@@ -17,6 +17,7 @@ import { Button } from "./ui/button";
 import { useGenerationState } from "./generation-state";
 import { GenerationActivity, GenerationOutcome } from "./generation-activity";
 import { GenerationResult } from "./generation-result";
+import { checkMatchesRevision } from "./generation-review";
 
 const rejectedSubmissions = new Set(["INVALID_INPUT", "PROJECT_BUSY", "CLEANUP_PENDING", "STALE_BASE", "IDEMPOTENCY_CONFLICT", "SERVICE_BUSY", "QUOTA_EXCEEDED", "NOT_FOUND", "UNAUTHENTICATED", "MODEL_PROFILE_NOT_FOUND", "MODEL_CONFIG_CHANGED", "MODEL_NOT_VERIFIED", "MODEL_CONFIGURATION_MISSING"]);
 
@@ -48,6 +49,8 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const lockedProfile = state.active && run ? modelQuery.data?.find((model) => model.id === run.modelProfileId && model.configVersion === run.modelConfigVersion) : null;
   const revisions = [project?.currentRevision, project?.latestCandidate].filter((revision) => !!revision);
   const revision = revisions.find((item) => item.id === selectedRevisionId) ?? project?.currentRevision ?? project?.latestCandidate ?? null;
+  const runRevision = revisions.find((item) => item.id === run?.resultRevisionId);
+  const runCheck = project?.latestCheck && runRevision && project.latestCheck.runId === run?.id && checkMatchesRevision(project.latestCheck, runRevision) ? project.latestCheck : null;
   const snapshotPreview = project?.preview;
   const revisionId = revision?.id;
   const hasSnapshotPreview = !!snapshotPreview && snapshotPreview.revisionId === revisionId && snapshotPreview.sourceHash === revision?.sourceHash;
@@ -105,7 +108,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
           <div ref={bottom} />
         </div>
         <div className="chat-bottom">
-          {run && <GenerationOutcome run={run} candidateSaved={project.latestCandidate?.runId === run.id && project.latestCandidate.id === run.resultRevisionId} />}
+          {run && <GenerationOutcome run={run} candidateSaved={project.latestCandidate?.runId === run.id && project.latestCandidate.id === run.resultRevisionId} check={runCheck} />}
           {state.active && <p className={cn("generation-connection", (state.connection === "polling" || state.connection === "unavailable") && "generation-connection-warning")} role="status">{state.connection === "awaiting_snapshot" ? "需求已接收，正在读取任务状态。" : state.connection === "unavailable" ? "任务不存在或无权访问，已停止重连。" : state.connection === "polling" ? "实时连接暂不可用，正在定时读取任务状态。" : state.connection === "connected" ? "已连接实时执行记录" : "正在连接实时执行记录…"}{state.connection === "unavailable" && <button className="generation-inline-retry" onClick={() => void state.refresh()}>重新读取任务</button>}</p>}
           {state.error && <p className="inline-error" role="alert">{state.error}<button className="generation-inline-retry" onClick={() => void state.refresh()}>重新读取</button></p>}
           {submitError && <p className="inline-error" role="alert">{submitError}</p>}
@@ -131,9 +134,9 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
       </section>
       <div className="generation-result-shell">
         {collapsed && <button className="generation-expand-chat icon-button" aria-label="展开对话" onClick={() => setCollapsed(false)}><PanelLeftOpen size={16} /></button>}
-        {revisions.length > 1 && <label className="generation-revision-picker">查看版本<select value={revision?.id ?? ""} onChange={(event) => setSelectedRevisionId(event.target.value)}>{revisions.map((item) => <option key={item.id} value={item.id}>v{item.revisionNo} · {item.status === "candidate" ? "候选，尚未检查" : "当前版本"}</option>)}</select></label>}
+        {revisions.length > 1 && <label className="generation-revision-picker">查看版本<select value={revision?.id ?? ""} onChange={(event) => setSelectedRevisionId(event.target.value)}>{revisions.map((item) => <option key={item.id} value={item.id}>v{item.revisionNo} · {item.status === "candidate" ? "候选" : item.status === "rejected" ? "未通过候选" : "当前版本"}</option>)}</select></label>}
         {previewQuery.error && <p className="inline-error" role="alert">{previewQuery.error}</p>}
-        <GenerationResult revision={revision} preview={hasSnapshotPreview ? snapshotPreview! : previewQuery.data ?? null} generation={state.generation} active={state.active} />
+        <GenerationResult revision={revision} preview={hasSnapshotPreview ? snapshotPreview! : previewQuery.data ?? null} generation={state.generation} active={state.active} latestCheck={project.latestCheck} checking={state.active && run?.phase === "review" && revision?.runId === run.id} />
       </div>
     </main>
   </div>;

@@ -33,48 +33,82 @@ export interface SourceStore {
 
 const verified = new WeakSet<object>();
 const sourceFailure = (code = "SNAPSHOT_SAVE_FAILED", message = "源码快照保存失败，请稍后重试。") => new ApiFailure(503, code, message, true);
-const invalidSource = () => new ApiFailure(422, "INVALID_SOURCE", "源码包含不支持、越界、敏感或超过限制的文件。");
+const rejectionMessages = {
+  PATH_FORMAT: "源码路径为空、过长或含不支持的字符及目录段",
+  PATH_FORBIDDEN: "源码路径属于敏感配置或排除目录",
+  FILE_EXTENSION: "源码文件扩展名不受支持",
+  SCOPE: "源码对象归属标识无效",
+  REFERENCE_HASH: "源码对象摘要标识无效",
+  REFERENCE_KEY: "源码对象路径与归属或摘要不匹配",
+  TEMPLATE_VERSION: "模板版本为空或过长",
+  FILE_COUNT: "源码文件数量不在 1 到 200 之间",
+  FILE_KIND: "源码包含非普通文件",
+  DUPLICATE_PATH: "源码路径重复",
+  FILE_SIZE: "单个源码文件超过 512 KiB",
+  UTF8: "源码不是有效的 UTF-8 文本",
+  TEXT_ENCODING: "源码文本无法无损转换为 UTF-8",
+  CONTROL_CHARACTER: "源码文本包含不支持的控制字符",
+  FILE_HASH: "源码摘要与实际字节不符",
+  TOTAL_SIZE: "源码总字节数为空或超过 5 MiB",
+} as const;
+/**
+ * Static rejection detail. A source path is already part of the run's public
+ * activity ("已读取 src/App.tsx"), so naming the offending path is diagnostic
+ * without disclosing file contents, credentials or sandbox internals.
+ */
+const invalidSource = (reason: keyof typeof rejectionMessages, path?: string) =>
+  new ApiFailure(422, "INVALID_SOURCE",
+    `源码快照校验失败 [${reason}${path ? `:${path}` : ""}]：${rejectionMessages[reason]}。`);
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 const forbidden = new Set(["node_modules", "dist", "build", ".git", ".cache", ".next", ".npmrc", ".netrc", ".ssh", "coverage"]);
-const allowedExtension = /\.(?:tsx?|jsx?|mjs|cjs|mts|cts|json|css|scss|html?|svg|txt|md|ya?ml|lock)$/i;
+// A generated frontend legitimately ships static assets (icons, images, fonts,
+// web app manifest) next to its source, so the allowlist covers those types as
+// well as code. Extensionless tooling files stay explicitly listed.
+const allowedExtension = /\.(?:tsx?|jsx?|mjs|cjs|mts|cts|json|css|scss|sass|less|html?|svg|txt|md|ya?ml|lock|xml|webmanifest|ico|png|jpe?g|gif|webp|avif|bmp|woff2?|ttf|otf|eot)$/i;
 
 function checkedPath(path: string) {
   const segments = path.split("/");
   if (!path || path.length > 240 || /[\\\x00-\x1f\x7f]/.test(path)
-    || segments.some((part) => !part || part === "." || part === ".." || forbidden.has(part.toLowerCase()) || part.toLowerCase().startsWith(".env"))
-    || !allowedExtension.test(path) && ![".gitignore", "LICENSE", "Makefile"].includes(path)) throw invalidSource();
+    || segments.some((part) => !part || part === "." || part === "..")) throw invalidSource("PATH_FORMAT");
+  if (segments.some((part) => forbidden.has(part.toLowerCase()) || part.toLowerCase().startsWith(".env"))) throw invalidSource("PATH_FORBIDDEN");
+  if (!allowedExtension.test(path) && ![".gitignore", "LICENSE", "Makefile"].includes(path))
+    // Only the extension leaves this boundary: it is bounded vocabulary from a
+    // strict pattern, while a model-authored file name could carry anything.
+    throw invalidSource("FILE_EXTENSION", /(\.[a-z0-9]{1,12})$/i.exec(path)?.[1] ?? "(no extension)");
   return path;
 }
 function checkedScope(scope: SourceScope) {
-  if (![scope.ownerId, scope.projectId, scope.revisionId].every((value) => z.uuid().safeParse(value).success)) throw invalidSource();
+  if (![scope.ownerId, scope.projectId, scope.revisionId].every((value) => z.uuid().safeParse(value).success)) throw invalidSource("SCOPE");
 }
 function sourceKey(scope: SourceScope, sourceHash: string) {
   checkedScope(scope);
-  if (!/^[a-f0-9]{64}$/.test(sourceHash)) throw invalidSource();
+  if (!/^[a-f0-9]{64}$/.test(sourceHash)) throw invalidSource("REFERENCE_HASH");
   return `${scope.ownerId}/${scope.projectId}/${scope.revisionId}/${sourceHash}.json.gz`;
 }
 
 /** Stable bytes used by the revision marker and storage; timestamps and gzip headers do not enter sourceHash. */
 export function prepareSourceSnapshot(templateVersion: string, input: SourceInputFile[]) {
-  if (!templateVersion || templateVersion.length > 120 || !input.length || input.length > 200) throw invalidSource();
+  if (!templateVersion || templateVersion.length > 120) throw invalidSource("TEMPLATE_VERSION");
+  if (!input.length || input.length > 200) throw invalidSource("FILE_COUNT");
   let sourceBytes = 0;
   const seen = new Set<string>();
   const files = input.map((file) => {
-    if (file.kind && file.kind !== "file") throw invalidSource();
+    if (file.kind && file.kind !== "file") throw invalidSource("FILE_KIND");
     const path = checkedPath(file.path);
-    if (seen.has(path)) throw invalidSource();
+    if (seen.has(path)) throw invalidSource("DUPLICATE_PATH");
     seen.add(path);
     const bytes = typeof file.content === "string" ? Buffer.from(file.content, "utf8") : Buffer.from(file.content);
-    if (bytes.byteLength > 512 * 1024) throw invalidSource();
+    if (bytes.byteLength > 512 * 1024) throw invalidSource("FILE_SIZE");
     let content: string;
-    try { content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes); } catch { throw invalidSource(); }
-    if (typeof file.content === "string" && content !== file.content || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(content)) throw invalidSource();
+    try { content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes); } catch { throw invalidSource("UTF8"); }
+    if (typeof file.content === "string" && content !== file.content) throw invalidSource("TEXT_ENCODING");
+    if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(content)) throw invalidSource("CONTROL_CHARACTER");
     const sha256 = hash(bytes);
-    if (file.sha256 && file.sha256 !== sha256) throw invalidSource();
+    if (file.sha256 && file.sha256 !== sha256) throw invalidSource("FILE_HASH");
     sourceBytes += bytes.byteLength;
     return { path, encoding: "utf8" as const, content, sha256 };
   }).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
-  if (sourceBytes < 1 || sourceBytes > 5 * 1024 * 1024) throw invalidSource();
+  if (sourceBytes < 1 || sourceBytes > 5 * 1024 * 1024) throw invalidSource("TOTAL_SIZE");
   const canonical = { schemaVersion: 1 as const, templateVersion, files };
   const sourceHash = hash(JSON.stringify(canonical));
   const manifest = files.map((file) => ({ path: file.path, bytes: Buffer.byteLength(file.content, "utf8"), sha256: file.sha256 }));
@@ -84,7 +118,7 @@ export function prepareSourceSnapshot(templateVersion: string, input: SourceInpu
 }
 
 function checkedReference(reference: SourceReference) {
-  if (reference.key !== sourceKey(reference, reference.sourceHash)) throw invalidSource();
+  if (reference.key !== sourceKey(reference, reference.sourceHash)) throw invalidSource("REFERENCE_KEY");
 }
 function verifiedReference(reference: SourceReference): VerifiedSourceSnapshot {
   const result = Object.freeze({ ...reference,
@@ -193,7 +227,7 @@ export function createSourceStore(configuration: { url: string; secret: string; 
     load,
     async verify(reference) { await load(reference); return verifiedReference(reference); },
     async listObjects(ownerId, projectId) {
-      if (![ownerId, projectId].every((value) => z.uuid().safeParse(value).success)) throw invalidSource();
+      if (![ownerId, projectId].every((value) => z.uuid().safeParse(value).success)) throw invalidSource("SCOPE");
       return objects.list(`${ownerId}/${projectId}`);
     },
   };

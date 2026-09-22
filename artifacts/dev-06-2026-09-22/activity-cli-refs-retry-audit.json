@@ -1,0 +1,113 @@
+{
+  "at": "2026-09-22T12:03:46.142Z",
+  "runId": "b4f591ed-03ef-484d-8271-383bc1b82017",
+  "projectId": "3c866a6a-26e9-4af4-89d4-d84127b7d430",
+  "captureLabel": "activity-cli-refs-retry-final",
+  "boot": "dd0f2c9a-c9e6-4389-b506-220b1abd4767",
+  "terminal": {
+    "state": "failed",
+    "code": "MODEL_REQUEST_TIMEOUT",
+    "phase": "cleanup",
+    "message": "协调者模型请求未完成，请检查配置或稍后重试",
+    "createdAt": "2026-09-22T11:59:53.512Z",
+    "finishedAt": "2026-09-22T12:01:28.783Z",
+    "elapsedMs": 95271,
+    "cleanupState": "confirmed",
+    "publicError": {
+      "code": "MODEL_REQUEST_TIMEOUT",
+      "message": "协调者模型请求未完成，请检查配置或稍后重试",
+      "retryable": true
+    }
+  },
+  "roles": [
+    {
+      "role": "coordinator",
+      "id": "aac22582-a58a-4f72-adc9-aa39a2c9fc40",
+      "sessionId": "6f718a87-4cc8-4b2f-af81-b90d9ae832d3",
+      "state": "failed",
+      "startedAt": "2026-09-22T11:59:53.539Z",
+      "finishedAt": "2026-09-22T12:01:28.783Z",
+      "usage": {
+        "source": "unreported",
+        "elapsedMs": 95234.03069899997,
+        "toolCalls": 1,
+        "modelCalls": 2,
+        "inputTokens": null,
+        "totalTokens": null,
+        "cachedTokens": null,
+        "outputTokens": null
+      }
+    }
+  ],
+  "assertions": {
+    "coordinatorOnly": true,
+    "noBuilderOrReviewer": true,
+    "noSandboxProvisioned": true,
+    "noRevisionOrCheck": true,
+    "modelLeaseReleased": true,
+    "currentUnchanged": true,
+    "operationReleased": true,
+    "cleanupConfirmed": true
+  },
+  "leaseReleasedAt": "2026-09-22T12:01:28.799Z",
+  "roleHandoffChain": "NOT_REACHED",
+  "reviewVersionHashBinding": "NOT_REACHED",
+  "actualBehaviorEvidence": "NOT_REACHED",
+  "browserFixValidation": "NOT_REACHED: Coordinator provider request failed before Builder and Reviewer",
+  "timingEvidence": [
+    {
+      "id": "2090",
+      "at": "2026-09-22T11:59:53.512Z",
+      "type": "run.accepted",
+      "tool": null
+    },
+    {
+      "id": "2091",
+      "at": "2026-09-22T11:59:53.539Z",
+      "type": "run.phase",
+      "tool": null
+    },
+    {
+      "id": "2092",
+      "at": "2026-09-22T11:59:53.539Z",
+      "type": "role.started",
+      "tool": null
+    },
+    {
+      "id": "2093",
+      "at": "2026-09-22T11:59:58.544Z",
+      "type": "tool.output",
+      "tool": null
+    },
+    {
+      "id": "2094",
+      "at": "2026-09-22T11:59:58.751Z",
+      "type": "tool.started",
+      "tool": "project_summary"
+    },
+    {
+      "id": "2095",
+      "at": "2026-09-22T11:59:58.767Z",
+      "type": "tool.completed",
+      "tool": "project_summary"
+    },
+    {
+      "id": "2096",
+      "at": "2026-09-22T12:00:04.397Z",
+      "type": "tool.output",
+      "tool": null
+    },
+    {
+      "id": "2097",
+      "at": "2026-09-22T12:01:28.783Z",
+      "type": "run.finished",
+      "tool": null
+    }
+  ],
+  "providerDiagnosis": {
+    "recordedCode": "MODEL_REQUEST_TIMEOUT",
+    "httpStatus": null,
+    "note": "No raw provider request or response was captured. The stored failure code and timings do not establish a deeper transport/provider root cause."
+  },
+  "source": "Read-only repeatable-read DB capture plus authenticated public API GET; no generation, model, browser, cancellation, source modification, or service restart performed by this audit."
+}

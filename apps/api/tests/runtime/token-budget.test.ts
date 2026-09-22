@@ -1,5 +1,18 @@
 import { expect, test } from "vitest";
 import { createRunTokenBudget } from "../../src/runtime/token-budget.js";
+import { RUN_TOKEN_LIMIT } from "../../src/runtime/budgets.js";
+
+test(`the calibrated run budget allows ${RUN_TOKEN_LIMIT.toLocaleString("en-US")} tokens and rejects any new reservation beyond that limit`, () => {
+  const budget = createRunTokenBudget();
+  const first = budget.reserve(60_000, 40_000);
+  first.settle();
+  const second = budget.reserve(RUN_TOKEN_LIMIT - 105_000, 5_000);
+  second.settle({ input: RUN_TOKEN_LIMIT - 105_000, output: 5_000, cacheRead: 0, cacheWrite: 0, totalTokens: RUN_TOKEN_LIMIT - 100_000 });
+  expect(budget.snapshot()).toEqual({ limitTokens: RUN_TOKEN_LIMIT, accountedTokens: RUN_TOKEN_LIMIT,
+    remainingTokens: 0, requests: 2, pendingRequests: 0, unreportedRequests: 1 });
+  expect(() => budget.reserve(1, 1)).toThrowError(expect.objectContaining({ code: "TOKEN_BUDGET_EXCEEDED" }));
+  expect(() => createRunTokenBudget(RUN_TOKEN_LIMIT + 1)).toThrowError(expect.objectContaining({ code: "TOKEN_BUDGET_INVALID" }));
+});
 
 test("requests reserve the run's shared capacity before starting and settle cache-inclusive usage once", () => {
   const budget = createRunTokenBudget(100);

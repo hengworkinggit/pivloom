@@ -1,0 +1,304 @@
+{
+  "schemaVersion": 1,
+  "ticket": "#7 DEV-06",
+  "date": "2026-09-22",
+  "scope": "Real owner-scoped PostgreSQL and private Supabase Storage; genuine Pi and server receipt pipeline; external model HTTP, sandbox, source/build and browser outputs are explicit fixtures. This is not an online model/sandbox/browser E2E result.",
+  "testFile": "apps/api/tests/generation/review.integration.test.ts",
+  "migration": "migrations/006_review.sql",
+  "boundaries": [
+    "Persist queued reviewer handoff and independent session before execution",
+    "Bind run, roleRun, attempt, revision, source hash, sandbox and browser session",
+    "Reject wrong binding, stale attempt, cancel_requested, expired run deadline, changed current and mismatched trusted build",
+    "Reject forged receipt and foreign-owner finalization/check/artifact access",
+    "Rollback check, revision, current pointer, run, result message, event notifications and credential release together on injected pre-COMMIT failure",
+    "Passed promotes exactly once; failed becomes needs_changes; blocked becomes failed CHECK_BLOCKED without promotion",
+    "Store real private screenshot bytes and verify owner-scoped metadata and Storage readback",
+    "Release credential lease after browser closure; pre-open blocked performs zero browser commands",
+    "Delete all exact fixture projects, runs, credential leases and source/screenshot objects",
+    "Keyboard Enter action uses stable action=press plus constrained key; scroll and press Tab alone are not sufficient behavior evidence"
+  ],
+  "results": [
+    {
+      "name": "repository-queue-red",
+      "status": "RED",
+      "durationSeconds": 61.3,
+      "cleanup": {
+        "projectIds": [
+          "328d3746-77a7-43bb-b969-86ee4554ebdf"
+        ],
+        "runIds": [
+          "891a01f6-04b5-4766-8e64-0ba3d2e778ee"
+        ],
+        "credentialLeaseIds": [
+          "67c114b5-2b80-4310-8db9-9baecec537de"
+        ],
+        "objectCount": 1,
+        "remaining": {
+          "projects": 0,
+          "runs": 0,
+          "leases": 0,
+          "objects": 0
+        },
+        "verifiedAt": "2026-09-22T09:07:49.278Z"
+      },
+      "expectedFailure": "queueReviewer is not a function"
+    },
+    {
+      "name": "repository-queue-green",
+      "status": "PASS",
+      "durationSeconds": 81.64,
+      "cleanup": {
+        "projectIds": [
+          "bc96d74e-d386-4731-b0bb-68adb355de6e"
+        ],
+        "runIds": [
+          "fe097d63-9e39-4154-939e-2edda5a2b02c"
+        ],
+        "credentialLeaseIds": [
+          "f1eb5160-7a53-436f-935e-668cf388cb75"
+        ],
+        "objectCount": 1,
+        "remaining": {
+          "projects": 0,
+          "runs": 0,
+          "leases": 0,
+          "objects": 0
+        },
+        "verifiedAt": "2026-09-22T09:11:55.611Z"
+      }
+    },
+    {
+      "name": "repository-finalize-red",
+      "status": "RED",
+      "durationSeconds": 72.23,
+      "cleanup": {
+        "projectIds": [
+          "ed911f16-8b35-4a3e-8a72-df9d0f948b48"
+        ],
+        "runIds": [
+          "adb51021-3c83-4323-bf46-26fb8984feb5"
+        ],
+        "credentialLeaseIds": [
+          "512fbed2-8166-4145-baeb-fce753f221d4"
+        ],
+        "objectCount": 1,
+        "remaining": {
+          "projects": 0,
+          "runs": 0,
+          "leases": 0,
+          "objects": 0
+        },
+        "verifiedAt": "2026-09-22T09:16:05.663Z"
+      },
+      "expectedFailure": "finishReview is not a function"
+    },
+    {
+      "name": "repository-blocked-green",
+      "status": "PASS",
+      "durationSeconds": 91.95,
+      "cleanup": {
+        "projectIds": [
+          "5059f8bc-cd1c-4964-bfea-8a1371fd2ef2"
+        ],
+        "runIds": [
+          "40167fa7-5ed0-4519-8e0f-a1b785a886db"
+        ],
+        "credentialLeaseIds": [
+          "4ea94de6-3fcf-4111-ba87-ddc35d585d4b"
+        ],
+        "objectCount": 1,
+        "remaining": {
+          "projects": 0,
+          "runs": 0,
+          "leases": 0,
+          "objects": 0
+        },
+        "verifiedAt": "2026-09-22T09:20:30.275Z"
+      }
+    },
+    {
+      "name": "full-persistence-suite",
+      "status": "PASS",
+      "durationSeconds": 454.25,
+      "cleanup": {
+        "projectIds": [
+          "3581d564-f518-47a7-8227-075efce1aea5",
+          "6e9d9925-9533-4dde-a844-a804dd516db3",
+          "6f6c255b-67d0-46ed-a728-6232f36dc55b",
+          "334392f8-0b4a-46db-95b7-5a6c373a94ba"
+        ],
+        "runIds": [
+          "28bc99a8-7e72-4576-9b2d-3f74a174d210",
+          "7c0d3b70-6cb5-4be0-ae63-7aa3b3b0bc72",
+          "b80338c0-70ab-4fd8-8494-5b4e9bd9ddd6",
+          "b2c58a59-6454-42c4-bc2c-f92baed7dbf7"
+        ],
+        "credentialLeaseIds": [
+          "93010a17-5ad9-4955-a349-daa5f549488b",
+          "5d88e4cc-8fd1-4d8c-97fb-1e2742599063",
+          "2d3b3ee3-6cf8-4f11-a866-479390ac79dd",
+          "e50df999-b9dd-46d7-89fb-0e1716d5baf6"
+        ],
+        "objectCount": 6,
+        "remaining": {
+          "projects": 0,
+          "runs": 0,
+          "leases": 0,
+          "objects": 0
+        },
+        "verifiedAt": "2026-09-22T09:31:26.831Z"
+      },
+      "testsPassed": 4
+    },
+    {
+      "name": "final-browser-blocked",
+      "status": "PASS",
+      "durationSeconds": 90.28,
+      "cleanup": {
+        "projectIds": [
+          "8a2832ae-fc5f-4b07-b958-5ddbb009e31c"
+        ],
+        "runIds": [
+          "472e0106-d553-4753-8d20-916ac332dd60"
+        ],
+        "credentialLeaseIds": [
+          "7fa7fceb-7ecc-4ce6-94a2-fcc7014b2c42"
+        ],
+        "objectCount": 1,
+        "remaining": {
+          "projects": 0,
+          "runs": 0,
+          "leases": 0,
+          "objects": 0
+        },
+        "verifiedAt": "2026-09-22T09:33:23.073Z"
+      },
+      "testsPassed": 1,
+      "testsSkipped": 3,
+      "browserCommands": 0,
+      "modelCalls": 0
+    },
+    {
+      "name": "keyboard-evidence-red",
+      "status": "RED",
+      "durationSeconds": 101.95,
+      "expectedFailure": "finishReview rejected genuine Reviewer evidence.key as an unrecognized strict-schema field",
+      "cleanup": {
+        "projectIds": [
+          "f6c29cbf-3459-498d-bf06-f2f633a9ce44"
+        ],
+        "runIds": [
+          "8e56a50b-a5a7-47e6-9e3a-f1771240ab41"
+        ],
+        "credentialLeaseIds": [
+          "9b73a629-4e80-42ef-b099-b853fb1f27b0"
+        ],
+        "objectCount": 2,
+        "remaining": {
+          "projects": 0,
+          "runs": 0,
+          "leases": 0,
+          "objects": 0
+        },
+        "verifiedAt": "2026-09-22T09:37:31.128Z"
+      }
+    },
+    {
+      "name": "keyboard-evidence-green",
+      "status": "PASS",
+      "durationSeconds": 116.91,
+      "testsPassed": 1,
+      "testsSkipped": 4,
+      "assertions": [
+        "Real Pi browser_press Enter produces a post-action observation",
+        "finishReview accepts and persists action=press,key=Enter",
+        "Exact candidate is promoted after passed verdict",
+        "All exact fixture DB and Storage resources are removed"
+      ],
+      "cleanup": {
+        "projectIds": [
+          "cbe0e41c-12d9-4d05-bf31-2f1b123d7156"
+        ],
+        "runIds": [
+          "fa84adc4-ed10-42b1-b36e-a9194f1fc4c1"
+        ],
+        "credentialLeaseIds": [
+          "d8a8f779-a0db-484d-99b1-34d2388c3926"
+        ],
+        "objectCount": 2,
+        "remaining": {
+          "projects": 0,
+          "runs": 0,
+          "leases": 0,
+          "objects": 0
+        },
+        "verifiedAt": "2026-09-22T09:39:42.637Z"
+      }
+    },
+    {
+      "name": "reload-missing-tool-red",
+      "status": "RED",
+      "durationSeconds": 89.41,
+      "expectedFailure": "reload tool not yet available",
+      "cleanup": {
+        "projectIds": [
+          "7734f1d8-90f2-4776-97aa-059fb62596d7"
+        ],
+        "runIds": [
+          "ec9f640e-3af9-4e93-b261-213620236f66"
+        ],
+        "credentialLeaseIds": [
+          "f990e4f7-a79d-44fd-be3e-9a9e8278e3d6"
+        ],
+        "objectCount": 1,
+        "verifiedAt": "2026-09-22T11:28:55.131Z"
+      },
+      "scope": "Real PostgreSQL and private Storage; model and browser transport explicit fixtures."
+    },
+    {
+      "name": "reload-schema-red",
+      "status": "RED",
+      "durationSeconds": 121.31,
+      "expectedFailure": "strict evidence enum rejected reload",
+      "cleanup": {
+        "projectIds": [
+          "b788d7d2-915e-4419-86ae-700dd3269fd3"
+        ],
+        "runIds": [
+          "a380ab32-16f4-4d31-a970-7a4e0538d324"
+        ],
+        "credentialLeaseIds": [
+          "60e0df2e-28ce-4dcc-a682-e7b54392924a"
+        ],
+        "objectCount": 2,
+        "verifiedAt": "2026-09-22T11:31:05.040Z"
+      },
+      "scope": "Real PostgreSQL and private Storage; model and browser transport explicit fixtures."
+    },
+    {
+      "name": "reload-evidence-green",
+      "status": "PASS",
+      "durationSeconds": 182.05,
+      "expectedFailure": null,
+      "cleanup": {
+        "projectIds": [
+          "06180be5-bc5f-4513-b40d-4d893e125b6b"
+        ],
+        "runIds": [
+          "edcbfc4d-f056-4995-a656-6273d989c2a9"
+        ],
+        "credentialLeaseIds": [
+          "256cc4c2-9070-4aa4-b552-0a97ffb5c3cd"
+        ],
+        "objectCount": 2,
+        "verifiedAt": "2026-09-22T11:34:36.519Z"
+      },
+      "scope": "Real PostgreSQL and private Storage; model and browser transport explicit fixtures."
+    }
+  ],
+  "notes": [
+    "Initial blocked GREEN preceded final Browser connect/close integration; final-browser-blocked is the relevant final interface retest.",
+    "Long full-suite elapsed time includes candidate setup and database fault/rollback assertions; it is not Reviewer role execution time.",
+    "Cleanup IDs are fixture resource IDs only; owner IDs, object keys, credentials and endpoint configuration are omitted."
+  ]
+}

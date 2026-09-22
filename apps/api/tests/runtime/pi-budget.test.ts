@@ -4,6 +4,7 @@ import { runBuilder } from "../../src/runtime/pi.js";
 import { runCoordinator } from "../../src/runtime/coordinator.js";
 import { OpenSandboxWorkspace, type SandboxConnection } from "../../src/runtime/workspace.js";
 import { createRunTokenBudget, type RunTokenBudget } from "../../src/runtime/token-budget.js";
+import { PROVIDER_RETRY_POLICY } from "../../src/runtime/budgets.js";
 import type { ProbeEventSink } from "../../src/runtime/types.js";
 
 // Real Pi and workspace adapter; only provider HTTP and remote connector I/O
@@ -61,8 +62,8 @@ test("Builder does not turn an exhausted run tool budget into one more permitted
   expect(requests).toBe(0);
 });
 
-test("Coordinator and Builder charge the same run ledger, including cached prompt tokens", async () => {
-  const budget = createRunTokenBudget();
+test("Coordinator and Builder charge the same lower run budget, including cached prompt tokens", async () => {
+  const budget = createRunTokenBudget(60_000);
   const plan = { schemaVersion: 1, goal: "记录书名", changeSummary: "增加书单", assumptions: [], outOfScope: [],
     behaviors: [{ id: "B01", title: "添加书名", precondition: "页面已打开", action: "输入书名并添加", expected: "出现书名", required: true }] };
   const coordinator = await runCoordinator({
@@ -84,7 +85,7 @@ test("Coordinator and Builder charge the same run ledger, including cached promp
 });
 
 test("a Builder tool turn settles usage before the next model request is authorized", async () => {
-  const budget = createRunTokenBudget();
+  const budget = createRunTokenBudget(60_000);
   let requests = 0;
   await expect(builder({ budget, fetch: async () => {
     requests++;
@@ -135,7 +136,19 @@ test("aborting after actual Pi stream content does not release a reservation aga
   expect(budget.snapshot()).toMatchObject({ accountedTokens: reserved, pendingRequests: 0, unreportedRequests: 1 });
 });
 
-test("a failed HTTP attempt is counted without inventing provider token usage", async () => {
-  await expect(builder({ budget: createRunTokenBudget(), fetch: async () => { throw new Error("External HTTP fixture unavailable"); } }))
-    .rejects.toMatchObject({ code: "MODEL_FAILED", usage: { modelCalls: 1, toolCalls: 0, input: null, output: null, total: null, cachedTokens: null, source: "unreported" } });
+test("a transient transport failure is retried within the policy and every attempt is counted without inventing usage", async () => {
+  const attempts = { count: 0 };
+  await expect(builder({ budget: createRunTokenBudget(), fetch: async () => { attempts.count++; throw new Error("External HTTP fixture unavailable"); } }))
+    .rejects.toMatchObject({ code: "MODEL_FAILED", usage: { modelCalls: PROVIDER_RETRY_POLICY.maxRetries + 1, toolCalls: 0, input: null, output: null, total: null, cachedTokens: null, source: "unreported" } });
+  expect(attempts.count).toBe(PROVIDER_RETRY_POLICY.maxRetries + 1);
+}, 30_000);
+
+test("a deterministic provider rejection is not retried", async () => {
+  let attempts = 0;
+  await expect(builder({ budget: createRunTokenBudget(), fetch: async () => {
+    attempts++;
+    return new Response(JSON.stringify({ error: { message: "quota exceeded for this account", type: "invalid_request_error" } }),
+      { status: 400, headers: { "Content-Type": "application/json" } });
+  } })).rejects.toMatchObject({ code: "MODEL_FAILED", usage: { modelCalls: 1, toolCalls: 0 } });
+  expect(attempts).toBe(1);
 });

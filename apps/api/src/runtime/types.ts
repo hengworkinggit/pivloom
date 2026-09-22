@@ -117,6 +117,7 @@ export class RuntimeError extends Error {
     message: string,
     public readonly trustedBuild?: TrustedBuildRecord,
     public readonly usage?: TokenUsage,
+    public readonly diagnosticCode?: string,
   ) {
     super(message);
     this.name = "RuntimeError";

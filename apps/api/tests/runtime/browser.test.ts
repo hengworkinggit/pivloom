@@ -1,6 +1,82 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { RemoteBrowser } from "../../src/runtime/browser.js";
-import { OpenSandboxWorkspace } from "../../src/runtime/workspace.js";
+import {
+  OpenSandboxWorkspace,
+  type SandboxConnection,
+} from "../../src/runtime/workspace.js";
+
+// External sandbox transport fixture: the real Workspace and Browser APIs run,
+// while no shell, Chromium, cloud sandbox, or model is started by these tests.
+async function fixture(sessionId?: string) {
+  const commands: { command: string; timeoutMs: number }[] = [];
+  const state = {
+    url: "http://127.0.0.1:4173/",
+    text: "计费结果：200 元",
+    tree: '- button "计算" [ref=e1]',
+    refs: { e1: { role: "button", name: "计算" } } as Record<
+      string,
+      { role?: string; name?: string }
+    >,
+    failCommand: "",
+    afterCommand: undefined as ((command: string) => void) | undefined,
+    beforeCommand: undefined as
+      | ((command: string) => Promise<void>)
+      | undefined,
+    png: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+    response: undefined as unknown,
+  };
+  let live = true;
+  const connection: SandboxConnection = {
+    sandboxId: "browser-fixture",
+    kill: async () => {
+      live = false;
+    },
+    isRunning: async () => live,
+    renew: async () => {},
+    close: async () => {},
+    endpoint: async () => ({ url: "http://localhost:4173", headers: {} }),
+    write: async () => {},
+    read: async () => state.png,
+    run: async (command, options) => {
+      commands.push({ command, timeoutMs: options.timeoutMs });
+      await state.beforeCommand?.(command);
+      let data: Record<string, unknown> = {};
+      if (command.includes("'open'")) {
+        state.url = command.match(/'open' '([^']+)'$/)?.[1] ?? state.url;
+      } else if (command.endsWith("'get' 'url'")) data = { url: state.url };
+      else if (command.endsWith("'get' 'text' 'body'"))
+        data = { text: state.text };
+      else if (command.endsWith("'snapshot' '-i'"))
+        data = { snapshot: state.tree, refs: state.refs };
+      const success =
+        !state.failCommand || !command.includes(state.failCommand);
+      state.afterCommand?.(command);
+      return {
+        id: "fixture-command",
+        interrupt: async () => {},
+        wait: async () => ({
+          exitCode: 0,
+          stdoutTail: JSON.stringify(state.response ?? { success, data }),
+          stderrTail: "",
+        }),
+      };
+    },
+  };
+  const workspace = new OpenSandboxWorkspace(
+    { baseUrl: "http://localhost:18080", apiKey: "fixture", image: "fixture" },
+    { create: async () => connection },
+  );
+  const handle = await workspace.create({
+    runId: "browser-fixture-run",
+    signal: new AbortController().signal,
+  });
+  return {
+    browser: new RemoteBrowser(workspace, handle, undefined, sessionId),
+    commands,
+    state,
+    cleanup: () => workspace.destroy(handle),
+  };
+}
 
 function browser() {
   return new RemoteBrowser(
@@ -34,4 +110,494 @@ test("refs from another observation or session cannot be acted on", async () => 
       observationId: "another-session-observation",
     }),
   ).rejects.toMatchObject({ code: "STALE_BROWSER_REF" });
+});
+
+test("observations report the actual candidate URL, visible body, and bound session", async () => {
+  const sessionId = "pivloom-16dc6729-e580-4965-9129-b04cb55aad6c";
+  const f = await fixture(sessionId);
+  try {
+    const observation = await f.browser.open("/p/example/?step=result#total");
+    expect(observation).toMatchObject({
+      sessionId,
+      url: "http://127.0.0.1:4173/p/example/?step=result#total",
+      text: "计费结果：200 元",
+      tree: '- button "计算" [ref=e1]',
+      refs: { e1: { role: "button", name: "计算" } },
+      truncated: false,
+    });
+    expect(f.browser.sessionId).toBe(sessionId);
+    expect(f.commands.every(({ command }) => command.includes(sessionId))).toBe(
+      true,
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("CLI refs remain actionable when state attributes precede or follow the exact ref", async () => {
+  const f = await fixture();
+  try {
+    f.state.tree = '- heading "活动" [level=1, ref=e4]\n- combobox "类别" [expanded=false, ref=e10]\n- option "设计" [selected, ref=e12]\n- textbox "姓名" [ref=e8, required]';
+    f.state.refs = { e4:{role:'heading',name:'活动'}, e10:{role:'combobox',name:'类别'}, e12:{role:'option',name:'设计'}, e8:{role:'textbox',name:'姓名'} };
+    const observation = await f.browser.open();
+    expect(observation.truncated).toBe(false);
+    expect(Object.keys(observation.refs).sort()).toEqual(['e10','e12','e4','e8']);
+    await f.browser.act({type:'select',ref:'e10',value:'设计',observationId:observation.id});
+    expect(f.commands.some(({command})=>command.endsWith("'select' '@e10' '设计'"))).toBe(true);
+  } finally { await f.cleanup(); }
+});
+
+test("a longer ref or non-ref attribute cannot grant membership to an absent ref", async () => {
+  const f = await fixture();
+  try {
+    f.state.tree = '- button "提交" [disabled=false, ref=e10]\n- note "无引用" [notref=e1]';
+    f.state.refs = {e1:{role:'button',name:'不存在'},e10:{role:'button',name:'提交'}};
+    const observation = await f.browser.open();
+    expect(observation.refs).toEqual({e10:{role:'button',name:'提交'}});
+    expect(observation.truncated).toBe(true);
+    await expect(f.browser.act({type:'click',ref:'e1',observationId:observation.id})).rejects.toMatchObject({code:'STALE_BROWSER_REF'});
+    expect(f.commands.some(({command})=>command.includes("'click'"))).toBe(false);
+  } finally { await f.cleanup(); }
+});
+
+test("scroll and press use fresh observations and a fixed action timeout", async () => {
+  const f = await fixture();
+  try {
+    const first = await f.browser.open();
+    const second = await f.browser.act({
+      type: "scroll",
+      direction: "down",
+      observationId: first.id,
+    });
+    expect(second.id).not.toBe(first.id);
+    expect(
+      f.commands.some(
+        ({ command, timeoutMs }) =>
+          command.endsWith("'scroll' 'down' '600'") &&
+          timeoutMs > 0 &&
+          timeoutMs <= 15000,
+      ),
+    ).toBe(true);
+    await expect(
+      f.browser.act({ type: "press", key: "Enter", observationId: first.id }),
+    ).rejects.toMatchObject({ code: "STALE_BROWSER_REF" });
+    await f.browser.act({
+      type: "press",
+      key: "Enter",
+      observationId: second.id,
+    });
+    expect(
+      f.commands.filter(({ command }) => command.endsWith("'press' 'Enter'")),
+    ).toHaveLength(1);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("logs reject an escaped or malformed URL and close instead of reading external data", async () => {
+  for (const url of [
+    "https://example.com/stolen",
+    "file:///etc/passwd",
+    "not a URL",
+  ]) {
+    const f = await fixture();
+    try {
+      await f.browser.open();
+      f.state.url = url;
+      await expect(f.browser.logs()).rejects.toMatchObject({
+        code: "BROWSER_ORIGIN_REJECTED",
+      });
+      expect(
+        f.commands.some(({ command }) => command.endsWith("'errors'")),
+      ).toBe(false);
+      expect(
+        f.commands.filter(({ command }) => command.endsWith("'close'")),
+      ).toHaveLength(1);
+      await expect(f.browser.observe()).rejects.toMatchObject({
+        code: "BROWSER_CLOSED",
+      });
+      expect(await f.browser.close()).toEqual({ confirmed: true });
+    } finally {
+      await f.cleanup();
+    }
+  }
+});
+
+test("navigation during a logs command is detected before its data can be returned", async () => {
+  const f = await fixture();
+  try {
+    await f.browser.open();
+    f.state.afterCommand = (command) => {
+      if (command.endsWith("'errors'"))
+        f.state.url = "https://example.com/redirect";
+    };
+    await expect(f.browser.logs()).rejects.toMatchObject({
+      code: "BROWSER_ORIGIN_REJECTED",
+    });
+    expect(await f.browser.close()).toEqual({ confirmed: true });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("unsafe browser parameters are rejected and close the bound session without executing them", async () => {
+  const invalidActions = [
+    { type: "eval", script: "globalThis.location = 'https://example.com'" },
+    { type: "press", key: "Control+L" },
+    { type: "scroll", direction: "down; touch /tmp/escape" },
+    { type: "click", ref: "e1; touch /tmp/escape" },
+    { type: "fill", ref: "e1", text: "--cdp=9222" },
+    { type: "select", ref: "e1", value: "--session" },
+    { type: "fill", ref: "e1", text: "hello\0world" },
+    { type: "click", ref: "e1", outputPath: "/tmp/escape" },
+  ];
+  for (const action of invalidActions) {
+    const f = await fixture();
+    try {
+      const observation = await f.browser.open();
+      const before = f.commands.length;
+      await expect(
+        f.browser.act(
+          JSON.parse(
+            JSON.stringify({ ...action, observationId: observation.id }),
+          ),
+        ),
+      ).rejects.toMatchObject({ code: "INVALID_BROWSER_ACTION" });
+      expect(
+        f.commands
+          .slice(before)
+          .map(({ command }) => command.includes("'close'")),
+      ).toEqual([true]);
+      await expect(f.browser.observe()).rejects.toMatchObject({
+        code: "BROWSER_CLOSED",
+      });
+    } finally {
+      await f.cleanup();
+    }
+  }
+});
+
+test("an unconfirmed close disables actions and can be retried for confirmation", async () => {
+  const f = await fixture();
+  try {
+    const observation = await f.browser.open();
+    f.state.failCommand = "'close'";
+    expect(await f.browser.close()).toEqual({ confirmed: false });
+    await expect(
+      f.browser.act({
+        type: "click",
+        ref: "e1",
+        observationId: observation.id,
+      }),
+    ).rejects.toMatchObject({ code: "BROWSER_CLOSED" });
+    f.state.failCommand = "";
+    expect(await f.browser.close()).toEqual({ confirmed: true });
+    expect(await f.browser.close()).toEqual({ confirmed: true });
+    expect(
+      f.commands.filter(({ command }) => command.endsWith("'close'")),
+    ).toHaveLength(2);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("returned refs cannot be forged and a failed observation invalidates the old refs", async () => {
+  const f = await fixture();
+  try {
+    const observed = await f.browser.open();
+    observed.refs.e999 = { role: "button", name: "forged" };
+    await expect(
+      f.browser.act({ type: "click", ref: "e999", observationId: observed.id }),
+    ).rejects.toMatchObject({ code: "STALE_BROWSER_REF" });
+    f.state.failCommand = "'snapshot'";
+    await expect(f.browser.observe()).rejects.toMatchObject({
+      code: "BROWSER_BLOCKED",
+    });
+    await expect(
+      f.browser.act({ type: "click", ref: "e1", observationId: observed.id }),
+    ).rejects.toMatchObject({ code: "STALE_BROWSER_REF" });
+    expect(f.commands.some(({ command }) => command.includes("'click'"))).toBe(
+      false,
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a changed page invalidates old refs and a failed post-action observation never replays the action", async () => {
+  const f = await fixture();
+  try {
+    const observed = await f.browser.open();
+    f.state.url = "http://127.0.0.1:4173/another-page";
+    await expect(
+      f.browser.act({ type: "click", ref: "e1", observationId: observed.id }),
+    ).rejects.toMatchObject({ code: "STALE_BROWSER_REF" });
+    const fresh = await f.browser.observe();
+    f.state.failCommand = "'snapshot'";
+    await expect(
+      f.browser.act({ type: "click", ref: "e1", observationId: fresh.id }),
+    ).rejects.toMatchObject({ code: "BROWSER_BLOCKED" });
+    await expect(
+      f.browser.act({ type: "click", ref: "e1", observationId: fresh.id }),
+    ).rejects.toMatchObject({ code: "STALE_BROWSER_REF" });
+    expect(
+      f.commands.filter(({ command }) => command.includes("'click'")),
+    ).toHaveLength(1);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("large observations declare truncation and expose only bounded valid refs visible in their tree", async () => {
+  const f = await fixture();
+  try {
+    f.state.text = "界".repeat(13000);
+    f.state.tree =
+      Array.from(
+        { length: 120 },
+        (_, index) => `- button "${index}" [ref=e${index + 1}]`,
+      ).join("\n") + "x".repeat(13000);
+    f.state.refs = Object.fromEntries(
+      Array.from({ length: 120 }, (_, index) => [
+        `e${index + 1}`,
+        { role: "button", name: "n".repeat(500) },
+      ]),
+    );
+    f.state.refs.e999 = { role: "button", name: "not in the observed tree" };
+    const observed = await f.browser.open();
+    expect(observed.truncated).toBe(true);
+    expect(observed.text).toBe("界".repeat(12000));
+    expect(observed.tree.length).toBeLessThanOrEqual(12000);
+    expect(Object.keys(observed.refs)).toHaveLength(100);
+    expect(observed.refs.e1.name?.length).toBeLessThanOrEqual(160);
+    expect(observed.refs.e999).toBeUndefined();
+    await expect(
+      f.browser.act({ type: "click", ref: "e999", observationId: observed.id }),
+    ).rejects.toMatchObject({ code: "STALE_BROWSER_REF" });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("text and screenshots reject navigation that happens while evidence is being read", async () => {
+  for (const operation of ["text", "screenshot"] as const) {
+    const f = await fixture();
+    try {
+      await f.browser.open();
+      f.state.afterCommand = (command) => {
+        if (
+          operation === "text"
+            ? command.endsWith("'get' 'text' 'body'")
+            : command.includes("'screenshot'")
+        )
+          f.state.url = "https://example.com/escaped";
+      };
+      await expect(f.browser[operation]()).rejects.toMatchObject({
+        code: "BROWSER_ORIGIN_REJECTED",
+      });
+      expect(await f.browser.close()).toEqual({ confirmed: true });
+    } finally {
+      await f.cleanup();
+    }
+  }
+});
+
+test("screenshots are restricted to a controlled PNG of at most 2 MiB", async () => {
+  const f = await fixture();
+  try {
+    await f.browser.open();
+    const screenshot = await f.browser.screenshot();
+    expect(screenshot.mimeType).toBe("image/png");
+    expect(Buffer.from(screenshot.base64, "base64")).toEqual(
+      Buffer.from(f.state.png),
+    );
+    f.state.png = new Uint8Array(2 * 1024 * 1024 + 1);
+    f.state.png.set([137, 80, 78, 71, 13, 10, 26, 10]);
+    await expect(f.browser.screenshot()).rejects.toMatchObject({
+      code: "INVALID_SCREENSHOT",
+    });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("overlapping actions cannot consume the same observation twice", async () => {
+  const f = await fixture();
+  let release!: () => void;
+  let entered!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const waiting = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  try {
+    const observed = await f.browser.open();
+    f.state.beforeCommand = async (command) => {
+      if (command.endsWith("'get' 'url'")) {
+        entered();
+        await gate;
+      }
+    };
+    const first = f.browser.act({
+      type: "click",
+      ref: "e1",
+      observationId: observed.id,
+    });
+    await waiting;
+    const second = f.browser.act({
+      type: "click",
+      ref: "e1",
+      observationId: observed.id,
+    });
+    // Capture without waiting for the held external command; no second action may start.
+    let rejectedCode: string | undefined;
+    const settled = second.catch((error: { code?: string }) => {
+      rejectedCode = error.code;
+    });
+    await Promise.resolve();
+    release();
+    await Promise.all([first, settled]);
+    expect(rejectedCode).toBe("BROWSER_BUSY");
+    expect(
+      f.commands.filter(({ command }) => command.includes("'click'")),
+    ).toHaveLength(1);
+  } finally {
+    release();
+    await f.cleanup();
+  }
+});
+
+test("only an explicit successful CLI envelope confirms close", async () => {
+  const f = await fixture();
+  try {
+    await f.browser.open();
+    f.state.response = { success: "true", data: {} };
+    expect(await f.browser.close()).toEqual({ confirmed: false });
+    f.state.response = undefined;
+    expect(await f.browser.close()).toEqual({ confirmed: true });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("the whole observation shares one 15 second budget and closes on expiry", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(0);
+  const f = await fixture();
+  try {
+    f.state.beforeCommand = async (command) => {
+      if (!command.endsWith("'close'")) vi.setSystemTime(Date.now() + 6000);
+    };
+    await expect(f.browser.observe()).rejects.toMatchObject({
+      code: "BROWSER_TIMEOUT",
+    });
+    expect(
+      f.commands
+        .filter(({ command }) => !command.endsWith("'close'"))
+        .map(({ timeoutMs }) => timeoutMs),
+    ).toEqual([15000, 9000, 3000]);
+    expect(await f.browser.close()).toEqual({ confirmed: true });
+    await expect(f.browser.observe()).rejects.toMatchObject({
+      code: "BROWSER_CLOSED",
+    });
+  } finally {
+    vi.useRealTimers();
+    await f.cleanup();
+  }
+});
+
+test("an escaped session cannot hide the escape by opening the preview again", async () => {
+  const f = await fixture();
+  try {
+    await f.browser.open();
+    const before = f.commands.length;
+    f.state.url = "https://example.com/escaped";
+    await expect(f.browser.open("/safe")).rejects.toMatchObject({
+      code: "BROWSER_ORIGIN_REJECTED",
+    });
+    expect(
+      f.commands
+        .slice(before)
+        .some(({ command }) => command.includes("'open'")),
+    ).toBe(false);
+    expect(await f.browser.close()).toEqual({ confirmed: true });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a hanging close is bounded, stays unconfirmed, and cannot reopen actions", async () => {
+  vi.useFakeTimers();
+  const f = await fixture();
+  let unblock!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    unblock = resolve;
+  });
+  try {
+    await f.browser.open();
+    f.state.beforeCommand = async (command) => {
+      if (command.endsWith("'close'")) await gate;
+    };
+    const close = f.browser.close();
+    await vi.advanceTimersByTimeAsync(15000);
+    let result: { confirmed: boolean } | undefined;
+    void close.then((value) => {
+      result = value;
+    });
+    await Promise.resolve();
+    expect(result).toEqual({ confirmed: false });
+    await expect(f.browser.observe()).rejects.toMatchObject({
+      code: "BROWSER_CLOSED",
+    });
+    unblock();
+    await close;
+    f.state.beforeCommand = undefined;
+    expect(await f.browser.close()).toEqual({ confirmed: true });
+  } finally {
+    unblock();
+    vi.useRealTimers();
+    await f.cleanup();
+  }
+});
+
+test("close cannot be confirmed while a late browser command is still in flight", async () => {
+  const f = await fixture();
+  let unblock!: () => void;
+  let entered!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    unblock = resolve;
+  });
+  const waiting = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  try {
+    f.state.beforeCommand = async (command) => {
+      if (command.endsWith("'get' 'url'")) {
+        entered();
+        await gate;
+      }
+    };
+    const observed = f.browser.observe();
+    const failure = observed.catch((error: { code?: string }) => error.code);
+    await waiting;
+    expect(await f.browser.close()).toEqual({ confirmed: false });
+    unblock();
+    expect(await failure).toBe("BROWSER_CLOSED");
+    f.state.beforeCommand = undefined;
+    expect(await f.browser.close()).toEqual({ confirmed: true });
+  } finally {
+    unblock();
+    await f.cleanup();
+  }
+});
+
+test("closing a browser that was never used does not start a CLI or Chromium session", async () => {
+  const f = await fixture();
+  try {
+    expect(await f.browser.close()).toEqual({ confirmed: true });
+    expect(f.commands).toHaveLength(0);
+  } finally {
+    await f.cleanup();
+  }
 });

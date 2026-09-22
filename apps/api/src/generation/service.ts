@@ -1,5 +1,5 @@
 import {
-  ProjectDetailResponseSchema, RunDetailResponseSchema, RevisionFileResponseSchema,
+  RevisionCheckResponseSchema, ProjectDetailResponseSchema, RunDetailResponseSchema, RevisionFileResponseSchema,
   RevisionFilesResponseSchema, TerminalRunStates, type Preview, type CreateRunRequest,
 } from "@pivloom/contracts";
 import type { PivloomDatabase } from "../data/database.js";
@@ -7,6 +7,7 @@ import { createProjectRepository } from "../data/projects.js";
 import { createGenerationRepository, type StoredRun, type StoredRevision, type StoredSandboxBinding } from "../data/generation.js";
 import type { ModelProfileService } from "../models/service.js";
 import { createSourceStore, type SourceObjectStore } from "../storage/source.js";
+import { createArtifactStore, type ArtifactObjects } from "../storage/artifacts.js";
 import type { IdentityConfig } from "../config/identity.js";
 import type { SandboxConfig } from "../runtime/types.js";
 import { ApiFailure } from "../routes/errors.js";
@@ -18,6 +19,7 @@ export function createGenerationService(options: {
   database: PivloomDatabase; models: ModelProfileService; identity: IdentityConfig;
   sandbox: SandboxConfig; previewOrigin: string; bootId: string; maxSandboxes: number;
   sourceObjects?: SourceObjectStore;
+  artifactObjects?: ArtifactObjects;
   eventLimits?: RunEventLimits;
 }) {
   const projects = createProjectRepository(options.database);
@@ -27,8 +29,9 @@ export function createGenerationService(options: {
     onCommittedEvent: eventHub.publish,
   });
   const sources = createSourceStore({ url: options.identity.supabaseUrl, secret: options.identity.supabaseSecretKey, objects: options.sourceObjects });
+  const artifacts = createArtifactStore({ url: options.identity.supabaseUrl, secret: options.identity.supabaseSecretKey, objects: options.artifactObjects });
   const previews = createPreviewGateway({ publicOrigin: options.previewOrigin, appOrigin: options.identity.appOrigin, sandboxOrigin: options.sandbox.baseUrl });
-  const executor = createGenerationExecutor({ repository, models: options.models, sources, previews, sandbox: options.sandbox, maxSandboxes: options.maxSandboxes });
+  const executor = createGenerationExecutor({ repository, models: options.models, sources, artifacts, previews, sandbox: options.sandbox, maxSandboxes: options.maxSandboxes });
 
   function previewView(ownerId: string, revision: StoredRevision, binding: StoredSandboxBinding | null): Preview {
     const live = previews.get(ownerId, revision.id);
@@ -62,6 +65,7 @@ export function createGenerationService(options: {
       const { project, messages, latestRun, currentRevision, latestCandidate, binding } = await repository.readProjectSnapshot(ownerId, projectId);
       const selected = latestCandidate ?? currentRevision;
       return ProjectDetailResponseSchema.parse({ project, messages, latestRun, currentRevision, latestCandidate,
+        latestCheck: selected ? await repository.getRunCheck(ownerId, selected.runId) : null,
         activeRun: latestRun && (!TerminalRunStates.has(latestRun.state) || latestRun.cleanupState === "pending") ? latestRun : null,
         preview: selected ? previewView(ownerId, selected, binding) : null });
     },
@@ -71,6 +75,16 @@ export function createGenerationService(options: {
         preview: revision ? previewView(ownerId, revision, binding) : null });
     },
     preview,
+    async check(ownerId: string, revisionId: string) {
+      const revision = await repository.getRevision(ownerId, revisionId);
+      const check = await repository.getRunCheck(ownerId, revision.runId);
+      return RevisionCheckResponseSchema.parse({ check: check?.revisionId === revisionId ? check : null });
+    },
+    async artifact(ownerId: string, checkId: string, artifactId: string) {
+      const stored = await repository.getArtifact(ownerId, artifactId);
+      if (stored.checkId !== checkId) throw new ApiFailure(404, "NOT_FOUND", "找不到这个检查截图。");
+      return artifacts.load(stored.source, stored.artifact);
+    },
     async files(ownerId: string, revisionId: string) {
       const revision = await repository.getRevision(ownerId, revisionId);
       return RevisionFilesResponseSchema.parse({ revisionId, sourceHash: revision.sourceHash, files: revision.manifest });

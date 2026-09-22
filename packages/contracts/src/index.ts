@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { ProjectMessageSchema, RunSchema, RevisionSchema, PreviewSchema } from "./generation.js";
+import { CheckSchema } from "./review.js";
 export * from "./models.js";
 export * from "./generation.js";
 export * from "./planning.js";
+export * from "./review.js";
 
 export const ProjectSummarySchema = z.object({
   id: z.uuid(),
@@ -31,6 +33,7 @@ export const ProjectDetailResponseSchema = z.object({
   activeRun: RunSchema.nullable(),
   latestRun: RunSchema.nullable().default(null),
   latestCandidate: RevisionSchema.nullable().default(null),
+  latestCheck: CheckSchema.nullable().default(null),
   preview: PreviewSchema.nullable(),
 });
 export type ProjectDetailResponse = z.infer<typeof ProjectDetailResponseSchema>;

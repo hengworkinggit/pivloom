@@ -44,6 +44,13 @@ export async function registerGenerationRoutes(app: FastifyInstance, options: {
       return reply.code(202).send(response);
     });
     secured.get("/api/v1/runs/:id", async (request) => service().runDetail(requireOwner(request), id(request)));
+    secured.get("/api/v1/revisions/:id/check", async (request) => service().check(requireOwner(request), id(request)));
+    secured.get("/api/v1/checks/:id/artifacts/:artifactId", async (request, reply) => {
+      const params = parseInput(z.object({ id: z.uuid(), artifactId: z.uuid() }), request.params);
+      const bytes = await service().artifact(requireOwner(request), params.id, params.artifactId);
+      return reply.header("cache-control", "private, no-store").header("x-content-type-options", "nosniff")
+        .type("image/png").send(bytes);
+    });
     secured.get("/api/v1/revisions/:id/files", async (request) => service().files(requireOwner(request), id(request)));
     secured.get("/api/v1/revisions/:id/file", async (request) => {
       const query = parseInput(z.strictObject({ path: z.string().min(1).max(240) }), request.query);

@@ -6,6 +6,26 @@ import { Readable } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { ApiFailure } from "../routes/errors.js";
 
+/**
+ * A provider that closes an SSE stream mid-response is a transient transport
+ * failure, not a client or configuration error. The trailing phrase is the
+ * vocabulary the Pi retry policy uses to classify premature stream endings, so
+ * a bounded retry is attempted instead of failing the whole run. The coupling is
+ * asserted by a regression test against the installed SDK.
+ */
+export const MODEL_RESPONSE_INTERRUPTED_MESSAGE = "MODEL_RESPONSE_INTERRUPTED: stream ended before a terminal response event";
+
+/**
+ * A provider that accepts the request (HTTP 200) and then stops sending bytes
+ * is stalling, not thinking: real reasoning content still arrives as deltas.
+ * Without an idle watchdog such a stall burns the whole request budget before it
+ * can be retried, so a stalled stream is cut early and classified as transient.
+ */
+export const MODEL_RESPONSE_STALLED_MESSAGE = "MODEL_RESPONSE_STALLED: stream timed out waiting for the next chunk";
+
+/** Longest tolerated silence between two streamed chunks. */
+export const MODEL_STREAM_IDLE_TIMEOUT_MS = 60_000;
+
 const blocked = new BlockList();
 for (const [network, prefix] of [
   ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8],
@@ -76,10 +96,13 @@ export async function validateModelEndpoint(value: string) {
 }
 
 /** One DNS result is validated and pinned to the TLS connection; redirects never follow. */
-export function createModelFetch(baseUrl: string, options: { timeoutMs?: number; network?: ModelNetwork } = {}): typeof globalThis.fetch {
+export function createModelFetch(baseUrl: string, options: { timeoutMs?: number; stallTimeoutMs?: number; network?: ModelNetwork } = {}): typeof globalThis.fetch {
   const base = endpoint(baseUrl);
   const network = options.network ?? publicNetwork;
   const timeoutMs = Math.min(300_000, Math.max(1_000, Number.isFinite(options.timeoutMs) ? options.timeoutMs! : 90_000));
+  // The idle watchdog must sit well below the request deadline and above any
+  // plausible pause between streamed deltas.
+  const stallTimeoutMs = Math.max(1, Math.min(options.stallTimeoutMs ?? Math.min(MODEL_STREAM_IDLE_TIMEOUT_MS, timeoutMs / 2), timeoutMs));
   return async (input, init) => {
     const request = new Request(input, init);
     const url = endpoint(request.url, true);
@@ -118,19 +141,33 @@ export function createModelFetch(baseUrl: string, options: { timeoutMs?: number;
         if (encoding) { responseHeaders.delete("content-encoding"); responseHeaders.delete("content-length"); }
         const limited = Readable.from((async function* () {
           let bytes = 0;
+          let stalled = false;
+          let watchdog: ReturnType<typeof setTimeout> | undefined;
+          const rearm = () => {
+            if (watchdog) clearTimeout(watchdog);
+            watchdog = setTimeout(() => { stalled = true; incoming.destroy(); }, stallTimeoutMs);
+            watchdog.unref?.();
+          };
+          rearm();
           try {
             for await (const chunk of stream) {
+              rearm();
               bytes += Buffer.byteLength(chunk);
               if (bytes > 4 * 1024 * 1024) throw new Error("Model response exceeds the limit");
               yield chunk;
             }
           } catch (error) {
             if (deadline.aborted && signal.reason === deadline.reason) throw new Error("MODEL_REQUEST_TIMEOUT");
+            // Our own idle watchdog, not the peer, decided this stream is dead.
+            if (stalled && !signal.aborted) throw new Error(MODEL_RESPONSE_STALLED_MESSAGE);
             // Node reports a peer's premature HTTP close as `aborted` too. It is
             // a stream failure, not evidence that our request deadline expired.
-            if (!signal.aborted && incoming.aborted) throw new Error("MODEL_RESPONSE_INTERRUPTED");
+            // The wording after the code keeps the Pi retry policy's transient
+            // classifier in charge of whether this attempt is retried; see
+            // MODEL_RESPONSE_INTERRUPTED_MESSAGE and its regression test.
+            if (!signal.aborted && incoming.aborted) throw new Error(MODEL_RESPONSE_INTERRUPTED_MESSAGE);
             throw error;
-          } finally { stream.destroy(); incoming.destroy(); outgoing.destroy(); }
+          } finally { if (watchdog) clearTimeout(watchdog); stream.destroy(); incoming.destroy(); outgoing.destroy(); }
         })());
         const responseBody = Readable.toWeb(limited) as ReadableStream<Uint8Array>;
         resolve(new Response([204, 205, 304].includes(status) ? null : responseBody, { status, headers: responseHeaders }));

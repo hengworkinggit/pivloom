@@ -1,0 +1,139 @@
+{
+  "at": "2026-09-22T11:48:37.358Z",
+  "scope": "Independent synthetic Chrome diagnostic; not product Reviewer evidence or E2E",
+  "runId": "c3950836-b862-4060-84dc-114af0836ba4",
+  "sandboxId": "bb2fb575-6a0f-413e-9bd2-038917ab999f",
+  "sessionId": "pivloom-c91ba42d-44bc-43cb-8771-10e49a5a8cdf",
+  "steps": [
+    {
+      "label": "initial",
+      "id": "8ae3f259-79c1-4f68-a467-9a633e8b6984",
+      "sessionId": "pivloom-c91ba42d-44bc-43cb-8771-10e49a5a8cdf",
+      "url": "http://127.0.0.1:4173/",
+      "tree": "- generic \"活动报名管理填写表单提交报名，数据保存在当前浏览器中报名表单姓名 *邮箱 *活动类别设计开发提交报名报名记录暂无报名记录，请通过上方表单提交报名。\" [ref=e1] clickable [onclick]\n  - heading \"活动报名管理\" [level=1, ref=e4]\n  - region \"报名表单\" [ref=e2]\n    - heading \"报名表单\" [level=2, ref=e5]\n    - textbox \"姓名 *\" [ref=e8]\n    - textbox \"邮箱 *\" [ref=e9]\n    - combobox \"活动类别\" [expanded=false, ref=e10]: 设计\n      - option \"设计\" [selected, ref=e12]\n      - option \"开发\" [ref=e13]\n    - button \"提交报名\" [ref=e11]\n  - region \"报名记录\" [ref=e3]\n    - heading \"报名记录\" [level=2, ref=e6]\n    - searchbox \"按姓名或邮箱搜索\" [ref=e7]",
+      "text": "活动报名管理\n\n填写表单提交报名，数据保存在当前浏览器中\n\n报名表单\n姓名 *\n邮箱 *\n活动类别\n设计\n开发\n提交报名\n报名记录\n\n暂无报名记录，请通过上方表单提交报名。",
+      "truncated": true,
+      "refs": {
+        "e1": {
+          "role": "generic",
+          "name": ""
+        },
+        "e11": {
+          "role": "button",
+          "name": "提交报名"
+        },
+        "e13": {
+          "role": "option",
+          "name": "开发"
+        },
+        "e2": {
+          "role": "region",
+          "name": "报名表单"
+        },
+        "e3": {
+          "role": "region",
+          "name": "报名记录"
+        },
+        "e7": {
+          "role": "searchbox",
+          "name": "按姓名或邮箱搜索"
+        },
+        "e8": {
+          "role": "textbox",
+          "name": "姓名 *"
+        },
+        "e9": {
+          "role": "textbox",
+          "name": "邮箱 *"
+        }
+      }
+    },
+    {
+      "label": "empty-submit",
+      "id": "b6caa298-3386-4c90-88f7-21ffb1fa7a67",
+      "sessionId": "pivloom-c91ba42d-44bc-43cb-8771-10e49a5a8cdf",
+      "url": "http://127.0.0.1:4173/",
+      "tree": "- generic \"活动报名管理填写表单提交报名，数据保存在当前浏览器中报名表单姓名 *请填写姓名邮箱 *请填写邮箱活动类别设计开发提交报名报名记录暂无报名记录，请通过上方表单提交报名。\" [ref=e1] clickable [onclick]\n  - heading \"活动报名管理\" [level=1, ref=e4]\n  - region \"报名表单\" [ref=e2]\n    - heading \"报名表单\" [level=2, ref=e5]\n    - textbox \"姓名 *\" [ref=e8]\n    - textbox \"邮箱 *\" [ref=e9]\n    - combobox \"活动类别\" [expanded=false, ref=e10]: 设计\n      - option \"设计\" [selected, ref=e12]\n      - option \"开发\" [ref=e13]\n    - button \"提交报名\" [ref=e11]\n  - region \"报名记录\" [ref=e3]\n    - heading \"报名记录\" [level=2, ref=e6]\n    - searchbox \"按姓名或邮箱搜索\" [ref=e7]",
+      "text": "活动报名管理\n\n填写表单提交报名，数据保存在当前浏览器中\n\n报名表单\n姓名 *\n\n请填写姓名\n\n邮箱 *\n\n请填写邮箱\n\n活动类别\n设计\n开发\n提交报名\n报名记录\n\n暂无报名记录，请通过上方表单提交报名。",
+      "truncated": true,
+      "refs": {
+        "e1": {
+          "role": "generic",
+          "name": ""
+        },
+        "e11": {
+          "role": "button",
+          "name": "提交报名"
+        },
+        "e13": {
+          "role": "option",
+          "name": "开发"
+        },
+        "e2": {
+          "role": "region",
+          "name": "报名表单"
+        },
+        "e3": {
+          "role": "region",
+          "name": "报名记录"
+        },
+        "e7": {
+          "role": "searchbox",
+          "name": "按姓名或邮箱搜索"
+        },
+        "e8": {
+          "role": "textbox",
+          "name": "姓名 *"
+        },
+        "e9": {
+          "role": "textbox",
+          "name": "邮箱 *"
+        }
+      }
+    },
+    {
+      "label": "fill-name-after-required-errors",
+      "id": "3c8a7540-73cb-40f9-b617-889a66bc53dd",
+      "sessionId": "pivloom-c91ba42d-44bc-43cb-8771-10e49a5a8cdf",
+      "url": "http://127.0.0.1:4173/",
+      "tree": "- generic \"活动报名管理填写表单提交报名，数据保存在当前浏览器中报名表单姓名 *邮箱 *请填写邮箱活动类别设计开发提交报名报名记录暂无报名记录，请通过上方表单提交报名。\" [ref=e1] clickable [onclick]\n  - heading \"活动报名管理\" [level=1, ref=e4]\n  - region \"报名表单\" [ref=e2]\n    - heading \"报名表单\" [level=2, ref=e5]\n    - textbox \"姓名 *\" [ref=e8]: 诊断姓名\n    - textbox \"邮箱 *\" [ref=e9]\n    - combobox \"活动类别\" [expanded=false, ref=e10]: 设计\n      - option \"设计\" [selected, ref=e12]\n      - option \"开发\" [ref=e13]\n    - button \"提交报名\" [ref=e11]\n  - region \"报名记录\" [ref=e3]\n    - heading \"报名记录\" [level=2, ref=e6]\n    - searchbox \"按姓名或邮箱搜索\" [ref=e7]",
+      "text": "活动报名管理\n\n填写表单提交报名，数据保存在当前浏览器中\n\n报名表单\n姓名 *\n邮箱 *\n\n请填写邮箱\n\n活动类别\n设计\n开发\n提交报名\n报名记录\n\n暂无报名记录，请通过上方表单提交报名。",
+      "truncated": true,
+      "refs": {
+        "e1": {
+          "role": "generic",
+          "name": ""
+        },
+        "e11": {
+          "role": "button",
+          "name": "提交报名"
+        },
+        "e13": {
+          "role": "option",
+          "name": "开发"
+        },
+        "e2": {
+          "role": "region",
+          "name": "报名表单"
+        },
+        "e3": {
+          "role": "region",
+          "name": "报名记录"
+        },
+        "e7": {
+          "role": "searchbox",
+          "name": "按姓名或邮箱搜索"
+        },
+        "e8": {
+          "role": "textbox",
+          "name": "姓名 *"
+        },
+        "e9": {
+          "role": "textbox",
+          "name": "邮箱 *"
+        }
+      }
+    }
+  ],
+  "closed": true
+}

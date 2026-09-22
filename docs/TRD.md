@@ -416,7 +416,7 @@ interface CommandHandle {
 - 应用源根目录 `/workspace/app`；检查者缓存/Chrome profile 位于另一个受控目录，浏览器工具不向模型开放目录写入。
 - 默认允许 React 原型所需的依赖；本轮避免原生模块和后端进程。改变依赖后生成并保存 lockfile，恢复时使用锁定安装。安装/构建脚本在沙箱执行。
 - 服务端最终 gate 固定执行类型检查、production build 和预览启动；不相信模型自行汇报的 exit code。记录具体命令、退出码和日志尾部。
-- 预览基于 build 产物运行在固定端口 4173，监听远端可访问地址；用SDK取得内部/proxy/4173端点，再由可信反向代理映射到独立预览origin；SDK端点本身不等于公开HTTPS入口。生产式预览减少 HMR 与检查中代码变化。
+- 预览基于 build 产物运行在固定端口 4173，监听远端可访问地址；用SDK取得内部/proxy/4173端点，再由可信反向代理映射到每个 Revision 独立的预览 origin；SDK端点本身不等于公开HTTPS入口。生产式预览减少 HMR 与检查中代码变化。
 - 生成代码不能覆写可信服务端 gate。若使用项目脚本，服务端先校验关键脚本或直接调用模板中锁定的构建入口；不能让模型把 `build` 改成空命令从而伪造通过。
 
 ### 7.3 文件与命令限制
@@ -436,6 +436,12 @@ Builder 的 shell 在隔离沙箱中可执行开发命令，**命令字符串过
 marker 是一致性诊断，不是对恶意生成代码的安全认证；可信来源仍是我们的调度记录和不可变快照。Reviewer 完成后再次核对文件哈希与绑定，若变更则 `REVISION_CHANGED_DURING_REVIEW`，不接受检查结果。
 
 前端 iframe `src` 只取后端返回的当前有效 PreviewBinding。使用独立来源及最小 sandbox 权限（运行脚本、表单和该来源存储）；不允许顶层导航，不给工作台 token，不开放任意 postMessage 命令桥。只有后端拥有生成预览地址的权限，用户/模型不能提交任意代理目标。
+
+每个 Revision 必须有独立 origin，不能只依靠同一来源下的 `/p/<revisionId>/` 或 cookie Path 隔离 localStorage。网关保留该路径，并在入口和资源路由同时核验 Host、路径 revision 与 capability；配置的基础主机不能直接读取预览。同一 Revision 恢复时保持域名稳定，新 Revision 不自动迁移旧来源的浏览器数据。
+
+本地开发使用 `PREVIEW_BASE_URL=http://localhost:45311`，返回 `http://<revisionId>.localhost:45311/p/<revisionId>/…`，工作台仍可使用原 localhost 来源。预览 cookie 为 host-only、HttpOnly、`SameSite=None; Secure`。2026-09-22 已通过独立 IAB 夹具验证：localhost 工作台内嵌两个不同 `.localhost` 来源，均能设置并使用该 cookie 完成认证；这仅证明当前 IAB 的受信回环兼容性，不等于真实产品预览回归通过。修复已部署到 `dev06-04`，真实产品回归仍待完成。
+
+公网预览使用 `https://<revisionId>.<configured-preview-host>`，与工作台保持不同 origin、相同 scheme 和 site（按实际可注册域判定，不能简单比较主机名末两段），cookie 为 host-only、HttpOnly、`SameSite=Lax; Secure`，不设置 Domain。`PREVIEW_BASE_URL` 不支持 IPv4/IPv6 字面量；不能把 IP 自动拼成域名。发布前必须验证预览子域 DNS、TLS 证书覆盖、同 site iframe cookie、Caddy 保留 Host 及前端 CSP，不能从 localhost 夹具结果推定公网可用。
 
 预览地址可能被直接访问，按非敏感 Demo 内容处理；不得把“私有项目 API”误解成临时公网预览具备同等访问控制。敏感应用部署与预览身份代理不在本轮范围。
 
@@ -832,7 +838,7 @@ URL 的 project ID 决定当前项目；页面 mount 后取 server snapshot，�
 
 ### 11.3 安全呈现与 iframe
 
-消息与日志按文本转义，Markdown 禁止任意 HTML 执行；源码只读展示不执行。外链新标签使用适当 opener 隔离。iframe 的 origin 与 APP_ORIGIN 分离，CSP frame-src 限定实际 OpenSandbox 预览来源集合；不得给整个工作台设置任意 `frame-src *` 作为长期解决方案。
+消息与日志按文本转义，Markdown 禁止任意 HTML 执行；源码只读展示不执行。外链新标签使用适当 opener 隔离。每个 Revision 的 iframe origin 与 APP_ORIGIN 及其他 Revision 分离，CSP frame-src 限定网关实际使用的预览子域集合及端口（本地 `.localhost`、公网受控预览域）；不得给整个工作台设置任意 `frame-src *` 作为长期解决方案。
 
 窄屏切换只改变预览容器宽度，不宣称模拟移动设备 UA/触摸/真实手机。完整工作台在小视口使用可切换区域，不让隐藏面板保留覆盖点击的透明层。
 
@@ -843,6 +849,8 @@ URL 的 project ID 决定当前项目；页面 mount 后取 server snapshot，�
 Compose 管理 `web`、`api`，反向代理复用已授权主机上现有的 Caddy，保留既有站点配置。Postgres/Auth/Storage优先裁剪自托管Supabase，服务凭据由部署过程生成；代码与浏览器使用通过G0验证的隔离沙箱。OpenSandbox Docker + gVisor已通过基础设施探针并部署内部服务，尚须Pi/Supabase联合验收。web 可使用 Next standalone 输出；需要一起复制 public 和静态资源，不能只复制最小 server.js 后漏样式。[Next output](https://nextjs.org/docs/app/api-reference/config/next-config-js/output)
 
 Caddy 在 Pivloom 域名下将 `/api/*` 转发到 API 的宿主回环端口，其余转发到 web 的宿主回环端口；端口在部署前检查后确定，避开已有服务占用的 3000 等端口。容器内部可分别使用 4000、3000，但宿主 Caddy 使用 `127.0.0.1:<独立映射端口>` 访问，不能依赖 Compose 内部服务名解析。API 保留完整前缀，SSE 不做响应缓存。官方对 `text/event-stream` 有即时 flush 处理，部署时仍用实际线上事件验证代理未缓冲，不靠配置文字认定成功。[Caddy streaming](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)
+
+预览子域使用独立 Caddy 路由转发到 PreviewGateway 回环端口，并保留原 Host 供网关核验。DNS 与证书须覆盖实际 `<revisionId>.<configured-preview-host>`；工作台与预览同 site、同为 HTTPS，仍通过不同主机名隔离来源。不能将所有 Revision 重新代理成工作台来源或一个共享预览来源。
 
 API **只部署一个 replica**，不进行滚动双实例执行，也不自动扩容。单实例 semaphore 与进程内 registry 不支持多活；若以后扩容，必须先换跨实例租约/队列与副作用控制。48h 范围不假装具备高可用。
 
@@ -857,7 +865,7 @@ API **只部署一个 replica**，不进行滚动双实例执行，也不自动�
 | `SUPABASE_URL` / server Storage key | api secret | 仅可信服务，日志脱敏 |
 | `DATABASE_URL` | api secret | 参数化 SQL、TLS、连接池；不进沙箱 |
 | `OPEN_SANDBOX_URL` / `OPEN_SANDBOX_API_KEY` | api config/secret | 仅可信backend访问回环或私有管理端点；部署代理生成Key |
-| `SANDBOX_IMAGE` / `PREVIEW_ORIGIN` | api/proxy config | 锁定工作镜像digest，预览独立origin；runtime由服务端固定为gVisor |
+| `SANDBOX_IMAGE` / `PREVIEW_BASE_URL` | api/proxy config | 锁定工作镜像digest；预览基址须为主机名，由网关派生每 Revision 独立 origin，本地 localhost、公网与 APP_ORIGIN 同 site/同 scheme，IP 不支持；runtime由服务端固定为gVisor |
 | 用户模型provider/baseUrl/modelId | 私有profile元数据 | 通过设置API校验归属、端点和协议 |
 | 用户模型API Key | 私有加密凭据 | 页面录入，服务端解密使用；不读取个人CLI授权 |
 | `MODEL_CREDENTIALS_ENCRYPTION_KEY` | api secret | 部署生成，独立于数据库保存，不发给浏览器或沙箱 |
@@ -884,19 +892,23 @@ API **只部署一个 replica**，不进行滚动双实例执行，也不自动�
 | 全局活动生成 | 1；满额返回 SERVICE_BUSY，明确未接受，不建隐形队列 |
 | 全局预览恢复 | 1；总 sandbox 容量也必须允许 |
 | 活跃 sandbox | 与Supabase联合实测后设置硬上限，不沿用旧候选值4；须覆盖旧成功预览+新候选的共存，不驱逐正在检查的候选 |
-| 一次 run 墙钟上限 | 10 分钟；包含所有角色与修复 |
-| 一次模型请求 | 90 秒；受 run 剩余时间再次限制 |
+| 一次 run 墙钟上限 | 20 分钟；包含所有角色与修复 |
+| 一次模型请求 | 120 秒；受 run 剩余时间再次限制 |
 | 单安装 / build | 120 / 90 秒；都受外层 deadline 限制 |
-| 单浏览器动作 | 15 秒；Reviewer 每 attempt 上限 90 秒 |
+| 单浏览器动作 | 15 秒；Reviewer 每 attempt 上限 480 秒，仍受整个 run 的 20 分钟上限约束 |
 | 修复轮数 | 2；不是至少保证执行两轮 |
 | 工具调用 | 每 run 总计 80 次；计入失败/重试 |
-| Token | 每 run 初始 60,000 输入+输出 token 总预算；实际 provider 用量记录，缺失字段不当作 0 |
+| Token | 每 run 校准后 300,000 输入+输出 token 总预算；跨角色、纠正和修复轮共用一个账本，可设置更低值；实际 provider 用量记录，缺失字段不当作 0 |
 | 日额度 | 每账号默认 20 个 accepted run，可由维护者配置；不以 UI 隐藏按钮替代服务限制 |
 | snapshot / 文件 / 文件数 | 5 MiB / 512 KiB / 200 |
 | 日志 / 截图 | 每 run 日志最多 2 MiB；每张图最多 2 MiB、每 attempt 最多 6 张 |
 | 预览有效期 | 初始 15 分钟 idle 目标；实际 SDK lifetime 与可续期能力在 G0 固定；到期可恢复 |
 
 Token 预算按已知 usage 和每次调用预估/预留做约束；在途调用可能产生已授权范围内的少量超额，不能声称精确计费硬截断。任务 deadline 到达立即停止新调用并清理。金额预算只有配置了准确模型价格才计算，不能用未知价格给出虚假总费用。
+
+2026-09-22 首次三角色集成校准：#7 A 首轮真实任务的 Coordinator、Builder、Reviewer 分别报告 5,313、27,511、17,882 token，共 50,706 token、11 次模型请求；后续请求的完整输入与最大输出预留已超出原 60,000 上限，任务以 TOKEN_BUDGET_EXCEEDED 结束，并非浏览器不可用。考虑完整行为逐项操作约 20 轮的容量估计，将每 run 上限校准为 200,000，Reviewer 每 attempt 校准为 300 秒；每请求 90 秒、整个 run 10 分钟及工具 80 次不变。仍按最终请求正文预留，未知、错误及中止用量保守保留；这次调整不表示 #7 真实 E2E 已通过。
+
+2026-09-22 第二次校准（依据真实 run 墙钟，取代上一条中的时间与 Token 数值）：一次真实三角色 run 实测 Coordinator 73 秒、Builder 207 秒、Reviewer 290 秒才走到检查收尾，合计约 570 秒，已贴着 600 秒上限；Reviewer 的 14 次请求平均约 20 秒，由模型固定输出的 thinking 决定，且 `max_tokens` 无法关闭（供应商对该模型拒绝 `thinking:{type:'disabled'}`）。原来的 90 秒单请求上限会把正在正常收敛的规划请求判成失败，300 秒 Reviewer 上限也不足以覆盖 5 个行为的逐项操作。据此校准：一次 run 20 分钟、单次模型请求 120 秒、Reviewer 每 attempt 480 秒、每 run Token 300,000；工具 80 次不变。同时启用有上限的 provider 瞬态重试（`maxRetries=2`、`baseDelayMs=1000`、单次退避上限 8 秒，仅限 SDK 判定为瞬态的 429/5xx/网络与超时类错误，配额、计费与鉴权失败快速失败），每次尝试都单独在共享账本上预留与计量。所有数值仍是上限，不是目标耗时；本次校准不表示 #7 真实 E2E 已通过。
 
 资源到期策略必须实际实现：至少每分钟扫本服务登记的过期候选/预览并清理；OpenSandbox服务端TTL作为兜底（最小60秒；本次配置最大1800秒）。离开工作台不立即停止用户正在生成的任务；也不能让无人使用的 Chrome 和预览无限存活。
 

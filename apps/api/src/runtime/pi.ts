@@ -25,6 +25,7 @@ import {
 } from "./types.js";
 import { createToolOutput } from "./tool-output.js";
 import { createRoleTokenTracker, type RunTokenBudget, type TokenUsage } from "./token-budget.js";
+import { MODEL_REQUEST_TIMEOUT_MS, providerRetrySettings } from "./budgets.js";
 
 export interface BuilderInput {
   workspace: WorkspacePort;
@@ -272,7 +273,7 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
     );
     const settings = SettingsManager.inMemory({
       compaction: { enabled: false },
-      retry: { enabled: false, provider: { timeoutMs: 90000, maxRetries: 0 } },
+      retry: providerRetrySettings(),
       cacheWarming: "off",
       defaultProjectTrust: "never",
     });
@@ -320,7 +321,7 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
         ...options,
         fetch: modelFetch,
         transport: "sse",
-        timeoutMs: 90000,
+        timeoutMs: MODEL_REQUEST_TIMEOUT_MS,
         maxRetries: 0,
         maxTokens,
         onResponse: async (response) => {
@@ -359,6 +360,17 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
           ).catch(() => {});
         streamedCharacters += delta.length;
       }
+    });
+    session.subscribe((event) => {
+      if (event.type !== "auto_retry_start" || signal.aborted) return;
+      void emit({
+        id: randomUUID(),
+        at: new Date().toISOString(),
+        type: "model.stream.started",
+        stage: "generating",
+        requestNumber,
+        message: `模型第 ${requestNumber} 轮第 ${event.attempt}/${event.maxAttempts} 次瞬态失败，${event.delayMs}ms 后重试`,
+      }).catch(() => {});
     });
     session.agent.shouldStopAfterTurn = () => calls.length >= maxToolCalls;
     signal.addEventListener("abort", abort, { once: true });

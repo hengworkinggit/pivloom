@@ -14,7 +14,7 @@ https://github.com/hengworkinggit/pivloom/issues/1
 
 ## Implementation decisions
 
-- 服务端集中预算：项目生成1、全局生成1、恢复1、sandbox上限须通过Supabase联合容量校准（覆盖旧预览+新候选共存，不沿用4）；initial run10min、模型90s、install120s/build90s、browser动作15s/review90s；工具80次、token60000、每账号日accepted20；均配置且G0校准。
+- 服务端集中预算：项目生成1、全局生成1、恢复1、sandbox上限须通过Supabase联合容量校准（覆盖旧预览+新候选共存，不沿用4）；run10min、模型90s、install120s/build90s、browser动作15s/review300s；工具80次、token200000、每账号日accepted20；Reviewer/Token已按2026-09-22首次三角色集成校准，依据见TRD §12.4，其余限制按G0校准。
 - 未接受容量满503+Retry-After，额度429；只有accepted run计日额度，重试是新accepted run，幂等重放不二次计数；不建隐形队列。
 - 统一跨角色预算守卫和deadline触发既有取消/清理路径；缺usage不能当0，token只做预留+实际计量约束，不宣称精确金额硬截断。
 - 每分钟扫描已登记过期资源，服务端TTL兜底；不能驱逐活动检查候选或误杀current；快照5MiB/200文件、单文件512KiB，日志/工件有上限。

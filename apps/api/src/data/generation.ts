@@ -3,6 +3,7 @@ import type { PoolClient, QueryResultRow } from "pg";
 import {
   CreateRunRequestSchema, ProjectMessageSchema, ProjectSummarySchema, RevisionSchema, RunEventSchema, RunSchema,
   HandoffSchema, PlanSchema, PlanningContextSchema, RoleRunSchema, RoleUsageSchema, ClarificationRequestSchema, preservesPreviousBehavior,
+  ReviewBindingSchema, CheckSchema, ReviewArtifactSchema, ReviewResultSchema, type ReviewBinding, type Check,
   TerminalRunStates, type CreateRunRequest, type ProjectMessage, type ProjectSummary, type Revision,
   type Run, type RunEvent, type RunEventType, type RunPhase, type RunState, type RoleRun, type RoleUsage, type Role, type Plan, type PlanningContext, type Handoff,
 } from "@pivloom/contracts";
@@ -11,6 +12,9 @@ import type { PivloomDatabase } from "./database.js";
 import type { ModelProfileService } from "../models/service.js";
 import { ApiFailure } from "../routes/errors.js";
 import { assertVerifiedSourceSnapshot, type SourceReference, type VerifiedSourceSnapshot } from "../storage/source.js";
+import { assertVerifiedReviewReceipt, type VerifiedReviewReceipt } from "../generation/review.js";
+import type { StoredArtifact } from "../storage/artifacts.js";
+import { MODEL_REQUEST_TIMEOUT_MS, RUN_DEADLINE_MS, RUN_TOOL_LIMIT } from "../runtime/budgets.js";
 
 export interface StoredRun extends Run {
   ownerId: string;
@@ -49,6 +53,9 @@ export interface RoleReference { roleRunId: string; attempt: number; role: Role 
 export interface SubmitPlanInput { roleRunId: string; attempt: number; plan: Plan; usage?: RoleUsage }
 export interface ClarificationInput { roleRunId: string; attempt: number; question: string; usage?: RoleUsage }
 export interface PlanSubmission { run: StoredRun; coordinator: StoredRoleRun; builder: StoredRoleRun; handoff: Handoff }
+export interface ReviewerExecution { role: StoredRoleRun; scope: ReviewBinding; handoff: Handoff }
+export interface ReviewCompletion { run: StoredRun; check: Check; revision: StoredRevision }
+export interface StoredCheckArtifact { artifact: StoredArtifact; source: SourceReference; checkId: string }
 export interface CandidateInput {
   source: VerifiedSourceSnapshot; buildStatus: "passed" | "failed"; build: Record<string, unknown>;
 }
@@ -76,6 +83,12 @@ export interface GenerationRepository {
   requestClarification(ownerId: string, runId: string, input: ClarificationInput): Promise<{ run: StoredRun; coordinator: StoredRoleRun }>;
   startBuilder(ownerId: string, runId: string): Promise<StoredRoleRun>;
   completeBuilder(ownerId: string, runId: string, input?: { summary?: string; usage?: RoleUsage }): Promise<StoredRoleRun>;
+  queueReviewer(ownerId: string, runId: string, input: { revisionId: string }): Promise<ReviewerExecution>;
+  startReviewer(ownerId: string, runId: string): Promise<ReviewerExecution>;
+  finishReview(ownerId: string, runId: string, input: { receipt: VerifiedReviewReceipt; usage?: RoleUsage }): Promise<ReviewCompletion>;
+  getCheck(ownerId: string, checkId: string): Promise<Check>;
+  getRunCheck(ownerId: string, runId: string): Promise<Check | null>;
+  getArtifact(ownerId: string, artifactId: string): Promise<StoredCheckArtifact>;
   saveCandidate(ownerId: string, runId: string, input: CandidateInput): Promise<StoredRevision>;
   getRevision(ownerId: string, revisionId: string): Promise<StoredRevision>;
   registerSandbox(ownerId: string, runId: string, input: { sandboxId: string; expiresAt: string; state?: "creating" | "active" }): Promise<StoredSandboxBinding>;
@@ -126,7 +139,7 @@ function storedRevision(row: Row): StoredRevision {
   } };
 }
 function storedRole(row: Row): StoredRoleRun {
-  const input = row.role === "builder" ? HandoffSchema.safeParse(row.input_json) : null;
+  const input = row.role === "builder" || row.role === "reviewer" ? HandoffSchema.safeParse(row.input_json) : null;
   return { ...RoleRunSchema.parse({ id: row.id, runId: row.run_id, role: row.role, attempt: row.attempt, sessionId: row.session_id, state: row.state,
     predecessorId: row.predecessor_id ?? null, startedAt: row.started_at ? date(row.started_at).toISOString() : null,
     finishedAt: row.finished_at ? date(row.finished_at).toISOString() : null }), input: input?.success ? input.data : null };
@@ -147,6 +160,23 @@ function roleUsage(value: RoleUsage | undefined): RoleUsage | Record<string, nev
   const parsed = RoleUsageSchema.safeParse(value);
   if (!parsed.success) throw new ApiFailure(422, "INVALID_ROLE_USAGE", "角色用量格式无效。");
   return parsed.data;
+}
+function reviewerExecution(row: Row): ReviewerExecution {
+  return { role: storedRole(row), scope: ReviewBindingSchema.parse(row.review_binding_json), handoff: HandoffSchema.parse(row.input_json) };
+}
+const storedArtifactSchema = ReviewArtifactSchema.extend({ key: z.string().min(1).max(512), bytes: z.number().int().min(8).max(2 * 1024 * 1024) });
+const reviewEvidenceSchema = z.array(z.strictObject({
+  id: z.uuid(), behaviorId: z.string().regex(/^B(?:0[1-9]|[1-9]\d)$/).nullable(),
+  action: z.enum(["click", "fill", "select", "press", "scroll", "reload"]).nullable(), observationId: z.uuid(),
+  key: z.enum(["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp"]).optional(),
+  url: z.url().max(4000), tree: z.string().max(12000), text: z.string().max(12000), truncated: z.boolean(),
+})).max(80);
+function storedCheck(row: Row): Check {
+  return CheckSchema.parse({ id: row.id, runId: row.run_id, roleRunId: row.role_run_id, attempt: row.attempt,
+    revisionId: row.revision_id, sourceHash: row.source_hash, sandboxId: row.sandbox_id, browserSessionId: row.browser_session_id,
+    verdict: row.verdict, items: row.items_json, summary: row.summary,
+    artifacts: z.array(storedArtifactSchema).parse(row.artifacts_json).map(({ id, mimeType, sha256 }) => ({ id, mimeType, sha256 })),
+    createdAt: date(row.created_at).toISOString() });
 }
 
 export function createGenerationRepository(
@@ -186,7 +216,8 @@ export function createGenerationRepository(
   async function lockedRun(client: PoolClient, ownerId: string, runId: string, active = true) {
     const initial = await run(client, ownerId, runId);
     const parent = await project(client, ownerId, initial.project_id, true);
-    const current = await run(client, ownerId, runId);
+    const current = (await client.query("SELECT * FROM nano.runs WHERE owner_id=$1 AND id=$2 FOR UPDATE", [ownerId, runId])).rows[0];
+    if (!current) throw notFound();
     if (active && (TerminalRunStates.has(current.state) || current.state === "cancel_requested" || parent.operation_id !== runId)) {
       throw new ApiFailure(409, "RUN_NOT_ACTIVE", "这个任务已停止接受执行结果。");
     }
@@ -221,7 +252,7 @@ export function createGenerationRepository(
     if (date(current.deadline_at).getTime() <= Date.now()) throw new ApiFailure(409, "RUN_TIMEOUT", "任务已达到时间上限。");
     if (input.attempt !== current.attempt) throw new ApiFailure(409, "STALE_ATTEMPT", "执行结果来自旧的尝试。");
     if (!role || role.id !== input.roleRunId || role.role !== input.role || role.attempt !== input.attempt) throw new ApiFailure(409, "STALE_ROLE", "执行结果来自其它角色或尝试。");
-    const currentId = input.role === "coordinator" ? current.coordinator_role_run_id : input.role === "builder" ? current.builder_role_run_id : null;
+    const currentId = input.role === "coordinator" ? current.coordinator_role_run_id : input.role === "builder" ? current.builder_role_run_id : current.reviewer_role_run_id;
     const state = input.role === "coordinator" ? "planning" : input.role === "builder" ? "building" : "verifying";
     if (role.state !== "running" || currentId !== role.id || current.state !== state) throw new ApiFailure(409, "ROLE_NOT_ACTIVE", "这个角色已停止接受执行结果。");
   }
@@ -316,10 +347,11 @@ export function createGenerationRepository(
           const inserted = await client.query(`INSERT INTO nano.runs
             (id,owner_id,project_id,idempotency_key,request_hash,request_text,kind,expected_current_revision_id,base_revision_id,
              model_profile_id,model_config_version,credential_lease_id,coordinator_role_run_id,state,phase,budget_json,deadline_at,executor_boot_id,planning_context_json,parent_run_id)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,$11,$12,'accepted','plan',$13,now()+interval '10 minutes',$14,$15,$16) RETURNING *`,
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,$11,$12,'accepted','plan',$13,now()+make_interval(secs=>$17),$14,$15,$16) RETURNING *`,
           [id, ownerId, projectId, idempotencyKey, requestHash, normalized.text, normalized.parentRunId ? "clarify" : parent.current_revision_id ? "modify" : "generate",
             normalized.expectedCurrentRevisionId, normalized.modelProfileId, normalized.modelConfigVersion, lease.id, roleId,
-            { deadlineMs: 600_000, modelTimeoutMs: 90_000, maxToolCalls: 80 }, options.executorBootId, context, normalized.parentRunId]);
+            { deadlineMs: RUN_DEADLINE_MS, modelTimeoutMs: MODEL_REQUEST_TIMEOUT_MS, maxToolCalls: RUN_TOOL_LIMIT },
+            options.executorBootId, context, normalized.parentRunId, RUN_DEADLINE_MS / 1000]);
           await client.query(`INSERT INTO nano.role_runs (id,owner_id,project_id,run_id,role,attempt,session_id,state,input_json)
             VALUES ($1,$2,$3,$4,'coordinator',0,$5,'queued',$6)`, [roleId, ownerId, projectId, id, randomUUID(), context]);
           await client.query("INSERT INTO nano.messages (owner_id,project_id,run_id,kind,content) VALUES ($1,$2,$3,'user',$4)", [ownerId, projectId, id, normalized.text]);
@@ -451,8 +483,8 @@ export function createGenerationRepository(
         if (input.roleUsage) {
           const usage = roleUsage(input.roleUsage.usage);
           const role = await client.query(`SELECT id,state FROM nano.role_runs WHERE owner_id=$1 AND run_id=$2 AND id=$3 AND attempt=$4
-            AND ((role='coordinator' AND id=$5) OR (role='builder' AND id=$6))`,
-          [ownerId, runId, input.roleUsage.roleRunId, current.attempt, current.coordinator_role_run_id, current.builder_role_run_id]);
+            AND ((role='coordinator' AND id=$5) OR (role='builder' AND id=$6) OR (role='reviewer' AND id=$7))`,
+          [ownerId, runId, input.roleUsage.roleRunId, current.attempt, current.coordinator_role_run_id, current.builder_role_run_id, current.reviewer_role_run_id]);
           if (!role.rows[0]) throw new ApiFailure(409, "STALE_ROLE", "执行结果来自其它角色或尝试。");
           // A later snapshot failure must not replace usage already committed by a successful role.
           if (role.rows[0].state === "running") await client.query(`UPDATE nano.role_runs SET usage_json=$4
@@ -500,6 +532,157 @@ export function createGenerationRepository(
         [ownerId, current.builder_role_run_id, { summary: input.summary?.slice(0, 4000) ?? null }, roleUsage(input.usage)]);
       await event(client, current, { type: "role.completed", roleRunId: current.builder_role_run_id, payload: { role: "builder", state: "succeeded", summary: input.summary?.slice(0, 4000) ?? null } });
       return storedRole(updated.rows[0]);
+    }),
+    queueReviewer: (ownerId, runId, input) => owned(ownerId, async (client) => {
+      const { current, parent } = await lockedRun(client, ownerId, runId);
+      if (date(current.deadline_at).getTime() <= Date.now()) throw new ApiFailure(409, "RUN_TIMEOUT", "任务已达到时间上限。");
+      if (parent.current_revision_id !== current.expected_current_revision_id) throw new ApiFailure(409, "STALE_BASE", "当前版本已经变化，不能继续检查。");
+      const saved = await revision(client, ownerId, input.revisionId);
+      if (saved.run_id !== runId || saved.project_id !== current.project_id || saved.attempt !== current.attempt
+        || current.result_revision_id !== saved.id || saved.build_status !== "passed" || saved.status !== "candidate") {
+        throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "候选版本尚未通过构建或与当前任务不匹配。");
+      }
+      const binding = (await client.query(`SELECT * FROM nano.sandboxes WHERE owner_id=$1 AND run_id=$2 AND attempt=$3
+        AND revision_id=$4 AND source_hash=$5 AND purpose='candidate-preview' AND state='active' AND expires_at>now()`,
+      [ownerId, runId, current.attempt, saved.id, saved.source_hash])).rows[0];
+      if (!binding) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "没有可供检查的有效候选预览。");
+      if (current.reviewer_role_run_id) {
+        const existing = (await client.query("SELECT * FROM nano.role_runs WHERE owner_id=$1 AND run_id=$2 AND id=$3", [ownerId, runId, current.reviewer_role_run_id])).rows[0];
+        if (existing?.state !== "queued" || current.state !== "verifying") throw new ApiFailure(409, "ROLE_NOT_ACTIVE", "检查者交接已经执行或失效。");
+        const execution = reviewerExecution(existing);
+        if (execution.scope.revisionId !== saved.id || execution.scope.sandboxId !== binding.remote_id) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "已保存的检查交接与预览不匹配。");
+        return execution;
+      }
+      const builder = (await client.query("SELECT * FROM nano.role_runs WHERE owner_id=$1 AND run_id=$2 AND id=$3 AND role='builder' AND attempt=$4", [ownerId, runId, current.builder_role_run_id, current.attempt])).rows[0];
+      if (current.state !== "building" || builder?.state !== "succeeded") throw new ApiFailure(409, "ROLE_NOT_ACTIVE", "工程师尚未完成，不能交给检查者。");
+      const id = randomUUID();
+      const scope = ReviewBindingSchema.parse({ runId, roleRunId: id, attempt: current.attempt, revisionId: saved.id,
+        sourceHash: saved.source_hash, sandboxId: binding.remote_id, browserSessionId: `pivloom-${randomUUID()}` });
+      const handoff = HandoffSchema.parse({ runId, fromRoleRunId: builder.id, toRole: "reviewer", attempt: current.attempt,
+        baseRevisionId: current.base_revision_id, expectedRevisionId: saved.id, sourceHash: saved.source_hash,
+        plan: PlanSchema.parse(current.plan_json), task: "在绑定的候选预览中实际操作并检查计划行为，记录动作后的观察。", artifactIds: [] });
+      const inserted = await client.query(`INSERT INTO nano.role_runs(id,owner_id,project_id,run_id,predecessor_id,role,attempt,session_id,state,input_json,review_binding_json)
+        VALUES($1,$2,$3,$4,$5,'reviewer',$6,$7,'queued',$8,$9) RETURNING *`,
+      [id, ownerId, current.project_id, runId, builder.id, current.attempt, randomUUID(), handoff, scope]);
+      const changed = await client.query("UPDATE nano.runs SET reviewer_role_run_id=$3,state='verifying',phase='review' WHERE owner_id=$1 AND id=$2 RETURNING *", [ownerId, runId, id]);
+      await event(client, changed.rows[0], { type: "run.phase", payload: { state: "verifying", phase: "review" } });
+      return reviewerExecution(inserted.rows[0]);
+    }),
+    startReviewer: (ownerId, runId) => owned(ownerId, async (client) => {
+      const { current } = await lockedRun(client, ownerId, runId);
+      if (date(current.deadline_at).getTime() <= Date.now()) throw new ApiFailure(409, "RUN_TIMEOUT", "任务已达到时间上限。");
+      const prior = (await client.query("SELECT * FROM nano.role_runs WHERE owner_id=$1 AND run_id=$2 AND id=$3 AND role='reviewer' AND attempt=$4", [ownerId, runId, current.reviewer_role_run_id, current.attempt])).rows[0];
+      if (current.state !== "verifying" || !prior || !["queued", "running"].includes(prior.state)) throw new ApiFailure(409, "ROLE_NOT_ACTIVE", "检查者尚未排入或已经结束。");
+      const execution = reviewerExecution(prior);
+      const binding = (await client.query(`SELECT id FROM nano.sandboxes WHERE owner_id=$1 AND run_id=$2 AND attempt=$3
+        AND revision_id=$4 AND source_hash=$5 AND remote_id=$6 AND state='active' AND purpose='candidate-preview' AND expires_at>now()`,
+      [ownerId, runId, current.attempt, execution.scope.revisionId, execution.scope.sourceHash, execution.scope.sandboxId])).rows[0];
+      if (!binding) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查者绑定的预览已不可用。");
+      if (prior.state === "running") return execution;
+      const updated = await client.query("UPDATE nano.role_runs SET state='running',started_at=now() WHERE owner_id=$1 AND id=$2 RETURNING *", [ownerId, prior.id]);
+      await event(client, current, { type: "role.started", roleRunId: prior.id, payload: { role: "reviewer", phase: "review" } });
+      return reviewerExecution(updated.rows[0]);
+    }),
+    finishReview: async (ownerId, runId, input) => {
+      const { receipt } = input;
+      assertVerifiedReviewReceipt(receipt);
+      if (receipt.source.ownerId !== ownerId) throw notFound();
+      const binding = ReviewBindingSchema.parse(receipt.binding);
+      const result = ReviewResultSchema.parse(receipt.result);
+      const artifacts = z.array(storedArtifactSchema).max(6).parse(receipt.artifacts);
+      const evidence = reviewEvidenceSchema.parse(receipt.evidence);
+      boundedJson({ evidence }, 512 * 1024);
+      if (receipt.chromeClosed !== true || binding.runId !== runId || result.revisionId !== binding.revisionId
+        || result.sourceHash !== binding.sourceHash) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查结果尚未完成会话关闭或版本校验。");
+      return owned(ownerId, async (client) => {
+        const { current, parent } = await lockedRun(client, ownerId, runId);
+        const role = await activeRole(client, current, { roleRunId: binding.roleRunId, attempt: binding.attempt, role: "reviewer" });
+        const storedBinding = ReviewBindingSchema.parse(role.review_binding_json);
+        if (Object.keys(storedBinding).some((key) => Reflect.get(storedBinding, key) !== Reflect.get(binding, key))) {
+          throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查结果来自其它版本、沙箱或浏览器会话。");
+        }
+        if (parent.current_revision_id !== current.expected_current_revision_id) throw new ApiFailure(409, "STALE_BASE", "当前成功版本已经变化，未提交此次检查。");
+        const saved = await revision(client, ownerId, binding.revisionId);
+        if (saved.run_id !== runId || saved.project_id !== current.project_id || saved.attempt !== current.attempt
+          || current.result_revision_id !== saved.id || saved.status !== "candidate" || saved.source_hash !== binding.sourceHash
+          || receipt.source.projectId !== saved.project_id || receipt.source.revisionId !== saved.id
+          || receipt.source.sourceHash !== saved.source_hash || receipt.source.key !== saved.source_key) {
+          throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查结果或已验证源码对象与当前候选不一致。");
+        }
+        const build = saved.build_json;
+        if (saved.build_status !== "passed" || build?.schemaVersion !== 1 || build.sourceHash !== saved.source_hash
+          || build.typecheck?.exitCode !== 0 || build.build?.exitCode !== 0) throw new ApiFailure(409, "BUILD_NOT_VERIFIED", "候选缺少与源码匹配的可信构建记录。");
+        const sandbox = (await client.query(`SELECT * FROM nano.sandboxes WHERE owner_id=$1 AND run_id=$2 AND attempt=$3
+          AND remote_id=$4 AND revision_id=$5 AND source_hash=$6 AND purpose='candidate-preview' AND state='active' AND expires_at>now()`,
+        [ownerId, runId, binding.attempt, binding.sandboxId, saved.id, saved.source_hash])).rows[0];
+        if (!sandbox) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查结果绑定的候选预览已经失效。");
+        const plan = PlanSchema.parse(current.plan_json);
+        const byBehavior = new Map(plan.behaviors.map((behavior) => [behavior.id, behavior]));
+        const observations = new Map(evidence.map((observation) => [observation.id, observation]));
+        const artifactIds = new Set(artifacts.map((artifact) => artifact.id));
+        if (observations.size !== evidence.length || artifactIds.size !== artifacts.length) throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "检查证据标识重复。");
+        for (const artifact of artifacts) {
+          if (artifact.key !== `${ownerId}/${saved.project_id}/${saved.id}/checks/${artifact.id}.png`) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查工件不属于当前候选。");
+        }
+        for (const item of result.items) {
+          const behavior = byBehavior.get(item.behaviorId);
+          if (!behavior || item.expected !== behavior.expected || item.screenshotIds.some((id) => !artifactIds.has(id))
+            || item.observationEventIds.some((id) => observations.get(id)?.behaviorId !== item.behaviorId)
+            || item.verdict !== "blocked" && !item.observationEventIds.some((id) => {
+              const observation = observations.get(id);
+              return observation?.action && observation.action !== "scroll" && !(observation.action === "press" && observation.key === "Tab");
+            })) {
+            throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "检查结果缺少相同目标的实际动作及后续观察。");
+          }
+        }
+        const verdict = !receipt.markerVerified || result.items.some((item) => item.verdict === "blocked") ? "blocked"
+          : result.items.some((item) => item.verdict === "failed") ? "failed" : "passed";
+        if (verdict === "passed" && plan.behaviors.some((behavior) => behavior.required && !result.items.some((item) => item.behaviorId === behavior.id && item.verdict === "passed"))) {
+          throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "仍有必需行为未完成检查。");
+        }
+        const check = (await client.query(`INSERT INTO nano.checks(id,owner_id,project_id,run_id,role_run_id,attempt,revision_id,source_hash,sandbox_id,browser_session_id,verdict,items_json,artifacts_json,evidence_json,summary)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+        [randomUUID(), ownerId, current.project_id, runId, role.id, binding.attempt, saved.id, binding.sourceHash, binding.sandboxId,
+          binding.browserSessionId, verdict, JSON.stringify(result.items), JSON.stringify(artifacts), JSON.stringify(evidence), result.summary])).rows[0];
+        const publicCheck = storedCheck(check);
+        await client.query("UPDATE nano.role_runs SET state=$3,finished_at=now(),output_json=$4,usage_json=$5 WHERE owner_id=$1 AND id=$2",
+          [ownerId, role.id, verdict === "blocked" ? "failed" : "succeeded", result, roleUsage(input.usage)]);
+        const changedRevision = (await client.query("UPDATE nano.revisions SET status=$3 WHERE owner_id=$1 AND id=$2 RETURNING *", [ownerId, saved.id, verdict === "passed" ? "accepted" : verdict === "failed" ? "rejected" : "candidate"])).rows[0];
+        const state = verdict === "passed" ? "completed" : verdict === "failed" ? "needs_changes" : "failed";
+        const changed = (await client.query(`UPDATE nano.runs SET state=$3,phase='persist',cleanup_state='clear',summary=$4,
+          error_code=$5,error_message=$6,error_retryable=$7,finished_at=now() WHERE owner_id=$1 AND id=$2 RETURNING *`,
+        [ownerId, runId, state, result.summary, verdict === "blocked" ? "CHECK_BLOCKED" : null, verdict === "blocked" ? result.summary : null, verdict === "blocked" ? true : null])).rows[0];
+        if (verdict === "passed") {
+          await client.query("UPDATE nano.projects SET current_revision_id=$3 WHERE owner_id=$1 AND id=$2", [ownerId, current.project_id, saved.id]);
+          await client.query("UPDATE nano.sandboxes SET purpose='preview' WHERE owner_id=$1 AND id=$2", [ownerId, sandbox.id]);
+        }
+        await client.query("INSERT INTO nano.messages(owner_id,project_id,run_id,kind,content) VALUES($1,$2,$3,'result',$4)", [ownerId, current.project_id, runId, result.summary]);
+        await models.releaseInTransaction(client, ownerId, current.credential_lease_id);
+        await client.query("UPDATE nano.projects SET operation_kind=NULL,operation_id=NULL,operation_started_at=NULL,updated_at=now() WHERE owner_id=$1 AND id=$2 AND operation_id=$3", [ownerId, current.project_id, runId]);
+        await event(client, changed, { type: "role.completed", roleRunId: role.id, payload: { role: "reviewer", state: verdict === "blocked" ? "failed" : "succeeded", summary: result.summary } });
+        await event(client, changed, { type: "check.completed", roleRunId: role.id, payload: { checkId: check.id, revisionId: saved.id, sourceHash: saved.source_hash, verdict, summary: result.summary } });
+        await event(client, changed, { type: "run.finished", payload: { state, revisionId: saved.id, checkId: check.id } });
+        return { run: storedRun(changed), check: publicCheck, revision: storedRevision(changedRevision) };
+      });
+    },
+    getCheck: (ownerId, checkId) => owned(ownerId, async (client) => {
+      const row = (await client.query("SELECT * FROM nano.checks WHERE owner_id=$1 AND id=$2", [ownerId, checkId])).rows[0];
+      if (!row) throw notFound();
+      return storedCheck(row);
+    }),
+    getRunCheck: (ownerId, runId) => owned(ownerId, async (client) => {
+      await run(client, ownerId, runId);
+      const row = (await client.query("SELECT * FROM nano.checks WHERE owner_id=$1 AND run_id=$2 ORDER BY attempt DESC LIMIT 1", [ownerId, runId])).rows[0];
+      return row ? storedCheck(row) : null;
+    }),
+    getArtifact: (ownerId, artifactId) => owned(ownerId, async (client) => {
+      if (!z.uuid().safeParse(artifactId).success) throw notFound();
+      const row = (await client.query(`SELECT c.id AS check_id,c.revision_id,a.artifact FROM nano.checks c
+        CROSS JOIN LATERAL jsonb_array_elements(c.artifacts_json) a(artifact)
+        WHERE c.owner_id=$1 AND a.artifact->>'id'=$2`, [ownerId, artifactId])).rows[0];
+      if (!row) throw notFound();
+      const saved = storedRevision(await revision(client, ownerId, row.revision_id));
+      return { artifact: storedArtifactSchema.parse(row.artifact), source: saved.source, checkId: row.check_id };
     }),
     saveCandidate: async (ownerId, runId, input) => {
       assertVerifiedSourceSnapshot(input.source);

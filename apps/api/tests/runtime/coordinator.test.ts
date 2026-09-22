@@ -133,7 +133,7 @@ test.each(["structured", "plain-text"] as const)("cache-inclusive usage blocks a
     kind === "structured" ? [{ name: "submit_plan", args: { plan: { ...plan, behaviors: [] } } }] : "已规划，请直接开始。",
     [{ name: "submit_plan", args: { plan } }],
   ], key, [{ prompt_tokens: 57000, completion_tokens: 1000, total_tokens: 58000, prompt_tokens_details: { cached_tokens: 52000 } }]);
-  const budget = createRunTokenBudget();
+  const budget = createRunTokenBudget(60_000);
   let commits = 0;
   await expect(runCoordinator({
     runId: randomUUID(), roleRunId: randomUUID(), sessionId: randomUUID(), attempt: 0, baseRevisionId: null,
