@@ -27,12 +27,12 @@ export interface AuthSnapshot {
 }
 export const INITIAL_AUTH: AuthSnapshot = { status: "loading", user: null, error: "", epoch: 0 };
 export class WorkspaceError extends Error {
-  constructor(public readonly code: string, message: string) {
+  constructor(public readonly code: string, message: string, public readonly httpStatus?: number) {
     super(message);
     this.name = "WorkspaceError";
   }
 }
-const signedOut = () => new WorkspaceError("UNAUTHENTICATED", "登录已失效，请重新登录。");
+const signedOut = () => new WorkspaceError("UNAUTHENTICATED", "登录已失效，请重新登录。", 401);
 
 export function createApiWorkspace(identity: IdentityPort, transport: typeof fetch = fetch) {
   let snapshot = INITIAL_AUTH;
@@ -67,13 +67,13 @@ export function createApiWorkspace(identity: IdentityPort, transport: typeof fet
     if (response.status === 204) return null;
     let data: unknown;
     try { data = await response.json(); }
-    catch { throw new WorkspaceError("INVALID_RESPONSE", "服务返回了无法读取的响应，请稍后重试。"); }
+    catch { throw new WorkspaceError("INVALID_RESPONSE", "服务返回了无法读取的响应，请稍后重试。", response.status); }
     if (!response.ok) {
       const parsed = ApiErrorSchema.safeParse(data);
       if (response.status === 401) throw signedOut();
-      if (response.status === 404) throw new WorkspaceError("NOT_FOUND", "项目或配置不存在，或你没有访问权限。");
+      if (response.status === 404) throw new WorkspaceError("NOT_FOUND", "项目或配置不存在，或你没有访问权限。", response.status);
       throw new WorkspaceError(parsed.success ? parsed.data.error.code : "API_ERROR",
-        parsed.success ? parsed.data.error.message : "服务暂时不可用，请稍后重试。");
+        parsed.success ? parsed.data.error.message : "服务暂时不可用，请稍后重试。", response.status);
     }
     return data;
   }
@@ -150,11 +150,12 @@ export function createApiWorkspace(identity: IdentityPort, transport: typeof fet
     invalidate("anonymous");
     await endSession();
   }
-  async function request(path: string, init: RequestInit = {}): Promise<unknown> {
+  async function authorizedRequest<T>(path: string, init: RequestInit, consume: (response: Response, signal: AbortSignal) => Promise<T>): Promise<T> {
     if (snapshot.status !== "authenticated" || !snapshot.user) throw signedOut();
     const epoch = snapshot.epoch;
     const owner = snapshot.user.id;
     const controller = new AbortController();
+    const signal = init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
     requests.add(controller);
     try {
       let session = await identity.getSession();
@@ -165,7 +166,7 @@ export function createApiWorkspace(identity: IdentityPort, transport: typeof fet
         headers.set("Authorization", `Bearer ${token}`);
         if (init.body != null && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
         return transport(`/api/v1${path}`, {
-          ...init, cache: "no-store", signal: controller.signal, headers,
+          ...init, cache: "no-store", signal, headers,
         });
       };
       let response = await send(session.accessToken);
@@ -177,7 +178,8 @@ export function createApiWorkspace(identity: IdentityPort, transport: typeof fet
         response = await send(session.accessToken);
         assertEpoch(epoch);
       }
-      const value = await readJson(response);
+      if (!response.ok) await readJson(response);
+      const value = await consume(response, signal);
       assertEpoch(epoch);
       return value;
     } catch (error) {
@@ -190,6 +192,9 @@ export function createApiWorkspace(identity: IdentityPort, transport: typeof fet
       throw error;
     } finally { requests.delete(controller); }
   }
+  const request = (path: string, init: RequestInit = {}): Promise<unknown> => authorizedRequest(path, init, readJson);
+  const requestStream = (path: string, consume: (response: Response, signal: AbortSignal) => Promise<void>, init: RequestInit = {}): Promise<void> =>
+    authorizedRequest(path, init, consume);
   return {
     mode: "api" as const,
     getSnapshot: () => snapshot,
@@ -198,7 +203,7 @@ export function createApiWorkspace(identity: IdentityPort, transport: typeof fet
     retry: async () => { unsubscribe?.(); initialized = false; await initialize(); },
     login,
     logout,
-    request,
+    request, requestStream,
     listProjects: async (cursor?: string) => ProjectListResponseSchema.parse(await request(`/projects${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`)),
     createProject: async (title?: string) => {
       const body = CreateProjectRequestSchema.parse(title ? { title } : {});

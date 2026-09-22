@@ -1,0 +1,20 @@
+{
+  "kind": "real-model-run",
+  "status": "FAIL",
+  "projectId": "e8f58ae8-8665-4fb6-b07a-9cae763392ab",
+  "runId": "0d849922-6e07-4f50-b271-a500f19013cd",
+  "submittedThrough": "Codex in-app browser, workbench Enter",
+  "createdAt": "2026-09-22T03:35:39.142Z",
+  "finishedAt": "2026-09-22T03:38:28.410Z",
+  "errorCode": "MODEL_REQUEST_TIMEOUT",
+  "observation": "Third actual model request returned HTTP 200 and streamed 15102 characters, but did not finish within the unchanged 90 second deadline.",
+  "cleanup": "confirmed",
+  "currentRevision": null,
+  "savedRevision": null,
+  "uiIssue": "Slow snapshot reads overlapped the 2.5 second polling interval and were repeatedly discarded.",
+  "correctionsAwaitingRealRetest": [
+    "Read run/project snapshots in a single SQL statement within one owner transaction.",
+    "Allow one in-flight frontend refresh and coalesce a trailing refresh.",
+    "Instruct Builder to use complete, small write/edit calls and separate files; preserve the real user prompt, 90 second request limit and 10 minute run limit."
+  ]
+}

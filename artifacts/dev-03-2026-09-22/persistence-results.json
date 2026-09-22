@@ -1,0 +1,84 @@
+{
+  "recordedAt": "2026-09-22T03:44:10.750Z",
+  "environmentId": "pivloom-dev-e6d33625ef2b",
+  "baseline": "dee0ae5",
+  "workingTree": "uncommitted generation data/storage implementation",
+  "node": "v24.19.0",
+  "migration": {
+    "file": "migrations/004_generation.sql",
+    "applied": true,
+    "checksumUnchanged": true
+  },
+  "repositoryIntegration": {
+    "result": "PASS",
+    "passed": 5,
+    "seconds": 182.04,
+    "command": "cd apps/api && PIVLOOM_GENERATION_INTEGRATION=1 node --env-file=.env.local ../../node_modules/vitest/vitest.mjs run tests/generation/persistence.integration.test.ts",
+    "seams": [
+      "real owner-scoped Postgres transactions",
+      "real private Supabase Storage"
+    ],
+    "faultInjection": [
+      "external object upload failure",
+      "real database transaction rollback before commit after successful private object upload"
+    ],
+    "fixture": "Source text and build metadata are explicit fixtures; no model, build, browser, or sandbox execution is claimed.",
+    "cleanup": {
+      "projects": 7,
+      "runs": 6,
+      "credentialLeases": 6,
+      "sourceObjects": 2,
+      "remaining": 0,
+      "manifest": "generation-fixture-90c63c29-4c55-40aa-b70b-16652b52b5a2.json",
+      "verifiedAt": "2026-09-22T03:30:38.941Z"
+    }
+  },
+  "sourceBoundaries": {
+    "ordinary": {
+      "result": "PASS",
+      "passed": 15,
+      "command": "cd apps/api && node ../../node_modules/vitest/vitest.mjs run tests/generation/source-boundary.test.ts --testNamePattern='^(?!.*real non-responsive)'"
+    },
+    "beforeHeaders": {
+      "result": "PASS",
+      "deadlineSeconds": 15,
+      "socketClosed": true
+    },
+    "duringResponseBody": {
+      "result": "PASS",
+      "deadlineSeconds": 15,
+      "socketClosed": true
+    },
+    "regressionEvidence": [
+      "UTF-8 BOM RED then GREEN",
+      "decomposed Unicode filename RED then GREEN",
+      "native AbortSignal composition failed actual stalled fixture; strongly retained AbortController and timer passed"
+    ]
+  },
+  "aggregateRead": {
+    "result": "PASS",
+    "writes": 0,
+    "projectReadMs": 3347,
+    "runReadMs": 1853,
+    "wrongOwnerCode": "NOT_FOUND",
+    "transactionRoundTrips": 5,
+    "httpFollowup": {
+      "result": "PASS",
+      "testCases": 9,
+      "runDetailMs": 4229,
+      "projectDetailMs": 2292,
+      "sourceReadMs": 2663,
+      "terminalSseReceived": true,
+      "wrongOwnerStatus": 404,
+      "invalidRequestStatus": 422,
+      "cleanupRemaining": 0,
+      "evidence": ".cache/generation-http/pivloom-dev-e6d33625ef2b/generation-http-e9d92f20-9978-463f-90b7-87eb97e88ca2.json",
+      "reportedBy": "g0_runtime"
+    }
+  },
+  "staticChecks": {
+    "apiTypecheck": "PASS",
+    "apiLint": "PASS"
+  },
+  "gate": "This report covers data/storage and real HTTP boundaries only. Full candidate-generation browser E2E is separate; #4 remains open."
+}

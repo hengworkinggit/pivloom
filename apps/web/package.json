@@ -13,27 +13,28 @@
     "dev:demo": "NEXT_PUBLIC_APP_MODE=demo next dev --hostname 127.0.0.1 --port 45231"
   },
   "dependencies": {
-    "next": "16.3.5",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "radix-ui": "1.6.7",
-    "lucide-react": "^0.577.0",
+    "@pivloom/contracts": "0.1.0",
+    "@supabase/supabase-js": "2.116.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "tailwind-merge": "^3.5.0",
-    "@pivloom/contracts": "0.1.0",
-    "@supabase/supabase-js": "2.116.0"
+    "eventsource-parser": "4.1.1",
+    "lucide-react": "^0.577.0",
+    "next": "16.3.5",
+    "radix-ui": "1.6.7",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.3",
-    "tailwindcss": "4.3.3",
-    "typescript": "^5.9.3",
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "eslint": "^9.39.0",
     "eslint-config-next": "16.3.5",
-    "vitest": "^4.0.0",
-    "jsdom": "^28.0.0"
+    "jsdom": "^28.0.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
   }
 }

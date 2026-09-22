@@ -110,3 +110,39 @@ test("failed cleanup of a cancelled late sandbox remains pending", async () => {
     { sandboxId: "late-cleanup-failure", state: "cleanup_pending" },
   ]);
 });
+
+test("a sandbox whose durable registration fails is destroyed before it can be used", async () => {
+  let live = true;
+  const connection: SandboxConnection = {
+    sandboxId: "registration-failure",
+    kill: async () => {
+      live = false;
+    },
+    isRunning: async () => live,
+    renew: async () => {},
+    close: async () => {},
+    endpoint: async () => ({ url: "http://localhost:1", headers: {} }),
+    run: async () => {
+      throw new Error("Unregistered sandbox must not execute");
+    },
+    read: async () => new Uint8Array(),
+    write: async () => {},
+  };
+  const workspace = new OpenSandboxWorkspace(
+    { baseUrl: "http://localhost:18080", apiKey: "fixture", image: "fixture" },
+    { create: async () => connection },
+  );
+  await expect(
+    workspace.create({
+      runId: "fixture-registration-failure",
+      signal: new AbortController().signal,
+      onCreated: async () => {
+        throw new Error("Registration unavailable");
+      },
+    }),
+  ).rejects.toMatchObject({ code: "SANDBOX_REGISTRATION_FAILED" });
+  expect(live).toBe(false);
+  expect(workspace.resources()).toEqual([
+    { sandboxId: "registration-failure", state: "destroyed" },
+  ]);
+});

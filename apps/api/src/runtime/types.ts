@@ -23,6 +23,8 @@ export interface SandboxConfig {
 export interface ProbeEvent {
   id: string;
   at: string;
+  roleRunId?: string;
+  sessionId?: string;
   type:
     | "stage"
     | "tool.start"
@@ -110,6 +112,7 @@ export class RuntimeError extends Error {
   constructor(
     public readonly code: string,
     message: string,
+    public readonly trustedBuild?: TrustedBuildRecord,
   ) {
     super(message);
     this.name = "RuntimeError";
@@ -134,6 +137,22 @@ export interface CommandResult {
   stderrTail: string;
 }
 
+export interface TrustedCommandRecord {
+  command: string;
+  // Null means the command did not return an exit status; it never implies success.
+  exitCode: number | null;
+  durationMs: number | null;
+  stdoutTail: string;
+  stderrTail: string;
+}
+
+export interface TrustedBuildRecord {
+  schemaVersion: 1;
+  sourceHash: string | null;
+  typecheck: TrustedCommandRecord | null;
+  build: TrustedCommandRecord | null;
+}
+
 export interface CommandHandle {
   id: string;
   wait(): Promise<CommandResult>;
@@ -150,6 +169,7 @@ export interface WorkspacePort {
   create(input: {
     runId: string;
     signal: AbortSignal;
+    onCreated?: (handle: WorkspaceHandle) => Promise<void>;
   }): Promise<WorkspaceHandle>;
   read(handle: WorkspaceHandle, relativePath: string): Promise<Uint8Array>;
   write(

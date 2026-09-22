@@ -1,0 +1,15 @@
+{
+  "capturedAt": "2026-09-22T04:05:38.208380+00:00",
+  "scope": "one retained candidate preview plus one real Builder, self-hosted Supabase and existing site; not concurrent Reviewer Chrome or deployed full Pivloom capacity",
+  "start": "2026-09-22T03:31:40.797170+00:00",
+  "end": "2026-09-22T04:04:10.783314+00:00",
+  "samples": 1894,
+  "monitorErrors": [],
+  "minimumAvailableMiB": 1390.0,
+  "maximumSwapUsedMiB": 0.0,
+  "twoSandboxSamples": 473,
+  "twoSandboxMinimumAvailableMiB": 1390.0,
+  "oldSiteChecks": 379,
+  "oldSiteFailures": [],
+  "oldSiteMaxSeconds": 0.0354
+}

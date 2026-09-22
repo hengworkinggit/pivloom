@@ -125,6 +125,16 @@ describe("real workspace HTTP/auth boundary (fixtures, not cloud E2E)", () => {
     workspace.dispose();
   });
 
+  it("distinguishes a definitive server rejection from an unknown submission result", async () => {
+    const workspace = createApiWorkspace(identityFixture(), async (input) => String(input).endsWith("/me")
+      ? Response.json({ user: profile })
+      : Response.json({ error: { code: "MODEL_PROFILE_UNTESTED", message: "请先测试此模型", retryable: false, requestId: "fixture" } }, { status: 422 }));
+    await workspace.initialize();
+    await expect(workspace.request("/projects/fixture/runs", { method: "POST", body: "{}" })).rejects.toMatchObject({ code: "MODEL_PROFILE_UNTESTED", httpStatus: 422 });
+    expect(workspace.getSnapshot().status).toBe("authenticated");
+    workspace.dispose();
+  });
+
   it("clears only the active owner's drafts when the user explicitly signs out", async () => {
     saveDraft(owner, project.id, "未发送的活动报名需求");
     saveDraft(owner, "new", "另一个未发送想法");
@@ -147,6 +157,38 @@ describe("real workspace HTTP/auth boundary (fixtures, not cloud E2E)", () => {
     expect(workspace.getSnapshot().status).toBe("anonymous");
     expect(readDraft(owner, project.id)).toBe("登录恢复后继续修改");
     expect(readDraft("other-owner", project.id)).toBe("");
+    workspace.dispose();
+  });
+
+  it("refreshes stream authentication and aborts the private stream on logout", async () => {
+    const tokens: (string | null)[] = [];
+    let started: () => void = () => {};
+    const ready = new Promise<void>((resolve) => { started = resolve; });
+    const workspace = createApiWorkspace({
+      ...identityFixture(),
+      refreshSession: async () => ({ accessToken: "fixture-token-refreshed", userId: owner }),
+    }, async (input, init) => {
+      if (String(input).endsWith("/me")) return Response.json({ user: profile });
+      tokens.push(new Headers(init?.headers).get("Authorization"));
+      if (tokens.length === 1) return Response.json({}, { status: 401 });
+      return new Response(new ReadableStream({
+        start(controller) {
+          init?.signal?.addEventListener("abort", () => controller.error(new DOMException("Stream aborted", "AbortError")), { once: true });
+        },
+      }), { headers: { "Content-Type": "text/event-stream" } });
+    });
+    await workspace.initialize();
+    const streaming = workspace.requestStream("/runs/fixture/events", async (response) => {
+      const reader = response.body!.getReader();
+      started();
+      try { await reader.read(); } finally { reader.releaseLock(); }
+    });
+    const rejected = expect(streaming).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
+    await ready;
+    await workspace.logout();
+    await rejected;
+    expect(tokens).toEqual(["Bearer fixture-token-a", "Bearer fixture-token-refreshed"]);
+    expect(workspace.getSnapshot().status).toBe("anonymous");
     workspace.dispose();
   });
 });

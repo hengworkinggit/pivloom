@@ -1,0 +1,49 @@
+{
+  "at": "2026-09-22T04:23:57.037898+00:00",
+  "baseline": "dee0ae5",
+  "workingTree": true,
+  "node": "24.19.0",
+  "commands": {
+    "npm test": {
+      "status": "PASS",
+      "api": {
+        "passed": 71,
+        "skipped": 13,
+        "seconds": 30.66
+      },
+      "web": {
+        "passed": 35,
+        "skipped": 0,
+        "seconds": 2.69
+      }
+    },
+    "npm run typecheck": "PASS",
+    "npm run lint": "PASS",
+    "npm run build": "PASS"
+  },
+  "optInIntegration": {
+    "generationPersistence": {
+      "passed": 5,
+      "evidence": "persistence-results.json"
+    },
+    "generationHttp": {
+      "passed": 3,
+      "note": "The earlier 9/9 invocation also included 6 anonymous boundary cases; only these 3 accessed real Auth/Postgres/Storage.",
+      "evidence": "http-boundaries.json"
+    },
+    "acceptanceDisconnect": {
+      "passed": 1,
+      "evidence": "disconnect-results.json"
+    },
+    "foundationIdentity": {
+      "note": "4 prior real tests passed at foundation commit; not claimed rerun here. See foundation-validation-2026-09-22.md."
+    }
+  },
+  "boundary": "Default skipped tests are not counted as PASS. Browser E2E and real-model runs are separate evidence.",
+  "realSandboxTrustedBuild": {
+    "passed": 2,
+    "modelCalls": 0,
+    "evidence": "trusted-build-tamper.json",
+    "cleanup": "Both test sandboxes destroyed and independently confirmed 404; final management and Docker sandbox counts zero."
+  }
+}

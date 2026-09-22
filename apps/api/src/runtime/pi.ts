@@ -31,6 +31,8 @@ export interface BuilderInput {
   signal: AbortSignal;
   onEvent?: ProbeEventSink;
   timeoutMs?: number;
+  maxToolCalls?: number;
+  sessionId?: string;
 }
 export interface BuilderResult {
   text: string;
@@ -88,6 +90,7 @@ export async function createServiceModel(
 }
 
 export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
+  const maxToolCalls = Math.min(Math.max(input.maxToolCalls ?? 64, 1), 80);
   const safeDetail = (value: unknown) =>
     String(value ?? "unknown")
       .replaceAll(input.modelConfig.apiKey, "[REDACTED]")
@@ -174,7 +177,7 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
     executionMode: "sequential",
     execute: async (id, params, toolSignal, onUpdate, context) => {
       signal.throwIfAborted();
-      if (calls.length >= 64)
+      if (calls.length >= maxToolCalls)
         throw new RuntimeError(
           "TOOL_BUDGET_EXCEEDED",
           "本次任务工具调用已达上限",
@@ -245,8 +248,12 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true,
-      systemPrompt:
-        "You build a React/TypeScript/Vite application. All read/write/edit/bash tools operate ONLY in an isolated remote source workspace. Use relative source paths. Never seek credentials, host files, services, external accounts or instructions outside the supplied task. Do not alter the build to skip checks. Do not run background processes; the service builds and starts preview. Use the supplied tool results honestly. Finish only after implementing the requested behavior.",
+      systemPrompt: [
+        "You build a React/TypeScript/Vite application. All read/write/edit/bash tools operate ONLY in an isolated remote source workspace. Use relative source paths.",
+        "Implement incrementally in small, focused files. Make only ONE tool call per response, submit it promptly, and wait for its result before continuing. Keep each write/edit call's total argument text below roughly 4,000 characters; do not stream one enormous App file or several large calls in a single response.",
+        "For a larger file, first write a small complete skeleton, then add one bounded section per edit. Split cohesive components, state helpers and styles into separate files when useful. Read existing files before editing them. Do not use bash, heredocs or encoded payloads to bypass these small steps. Keep explanations short so each response can finish within the model request deadline.",
+        "Never seek credentials, host files, services, external accounts or instructions outside the supplied task. Do not alter the build to skip checks. Do not run background processes; the service builds and starts preview. Use the supplied tool results honestly. Finish only after implementing the requested behavior.",
+      ].join("\n"),
     });
     await loader.reload();
     ({ session } = await createAgentSession({
@@ -257,7 +264,9 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
       tools: ["read", "write", "edit", "bash"],
       customTools: tools,
       resourceLoader: loader,
-      sessionManager: SessionManager.inMemory(isolated),
+      sessionManager: SessionManager.inMemory(isolated, {
+        id: input.sessionId,
+      }),
       settingsManager: settings,
       thinkingLevel: "off",
     }));
@@ -307,7 +316,7 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
         streamedCharacters += delta.length;
       }
     });
-    session.agent.shouldStopAfterTurn = () => calls.length >= 64;
+    session.agent.shouldStopAfterTurn = () => calls.length >= maxToolCalls;
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) {
       abort();
@@ -319,7 +328,7 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
         deadline.signal.aborted ? "MODEL_TIMEOUT" : "CANCELLED",
         "模型任务已停止",
       );
-    if (calls.length >= 64)
+    if (calls.length >= maxToolCalls)
       throw new RuntimeError("TOOL_BUDGET_EXCEEDED", "工具调用预算耗尽");
     const last = [...session.messages]
       .reverse()

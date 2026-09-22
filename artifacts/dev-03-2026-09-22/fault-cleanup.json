@@ -1,0 +1,53 @@
+{
+  "at": "2026-09-22T04:26:29.170Z",
+  "fixtureId": "57daff58-0d09-4806-b690-bed14147389b",
+  "projectIds": [
+    "e5d50697-6c5c-497e-9899-460e320562e7",
+    "3fdafd1e-b6b0-48e0-bd94-535954d3ce5b"
+  ],
+  "manifestPath": "/Users/heng/Desktop/nano-Atoms/.cache/development/dev03-fault-manifest.json",
+  "journalPath": "/Users/heng/Desktop/nano-Atoms/.cache/development/dev03-fault-storage.jsonl",
+  "runsBeforeCleanup": [
+    {
+      "id": "fb744735-97f7-4553-a964-8a96dad47044",
+      "state": "failed",
+      "cleanup_state": "confirmed",
+      "error_code": "SNAPSHOT_SAVE_FAILED",
+      "result_revision_id": null,
+      "credential_lease_id": "72f65591-e3e4-4179-9a32-baeb218a86be"
+    },
+    {
+      "id": "86cea5df-f7d6-4405-9810-a59f33a9e04b",
+      "state": "failed",
+      "cleanup_state": "confirmed",
+      "error_code": "GENERATION_FAILED",
+      "result_revision_id": null,
+      "credential_lease_id": "52a57e99-2bb0-4dda-9e63-99f3b403bd6b"
+    }
+  ],
+  "sandboxesConfirmedAbsent": [
+    "b155479b-f59b-4e7f-b594-5a8ede371483",
+    "665b9b23-3320-470e-931a-e2f71fe99d45"
+  ],
+  "objectsBeforeCleanup": [
+    {
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/3fdafd1e-b6b0-48e0-bd94-535954d3ce5b/25496715-e555-4d1c-bcb1-325317fef3d6/b2977736c9c19e847505865ba07fbca25a46d9cace96200e9e06b6a92ea15aa4.json.gz",
+      "revisionId": "25496715-e555-4d1c-bcb1-325317fef3d6",
+      "sourceHash": "b2977736c9c19e847505865ba07fbca25a46d9cace96200e9e06b6a92ea15aa4",
+      "createdAt": "2026-09-22T04:24:47.399Z",
+      "bytes": 7952
+    }
+  ],
+  "remaining": {
+    "projects": 0,
+    "runs": 0,
+    "revisions": 0,
+    "sandbox_bindings": 0,
+    "leases": 0,
+    "triggers": 0,
+    "functions": 0,
+    "objects": 0,
+    "liveSandboxes": 0
+  },
+  "status": "cleaned"
+}

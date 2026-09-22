@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { ProjectMessageSchema, RunSchema, RevisionSchema, PreviewSchema } from "./generation.js";
 export * from "./models.js";
+export * from "./generation.js";
 
 export const ProjectSummarySchema = z.object({
   id: z.uuid(),
@@ -21,14 +23,14 @@ export const ProjectListResponseSchema = z.object({
 });
 export type ProjectListResponse = z.infer<typeof ProjectListResponseSchema>;
 
-// DEV-02 opens persisted empty projects. Later tickets extend these fields when
-// real runs/revisions exist; an empty project must never acquire demo results.
 export const ProjectDetailResponseSchema = z.object({
   project: ProjectSummarySchema,
-  messages: z.array(z.never()),
-  currentRevision: z.null(),
-  activeRun: z.null(),
-  preview: z.null(),
+  messages: z.array(ProjectMessageSchema),
+  currentRevision: RevisionSchema.nullable(),
+  activeRun: RunSchema.nullable(),
+  latestRun: RunSchema.nullable().default(null),
+  latestCandidate: RevisionSchema.nullable().default(null),
+  preview: PreviewSchema.nullable(),
 });
 export type ProjectDetailResponse = z.infer<typeof ProjectDetailResponseSchema>;
 

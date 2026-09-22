@@ -1,0 +1,690 @@
+{
+  "capturedAt": "2026-09-22T04:03:45.298Z",
+  "environment": "pivloom-dev-e6d33625ef2b",
+  "baseCommit": "dee0ae5",
+  "workingTree": true,
+  "cases": [
+    {
+      "label": "activity",
+      "projectId": "e8f58ae8-8665-4fb6-b07a-9cae763392ab",
+      "run": {
+        "id": "1a4d0fac-b6cc-487c-b1f3-eeb663498d5d",
+        "projectId": "e8f58ae8-8665-4fb6-b07a-9cae763392ab",
+        "state": "failed",
+        "phase": "cleanup",
+        "attempt": 0,
+        "requestText": "做一个中文活动报名管理网页。包含姓名、邮箱、活动类别三个字段，活动类别为设计和开发。姓名和邮箱必填，邮箱格式不正确时显示错误。提交后报名记录出现在列表中，初始列表为空；每条记录默认待确认，可以点击确认变成已确认。支持按姓名或邮箱搜索。不要真的发送邮件。使用浏览器本地存储保存当前预览中的报名记录，不需要后端。界面清爽，表单和列表可直接操作。",
+        "modelProfileId": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+        "modelConfigVersion": 1,
+        "baseRevisionId": null,
+        "resultRevisionId": "7f3e0c34-23de-46eb-831a-e2995a859fe8",
+        "createdAt": "2026-09-22T03:44:42.512Z",
+        "deadlineAt": "2026-09-22T03:54:42.512Z",
+        "finishedAt": "2026-09-22T03:50:37.247Z",
+        "cleanupState": "clear",
+        "error": {
+          "code": "CHECK_BLOCKED",
+          "message": "候选已保存并可预览，业务检查尚未接入。",
+          "retryable": false
+        },
+        "summary": "已生成应用并通过构建。当前为尚未检查的候选，可查看预览和源码。"
+      },
+      "currentRevisionId": null,
+      "revision": {
+        "id": "7f3e0c34-23de-46eb-831a-e2995a859fe8",
+        "projectId": "e8f58ae8-8665-4fb6-b07a-9cae763392ab",
+        "runId": "1a4d0fac-b6cc-487c-b1f3-eeb663498d5d",
+        "revisionNo": 1,
+        "attempt": 0,
+        "sourceHash": "b9f07751df3d7f737d57a6f14be1450b30d11d260bb5ec9b6b1f4a1fa9f7d388",
+        "templateVersion": "react-vite-node24-20260922",
+        "buildStatus": "passed",
+        "status": "candidate",
+        "createdAt": "2026-09-22T03:50:29.002Z",
+        "manifest": [
+          {
+            "path": "index.html",
+            "bytes": 266,
+            "sha256": "4bc5079775ae28b601c828bcb003b694cad03dbc9aac13234c4782bbd654bde4"
+          },
+          {
+            "path": "package-lock.json",
+            "bytes": 26874,
+            "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6"
+          },
+          {
+            "path": "package.json",
+            "bytes": 517,
+            "sha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65"
+          },
+          {
+            "path": "src/App.tsx",
+            "bytes": 1482,
+            "sha256": "25649fb7d050269cbd74d91fc8fbd93b2dbdbf1a94997b6c7b621932581d8324"
+          },
+          {
+            "path": "src/components/SignupForm.tsx",
+            "bytes": 3245,
+            "sha256": "bb05a7924b191b4454e26885db4e93158485c6d1cb7e114e67580cc3196bf7b8"
+          },
+          {
+            "path": "src/components/SignupList.tsx",
+            "bytes": 2471,
+            "sha256": "97af302080d554096c76cdae8fe6897222730076df023daa3d04f366fab1670b"
+          },
+          {
+            "path": "src/main.tsx",
+            "bytes": 153,
+            "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c"
+          },
+          {
+            "path": "src/storage.ts",
+            "bytes": 708,
+            "sha256": "93a83ec9b2889c85bdd1421e3c0c6e3240439724a22de14f67cf914855e865e8"
+          },
+          {
+            "path": "src/style.css",
+            "bytes": 4123,
+            "sha256": "1e24b06af26aa03cb200f725fd8fa42cbfe340f48a7c478b6ddf08ecf2747b3f"
+          },
+          {
+            "path": "src/types.ts",
+            "bytes": 492,
+            "sha256": "f76cde03e859fb7c1c9c94e6603d884880717b2e29b886c78d1fa8d4ec7fccf7"
+          },
+          {
+            "path": "tsconfig.json",
+            "bytes": 331,
+            "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837"
+          }
+        ]
+      },
+      "preview": {
+        "state": "expired",
+        "revisionId": "7f3e0c34-23de-46eb-831a-e2995a859fe8",
+        "sourceHash": "b9f07751df3d7f737d57a6f14be1450b30d11d260bb5ec9b6b1f4a1fa9f7d388",
+        "expiresAt": "2026-09-22T03:59:58.800Z"
+      },
+      "facts": {
+        "executor_boot_id": "48ee2dd8-b9e6-4943-b687-6eef111a17d1",
+        "created_at": "2026-09-22T03:44:42.512Z",
+        "finished_at": "2026-09-22T03:50:37.247Z",
+        "usage_json": {},
+        "remote_id": "0335bfb5-a3cd-4f90-bd05-638b19ac0e0d",
+        "sandbox_state": "destroyed",
+        "sandbox_source_hash": "b9f07751df3d7f737d57a6f14be1450b30d11d260bb5ec9b6b1f4a1fa9f7d388",
+        "expires_at": "2026-09-22T03:59:58.800Z",
+        "purpose": "candidate-preview"
+      },
+      "events": [
+        {
+          "type": "run.accepted",
+          "at": "2026-09-22T03:44:42.512Z"
+        },
+        {
+          "type": "role.started",
+          "at": "2026-09-22T03:44:51.513Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:45:32.860Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:45:36.196Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:45:41.045Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:45:52.981Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:45:56.317Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:46:01.156Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:46:08.463Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:46:13.132Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:46:18.458Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:46:25.750Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:46:30.533Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:46:38.904Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:46:47.179Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:46:58.902Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:47:04.313Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:47:11.814Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:47:21.267Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:47:26.498Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:47:33.975Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:47:39.722Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:47:44.971Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:47:49.851Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:48:09.366Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:48:14.892Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:48:22.499Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:48:25.835Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:48:38.657Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:48:46.049Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:48:49.381Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:48:54.250Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:49:01.853Z"
+        },
+        {
+          "type": "run.phase",
+          "at": "2026-09-22T03:49:08.668Z"
+        },
+        {
+          "type": "run.phase",
+          "at": "2026-09-22T03:50:17.262Z"
+        },
+        {
+          "type": "role.completed",
+          "at": "2026-09-22T03:50:20.608Z"
+        },
+        {
+          "type": "run.phase",
+          "at": "2026-09-22T03:50:24.742Z"
+        },
+        {
+          "type": "revision.saved",
+          "at": "2026-09-22T03:50:29.002Z"
+        },
+        {
+          "type": "preview.ready",
+          "at": "2026-09-22T03:50:33.524Z"
+        },
+        {
+          "type": "run.finished",
+          "at": "2026-09-22T03:50:37.247Z"
+        }
+      ],
+      "readback": {
+        "status": "PASS",
+        "files": [
+          {
+            "path": "index.html",
+            "bytes": 266,
+            "sha256": "4bc5079775ae28b601c828bcb003b694cad03dbc9aac13234c4782bbd654bde4"
+          },
+          {
+            "path": "package-lock.json",
+            "bytes": 26874,
+            "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6"
+          },
+          {
+            "path": "package.json",
+            "bytes": 517,
+            "sha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65"
+          },
+          {
+            "path": "src/App.tsx",
+            "bytes": 1482,
+            "sha256": "25649fb7d050269cbd74d91fc8fbd93b2dbdbf1a94997b6c7b621932581d8324"
+          },
+          {
+            "path": "src/components/SignupForm.tsx",
+            "bytes": 3245,
+            "sha256": "bb05a7924b191b4454e26885db4e93158485c6d1cb7e114e67580cc3196bf7b8"
+          },
+          {
+            "path": "src/components/SignupList.tsx",
+            "bytes": 2471,
+            "sha256": "97af302080d554096c76cdae8fe6897222730076df023daa3d04f366fab1670b"
+          },
+          {
+            "path": "src/main.tsx",
+            "bytes": 153,
+            "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c"
+          },
+          {
+            "path": "src/storage.ts",
+            "bytes": 708,
+            "sha256": "93a83ec9b2889c85bdd1421e3c0c6e3240439724a22de14f67cf914855e865e8"
+          },
+          {
+            "path": "src/style.css",
+            "bytes": 4123,
+            "sha256": "1e24b06af26aa03cb200f725fd8fa42cbfe340f48a7c478b6ddf08ecf2747b3f"
+          },
+          {
+            "path": "src/types.ts",
+            "bytes": 492,
+            "sha256": "f76cde03e859fb7c1c9c94e6603d884880717b2e29b886c78d1fa8d4ec7fccf7"
+          },
+          {
+            "path": "tsconfig.json",
+            "bytes": 331,
+            "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837"
+          }
+        ],
+        "bundleHash": "b9f07751df3d7f737d57a6f14be1450b30d11d260bb5ec9b6b1f4a1fa9f7d388"
+      }
+    },
+    {
+      "label": "books",
+      "projectId": "9adc212f-3904-44c1-8360-65b227178e05",
+      "run": {
+        "id": "bfc512e1-75fd-4902-82cc-85e777346f45",
+        "projectId": "9adc212f-3904-44c1-8360-65b227178e05",
+        "state": "failed",
+        "phase": "cleanup",
+        "attempt": 0,
+        "requestText": "做一个中文读书清单网页，初始没有书。可以输入书名和作者添加记录，书名必填。记录可标记为已读，支持按全部、未读、已读筛选，并显示总数和已读数。用 localStorage 保存当前浏览器的数据。不需要报名、邮箱或活动类别字段。",
+        "modelProfileId": "a0c5ba16-83fc-4451-95d3-a90e8e632015",
+        "modelConfigVersion": 1,
+        "baseRevisionId": null,
+        "resultRevisionId": "83976a4b-2dad-41ef-b931-38206b0394f3",
+        "createdAt": "2026-09-22T03:51:34.552Z",
+        "deadlineAt": "2026-09-22T04:01:34.552Z",
+        "finishedAt": "2026-09-22T03:57:10.104Z",
+        "cleanupState": "clear",
+        "error": {
+          "code": "CHECK_BLOCKED",
+          "message": "候选已保存并可预览，业务检查尚未接入。",
+          "retryable": false
+        },
+        "summary": "已生成应用并通过构建。当前为尚未检查的候选，可查看预览和源码。"
+      },
+      "currentRevisionId": null,
+      "revision": {
+        "id": "83976a4b-2dad-41ef-b931-38206b0394f3",
+        "projectId": "9adc212f-3904-44c1-8360-65b227178e05",
+        "runId": "bfc512e1-75fd-4902-82cc-85e777346f45",
+        "revisionNo": 1,
+        "attempt": 0,
+        "sourceHash": "4e5c9813d3cc09a1b33e8040f9d852dd9ca2f897357f4b22cb837f76b6194512",
+        "templateVersion": "react-vite-node24-20260922",
+        "buildStatus": "passed",
+        "status": "candidate",
+        "createdAt": "2026-09-22T03:57:01.648Z",
+        "manifest": [
+          {
+            "path": "index.html",
+            "bytes": 263,
+            "sha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42"
+          },
+          {
+            "path": "package-lock.json",
+            "bytes": 26874,
+            "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6"
+          },
+          {
+            "path": "package.json",
+            "bytes": 517,
+            "sha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65"
+          },
+          {
+            "path": "src/App.tsx",
+            "bytes": 2037,
+            "sha256": "ab575aecd918e0af646e6ea1f5be1d61a09cb4b8cefaeacbb5a520ab1bb2bac9"
+          },
+          {
+            "path": "src/components/BookForm.tsx",
+            "bytes": 1654,
+            "sha256": "a76e64e871dfff9ab9abe7c26411867fce4169c99eddd082528988facf520a27"
+          },
+          {
+            "path": "src/components/BookList.tsx",
+            "bytes": 1264,
+            "sha256": "f4073d84cefdf93f3a3f5689e1a419d13089d8e974086c79032a601ac22d8060"
+          },
+          {
+            "path": "src/components/FilterBar.tsx",
+            "bytes": 1009,
+            "sha256": "639099ceb75b0ce5402948d50afd94d2a7adb4389978ffef5a76512827ef7ead"
+          },
+          {
+            "path": "src/main.tsx",
+            "bytes": 153,
+            "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c"
+          },
+          {
+            "path": "src/storage.ts",
+            "bytes": 1086,
+            "sha256": "3d4d5cd6b47ea2a52fbce2998d4723d1c4cf4713eaf118b8b066fa8cda976a8e"
+          },
+          {
+            "path": "src/style.css",
+            "bytes": 2601,
+            "sha256": "5740f6e734bead99e2e83dd3121f9f8a27a1eee035acad987dd0c8714baaf690"
+          },
+          {
+            "path": "src/types.ts",
+            "bytes": 276,
+            "sha256": "3a7a166bbb6a8b003cf990b7f0feb9b521cea392ac875f5bb8603183816dccb0"
+          },
+          {
+            "path": "tsconfig.json",
+            "bytes": 331,
+            "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837"
+          }
+        ]
+      },
+      "preview": {
+        "state": "ready",
+        "revisionId": "83976a4b-2dad-41ef-b931-38206b0394f3",
+        "sourceHash": "4e5c9813d3cc09a1b33e8040f9d852dd9ca2f897357f4b22cb837f76b6194512",
+        "expiresAt": "2026-09-22T04:06:50.679Z"
+      },
+      "facts": {
+        "executor_boot_id": "48ee2dd8-b9e6-4943-b687-6eef111a17d1",
+        "created_at": "2026-09-22T03:51:34.552Z",
+        "finished_at": "2026-09-22T03:57:10.104Z",
+        "usage_json": {},
+        "remote_id": "b6727bd2-7570-4a95-b0b2-295cc0eec608",
+        "sandbox_state": "active",
+        "sandbox_source_hash": "4e5c9813d3cc09a1b33e8040f9d852dd9ca2f897357f4b22cb837f76b6194512",
+        "expires_at": "2026-09-22T04:06:50.679Z",
+        "purpose": "candidate-preview"
+      },
+      "events": [
+        {
+          "type": "run.accepted",
+          "at": "2026-09-22T03:51:34.552Z"
+        },
+        {
+          "type": "role.started",
+          "at": "2026-09-22T03:51:43.585Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:52:25.639Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:52:28.979Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:52:33.848Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:52:41.244Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:52:44.576Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:52:49.426Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:52:56.914Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:53:01.744Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:53:07.287Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:53:14.788Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:53:18.981Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:53:24.217Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:53:31.563Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:53:37.726Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:53:42.952Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:53:47.736Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:53:52.608Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:53:57.949Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:54:05.582Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:54:09.624Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:54:15.305Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:54:20.557Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:54:28.476Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:54:33.722Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:54:40.925Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:54:54.593Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:54:59.928Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:55:07.398Z"
+        },
+        {
+          "type": "tool.started",
+          "at": "2026-09-22T03:55:10.781Z"
+        },
+        {
+          "type": "tool.completed",
+          "at": "2026-09-22T03:55:19.673Z"
+        },
+        {
+          "type": "tool.output",
+          "at": "2026-09-22T03:55:27.076Z"
+        },
+        {
+          "type": "run.phase",
+          "at": "2026-09-22T03:55:35.765Z"
+        },
+        {
+          "type": "run.phase",
+          "at": "2026-09-22T03:56:48.745Z"
+        },
+        {
+          "type": "role.completed",
+          "at": "2026-09-22T03:56:53.042Z"
+        },
+        {
+          "type": "run.phase",
+          "at": "2026-09-22T03:56:57.174Z"
+        },
+        {
+          "type": "revision.saved",
+          "at": "2026-09-22T03:57:01.648Z"
+        },
+        {
+          "type": "preview.ready",
+          "at": "2026-09-22T03:57:06.226Z"
+        },
+        {
+          "type": "run.finished",
+          "at": "2026-09-22T03:57:10.104Z"
+        }
+      ],
+      "readback": {
+        "status": "PASS",
+        "files": [
+          {
+            "path": "index.html",
+            "bytes": 263,
+            "sha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42"
+          },
+          {
+            "path": "package-lock.json",
+            "bytes": 26874,
+            "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6"
+          },
+          {
+            "path": "package.json",
+            "bytes": 517,
+            "sha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65"
+          },
+          {
+            "path": "src/App.tsx",
+            "bytes": 2037,
+            "sha256": "ab575aecd918e0af646e6ea1f5be1d61a09cb4b8cefaeacbb5a520ab1bb2bac9"
+          },
+          {
+            "path": "src/components/BookForm.tsx",
+            "bytes": 1654,
+            "sha256": "a76e64e871dfff9ab9abe7c26411867fce4169c99eddd082528988facf520a27"
+          },
+          {
+            "path": "src/components/BookList.tsx",
+            "bytes": 1264,
+            "sha256": "f4073d84cefdf93f3a3f5689e1a419d13089d8e974086c79032a601ac22d8060"
+          },
+          {
+            "path": "src/components/FilterBar.tsx",
+            "bytes": 1009,
+            "sha256": "639099ceb75b0ce5402948d50afd94d2a7adb4389978ffef5a76512827ef7ead"
+          },
+          {
+            "path": "src/main.tsx",
+            "bytes": 153,
+            "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c"
+          },
+          {
+            "path": "src/storage.ts",
+            "bytes": 1086,
+            "sha256": "3d4d5cd6b47ea2a52fbce2998d4723d1c4cf4713eaf118b8b066fa8cda976a8e"
+          },
+          {
+            "path": "src/style.css",
+            "bytes": 2601,
+            "sha256": "5740f6e734bead99e2e83dd3121f9f8a27a1eee035acad987dd0c8714baaf690"
+          },
+          {
+            "path": "src/types.ts",
+            "bytes": 276,
+            "sha256": "3a7a166bbb6a8b003cf990b7f0feb9b521cea392ac875f5bb8603183816dccb0"
+          },
+          {
+            "path": "tsconfig.json",
+            "bytes": 331,
+            "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837"
+          }
+        ],
+        "bundleHash": "4e5c9813d3cc09a1b33e8040f9d852dd9ca2f897357f4b22cb837f76b6194512"
+      }
+    }
+  ]
+}

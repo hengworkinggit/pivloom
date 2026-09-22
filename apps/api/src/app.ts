@@ -8,10 +8,15 @@ import { registerIdentityRoutes } from "./routes/identity.js";
 import { createCredentialVault } from "./models/credentials.js";
 import { createModelProfileService } from "./models/service.js";
 import { registerModelRoutes } from "./routes/models.js";
+import { registerGenerationRoutes } from "./routes/generation.js";
+import { createGenerationService, type GenerationService } from "./generation/service.js";
+import type { SourceObjectStore } from "./storage/source.js";
 
 export interface CreateAppOptions {
   env?: NodeJS.ProcessEnv;
   logger?: boolean;
+  previewListen?: { host: string; port: number };
+  sourceObjects?: SourceObjectStore;
 }
 
 export function createApp(options: CreateAppOptions = {}) {
@@ -20,6 +25,7 @@ export function createApp(options: CreateAppOptions = {}) {
   const bootId = randomUUID();
   const database = configuration.ready ? new PivloomDatabase(configuration.value.databaseUrl) : null;
   const verifier = configuration.ready ? createIdentityVerifier(configuration.value) : null;
+  let generation: GenerationService | null = null;
   const app = Fastify({
     logger: options.logger ?? false,
     disableRequestLogging: true,
@@ -27,9 +33,10 @@ export function createApp(options: CreateAppOptions = {}) {
     bodyLimit: 32 * 1024,
   });
   app.decorateRequest("identity", null);
-  if (database) app.addHook("onClose", async () => database.close());
+  app.addHook("onClose", async () => { await generation?.close(); await database?.close(); });
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ApiFailure) {
+      if (error.code === "SERVICE_BUSY") reply.header("retry-after", "5");
       return reply.code(error.statusCode).send({
         error: { code: error.code, message: error.message, retryable: error.retryable, requestId: request.id },
       });
@@ -64,11 +71,23 @@ export function createApp(options: CreateAppOptions = {}) {
     }));
   } else if (database && verifier) {
     app.register(async (configured) => {
-      await registerIdentityRoutes(configured, { database, verifyIdentity: verifier.verify });
       if (env.MODEL_CREDENTIALS_ENCRYPTION_KEY) {
         const vault = createCredentialVault(env.MODEL_CREDENTIALS_ENCRYPTION_KEY);
         const models = createModelProfileService(database, vault);
         await registerModelRoutes(configured, { models, verifyIdentity: verifier.verify });
+        if (env.OPENSANDBOX_BASE_URL && env.OPENSANDBOX_API_KEY && env.OPENSANDBOX_IMAGE && env.PREVIEW_BASE_URL) {
+          const maxSandboxes = Number(env.SANDBOX_MAX_ACTIVE ?? 2);
+          if (!Number.isInteger(maxSandboxes) || maxSandboxes < 1 || maxSandboxes > 2) throw new Error("Invalid sandbox capacity");
+          generation = createGenerationService({ database, models, identity: configuration.value, bootId,
+            previewOrigin: env.PREVIEW_BASE_URL, maxSandboxes, sourceObjects: options.sourceObjects,
+            sandbox: { baseUrl: env.OPENSANDBOX_BASE_URL, apiKey: env.OPENSANDBOX_API_KEY, image: env.OPENSANDBOX_IMAGE, lifetimeMs: 900_000 },
+          });
+          if (options.previewListen) {
+            const service = generation;
+            const address = options.previewListen;
+            configured.addHook("onReady", async () => service.previews.listen(address));
+          }
+        }
       } else {
         await configured.register(async (secured) => {
           secured.addHook("preHandler", verifier.verify);
@@ -79,6 +98,10 @@ export function createApp(options: CreateAppOptions = {}) {
           secured.all("/api/v1/model-profiles/*", unavailable);
         });
       }
+      const service = generation;
+      await registerIdentityRoutes(configured, { database, verifyIdentity: verifier.verify,
+        loadProjectDetail: service ? (ownerId, projectId) => service.projectDetail(ownerId, projectId) : undefined });
+      await registerGenerationRoutes(configured, { generation, verifyIdentity: verifier.verify });
     });
   }
 

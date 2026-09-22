@@ -1,0 +1,217 @@
+{
+  "schemaVersion": 1,
+  "probeId": "c127b7e5-061a-4184-92a7-ab9103138b2b",
+  "startedAt": "2026-09-22T04:31:41.971Z",
+  "node": "v24.19.0",
+  "status": "PASS",
+  "boundary": "Real OpenSandbox Docker/gVisor; production Workspace and buildAndPreview; no model calls or mocked commands",
+  "modelCalls": 0,
+  "resource": {
+    "cpu": "1",
+    "memory": "1Gi",
+    "ttlSeconds": 180
+  },
+  "cases": [
+    {
+      "scenario": "fake-pass-with-type-error",
+      "runId": "69ceddcf-3db5-4c16-acc8-67fa1d1f30d8",
+      "revisionId": "b4a21ad1-6730-4bc5-aa99-191b93264773",
+      "startedAt": "2026-09-22T04:31:42.811Z",
+      "status": "PASS",
+      "preflightSandboxCount": 0,
+      "sandboxId": "8a258329-5ce4-4f24-ab15-70db4d9c249e",
+      "expiresAt": "2026-09-22T04:34:45.530Z",
+      "physical": {
+        "containerId": "52126e0b3b1ce0936907659a2e7c9e6d8418c4d414e78c33789b42489d77d016",
+        "containerName": "sandbox-8a258329-5ce4-4f24-ab15-70db4d9c249e",
+        "runtime": "pivloom-g0-runsc",
+        "memory": 1073741824,
+        "nanoCpus": 1000000000,
+        "image": "sha256:6209e7d0901b95a0150e884afb8bef734c88e4017a544cc7b391ac3e8b4792c0"
+      },
+      "tamperedScripts": {
+        "typecheck": "printf 'FAKE_TYPECHECK_PASSED\\n'; exit 0",
+        "build": "printf 'FAKE_BUILD_PASSED\\n'; exit 0",
+        "preview": "vite preview --host 0.0.0.0 --port 4173 --strictPort"
+      },
+      "untrustedScriptControl": {
+        "command": "npm run typecheck && npm run build",
+        "exitCode": 0,
+        "stdoutTail": "\n> workspace@1.0.0 typecheck\n> printf 'FAKE_TYPECHECK_PASSED\\n'; exit 0\n\nFAKE_TYPECHECK_PASSED\n\n> workspace@1.0.0 build\n> printf 'FAKE_BUILD_PASSED\\n'; exit 0\n\nFAKE_BUILD_PASSED\n",
+        "stderrTail": "",
+        "durationMs": 3637.258542000003
+      },
+      "files": [
+        {
+          "path": "index.html",
+          "sha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42",
+          "bytes": 263
+        },
+        {
+          "path": "package-lock.json",
+          "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6",
+          "bytes": 26874
+        },
+        {
+          "path": "package.json",
+          "sha256": "14276be74d026e47fdde60eed8a1c13e01c1e65a88092922758466e16b34b7a4",
+          "bytes": 557
+        },
+        {
+          "path": "src/App.tsx",
+          "sha256": "357440d21166806a7592b367b71a7f49252d5637601bc76bcf3a3c697d3257ae",
+          "bytes": 111
+        },
+        {
+          "path": "src/main.tsx",
+          "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c",
+          "bytes": 153
+        },
+        {
+          "path": "src/style.css",
+          "sha256": "c890470f782db22b3bef534573e7b70b96cf1acce9ba9995cdd486db92820084",
+          "bytes": 292
+        },
+        {
+          "path": "tsconfig.json",
+          "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837",
+          "bytes": 331
+        }
+      ],
+      "errorCode": "TYPECHECK_FAILED",
+      "trustedBuild": {
+        "schemaVersion": 1,
+        "sourceHash": "82e69ec8e739f4d25ecb46507d7a78f05d0a2c0571ec9fa77d7d4296d25ece49",
+        "typecheck": {
+          "command": "node /workspace/node_modules/typescript/bin/tsc --noEmit --strict --skipLibCheck --esModuleInterop --target ES2022 --module ESNext --moduleResolution Bundler --jsx react-jsx --lib ES2022,DOM,DOM.Iterable '/workspace/app/src/App.tsx' '/workspace/app/src/main.tsx'",
+          "exitCode": 2,
+          "durationMs": 3491.709416999991,
+          "stdoutTail": "app/src/App.tsx(1,37): error TS2322: Type 'string' is not assignable to type 'number'.\n",
+          "stderrTail": "exit status 2"
+        },
+        "build": null
+      },
+      "sourceHash": "82e69ec8e739f4d25ecb46507d7a78f05d0a2c0571ec9fa77d7d4296d25ece49",
+      "cleanup": {
+        "confirmed": true,
+        "confirmed404": true,
+        "at": "2026-09-22T04:33:18.005Z"
+      },
+      "finishedAt": "2026-09-22T04:33:18.005Z"
+    },
+    {
+      "scenario": "fake-fail-with-valid-source",
+      "runId": "c6a92626-29ad-4358-bc78-324fa523a788",
+      "revisionId": "b79fc7aa-aa2a-4231-ad25-a6d2aaa9fbc8",
+      "startedAt": "2026-09-22T04:33:18.381Z",
+      "status": "PASS",
+      "preflightSandboxCount": 0,
+      "sandboxId": "fb11d0db-d783-4dc0-b2fe-a1b2043860a3",
+      "expiresAt": "2026-09-22T04:36:21.190Z",
+      "physical": {
+        "containerId": "ae1fd6a4eac0bd30f7023ef6157520be3765508004bdd2a8834197d7cc47288a",
+        "containerName": "sandbox-fb11d0db-d783-4dc0-b2fe-a1b2043860a3",
+        "runtime": "pivloom-g0-runsc",
+        "memory": 1073741824,
+        "nanoCpus": 1000000000,
+        "image": "sha256:6209e7d0901b95a0150e884afb8bef734c88e4017a544cc7b391ac3e8b4792c0"
+      },
+      "tamperedScripts": {
+        "typecheck": "printf 'FAKE_TYPECHECK_PASSED\\n'; exit 0",
+        "build": "printf 'FAKE_BUILD_FAILED\\n'; exit 1",
+        "preview": "vite preview --host 0.0.0.0 --port 4173 --strictPort"
+      },
+      "untrustedScriptControl": {
+        "command": "npm run build",
+        "exitCode": 1,
+        "stdoutTail": "\n> workspace@1.0.0 build\n> printf 'FAKE_BUILD_FAILED\\n'; exit 1\n\nFAKE_BUILD_FAILED\n",
+        "stderrTail": "exit status 1",
+        "durationMs": 2648.056083000003
+      },
+      "files": [
+        {
+          "path": "index.html",
+          "sha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42",
+          "bytes": 263
+        },
+        {
+          "path": "package-lock.json",
+          "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6",
+          "bytes": 26874
+        },
+        {
+          "path": "package.json",
+          "sha256": "a015407e5ff9141317a1710903e3e8c77b605059400ea03b3fdd64b88730e5da",
+          "bytes": 557
+        },
+        {
+          "path": "src/App.tsx",
+          "sha256": "81f6846befeef5decebab074d8d3c4426b436d6105337b64c843edf541b7a239",
+          "bytes": 108
+        },
+        {
+          "path": "src/main.tsx",
+          "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c",
+          "bytes": 153
+        },
+        {
+          "path": "src/style.css",
+          "sha256": "c890470f782db22b3bef534573e7b70b96cf1acce9ba9995cdd486db92820084",
+          "bytes": 292
+        },
+        {
+          "path": "tsconfig.json",
+          "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837",
+          "bytes": 331
+        }
+      ],
+      "trustedBuild": {
+        "schemaVersion": 1,
+        "sourceHash": "eb930810fa7f5cdf41b7f6f144733b9e4e57862f387b01b58485192dabd7a835",
+        "typecheck": {
+          "command": "node /workspace/node_modules/typescript/bin/tsc --noEmit --strict --skipLibCheck --esModuleInterop --target ES2022 --module ESNext --moduleResolution Bundler --jsx react-jsx --lib ES2022,DOM,DOM.Iterable '/workspace/app/src/App.tsx' '/workspace/app/src/main.tsx'",
+          "exitCode": 0,
+          "durationMs": 3529.1599169999827,
+          "stdoutTail": "",
+          "stderrTail": ""
+        },
+        "build": {
+          "command": "node /workspace/node_modules/vite/bin/vite.js build --config /opt/pivloom/vite-config.mjs --configLoader native",
+          "exitCode": 0,
+          "durationMs": 3126.5009999999893,
+          "stdoutTail": "vite v8.3.0 building client environment for production...\ntransforming...\n✓ 16 modules transformed.\nrendering chunks...\ncomputing gzip size...\napp/dist/index.html                   0.44 kB │ gzip:  0.30 kB\napp/dist/assets/index-LUjrKY29.css    0.29 kB │ gzip:  0.23 kB\napp/dist/assets/index-DDAVULQA.js   190.41 kB │ gzip: 59.98 kB\n\n✓ built in 239ms\n",
+          "stderrTail": ""
+        }
+      },
+      "marker": {
+        "revisionId": "b79fc7aa-aa2a-4231-ad25-a6d2aaa9fbc8",
+        "sourceHash": "eb930810fa7f5cdf41b7f6f144733b9e4e57862f387b01b58485192dabd7a835"
+      },
+      "sourceHash": "eb930810fa7f5cdf41b7f6f144733b9e4e57862f387b01b58485192dabd7a835",
+      "cleanup": {
+        "confirmed": true,
+        "confirmed404": true,
+        "at": "2026-09-22T04:35:20.543Z"
+      },
+      "finishedAt": "2026-09-22T04:35:20.544Z"
+    }
+  ],
+  "finishedAt": "2026-09-22T04:35:20.544Z",
+  "finalVerification": {
+    "at": "2026-09-22T04:36:06.717Z",
+    "managementSandboxCount": 0,
+    "physicalSandboxCount": 0,
+    "ownedPhysicalRemaining": 0
+  },
+  "preflightOnlyAttempt": {
+    "probeId": "e5f17449-254b-4756-88ac-20107982fa2f",
+    "status": "FAILED_BEFORE_GATE",
+    "reason": "The harness initially asserted Docker runtime name 'runsc' instead of the documented registered name 'pivloom-g0-runsc'; corrected the probe only.",
+    "sandboxId": "5d113464-c289-43b7-92e8-58e10261fc18",
+    "cleanup": {
+      "confirmed": true,
+      "confirmed404": true,
+      "at": "2026-09-22T04:30:48.972Z"
+    }
+  }
+}

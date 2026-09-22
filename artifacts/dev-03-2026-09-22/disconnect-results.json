@@ -1,0 +1,111 @@
+{
+  "prefix": "generation-disconnect-b3c1a6de-05b5-48b1-b4b4-ab4c23605d41",
+  "status": "cleaned",
+  "at": "2026-09-22T04:03:41.228Z",
+  "node": "v24.19.0",
+  "apiOrigin": "http://127.0.0.1:54362",
+  "ownerId": "82024654-478f-4c61-8960-8f2025b6eeb0",
+  "projectIds": [
+    "11a74fad-8893-4fef-aa2c-f12b39dbb6f2"
+  ],
+  "runIds": [
+    "db418f78-587e-4501-b6fc-30315feff34b",
+    "4015a506-e3c7-4d66-bfcf-08985325b636"
+  ],
+  "sandboxRequests": [
+    "POST /v1/sandboxes",
+    "POST /v1/sandboxes"
+  ],
+  "observations": [
+    {
+      "request": "GET /model-profiles",
+      "status": 200,
+      "elapsedMs": 3720
+    },
+    {
+      "request": "POST /projects",
+      "status": 201,
+      "elapsedMs": 2253
+    },
+    {
+      "disconnectedBeforeAcceptanceCommit": true,
+      "responseReceived": false
+    },
+    {
+      "request": "POST /projects/11a74fad-8893-4fef-aa2c-f12b39dbb6f2/runs",
+      "status": 202,
+      "elapsedMs": 5494
+    },
+    {
+      "request": "GET /runs/db418f78-587e-4501-b6fc-30315feff34b",
+      "status": 200,
+      "elapsedMs": 2611
+    },
+    {
+      "request": "GET /runs/db418f78-587e-4501-b6fc-30315feff34b",
+      "status": 200,
+      "elapsedMs": 2239
+    },
+    {
+      "request": "GET /runs/db418f78-587e-4501-b6fc-30315feff34b",
+      "status": 200,
+      "elapsedMs": 2261
+    },
+    {
+      "request": "GET /runs/db418f78-587e-4501-b6fc-30315feff34b",
+      "status": 200,
+      "elapsedMs": 2248
+    },
+    {
+      "request": "GET /runs/db418f78-587e-4501-b6fc-30315feff34b",
+      "status": 200,
+      "elapsedMs": 2334
+    },
+    {
+      "request": "POST /projects/11a74fad-8893-4fef-aa2c-f12b39dbb6f2/runs",
+      "status": 202,
+      "elapsedMs": 2598
+    },
+    {
+      "request": "GET /projects/11a74fad-8893-4fef-aa2c-f12b39dbb6f2",
+      "status": 200,
+      "elapsedMs": 2240
+    },
+    {
+      "request": "POST /projects/11a74fad-8893-4fef-aa2c-f12b39dbb6f2/runs",
+      "status": 202,
+      "elapsedMs": 6623
+    },
+    {
+      "request": "GET /runs/4015a506-e3c7-4d66-bfcf-08985325b636",
+      "status": 200,
+      "elapsedMs": 2602
+    },
+    {
+      "request": "GET /runs/4015a506-e3c7-4d66-bfcf-08985325b636",
+      "status": 200,
+      "elapsedMs": 2235
+    },
+    {
+      "request": "GET /runs/4015a506-e3c7-4d66-bfcf-08985325b636",
+      "status": 200,
+      "elapsedMs": 2247
+    },
+    {
+      "request": "GET /runs/4015a506-e3c7-4d66-bfcf-08985325b636",
+      "status": 200,
+      "elapsedMs": 2250
+    },
+    {
+      "request": "GET /runs/4015a506-e3c7-4d66-bfcf-08985325b636",
+      "status": 200,
+      "elapsedMs": 2239
+    }
+  ],
+  "cleanupCounts": {
+    "projects": 0,
+    "runs": 0,
+    "leases": 0
+  },
+  "fixture": "real Auth/Postgres/public HTTP; sandbox create returns HTTP 400; no model or real sandbox execution"
+}

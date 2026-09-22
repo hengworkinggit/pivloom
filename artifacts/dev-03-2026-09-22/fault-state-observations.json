@@ -1,0 +1,234 @@
+[
+  {
+    "at": "2026-09-22T04:16:37.262Z",
+    "label": "profile-deleted-during-run",
+    "fixtureId": "57daff58-0d09-4806-b690-bed14147389b",
+    "runs": [
+      {
+        "run_id": "fb744735-97f7-4553-a964-8a96dad47044",
+        "project_id": "e5d50697-6c5c-497e-9899-460e320562e7",
+        "state": "building",
+        "phase": "implement",
+        "error_code": null,
+        "error_message": null,
+        "result_revision_id": null,
+        "cleanup_state": "clear",
+        "created_at": "2026-09-22T04:13:30.163Z",
+        "finished_at": null,
+        "model_profile_id": "a0c5ba16-83fc-4451-95d3-a90e8e632015",
+        "model_config_version": 1,
+        "executor_boot_id": "2ef985e1-e04e-4a5a-87db-d569025b3e0b",
+        "frozen_model_id": "glm-5.3-flash",
+        "profile_current_version": 2,
+        "profile_deleted_at": "2026-09-22T04:15:10.077Z",
+        "lease_released_at": null,
+        "frozen_encrypted_credential_count": 1,
+        "configuration_versions": [
+          {
+            "modelId": "glm-5.3-flash",
+            "version": 1,
+            "createdAt": "2026-09-22T03:29:28.832+00:00"
+          },
+          {
+            "modelId": "pivloom-e2e-must-not-be-used",
+            "version": 2,
+            "createdAt": "2026-09-22T04:13:53.218+00:00"
+          }
+        ],
+        "roles": [
+          {
+            "role": "builder",
+            "state": "running",
+            "usage": {},
+            "startedAt": "2026-09-22T04:13:39.056+00:00",
+            "finishedAt": null
+          }
+        ],
+        "revisions": 0,
+        "sandboxes": [
+          {
+            "id": "b155479b-f59b-4e7f-b594-5a8ede371483",
+            "state": "active",
+            "expiresAt": "2026-09-22T04:28:46.631+00:00"
+          }
+        ],
+        "current_revision_id": null,
+        "operation_id": "fb744735-97f7-4553-a964-8a96dad47044"
+      }
+    ]
+  },
+  {
+    "at": "2026-09-22T04:18:34.721Z",
+    "label": "upload-fault-terminal",
+    "fixtureId": "57daff58-0d09-4806-b690-bed14147389b",
+    "runs": [
+      {
+        "run_id": "fb744735-97f7-4553-a964-8a96dad47044",
+        "project_id": "e5d50697-6c5c-497e-9899-460e320562e7",
+        "state": "failed",
+        "phase": "cleanup",
+        "error_code": "SNAPSHOT_SAVE_FAILED",
+        "error_message": "源码快照保存失败，请稍后重试。",
+        "result_revision_id": null,
+        "cleanup_state": "confirmed",
+        "created_at": "2026-09-22T04:13:30.163Z",
+        "finished_at": "2026-09-22T04:18:07.796Z",
+        "model_profile_id": "a0c5ba16-83fc-4451-95d3-a90e8e632015",
+        "model_config_version": 1,
+        "executor_boot_id": "2ef985e1-e04e-4a5a-87db-d569025b3e0b",
+        "frozen_model_id": "glm-5.3-flash",
+        "profile_current_version": 2,
+        "profile_deleted_at": "2026-09-22T04:15:10.077Z",
+        "lease_released_at": "2026-09-22T04:18:12.350Z",
+        "frozen_encrypted_credential_count": 0,
+        "configuration_versions": [
+          {
+            "modelId": "glm-5.3-flash",
+            "version": 1,
+            "createdAt": "2026-09-22T03:29:28.832+00:00"
+          },
+          {
+            "modelId": "pivloom-e2e-must-not-be-used",
+            "version": 2,
+            "createdAt": "2026-09-22T04:13:53.218+00:00"
+          }
+        ],
+        "roles": [
+          {
+            "role": "builder",
+            "state": "succeeded",
+            "usage": {
+              "input": 3134,
+              "total": 16307,
+              "output": 885
+            },
+            "startedAt": "2026-09-22T04:13:39.056+00:00",
+            "finishedAt": "2026-09-22T04:17:52.161+00:00"
+          }
+        ],
+        "revisions": 0,
+        "sandboxes": [
+          {
+            "id": "b155479b-f59b-4e7f-b594-5a8ede371483",
+            "state": "destroyed",
+            "expiresAt": "2026-09-22T04:28:46.631+00:00"
+          }
+        ],
+        "current_revision_id": null,
+        "operation_id": null
+      }
+    ]
+  },
+  {
+    "at": "2026-09-22T04:25:43.607Z",
+    "label": "both-faults-terminal",
+    "fixtureId": "57daff58-0d09-4806-b690-bed14147389b",
+    "runs": [
+      {
+        "run_id": "fb744735-97f7-4553-a964-8a96dad47044",
+        "project_id": "e5d50697-6c5c-497e-9899-460e320562e7",
+        "state": "failed",
+        "phase": "cleanup",
+        "error_code": "SNAPSHOT_SAVE_FAILED",
+        "error_message": "源码快照保存失败，请稍后重试。",
+        "result_revision_id": null,
+        "cleanup_state": "confirmed",
+        "created_at": "2026-09-22T04:13:30.163Z",
+        "finished_at": "2026-09-22T04:18:07.796Z",
+        "model_profile_id": "a0c5ba16-83fc-4451-95d3-a90e8e632015",
+        "model_config_version": 1,
+        "executor_boot_id": "2ef985e1-e04e-4a5a-87db-d569025b3e0b",
+        "frozen_model_id": "glm-5.3-flash",
+        "profile_current_version": 2,
+        "profile_deleted_at": "2026-09-22T04:15:10.077Z",
+        "lease_released_at": "2026-09-22T04:18:12.350Z",
+        "frozen_encrypted_credential_count": 0,
+        "configuration_versions": [
+          {
+            "modelId": "glm-5.3-flash",
+            "version": 1,
+            "createdAt": "2026-09-22T03:29:28.832+00:00"
+          },
+          {
+            "modelId": "pivloom-e2e-must-not-be-used",
+            "version": 2,
+            "createdAt": "2026-09-22T04:13:53.218+00:00"
+          }
+        ],
+        "roles": [
+          {
+            "role": "builder",
+            "state": "succeeded",
+            "usage": {
+              "input": 3134,
+              "total": 16307,
+              "output": 885
+            },
+            "startedAt": "2026-09-22T04:13:39.056+00:00",
+            "finishedAt": "2026-09-22T04:17:52.161+00:00"
+          }
+        ],
+        "revisions": 0,
+        "sandboxes": [
+          {
+            "id": "b155479b-f59b-4e7f-b594-5a8ede371483",
+            "state": "destroyed",
+            "expiresAt": "2026-09-22T04:28:46.631+00:00"
+          }
+        ],
+        "current_revision_id": null,
+        "operation_id": null
+      },
+      {
+        "run_id": "86cea5df-f7d6-4405-9810-a59f33a9e04b",
+        "project_id": "3fdafd1e-b6b0-48e0-bd94-535954d3ce5b",
+        "state": "failed",
+        "phase": "cleanup",
+        "error_code": "GENERATION_FAILED",
+        "error_message": "生成或保存未完成，请稍后重试。",
+        "result_revision_id": null,
+        "cleanup_state": "confirmed",
+        "created_at": "2026-09-22T04:20:05.719Z",
+        "finished_at": "2026-09-22T04:24:58.206Z",
+        "model_profile_id": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+        "model_config_version": 1,
+        "executor_boot_id": "a7bc7fd3-c1e6-4c43-9892-9ceb15bf14d4",
+        "frozen_model_id": "glm-5.3-flash",
+        "profile_current_version": 1,
+        "profile_deleted_at": null,
+        "lease_released_at": "2026-09-22T04:25:02.690Z",
+        "frozen_encrypted_credential_count": 1,
+        "configuration_versions": [
+          {
+            "modelId": "glm-5.3-flash",
+            "version": 1,
+            "createdAt": "2026-09-22T01:59:45.141+00:00"
+          }
+        ],
+        "roles": [
+          {
+            "role": "builder",
+            "state": "succeeded",
+            "usage": {
+              "input": 4162,
+              "total": 17591,
+              "output": 885
+            },
+            "startedAt": "2026-09-22T04:20:14.74+00:00",
+            "finishedAt": "2026-09-22T04:24:38.462+00:00"
+          }
+        ],
+        "revisions": 0,
+        "sandboxes": [
+          {
+            "id": "665b9b23-3320-470e-931a-e2f71fe99d45",
+            "state": "destroyed",
+            "expiresAt": "2026-09-22T04:35:22.473+00:00"
+          }
+        ],
+        "current_revision_id": null,
+        "operation_id": null
+      }
+    ]
+  }
+]

@@ -216,6 +216,7 @@ export class OpenSandboxWorkspace implements WorkspacePort {
   async create(input: {
     runId: string;
     signal: AbortSignal;
+    onCreated?: (handle: WorkspaceHandle) => Promise<void>;
   }): Promise<WorkspaceHandle> {
     if (input.signal.aborted) throw new RuntimeError("CANCELLED", "探针已取消");
     const connection = await this.connector.create(this.config, input.runId);
@@ -233,13 +234,6 @@ export class OpenSandboxWorkspace implements WorkspacePort {
       state: "active",
       writable: true,
     });
-    if (input.signal.aborted) {
-      const r = await this.destroy(handle);
-      throw new RuntimeError(
-        r.confirmed ? "CANCELLED" : "CLEANUP_PENDING",
-        r.confirmed ? "迟到创建的沙箱已销毁" : "迟到创建的沙箱尚未确认销毁",
-      );
-    }
     const resource = this.requireResource(handle);
     const onAbort = () => {
       void this.destroy(handle);
@@ -247,12 +241,24 @@ export class OpenSandboxWorkspace implements WorkspacePort {
     input.signal.addEventListener("abort", onAbort, { once: true });
     resource.detach = () => input.signal.removeEventListener("abort", onAbort);
     try {
+      try {
+        await input.onCreated?.(handle);
+      } catch {
+        throw new RuntimeError(
+          "SANDBOX_REGISTRATION_FAILED",
+          "沙箱登记失败，停止使用并清理远端资源",
+        );
+      }
+      if (input.signal.aborted)
+        throw new RuntimeError("CANCELLED", "迟到创建已取消");
       await connection.renew(Math.ceil(lifetimeMs / 1000));
       if (input.signal.aborted)
         throw new RuntimeError("CANCELLED", "创建期间取消");
       return handle;
     } catch (error) {
-      await this.destroy(handle);
+      const cleanup = await this.destroy(handle);
+      if (!cleanup.confirmed)
+        throw new RuntimeError("CLEANUP_PENDING", "沙箱清理尚未确认");
       throw error;
     }
   }

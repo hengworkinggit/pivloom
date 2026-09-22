@@ -1,0 +1,132 @@
+{
+  "prefix": "generation-http-e9d92f20-9978-463f-90b7-87eb97e88ca2",
+  "runId": "91521c1e-0060-412d-8bf5-ff877e8e5c82",
+  "revisionId": "19982ae7-bba4-4c20-bc05-7061eba77e75",
+  "projectIds": [
+    "d79d9f9e-317a-491e-8448-1d5f2b9376fe",
+    "4e4a0856-4ee8-4b51-bd2f-1224926861f7"
+  ],
+  "sourceKeys": [
+    "82024654-478f-4c61-8960-8f2025b6eeb0/d79d9f9e-317a-491e-8448-1d5f2b9376fe/19982ae7-bba4-4c20-bc05-7061eba77e75/dc93cd42e4564a87640505e61bd61967c85d3761b0744d1debb10a869be3b2cd.json.gz"
+  ],
+  "ownerA": "82024654-478f-4c61-8960-8f2025b6eeb0",
+  "ownerB": "5c28764a-4ab2-4c6c-9221-439a8b76dc34",
+  "node": "v24.19.0",
+  "apiOrigin": "http://127.0.0.1:51490",
+  "apiBootId": "9b27de4c-fe8f-4651-b44a-d55402b84ef1",
+  "build": "working-tree",
+  "at": "2026-09-22T03:43:52.735Z",
+  "status": "cleaned",
+  "observations": [
+    {
+      "label": "GET /runs/91521c1e-0060-412d-8bf5-ff877e8e5c82",
+      "actor": "A",
+      "status": 200,
+      "elapsedMs": 4229
+    },
+    {
+      "label": "GET /projects/d79d9f9e-317a-491e-8448-1d5f2b9376fe",
+      "actor": "A",
+      "status": 200,
+      "elapsedMs": 2292
+    },
+    {
+      "label": "GET /revisions/19982ae7-bba4-4c20-bc05-7061eba77e75/files",
+      "actor": "A",
+      "status": 200,
+      "elapsedMs": 2352
+    },
+    {
+      "label": "GET /revisions/19982ae7-bba4-4c20-bc05-7061eba77e75/file?path=README.md",
+      "actor": "A",
+      "status": 200,
+      "elapsedMs": 2663
+    },
+    {
+      "label": "GET /runs/91521c1e-0060-412d-8bf5-ff877e8e5c82/events",
+      "actor": "A",
+      "status": 200,
+      "elapsedMs": 2289
+    },
+    {
+      "label": "GET /runs/91521c1e-0060-412d-8bf5-ff877e8e5c82",
+      "actor": "B",
+      "status": 404,
+      "elapsedMs": 4135
+    },
+    {
+      "label": "GET /runs/91521c1e-0060-412d-8bf5-ff877e8e5c82/events",
+      "actor": "B",
+      "status": 404,
+      "elapsedMs": 2279
+    },
+    {
+      "label": "GET /revisions/19982ae7-bba4-4c20-bc05-7061eba77e75/files",
+      "actor": "B",
+      "status": 404,
+      "elapsedMs": 2300
+    },
+    {
+      "label": "GET /revisions/19982ae7-bba4-4c20-bc05-7061eba77e75/file?path=README.md",
+      "actor": "B",
+      "status": 404,
+      "elapsedMs": 2282
+    },
+    {
+      "label": "GET /projects/d79d9f9e-317a-491e-8448-1d5f2b9376fe/preview?revisionId=19982ae7-bba4-4c20-bc05-7061eba77e75",
+      "actor": "B",
+      "status": 404,
+      "elapsedMs": 2284
+    },
+    {
+      "label": "GET /projects/4e4a0856-4ee8-4b51-bd2f-1224926861f7/preview?revisionId=19982ae7-bba4-4c20-bc05-7061eba77e75",
+      "actor": "A",
+      "status": 404,
+      "elapsedMs": 4296
+    },
+    {
+      "label": "POST /projects/4e4a0856-4ee8-4b51-bd2f-1224926861f7/runs",
+      "actor": "A",
+      "status": 422,
+      "elapsedMs": 438
+    },
+    {
+      "label": "POST /projects/4e4a0856-4ee8-4b51-bd2f-1224926861f7/runs",
+      "actor": "A",
+      "status": 422,
+      "elapsedMs": 426
+    },
+    {
+      "label": "POST /projects/4e4a0856-4ee8-4b51-bd2f-1224926861f7/runs",
+      "actor": "A",
+      "status": 422,
+      "elapsedMs": 424
+    },
+    {
+      "label": "POST /projects/4e4a0856-4ee8-4b51-bd2f-1224926861f7/runs",
+      "actor": "A",
+      "status": 422,
+      "elapsedMs": 436
+    },
+    {
+      "label": "POST /projects/4e4a0856-4ee8-4b51-bd2f-1224926861f7/runs",
+      "actor": "A",
+      "status": 422,
+      "elapsedMs": 429
+    },
+    {
+      "label": "GET /projects/4e4a0856-4ee8-4b51-bd2f-1224926861f7",
+      "actor": "A",
+      "status": 200,
+      "elapsedMs": 2287
+    }
+  ],
+  "fixture": "terminal failure records and text snapshot; no model, build, or sandbox execution",
+  "sandboxRequests": 0,
+  "cleanupCounts": {
+    "projects": 0,
+    "runs": 0,
+    "leases": 0,
+    "objects": 0
+  }
+}
