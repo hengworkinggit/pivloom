@@ -79,7 +79,8 @@ test('a static render-only behavior passes with one observation and a screenshot
     const data=last?JSON.parse(last.content):null;
     if(n===1)return {name:'browser_open',args:{}};
     if(n===2){ids.push(data.id);return {name:'browser_screenshot',args:{}};}
-    artifactId=data.id;
+    // Screenshot results expose `artifactId`; observation event ids are `id`.
+    artifactId=data.artifactId;
     return {name:'record_behavior',args:{...report(ids).items[0],screenshotIds:[artifactId],reproSteps:['打开页面并观察渲染内容']}};
   });
   const result=await runReviewer(f.input);

@@ -101,7 +101,7 @@ const reportProblems = {
   // call to make next is the difference between one correction turn and a
   // failed run, so the two cases must not share a message.
   OBSERVATION_NOT_BOUND: '该行为还没有属于自己的动作证据：请先调用 browser_click / browser_fill / browser_select / browser_press（非 Tab）并带上这个 behaviorId，再引用它返回的 observationId；browser_open 与 browser_observe 的结果只能作为补充观察',
-  OBSERVATION_SCOPE: '观察必须来自本次检查，且与当前计划行为一致',
+  OBSERVATION_SCOPE: '观察必须来自本次检查：observationEventIds 只能填浏览器动作返回的 id（事件 id），不能填 observationId，也不能填截图的 artifactId；请用最近一次动作返回的 id 重新提交',
   RUNTIME_ERROR: '已观察到页面运行错误，不能记录为通过',
   ARTIFACT_SCOPE: '截图必须来自本次检查保存的工件',
   REPORT_SCOPE: '报告须匹配当前版本，并且恰好覆盖计划中的全部行为',
@@ -255,7 +255,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
         'Your working context retains the last two tool turns plus a runtime observation index. Use observation_read(id) for complete older evidence without repeating actions. Source bodies outside recent turns are omitted; source_read can reread them when needed. Never infer missing page content from compact excerpts.',
         'Read relevant source to check unsupported capability promises, fake success, persistence and plan outOfScope. Mark failed if UI promises real email/payment/backend that source does not implement. Do not accept build success as behavioral correctness.',
         'Work through plan behaviors in order. Immediately call record_behavior after verifying each behavior; retained completedBehaviors are your checklist, do not repeat them without contradictory evidence. Recording the final behavior validates and submits the whole report automatically. You may instead submit_review once for all behaviors.',
-        'Submit one report matching all plan behaviors exactly. observationEventIds use returned event id, not observationId. Include concise actual evidence and reproSteps. The expected field is bound to the sealed plan by the service, so put what you actually saw in actual instead of restating the plan. blocked means infrastructure prevents observation, failed means observed incorrect behavior.',
+        'Submit one report matching all plan behaviors exactly. Three different ids exist and are not interchangeable: every browser result returns both `id` (the observation event id, the only value allowed in observationEventIds) and `observationId` (used to chain the next browser call); screenshot results return `artifactId` (the only value allowed in screenshotIds). Include concise actual evidence and reproSteps. The expected field is bound to the sealed plan by the service, so put what you actually saw in actual instead of restating the plan. blocked means infrastructure prevents observation, failed means observed incorrect behavior.',
         'Take a screenshot for a failure or final successful result. Screenshots are artifacts only; this model is DOM-only and cannot claim visual understanding. browser_logs shows runtime exceptions; these prevent passing.',
         'Use short reports, at most 3 small independent tool calls per turn, await dependent results. A report does not itself publish the application.',
       ].join('\n')});
@@ -362,7 +362,11 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
           } else if(name==='browser_observe') value=observe(await input.browser.observe());
           else if(name==='browser_screenshot'){
             if(artifacts.length>=6)throw new RuntimeError('ARTIFACT_LIMIT','截图数量已达上限');
-            const artifact=await input.saveScreenshot(await input.browser.screenshot());artifacts.push(artifact);value=artifact;
+            const artifact=await input.saveScreenshot(await input.browser.screenshot());artifacts.push(artifact);
+            // The field is named explicitly: a bare `id` here reads like the
+            // observation event id, and mixing the two is a measured cause of
+            // failed checks. `screenshotIds` takes artifactId values.
+            value={artifactId:artifact.id,mimeType:artifact.mimeType,sha256:artifact.sha256};
           } else if(name==='browser_logs'){
             const logs=await input.browser.logs();
             fatalPageError ||= Array.isArray(logs.errors)&&logs.errors.length>0;
