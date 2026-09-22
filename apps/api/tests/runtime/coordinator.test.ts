@@ -3,13 +3,37 @@ import { access, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "vitest";
-import { runCoordinator } from "../../src/runtime/coordinator.js";
+import { normalizePlanArguments, runCoordinator } from "../../src/runtime/coordinator.js";
 import { createRunTokenBudget } from "../../src/runtime/token-budget.js";
 import type { ProbeEvent } from "../../src/runtime/types.js";
 
 // External provider SSE and persistence/active-role callbacks are fixtures.
 // The Pi session, allowlist, schema validation and lifecycle are real code.
 const key = "coordinator-private-fixture-key";
+
+// Providers disagreed about the shape of the same decision; every variant below
+// was observed or is the natural flattened form of one.
+test.each([
+  ["nested plan object", { plan: { goal: "g", behaviors: [] } }, { plan: { goal: "g", behaviors: [], schemaVersion: 1 } }],
+  ["plan as a JSON string", { plan: '{"goal":"g","behaviors":[]}' }, { plan: { goal: "g", behaviors: [], schemaVersion: 1 } }],
+  ["plan flattened to the top level", { goal: "g", changeSummary: "c", behaviors: [{ id: "B01" }] },
+    { plan: { goal: "g", changeSummary: "c", behaviors: [{ id: "B01" }], schemaVersion: 1 } }],
+  ["wrapped in an arguments object", { arguments: { goal: "g", behaviors: [] } }, { plan: { goal: "g", behaviors: [], schemaVersion: 1 } }],
+  ["wrapped in an input object", { input: { plan: { goal: "g", behaviors: [] } } }, { plan: { goal: "g", behaviors: [], schemaVersion: 1 } }],
+])("normalizes a %s into one canonical plan decision", (_label, input, expected) => {
+  expect(normalizePlanArguments(input)).toEqual(expected);
+});
+
+test("a model-supplied schemaVersion never overrides the service literal", () => {
+  expect(normalizePlanArguments({ plan: { schemaVersion: 99, goal: "g" } })).toEqual({ plan: { schemaVersion: 1, goal: "g" } });
+  expect(normalizePlanArguments({ goal: "g", schemaVersion: 2 })).toEqual({ plan: { goal: "g", schemaVersion: 1 } });
+});
+
+test("an unusable plan argument still reaches the guarded validation path", () => {
+  // A non-object, non-JSON plan must be refused by the schema, not silently guessed.
+  expect(normalizePlanArguments({ plan: 7 })).toEqual({ plan: 7 });
+});
+
 const plan = {
   schemaVersion: 1 as const,
   goal: "记录读书进度",

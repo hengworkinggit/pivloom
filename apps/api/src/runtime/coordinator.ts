@@ -57,6 +57,41 @@ function schemaIssues(issues: readonly { path: readonly PropertyKey[]; code: str
 }
 const toolResult = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
 
+/**
+ * Providers hand tool arguments over in several shapes for the same intent.
+ * Measured with the configured Ark endpoint: one model sends `{plan:{...}}`,
+ * another flattens the plan fields to the top level, and a third sends the plan
+ * as a JSON string or wrapped in an `input`/`arguments` object. All of them are
+ * the same decision, so they are normalized here instead of burning the single
+ * correction turn on a difference the user cannot see or act on.
+ */
+export function normalizePlanArguments(params: unknown): unknown {
+  const unwrap = (value: unknown): unknown => {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+    const record = value as Record<string, unknown>;
+    for (const wrapper of ["input", "arguments", "parameters", "args"]) {
+      const inner = record[wrapper];
+      if (inner !== null && typeof inner === "object" && !Array.isArray(inner) && !("plan" in record)) return unwrap(inner);
+    }
+    return record;
+  };
+  const parsedJson = (value: unknown): unknown => {
+    if (typeof value !== "string") return value;
+    try { return JSON.parse(value) as unknown; } catch { return value; }
+  };
+  const record = unwrap(params);
+  if (record === null || typeof record !== "object" || Array.isArray(record)) return params;
+  const candidate = record as Record<string, unknown>;
+  const plan = parsedJson(candidate.plan);
+  if (plan !== null && typeof plan === "object" && !Array.isArray(plan))
+    return { ...candidate, plan: { ...(plan as Record<string, unknown>), schemaVersion: 1 } };
+  // No usable `plan` key: the model flattened the plan into the tool arguments,
+  // so the whole object is the plan (plus a service-owned schemaVersion).
+  if (!("plan" in candidate) || candidate.plan === null || candidate.plan === undefined)
+    return { plan: { ...candidate, schemaVersion: 1 } };
+  return { ...candidate, plan };
+}
+
 /** An isolated, read-only planning role. No Workspace or sandbox is available. */
 export async function runCoordinator(input: CoordinatorInput): Promise<CoordinatorMetadata & { decision: CoordinatorDecision }> {
   const context = PlanningContextSchema.safeParse(input.context);
@@ -171,11 +206,7 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
             // `schemaVersion` is service bookkeeping, not a decision the model
             // owns. Forcing it here stops a malformed literal from burning the
             // single correction turn and the extra model requests it costs.
-            const normalized = name === "submit_plan" && params !== null && typeof params === "object" && !Array.isArray(params)
-              ? { ...params, plan: (params as { plan?: unknown }).plan !== null && typeof (params as { plan?: unknown }).plan === "object" && !Array.isArray((params as { plan?: unknown }).plan)
-                  ? { ...(params as { plan: Record<string, unknown> }).plan, schemaVersion: 1 }
-                  : (params as { plan?: unknown }).plan }
-              : params;
+            const normalized = name === "submit_plan" ? normalizePlanArguments(params) : params;
             const parsed = name === "submit_plan" ? planInput.safeParse(normalized) : questionInput.safeParse(params);
             if (!parsed.success) throw await reject(schemaIssues(parsed.error.issues));
             if (JSON.stringify(parsed.data).includes(input.modelConfig.apiKey)) throw await reject("input:protected_value");
