@@ -33,16 +33,29 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
     if (!environmentId || !process.env.DATABASE_URL || !process.env.MIGRATION_DATABASE_URL || !process.env.MODEL_CREDENTIALS_ENCRYPTION_KEY) throw Error("Explicit integration target required");
     const identity = JSON.parse(await readFile(resolve("../../.cache/identity", environmentId, "manifest.json"), "utf8"));
     if (identity.environmentId !== environmentId) throw Error("Identity manifest mismatch");
-    ownerA = identity.users.find((user: { label: string }) => user.label === "A").id;
-    ownerB = identity.users.find((user: { label: string }) => user.label === "B").id;
+    const userA = identity.users.find((user: { label: string }) => user.label === "A").id;
+    const userB = identity.users.find((user: { label: string }) => user.label === "B").id;
     admin = new Pool({ connectionString: process.env.MIGRATION_DATABASE_URL, max: 1 });
     const target = await admin.query("SELECT environment_id FROM nano.environment_identity WHERE id=true");
     if (target.rows[0]?.environment_id !== environmentId) throw Error("Database target mismatch");
     database = new PivloomDatabase(process.env.DATABASE_URL);
     models = createModelProfileService(database, createCredentialVault(process.env.MODEL_CREDENTIALS_ENCRYPTION_KEY));
-    const profiles = await models.list(ownerA);
-    const verified = profiles.find((profile) => profile.isDefault && profile.capabilities.streaming === "verified" && profile.capabilities.tools === "verified");
-    if (!verified) throw Error("A genuinely verified default profile is required; no capability fixture is substituted");
+    // This suite accepts real runs, so it must act as an account that still has
+    // daily quota. Which account that is changes as the day is consumed, so the
+    // A/B roles are assigned from the live counter instead of being assumed.
+    const verifiedFor = async (owner: string) => (await models.list(owner))
+      .find((profile) => profile.isDefault && profile.capabilities.streaming === "verified" && profile.capabilities.tools === "verified");
+    const [aProfile, aQuota, bProfile, bQuota] = await Promise.all([
+      verifiedFor(userA),
+      createGenerationRepository(database, models, { executorBootId: randomUUID() }).quota(userA),
+      verifiedFor(userB),
+      createGenerationRepository(database, models, { executorBootId: randomUUID() }).quota(userB),
+    ]);
+    const useB = !!bProfile && bQuota.dailyAccepted < bQuota.dailyLimit && (!aProfile || aQuota.dailyAccepted >= aQuota.dailyLimit);
+    const verified = useB ? bProfile : aProfile;
+    if (!verified) throw Error("A genuinely verified default profile with remaining quota is required; no capability fixture is substituted");
+    ownerA = useB ? userB : userA;
+    ownerB = useB ? userA : userB;
     model = verified;
     generation = createGenerationRepository(database, models, { executorBootId: randomUUID() });
     sources = createSourceStore({ url: process.env.SUPABASE_URL!, secret: process.env.SUPABASE_SECRET_KEY! });
@@ -162,13 +175,40 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
     const id = await project();
     const input = request("容量测试");
     const accepted = await generation.accept(ownerA, id, input);
+    // The global index allows one active run at a time, so this run must reach a
+    // terminal state before the capacity assertion can be attributed correctly.
     await generation.finishFailed(ownerA, accepted.run.id, { code: "CHECK_BLOCKED", message: "fixture terminal", retryable: false, cleanupState: "confirmed" });
-    const full = createGenerationRepository(database, models, { executorBootId: randomUUID(), hasSandboxCapacity: () => false });
-    expect((await full.accept(ownerA, id, input)).run.id).toBe(accepted.run.id);
-    const emptyProject = await project();
-    await expect(full.accept(ownerA, emptyProject, request())).rejects.toMatchObject({ code: "SERVICE_BUSY" });
-    expect(await generation.getLatestRun(ownerA, emptyProject)).toBeNull();
-    expect(await generation.listProjectMessages(ownerA, emptyProject)).toEqual([]);
+    // Capacity is counted from the durable registry, so the fixture is a real
+    // live sandbox row (the external boundary) rather than an injected predicate.
+    const fixtureSandbox = randomUUID();
+    // The live count is measured, not assumed: this environment may already hold
+    // a real preview sandbox, and the ceiling must be expressed relative to it.
+    const liveBefore = (await admin.query("SELECT nano.live_sandbox_count() AS live")).rows[0].live as number;
+    await admin.query(`INSERT INTO nano.sandboxes(owner_id,project_id,run_id,attempt,remote_id,purpose,state,expires_at)
+      VALUES($1,$2,$3,0,$4,'preview','active',now()+interval '10 minutes')`, [ownerA, id, accepted.run.id, fixtureSandbox]);
+    let releasedRunId: string | null = null;
+    try {
+      const full = createGenerationRepository(database, models, { executorBootId: randomUUID(), maxSandboxes: liveBefore + 1 });
+      // An idempotent replay is still served: it never claimed a new sandbox.
+      expect((await full.accept(ownerA, id, input)).run.id).toBe(accepted.run.id);
+      const emptyProject = await project();
+      await expect(full.accept(ownerA, emptyProject, request())).rejects.toMatchObject({ code: "SERVICE_BUSY" });
+      expect(await generation.getLatestRun(ownerA, emptyProject)).toBeNull();
+      expect(await generation.listProjectMessages(ownerA, emptyProject)).toEqual([]);
+      // A reclaimed sandbox stops counting immediately, even before its expiry.
+      await admin.query("UPDATE nano.sandboxes SET state='destroyed' WHERE remote_id=$1", [fixtureSandbox]);
+      const released = await full.accept(ownerA, emptyProject, request("容量释放后"));
+      expect(released.run.state).toBe("accepted");
+      releasedRunId = released.run.id;
+    } finally {
+      // An accepted run holds the single global generation slot until it reaches
+      // a terminal state, so it must never outlive this case.
+      if (releasedRunId) {
+        await generation.cancel(ownerA, releasedRunId);
+        await generation.finishCancelled(ownerA, releasedRunId, { cleanupState: "confirmed", summary: "fixture cleanup" });
+      }
+      await admin.query("DELETE FROM nano.sandboxes WHERE remote_id=$1", [fixtureSandbox]);
+    }
   }, 90_000);
 
   test("a failed upload and a real database rollback never reference an unavailable snapshot and leave identifiable orphans", async () => {

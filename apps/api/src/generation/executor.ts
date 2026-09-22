@@ -243,6 +243,15 @@ export function createGenerationExecutor(options: {
             : error instanceof RuntimeError && phase === "review"
                 ? new ApiFailure(503, "CHECK_BLOCKED", "检查过程或浏览器关闭尚未完成，候选未被接受。", true)
             : new ApiFailure(503, "GENERATION_FAILED", "生成或保存未完成，请稍后重试。", true);
+      // The user-facing copy stays generic, but an unmapped internal failure must
+      // leave an operator-visible cause. Class name plus a redacted message is
+      // enough to triage a run that ended in milliseconds without exposing keys.
+      if (failure.code === "GENERATION_FAILED") {
+        const detail = error instanceof Error
+          ? `${error.name}: ${error.message.replaceAll(sandbox.apiKey, "[REDACTED]").replace(/Bearer\s+[^\s"']+/gi, "Bearer [REDACTED]").slice(0, 400)}`
+          : "unknown";
+        console.error(`run ${run.id} failed at phase ${phase}: ${detail}`);
+      }
       await repository.finishFailed(run.ownerId, run.id, {
         code: failure.code, message: failure.message, retryable: failure.retryable,
         resultRevisionId, cleanupState: confirmed ? "confirmed" : "pending",

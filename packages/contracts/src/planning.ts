@@ -28,11 +28,24 @@ export const PlanSchema = z.strictObject({
 }).refine((plan) => new Set(plan.behaviors.map((behavior) => behavior.id)).size === plan.behaviors.length, "行为 ID 必须唯一。")
   .refine(boundedJson(16 * 1024), "计划不得超过 16 KiB。");
 export type Plan = z.infer<typeof PlanSchema>;
+/**
+ * The observable contract of a preserved behavior, compared without cosmetic
+ * differences. Models reliably re-wrap lines and swap punctuation, which says
+ * nothing about the behavior, while any real rewording of the expected result
+ * still has to be reproduced exactly.
+ */
+function observable(value: string) {
+  return value.replace(/\s+/gu, " ").trim().replace(/[。．.,，;；:：!！?？]+$/u, "");
+}
+export function sameObservableBehavior(left: BehaviorTarget, right: BehaviorTarget) {
+  return left.id === right.id && left.required === right.required
+    && observable(left.precondition) === observable(right.precondition)
+    && observable(left.action) === observable(right.action)
+    && observable(left.expected) === observable(right.expected);
+}
 /** A cosmetic title change is allowed; the original observable contract remains intact. */
 export function preservesPreviousBehavior(plan: Plan, previousPlan: Plan | null) {
-  return !previousPlan || plan.behaviors.some((candidate) => previousPlan.behaviors.some((previous) =>
-    previous.id === candidate.id && previous.precondition === candidate.precondition && previous.action === candidate.action
-    && previous.expected === candidate.expected && previous.required === candidate.required));
+  return !previousPlan || plan.behaviors.some((candidate) => previousPlan.behaviors.some((previous) => sameObservableBehavior(candidate, previous)));
 }
 export const ClarificationQuestionSchema = nonempty(1000);
 const newClarificationQuestion = nonempty(300)

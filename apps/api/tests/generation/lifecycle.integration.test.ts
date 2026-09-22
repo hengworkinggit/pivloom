@@ -204,6 +204,43 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
     expect(held.rows[0].operation_id).toBeNull();
   });
 
+  test("a retry repeats the request from the current revision, never from a rejected candidate", async () => {
+    const repo = repository();
+    const target = await project();
+    const failed = await accept(repo, target.id, "重试基线测试");
+    try {
+      await repo.cancel(runOwner, failed.id);
+      await repo.finishCancelled(runOwner, failed.id, { cleanupState: "confirmed", summary: "任务已停止。" });
+      // A rejected candidate exists for the failed run but was never promoted.
+      const candidate = randomUUID();
+      await admin.query(`INSERT INTO nano.revisions(id,owner_id,project_id,run_id,revision_no,attempt,source_key,source_hash,
+        template_version,manifest_json,source_bytes,compressed_bytes,build_status,build_json,status)
+        VALUES($1,$2,$3,$4,900,0,$5,repeat('b',64),'fixture', '[]'::jsonb, 10, 10, 'passed', '{}'::jsonb, 'candidate')`,
+      [candidate, runOwner, target.id, failed.id, `fixture-${candidate}`]);
+      await admin.query("UPDATE nano.runs SET result_revision_id=$2 WHERE id=$1", [failed.id, candidate]);
+      const retried = await repo.accept(runOwner, target.id, {
+        text: "客户端附带的文字应与原请求一致", expectedCurrentRevisionId: null, modelProfileId: model.id,
+        modelConfigVersion: model.configVersion, modelId: null, retryOfRunId: failed.id, parentRunId: null, idempotencyKey: randomUUID(),
+      });
+      runIds.push(retried.run.id);
+      expect(retried.run.state).toBe("accepted");
+      expect(retried.run.requestText).toBe("重试基线测试");
+      // Planning reads its base from the same value the run stores, so a retry can
+      // never start with a context the coordinator rejects.
+      const context = await repo.getPlanningContext(runOwner, retried.run.id);
+      const stored = await admin.query("SELECT base_revision_id, kind, retry_of FROM nano.runs WHERE id=$1", [retried.run.id]);
+      expect(stored.rows[0]).toMatchObject({ base_revision_id: null, kind: "retry", retry_of: failed.id });
+      expect(context.baseRevisionId).toBeNull();
+      expect(context.requestText).toBe("重试基线测试");
+    } finally {
+      await admin.query("UPDATE nano.runs SET state='cancelled', cleanup_state='confirmed' WHERE project_id=$1 AND state NOT IN ('completed','cancelled','interrupted','needs_changes','failed','needs_input')", [target.id]);
+      await admin.query("UPDATE nano.projects SET operation_kind=NULL, operation_id=NULL, current_revision_id=NULL WHERE id=$1", [target.id]);
+      // runs.result_revision_id references the revisions, so it must be cleared first.
+      await admin.query("UPDATE nano.runs SET result_revision_id=NULL WHERE project_id=$1", [target.id]);
+      await admin.query("DELETE FROM nano.revisions WHERE project_id=$1", [target.id]);
+    }
+  }, CASE_TIMEOUT_MS);
+
   test("a boot scan interrupts another process's runs and releases them after cleanup", async () => {
     const first = repository();
     const target = await project();

@@ -210,7 +210,13 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
             const parsed = name === "submit_plan" ? planInput.safeParse(normalized) : questionInput.safeParse(params);
             if (!parsed.success) throw await reject(schemaIssues(parsed.error.issues));
             if (JSON.stringify(parsed.data).includes(input.modelConfig.apiKey)) throw await reject("input:protected_value");
-            if ("plan" in parsed.data && !preservesPreviousBehavior(parsed.data.plan, context.data.previousPlan)) throw await reject("plan.behaviors:previous_behavior_required");
+            if ("plan" in parsed.data && !preservesPreviousBehavior(parsed.data.plan, context.data.previousPlan)) {
+              // A bare code makes the model guess what to change and burn its one
+              // correction turn. The previous behavior is quoted verbatim so it
+              // can be copied, and a genuine reword is still refused.
+              const required = context.data.previousPlan?.behaviors.find((behavior) => behavior.required) ?? context.data.previousPlan?.behaviors[0];
+              throw await reject(`plan.behaviors:previous_behavior_required——必须原样保留其中一个已有行为（字段逐字相同，只允许空白与句末标点不同）：${JSON.stringify(required ?? null)}`);
+            }
             decision = "plan" in parsed.data ? { kind: "plan", plan: parsed.data.plan } : { kind: "clarification", question: parsed.data.question };
             result = toolResult("方案已接收，等待服务端确认；尚未持久化或交接。");
           }

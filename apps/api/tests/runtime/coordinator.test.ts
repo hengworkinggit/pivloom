@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "vitest";
 import { normalizePlanArguments, runCoordinator } from "../../src/runtime/coordinator.js";
+import { preservesPreviousBehavior, type Plan } from "@pivloom/contracts";
 import { createRunTokenBudget } from "../../src/runtime/token-budget.js";
 import type { ProbeEvent } from "../../src/runtime/types.js";
 
@@ -32,6 +33,26 @@ test("a model-supplied schemaVersion never overrides the service literal", () =>
 test("an unusable plan argument still reaches the guarded validation path", () => {
   // A non-object, non-JSON plan must be refused by the schema, not silently guessed.
   expect(normalizePlanArguments({ plan: 7 })).toEqual({ plan: 7 });
+});
+
+// A modification must keep one accepted behavior, but models re-wrap and
+// re-punctuate the same sentence. Cosmetic differences are accepted; a real
+// reword of the observable result is still refused.
+test("a preserved behavior tolerates cosmetic differences only", () => {
+  const base = {
+    schemaVersion: 1 as const, goal: "g", changeSummary: "c", assumptions: [], outOfScope: [],
+    behaviors: [{ id: "B01", title: "添加", precondition: "页面已打开", action: "输入书名并点击添加",
+      expected: "列表中出现输入的书名", required: true }],
+  } as unknown as Plan;
+  const keep = (expected: string, precondition = "页面已打开") => ({
+    ...base, behaviors: [{ ...base.behaviors[0], expected, precondition }],
+  });
+  expect(preservesPreviousBehavior(keep("列表中出现输入的书名"), base)).toBe(true);
+  expect(preservesPreviousBehavior(keep("列表中出现输入的书名。"), base)).toBe(true);
+  expect(preservesPreviousBehavior(keep("\n  列表中出现输入的书名  \n"), base)).toBe(true);
+  expect(preservesPreviousBehavior(keep("列表中不出现输入的书名"), base)).toBe(false);
+  const weakened = { ...base, behaviors: [{ ...base.behaviors[0], required: false }] };
+  expect(preservesPreviousBehavior(weakened, base)).toBe(false);
 });
 
 const plan = {

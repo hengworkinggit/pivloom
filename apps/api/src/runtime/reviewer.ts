@@ -96,6 +96,11 @@ const output = (value: unknown) => ({ content: [{ type: 'text' as const, text: J
 const reportProblems = {
   EXPECTED_MISMATCH: 'expected 必须与计划中的行为预期完全一致',
   ACTION_EVIDENCE_REQUIRED: '通过或失败须引用本行为真实动作后的观察，首次打开、滚动或 Tab 不能替代',
+  // Distinct from ACTION_EVIDENCE_REQUIRED: the model may have acted, but on an
+  // observation that is not bound to the behavior it is recording. Saying which
+  // call to make next is the difference between one correction turn and a
+  // failed run, so the two cases must not share a message.
+  OBSERVATION_NOT_BOUND: '该行为还没有属于自己的动作证据：请先调用 browser_click / browser_fill / browser_select / browser_press（非 Tab）并带上这个 behaviorId，再引用它返回的 observationId；browser_open 与 browser_observe 的结果只能作为补充观察',
   OBSERVATION_SCOPE: '观察必须来自本次检查，且与当前计划行为一致',
   RUNTIME_ERROR: '已观察到页面运行错误，不能记录为通过',
   ARTIFACT_SCOPE: '截图必须来自本次检查保存的工件',
@@ -181,7 +186,10 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   };
   const invalid = (reason:ReportProblem, path?:string) => {
     lastRejection = path ? `${reason}:${path}` : reason;
-    const error = new RuntimeError('AGENT_OUTPUT_INVALID', `检查报告校验失败 [${reason}${path?`:${path}`:''}]：${reportProblems[reason]}；仅允许纠正一次`);
+    // Naming the offending behavior lets the model fix exactly that item in its
+    // single correction turn instead of re-submitting the same evidence.
+    const scope = path ? `:${path}` : '';
+    const error = new RuntimeError('AGENT_OUTPUT_INVALID', `检查报告校验失败 [${reason}${scope}]：${reportProblems[reason]}；仅允许纠正一次`);
     return ++invalidReports >= 2 ? fail(error) : error;
   };
   // The expectation is part of the sealed handoff plan, never something the
@@ -209,16 +217,16 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     // is legitimate render/content verification. Interactive behaviors still
     // require behavior-bound action evidence.
     const renderedEvidence=observations.length>=1 && item.screenshotIds.length>0;
-    if(!observations.some(e=>e?.behaviorId===item.behaviorId) && !renderedEvidence)return 'OBSERVATION_SCOPE';
+    if(!observations.some(e=>e?.behaviorId===item.behaviorId) && !renderedEvidence)return 'OBSERVATION_NOT_BOUND';
     if(item.verdict!=='blocked' && !actionEvidence && !renderedEvidence)return 'ACTION_EVIDENCE_REQUIRED';
     if(fatalPageError&&item.verdict==='passed')return 'RUNTIME_ERROR';
   };
-  const reportProblem=(report:ReviewResult):ReportProblem|undefined=>{
+  const reportProblem=(report:ReviewResult):{problem:ReportProblem;behaviorId?:string}|undefined=>{
     if(report.revisionId!==binding.revisionId||report.sourceHash!==binding.sourceHash
       ||report.items.length!==handoff.plan.behaviors.length
-      ||new Set(report.items.map(item=>item.behaviorId)).size!==handoff.plan.behaviors.length)return 'REPORT_SCOPE';
-    for(const item of report.items){const problem=itemProblem(item);if(problem)return problem;}
-    if(JSON.stringify(report).includes(input.modelConfig.apiKey))return 'SECRET_OUTPUT';
+      ||new Set(report.items.map(item=>item.behaviorId)).size!==handoff.plan.behaviors.length)return {problem:'REPORT_SCOPE'};
+    for(const item of report.items){const problem=itemProblem(item);if(problem)return {problem,behaviorId:item.behaviorId};}
+    if(JSON.stringify(report).includes(input.modelConfig.apiKey))return {problem:'SECRET_OUTPUT'};
   };
   const compactObservation=(event:ReviewObservationEvent,limit:number)=>{
     const {tree:_tree,...metadata}=event;
@@ -279,7 +287,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             const report=ReviewResultSchema.parse(params);
             const logs=await input.browser.logs();
             fatalPageError ||= Array.isArray(logs.errors) && logs.errors.length>0;
-            const problem=reportProblem(report);if(problem)throw invalid(problem);
+            const problem=reportProblem(report);if(problem)throw invalid(problem.problem, problem.behaviorId);
             decision={...report,items:report.items.map(bindExpected)};value={accepted:true};
           } else if(name==='record_behavior'){
             const item=ReviewItemSchema.parse(params);
@@ -293,7 +301,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
                 items:handoff.plan.behaviors.map(behavior=>completedBehaviors.get(behavior.id)),
                 summary:`已检查 ${completedBehaviors.size} 项行为：${[...completedBehaviors.values()].filter(item=>item.verdict==='passed').length} 项通过。`});
               if(!parsedReport.success)throw invalid('SCHEMA_INVALID',schemaIssuePath(parsedReport.error.issues));
-              const problem=reportProblem(parsedReport.data);if(problem)throw invalid(problem);
+              const problem=reportProblem(parsedReport.data);if(problem)throw invalid(problem.problem, problem.behaviorId);
               decision=parsedReport.data;
             }
             value={recorded:true,accepted:Boolean(decision),remainingBehaviorIds:handoff.plan.behaviors.filter(b=>!completedBehaviors.has(b.id)).map(b=>b.id)};

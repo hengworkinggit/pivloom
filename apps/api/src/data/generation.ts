@@ -202,7 +202,7 @@ export function createGenerationRepository(
   database: Pick<PivloomDatabase, "owned">,
   models: ModelProfileService,
   options: {
-    executorBootId: string; hasSandboxCapacity?: () => boolean;
+    executorBootId: string; maxSandboxes?: number;
     onCommittedEvent?: (ownerId: string, event: RunEvent) => void | Promise<void>;
   },
 ): GenerationRepository {
@@ -341,14 +341,19 @@ export function createGenerationRepository(
           }
           if (parent.current_revision_id !== normalized.expectedCurrentRevisionId) throw new ApiFailure(409, "STALE_BASE", "当前版本已经变化，请刷新项目后重试。");
           if (parent.operation_id) throw new ApiFailure(409, "PROJECT_BUSY", "当前项目仍有执行或清理操作。", true);
-          if (options.hasSandboxCapacity && !options.hasSandboxCapacity()) throw new ApiFailure(503, "SERVICE_BUSY", "沙箱容量已满，本次需求尚未接受。", true);
+          // Capacity is counted from the durable sandbox registry, so it stays
+          // correct across a restart and never counts a reclaimed sandbox.
+          if (options.maxSandboxes) {
+            const live = (await client.query("SELECT nano.live_sandbox_count() AS live")).rows[0].live as number;
+            if (live >= options.maxSandboxes) throw new ApiFailure(503, "SERVICE_BUSY", "沙箱容量已满，本次需求尚未接受。", true);
+          }
           // Replays return above, so a retried idempotency key never consumes quota twice.
           const used = (await client.query("SELECT count(*)::int AS accepted FROM nano.runs WHERE owner_id=$1 AND created_at > now() - interval '24 hours'", [ownerId])).rows[0].accepted as number;
           if (used >= DAILY_ACCEPTED_LIMIT)
             throw new ApiFailure(429, "QUOTA_EXCEEDED", `今日任务额度已用完（${DAILY_ACCEPTED_LIMIT} 个），请稍后再试。`, false);
           let requestText = normalized.text;
           let runKind: "generate" | "modify" | "retry" | "clarify" = normalized.parentRunId ? "clarify" : parent.current_revision_id ? "modify" : "generate";
-          let baseRevisionId = normalized.expectedCurrentRevisionId;
+          const baseRevisionId = normalized.expectedCurrentRevisionId;
           const retryOfRunId: string | null = normalized.retryOfRunId;
           if (retryOfRunId) {
             const prior = await run(client, ownerId, retryOfRunId);
@@ -356,13 +361,20 @@ export function createGenerationRepository(
             if (["completed", "needs_input"].includes(prior.state) || !TerminalRunStates.has(prior.state)) {
               throw new ApiFailure(422, "INVALID_RETRY_PARENT", "只能重试已结束的失败或需要修改的任务。");
             }
+            // A retry repeats the same request from the same base as any other
+            // new modification: the project's current revision. Planning reads
+            // its base from this same value, so pointing the run at a rejected
+            // candidate instead would make the coordinator's context check fail
+            // before the first model call. The rejected candidate stays readable
+            // as its own revision and is never promoted by a retry.
             requestText = prior.request_text;
             runKind = "retry";
-            baseRevisionId = prior.result_revision_id ?? parent.current_revision_id;
           }
           const id = randomUUID();
           const roleId = randomUUID();
-          let originalRequest = normalized.text;
+          // A retry repeats the original wording; anything the client sent alongside
+          // the retry link is ignored so the recorded request cannot drift.
+          let originalRequest = requestText;
           let clarificationTurns: PlanningContext["clarificationTurns"] = [];
           if (normalized.parentRunId) {
             const previousRun = await run(client, ownerId, normalized.parentRunId);

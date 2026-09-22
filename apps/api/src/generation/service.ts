@@ -29,7 +29,7 @@ export function createGenerationService(options: {
   const projects = createProjectRepository(options.database);
   const eventHub = createRunEventHub();
   const repository = createGenerationRepository(options.database, options.models, {
-    executorBootId: options.bootId, hasSandboxCapacity: () => executor.hasCapacity(),
+    executorBootId: options.bootId, maxSandboxes: options.maxSandboxes,
     onCommittedEvent: eventHub.publish,
   });
   const sources = createSourceStore({ url: options.identity.supabaseUrl, secret: options.identity.supabaseSecretKey, objects: options.sourceObjects });
