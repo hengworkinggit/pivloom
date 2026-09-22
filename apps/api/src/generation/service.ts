@@ -108,6 +108,19 @@ export function createGenerationService(options: {
         preview: revision ? previewView(ownerId, revision, binding) : null });
     },
     preview,
+    /**
+     * Authorises one certificate request for a revision subdomain. Any other
+     * host is refused, so a public proxy can never be talked into issuing a
+     * certificate for a name this service does not serve.
+     */
+    async previewHostAllowed(host: string) {
+      const suffix = `.${new URL(options.previewOrigin).hostname.toLowerCase()}`;
+      const name = host.trim().toLowerCase().replace(/\.$/, "");
+      if (!name.endsWith(suffix)) return false;
+      const label = name.slice(0, -suffix.length);
+      if (label.includes(".") || label.length === 0) return false;
+      return repository.revisionExists(label);
+    },
     async cancel(ownerId: string, runId: string) {
       const cancelled = await repository.cancel(ownerId, runId);
       // A run with no live task in this process (accepted but not yet dispatched,

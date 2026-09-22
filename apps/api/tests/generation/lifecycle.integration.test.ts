@@ -85,8 +85,11 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
     if (projectIds.length) await admin.query("UPDATE nano.projects SET current_revision_id=NULL WHERE id = ANY($1::uuid[])", [projectIds]);
     if (projectIds.length) await admin.query("DELETE FROM nano.revisions WHERE project_id = ANY($1::uuid[])", [projectIds]);
     if (runIds.length) await admin.query("DELETE FROM nano.role_runs WHERE run_id = ANY($1::uuid[])", [runIds]);
-    if (runIds.length) await admin.query("DELETE FROM nano.model_credential_leases WHERE reference_id = ANY($1::uuid[])", [runIds]);
+    // runs.credential_lease_id references the leases, so the runs must go first:
+    // deleting leases first violates the foreign key, aborts the rest of this
+    // cleanup and silently leaks fixture runs into the daily quota.
     if (runIds.length) await admin.query("DELETE FROM nano.runs WHERE id = ANY($1::uuid[])", [runIds]);
+    if (runIds.length) await admin.query("DELETE FROM nano.model_credential_leases WHERE reference_id = ANY($1::uuid[])", [runIds]);
     if (projectIds.length) await admin.query("DELETE FROM nano.projects WHERE id = ANY($1::uuid[])", [projectIds]);
     await writeFile(manifestPath, JSON.stringify({ prefix, ownerA, ownerB, projectIds, runIds, cleaned: true }, null, 2), { mode: 0o600 }).catch(() => undefined);
     await admin.end();

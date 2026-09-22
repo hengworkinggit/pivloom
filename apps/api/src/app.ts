@@ -83,6 +83,16 @@ export function createApp(options: CreateAppOptions = {}) {
     }));
   } else if (database && verifier) {
     app.register(async (configured) => {
+      // The public proxy calls this before it issues a certificate for a
+      // revision subdomain; it is unauthenticated on purpose and answers only
+      // for names this service actually serves.
+      configured.get("/api/v1/preview/tls-check", async (request, reply) => {
+        const domain = typeof (request.query as { domain?: unknown } | null)?.domain === "string"
+          ? (request.query as { domain: string }).domain : "";
+        const allowed = generation !== null && domain.length > 0 && domain.length <= 255
+          && await generation.previewHostAllowed(domain).catch(() => false);
+        return reply.code(allowed ? 200 : 403).type("text/plain").send(allowed ? "ok" : "denied");
+      });
       if (env.MODEL_CREDENTIALS_ENCRYPTION_KEY) {
         const vault = createCredentialVault(env.MODEL_CREDENTIALS_ENCRYPTION_KEY);
         const models = createModelProfileService(database, vault);

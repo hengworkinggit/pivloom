@@ -112,6 +112,7 @@ export interface GenerationRepository {
   bindRestore(ownerId: string, projectId: string, restoreId: string, input: { sandboxId: string; expiresAt: string }): Promise<StoredRestore>;
   failRestore(ownerId: string, projectId: string, restoreId: string, input: { code: string; message: string }): Promise<StoredRestore | null>;
   getActiveRestore(ownerId: string, projectId: string, revisionId: string): Promise<StoredRestore | null>;
+  revisionExists(revisionId: string): Promise<boolean>;
 }
 
 type Row = QueryResultRow;
@@ -949,5 +950,13 @@ export function createGenerationRepository(
         ORDER BY created_at DESC LIMIT 1`, [ownerId, projectId, revisionId])).rows[0];
       return row ? storedRestore(row) : null;
     }),
+    // Deliberately not owner-scoped: this answers only "does this revision id
+    // exist anywhere", which is what a certificate request needs to be bound to.
+    revisionExists: async (revisionId) => {
+      if (!z.uuid().safeParse(revisionId).success) return false;
+      const result = await database.owned("00000000-0000-4000-8000-000000000000", async (client) =>
+        client.query<{ exists: boolean }>("SELECT nano.revision_exists($1) AS exists", [revisionId]));
+      return result.rows[0]?.exists === true;
+    },
   };
 }
