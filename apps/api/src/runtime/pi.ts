@@ -47,6 +47,23 @@ export interface BuilderResult {
   usage: TokenUsage;
 }
 
+/**
+ * Pi ships a model catalog with per-model adaptation (API protocol, reasoning,
+ * context limits and `compat` such as thinking format, developer role or store
+ * support). A BYOK profile carries our own provider id, so a normal
+ * `getModel(provider, id)` lookup misses and the old code registered a bare
+ * entry with no `compat` at all — silently discarding every adaptation Pi has
+ * for that model. Resolve by model id across the catalog instead, and when an id
+ * appears under several providers prefer the entry with the most specific
+ * adaptation rather than an arbitrary one.
+ */
+function catalogModelFor(runtime: ModelRuntime, modelId: string) {
+  const candidates = runtime.getModels().filter((candidate) => candidate.id === modelId);
+  if (!candidates.length) return undefined;
+  const specificity = (candidate: (typeof candidates)[number]) => Object.keys(candidate.compat ?? {}).length;
+  return candidates.reduce((best, candidate) => specificity(candidate) > specificity(best) ? candidate : best);
+}
+
 export async function createServiceModel(
   config: ModelConfig,
   signal?: AbortSignal,
@@ -62,8 +79,10 @@ export async function createServiceModel(
   });
   let model = runtime.getModel(config.provider, config.id);
   if (config.baseUrl) {
+    const catalog = catalogModelFor(runtime, config.id);
     const api: Api =
       config.api ??
+      catalog?.api ??
       model?.api ??
       (config.provider === "anthropic-messages"
         ? "anthropic-messages"
@@ -73,14 +92,18 @@ export async function createServiceModel(
       api,
       models: [
         {
+          // Inherit the catalog's protocol-level adaptation for this exact model
+          // id; only identity, endpoint and our own limits are overridden.
           id: config.id,
           name: config.id,
           api,
-          reasoning: false,
-          input: config.supportsImages ? ["text", "image"] : ["text"],
+          reasoning: catalog?.reasoning ?? false,
+          ...(catalog?.compat ? { compat: catalog.compat } : {}),
+          input: config.supportsImages ? ["text", "image"] : (catalog?.input ?? ["text"]),
+          // Prices from another provider's catalog would be a false cost figure.
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          contextWindow: config.contextWindow ?? 128000,
-          maxTokens: config.maxTokens ?? 8192,
+          contextWindow: config.contextWindow ?? catalog?.contextWindow ?? 128000,
+          maxTokens: config.maxTokens ?? Math.min(catalog?.maxTokens ?? 8192, 8192),
         },
       ],
     });

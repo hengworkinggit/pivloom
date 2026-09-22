@@ -136,6 +136,21 @@ test("aborting after actual Pi stream content does not release a reservation aga
   expect(budget.snapshot()).toMatchObject({ accountedTokens: reserved, pendingRequests: 0, unreportedRequests: 1 });
 });
 
+test("a BYOK model that exists in Pi's catalog inherits Pi's own protocol adaptation", async () => {
+  const { createServiceModel } = await import("../../src/runtime/pi.js");
+  const config = { provider: "pivloom-byok", api: "openai-completions" as const,
+    baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3", apiKey: "fixture-api-key" };
+  // glm-5.3-flash ships in Pi's catalog under a coding-plan provider whose entry
+  // carries thinking format, developer-role and store flags. A BYOK profile must
+  // inherit exactly that instead of a bare entry with no compat at all.
+  const known = await createServiceModel({ ...config, id: "glm-5.3-flash" });
+  expect(known.model.compat).toMatchObject({ thinkingFormat: "zai", supportsDeveloperRole: false, supportsStore: false });
+  expect(known.model.reasoning).toBe(true);
+  // A model Pi does not know still works, just without inherited adaptation.
+  const unknown = await createServiceModel({ ...config, id: "pivloom-unknown-model" });
+  expect(Object.keys(unknown.model.compat ?? {})).toHaveLength(0);
+});
+
 test("a transient transport failure is retried within the policy and every attempt is counted without inventing usage", async () => {
   const attempts = { count: 0 };
   await expect(builder({ budget: createRunTokenBudget(), fetch: async () => { attempts.count++; throw new Error("External HTTP fixture unavailable"); } }))
