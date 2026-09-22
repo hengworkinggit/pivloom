@@ -163,7 +163,15 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
           let result;
           if (name === "project_summary") result = toolResult(JSON.stringify(context.data).replaceAll(input.modelConfig.apiKey, "[REDACTED]"));
           else {
-            const parsed = name === "submit_plan" ? planInput.safeParse(params) : questionInput.safeParse(params);
+            // `schemaVersion` is service bookkeeping, not a decision the model
+            // owns. Forcing it here stops a malformed literal from burning the
+            // single correction turn and the extra model requests it costs.
+            const normalized = name === "submit_plan" && params !== null && typeof params === "object" && !Array.isArray(params)
+              ? { ...params, plan: (params as { plan?: unknown }).plan !== null && typeof (params as { plan?: unknown }).plan === "object" && !Array.isArray((params as { plan?: unknown }).plan)
+                  ? { ...(params as { plan: Record<string, unknown> }).plan, schemaVersion: 1 }
+                  : (params as { plan?: unknown }).plan }
+              : params;
+            const parsed = name === "submit_plan" ? planInput.safeParse(normalized) : questionInput.safeParse(params);
             if (!parsed.success) throw await reject(schemaIssues(parsed.error.issues));
             if (JSON.stringify(parsed.data).includes(input.modelConfig.apiKey)) throw await reject("input:protected_value");
             if ("plan" in parsed.data && !preservesPreviousBehavior(parsed.data.plan, context.data.previousPlan)) throw await reject("plan.behaviors:previous_behavior_required");

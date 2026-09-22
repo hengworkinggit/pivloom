@@ -15,6 +15,16 @@ import type { BrowserAction, BrowserObservation } from './browser.js';
 export { REVIEW_ATTEMPT_TIMEOUT_MS };
 
 /**
+ * Tool errors the Reviewer may recover from on its next turn: local protocol
+ * mistakes it can correct, and per-attempt ceilings (for example the screenshot
+ * quota) that only forbid one more artifact, not the rest of the check.
+ */
+export const recoverableToolErrors: ReadonlySet<string> = new Set([
+  'AGENT_OUTPUT_INVALID', 'STALE_BROWSER_REF', 'INVALID_BEHAVIOR',
+  'ARTIFACT_LIMIT', 'OBSERVATION_NOT_FOUND', 'SOURCE_NOT_FOUND',
+]);
+
+/**
  * Decides how a failed Reviewer model turn is reported. A turn that stopped
  * because this attempt ran out of time is a review-deadline outcome; only a
  * failure inside a full-length request budget can be blamed on the provider.
@@ -353,11 +363,18 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
           // Only a locally rejected argument set is known to have performed no
           // browser I/O. An adapter error with the same code is still fatal.
           if(argumentFailure && error===argumentFailure)throw error;
+          // Local protocol mistakes and per-attempt resource ceilings are
+          // recoverable: the model is told what went wrong and continues. Only
+          // an unknown adapter failure should end the whole check, because only
+          // that leaves the browser state genuinely unknown.
           if((name.startsWith('browser_') || name==='submit_review' || name==='record_behavior')
-            && !(error instanceof RuntimeError && ['AGENT_OUTPUT_INVALID','STALE_BROWSER_REF','INVALID_BEHAVIOR'].includes(error.code))){
+            && !(error instanceof RuntimeError && recoverableToolErrors.has(error.code))){
             const diagnosticCode=error instanceof RuntimeError?browserFailureDiagnostics.get(error.code)??'BROWSER_BLOCKED':'BROWSER_BLOCKED';
+            lastRejection=diagnosticCode;
+            await emit('tool.end',name,id,false);
             throw fail(new RuntimeError('CHECK_BLOCKED','浏览器无法完成当前候选检查',undefined,undefined,diagnosticCode));
           }
+          if(error instanceof RuntimeError)lastRejection=error.code;
           throw error;
         }finally{if(!fatal)await emit('tool.end',name,id,success);}
       }}));

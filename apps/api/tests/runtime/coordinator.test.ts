@@ -212,6 +212,24 @@ test("a single clarification is committed after tool events and does not recheck
   expect(model.requests).toHaveLength(1);
 });
 
+test("a plan whose schemaVersion is wrong or missing is accepted without spending the correction turn", async () => {
+  const { schemaVersion: _omitted, ...withoutVersion } = plan;
+  const model = provider([
+    [{ name: "submit_plan", args: { plan: { ...withoutVersion, schemaVersion: "1" } } }],
+  ]);
+  const accepted: unknown[] = [];
+  const result = await runCoordinator({
+    runId: randomUUID(), roleRunId: randomUUID(), sessionId: randomUUID(), attempt: 0, baseRevisionId: null,
+    modelConfig: model.modelConfig, signal: new AbortController().signal, context: context(),
+    assertActive: async () => {}, onDecision: async (decision) => { accepted.push(decision); },
+  });
+  // The service owns the plan schema version, so the persisted plan is well
+  // formed and the real plan fields are untouched.
+  expect(accepted).toEqual([{ kind: "plan", plan }]);
+  expect(result.toolCalls.map((call) => call.success)).toEqual([true]);
+  expect(model.requests).toHaveLength(1);
+});
+
 test("one invalid structured submission can be corrected before the only handoff transaction", async () => {
   const model = provider([
     [{ name: "submit_plan", args: { plan: { ...plan, behaviors: [] } } }],

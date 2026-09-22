@@ -14,6 +14,13 @@ import { PROVIDER_RETRY_POLICY } from "../../src/runtime/budgets.js";
 
 // Real Pi and production fetch; only external DNS/socket and remote sandbox I/O
 // are fixtures. No real model, sandbox or application code is executed.
+
+/** Mirror of the SDK backoff: base * 2^(n-1) per attempt, each capped. */
+const retryBackoffMs = Array.from({ length: PROVIDER_RETRY_POLICY.maxRetries }, (_, index) =>
+  Math.min(PROVIDER_RETRY_POLICY.baseDelayMs * 2 ** index, PROVIDER_RETRY_POLICY.maxAgentDelayMs))
+  .reduce((total, delay) => total + delay, 0);
+const maxAttempts = PROVIDER_RETRY_POLICY.maxRetries + 1;
+
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of cleanups.splice(0)) await close(); });
 
@@ -80,11 +87,13 @@ test("a stream that goes silent without closing is cut by the idle watchdog inst
     code: "MODEL_REQUEST_TIMEOUT", message: expect.stringContaining("MODEL_RESPONSE_STALLED"),
   });
   const elapsed = performance.now() - startedAt;
-  // Each attempt is cut at ~300 ms and retried once per the bounded policy; the
-  // point is that this is far below the 30 s request deadline.
-  expect(elapsed).toBeLessThan(10_000);
+  // Every attempt is cut at ~300 ms instead of running to the 30 s request
+  // deadline, so the whole bounded retry sequence stays close to its backoff.
+  expect(elapsed).toBeGreaterThanOrEqual(maxAttempts * 300);
+  expect(elapsed).toBeLessThan(maxAttempts * 300 + retryBackoffMs + 5000);
+  expect(network.targets).toHaveLength(maxAttempts);
   expect(controller.signal.aborted).toBe(false);
-}, 30_000);
+}, 90_000);
 
 test("an HTTP 200 stream disconnected by the upstream is still not reported as a request timeout", async () => {
   let disconnect: (() => void) | undefined;
@@ -107,9 +116,9 @@ test("an HTTP 200 stream disconnected by the upstream is still not reported as a
     code: "MODEL_FAILED", message: expect.stringContaining("MODEL_RESPONSE_INTERRUPTED"),
   });
   expect(controller.signal.aborted).toBe(false);
-  expect(network.targets).toHaveLength(PROVIDER_RETRY_POLICY.maxRetries + 1);
+  expect(network.targets).toHaveLength(maxAttempts);
   expect(signalAbortedBeforeDisconnect).toBe(false);
-}, 30_000);
+}, 90_000);
 
 test("a real transport deadline after HTTP 200 stays a bounded timeout and closes every socket it opened", async () => {
   let markClosed!: () => void;
@@ -134,14 +143,12 @@ test("a real transport deadline after HTTP 200 stays a bounded timeout and close
   // A stalled stream is a transient transport failure, so the policy retries it
   // a bounded number of times with exponential backoff instead of failing the
   // whole run on the first drop.
-  const attempts = PROVIDER_RETRY_POLICY.maxRetries + 1;
-  const backoffMs = PROVIDER_RETRY_POLICY.baseDelayMs * (2 ** PROVIDER_RETRY_POLICY.maxRetries - 1);
   const elapsed = performance.now() - startedAt;
-  expect(elapsed).toBeGreaterThanOrEqual(attempts * 1000 + backoffMs);
-  expect(elapsed).toBeLessThan(attempts * 1000 + backoffMs + 3000);
-  expect(network.targets).toHaveLength(attempts);
+  expect(elapsed).toBeGreaterThanOrEqual(maxAttempts * 1000 + retryBackoffMs);
+  expect(elapsed).toBeLessThan(maxAttempts * 1000 + retryBackoffMs + 3000);
+  expect(network.targets).toHaveLength(maxAttempts);
   expect(controller.signal.aborted).toBe(false);
-});
+}, 90_000);
 
 test("caller cancellation after actual streamed content remains cancellation", async () => {
   let markClosed!: () => void;

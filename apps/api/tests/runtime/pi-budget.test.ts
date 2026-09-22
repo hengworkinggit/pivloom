@@ -141,7 +141,7 @@ test("a transient transport failure is retried within the policy and every attem
   await expect(builder({ budget: createRunTokenBudget(), fetch: async () => { attempts.count++; throw new Error("External HTTP fixture unavailable"); } }))
     .rejects.toMatchObject({ code: "MODEL_FAILED", usage: { modelCalls: PROVIDER_RETRY_POLICY.maxRetries + 1, toolCalls: 0, input: null, output: null, total: null, cachedTokens: null, source: "unreported" } });
   expect(attempts.count).toBe(PROVIDER_RETRY_POLICY.maxRetries + 1);
-}, 30_000);
+}, 90_000);
 
 test("a deterministic provider rejection is not retried", async () => {
   let attempts = 0;

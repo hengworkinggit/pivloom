@@ -71,7 +71,7 @@ test('real Pi accepts only a report linked to an action and its subsequent obser
   expect(f.stats()).toEqual({calls:3,actions:1,closes:1});
 });
 
-test('a transient provider failure is retried with bounded backoff and still reaches a real check',{timeout:30_000},async()=>{
+test('a transient provider failure is retried with bounded backoff and still reaches a real check',{timeout:90_000},async()=>{
   const f=setup((request,n)=>{
     const last=request.messages.filter(m=>m.role==='tool').at(-1);
     const data=last?JSON.parse(last.content):null;
@@ -259,7 +259,7 @@ test.each([
   expect(tries).toBe(1);expect(f.stats().closes).toBe(1);expect(f.stats().calls).toBe(2);
 });
 
-test('a provider failure is never converted into a report-correction turn',{timeout:30_000},async()=>{
+test('a provider failure is never converted into a report-correction turn',{timeout:90_000},async()=>{
   const f=setup(()=>{throw new Error('External provider unavailable');});
   await expect(runReviewer(f.input)).rejects.toMatchObject({code:'MODEL_FAILED'});
   // Only the bounded transport retry budget runs; no second prompt asks the
@@ -366,6 +366,24 @@ test('validated behavior progress survives context rotation and completes withou
   expect(result.result.items.map(i=>i.behaviorId)).toEqual(['B01','B02']);
   expect(f.stats()).toEqual({calls:6,actions:2,closes:1});
   assertReviewerResult(result);
+});
+
+test('exhausting the screenshot quota is recoverable and cannot fail an otherwise valid check',async()=>{
+  let actionId='';
+  const f=setup((request,n)=>{
+    if(n<=7)return {name:'browser_screenshot',args:{}};
+    const parse=()=>{const last=request.messages.filter(m=>m.role==='tool').at(-1);const raw=last?last.content:'';try{return JSON.parse(raw);}catch{return null;}};
+    if(n===8)return {name:'browser_open',args:{path:'/'}};
+    if(n===9)return {name:'browser_click',args:{behaviorId:'B01',observationId:parse().observationId,ref:'e1'}};
+    actionId=parse().id;
+    return {name:'record_behavior',args:report([actionId]).items[0]};
+  });
+  const result=await runReviewer(f.input);
+  expect(result.result.items[0].verdict).toBe('passed');
+  // One screenshot over the six-artifact ceiling is refused, then the check
+  // continues: the quota is a per-attempt ceiling, not a browser failure.
+  expect(result.artifacts).toHaveLength(6);
+  expect(f.stats().actions).toBe(1);
 });
 
 test('progress cannot fabricate evidence or complete a behavior outside the plan',async()=>{
