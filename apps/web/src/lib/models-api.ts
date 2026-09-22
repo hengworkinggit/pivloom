@@ -1,12 +1,15 @@
 import {
   CreateModelProfileSchema, UpdateModelProfileSchema, ModelProfileResponseSchema,
-  ModelProfilesResponseSchema, ModelTestResultSchema,
+  ModelProfilesResponseSchema, ModelTestResultSchema, ModelCatalogSchema,
   type CreateModelProfile, type UpdateModelProfile,
 } from "@pivloom/contracts";
 
 export function createModelsApi(api: { request(path: string, init?: RequestInit): Promise<unknown> }) {
   return {
     list: async () => ModelProfilesResponseSchema.parse(await api.request("/model-profiles")).profiles,
+    // Pi's own provider/model catalog: the settings page offers this list so a
+    // user picks a provider and model instead of typing a raw model id.
+    catalog: async () => ModelCatalogSchema.parse(await api.request("/model-catalog")),
     create: async (input: CreateModelProfile) => ModelProfileResponseSchema.parse(await api.request("/model-profiles", {
       method: "POST", body: JSON.stringify(CreateModelProfileSchema.parse(input)),
     })).profile,

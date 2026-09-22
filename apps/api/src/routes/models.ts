@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
   CreateModelProfileSchema, UpdateModelProfileSchema,
-  ModelProfileResponseSchema, ModelProfilesResponseSchema, ModelTestResultSchema,
+  ModelProfileResponseSchema, ModelProfilesResponseSchema, ModelTestResultSchema, ModelCatalogSchema,
 } from "@pivloom/contracts";
 import { parseInput, requireOwner } from "./identity.js";
 import type { ModelProfileService } from "../models/service.js";

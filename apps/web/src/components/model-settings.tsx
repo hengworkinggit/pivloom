@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Check, CircleCheck, KeyRound, LoaderCircle, Pencil, PlugZap, Plus, ShieldCheck, Star, Trash2, TriangleAlert, X } from "lucide-react";
-import { CreateModelProfileSchema, UpdateModelProfileSchema, type ModelProfile, type ModelProtocol, type ModelTestResult } from "@pivloom/contracts";
+import { CreateModelProfileSchema, UpdateModelProfileSchema, type ModelCatalog, type ModelProfile, type ModelProtocol, type ModelTestResult } from "@pivloom/contracts";
 import { getApiWorkspace, isDemoMode } from "@/lib/workspace";
 import { usePrivateQuery } from "@/lib/use-workspace";
 import { createModelsApi, type ModelsApi } from "@/lib/models-api";
@@ -21,7 +21,14 @@ function TestResult({ result }: { result: ModelTestResult }) {
   </div>;
 }
 
-export function ModelProfileForm({ api, profile, onSaved, onCancel }: { api: ModelsApi; profile?: ModelProfile; onSaved(profile: ModelProfile, warning?: string): void; onCancel(): void }) {
+export function ModelProfileForm({ api, catalog, catalogError, profile, onSaved, onCancel }: { api: ModelsApi; catalog?: ModelCatalog; catalogError?: string; profile?: ModelProfile; onSaved(profile: ModelProfile, warning?: string): void; onCancel(): void }) {
+  // Pi's catalog drives the form: pick a provider, pick one of its models, and
+  // the protocol, endpoint and limits come from Pi instead of being typed by hand.
+  const providers = catalog?.providers ?? [];
+  const matchedProvider = profile ? providers.find((entry) => entry.baseUrl === profile.baseUrl
+    && entry.models.some((model) => model.id === profile.modelId)) : undefined;
+  const [catalogProviderId, setCatalogProviderId] = useState<string>(matchedProvider?.id ?? "");
+  const [customModel, setCustomModel] = useState<boolean>(!!profile && !matchedProvider);
   const [name, setName] = useState(profile?.name ?? "");
   const [provider, setProvider] = useState<ModelProtocol>(profile?.provider ?? "openai-completions");
   const [baseUrl, setBaseUrl] = useState(profile?.baseUrl ?? "");
@@ -36,6 +43,23 @@ export function ModelProfileForm({ api, profile, onSaved, onCancel }: { api: Mod
   const keyInput = useRef<HTMLInputElement>(null);
   function invalidateTest() { setResult(null); setNotice(""); setError(""); }
   function values() { return { name: name.trim(), provider, baseUrl: baseUrl.trim(), modelId: modelId.trim(), ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}), isDefault }; }
+  const selectedProvider = providers.find((entry) => entry.id === catalogProviderId);
+  /** Picking a provider fills the endpoint and the protocol Pi prescribes for it. */
+  function chooseProvider(providerId: string) {
+    setCatalogProviderId(providerId); invalidateTest();
+    const entry = providers.find((candidate) => candidate.id === providerId);
+    if (!entry) { setCustomModel(true); return; }
+    setCustomModel(false);
+    setBaseUrl(entry.baseUrl);
+    const first = entry.models[0];
+    if (first) { setProvider(first.api); setModelId(first.id); if (!name.trim()) setName(entry.name); }
+  }
+  /** Picking a model also fixes the protocol that model is served with. */
+  function chooseModel(modelId: string) {
+    invalidateTest(); setModelId(modelId);
+    const entry = selectedProvider?.models.find((candidate) => candidate.id === modelId);
+    if (entry) setProvider(entry.api);
+  }
   function validationError(path: PropertyKey | undefined) {
     const names: Record<string, string> = { name: "配置名称（最多 80 字）", provider: "Provider", baseUrl: "完整 API 地址", modelId: "模型 ID（最多 160 字）", apiKey: "完整 API Key（不能使用掩码）" };
     return `请检查${names[String(path)] ?? "配置内容"}。`;
@@ -80,9 +104,20 @@ export function ModelProfileForm({ api, profile, onSaved, onCancel }: { api: Mod
     <form autoComplete="off" onSubmit={(event) => { event.preventDefault(); void save(false); }}>
       <div className="model-form-grid">
         <div className="model-field"><label htmlFor="model-name">配置名称</label><input id="model-name" value={name} onChange={(event) => { setName(event.target.value); invalidateTest(); }} placeholder="例如：我的方舟模型" maxLength={80} required disabled={!!busy} /></div>
-        <div className="model-field"><label htmlFor="model-provider">Provider / 接口协议</label><select id="model-provider" value={provider} onChange={(event) => { setProvider(event.target.value as ModelProtocol); invalidateTest(); }} disabled={!!busy}><option value="openai-completions">OpenAI 兼容（含火山方舟 / DeepSeek）</option><option value="anthropic-messages">Anthropic Messages</option></select></div>
+        <div className="model-field"><label htmlFor="model-provider">服务商</label><select id="model-provider" value={catalogProviderId} onChange={(event) => chooseProvider(event.target.value)} disabled={!!busy}>
+          <option value="">自定义（未在 Pi 目录中）</option>
+          {providers.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+        </select><small>{catalogError ? `Pi 目录加载失败：${catalogError}` : selectedProvider ? `来自 Pi 目录：默认地址与模型列表已带出，只需填密钥。协议 ${selectedProvider.models[0]?.api === "anthropic-messages" ? "Anthropic Messages" : "OpenAI 兼容"}` : "未收录的服务商按通用兼容方式运行，请自行确认模型 ID。"}</small></div>
         <div className="model-field model-field-wide"><label htmlFor="model-base-url">Base URL / API 地址</label><input id="model-base-url" type="url" value={baseUrl} onChange={(event) => { setBaseUrl(event.target.value); invalidateTest(); }} placeholder="https://ark.cn-beijing.volces.com/api/v3" maxLength={2048} required disabled={!!busy} autoCapitalize="none" spellCheck={false} /><small>填写服务商的接口根地址，保留要求的 /v1 或 /api/v3 路径。</small></div>
-        <div className="model-field"><label htmlFor="model-id">Model / 模型 ID</label><input id="model-id" value={modelId} onChange={(event) => { setModelId(event.target.value); invalidateTest(); }} placeholder="模型名称或接入点 ID" maxLength={160} required disabled={!!busy} autoCapitalize="none" spellCheck={false} /></div>
+        <div className="model-field"><label htmlFor="model-id">模型</label>
+          {selectedProvider && !customModel
+            ? <select id="model-id" value={modelId} onChange={(event) => event.target.value === "__custom" ? (setCustomModel(true), invalidateTest()) : chooseModel(event.target.value)} disabled={!!busy}>
+                {!selectedProvider.models.some((model) => model.id === modelId) && <option value={modelId}>{modelId}（当前配置）</option>}
+                {selectedProvider.models.map((model) => <option key={model.id} value={model.id}>{model.name} · {model.id}{model.reasoning ? " · 推理" : ""}{model.input.includes("image") ? " · 图像" : ""}</option>)}
+                <option value="__custom">自定义模型 ID…</option>
+              </select>
+            : <input id="model-id" value={modelId} onChange={(event) => { setModelId(event.target.value); invalidateTest(); }} placeholder="模型名称或接入点 ID" maxLength={160} required disabled={!!busy} autoCapitalize="none" spellCheck={false} />}
+        </div>
         <div className="model-field"><label htmlFor="model-api-key">API Key {profile && <span>（留空保留原密钥）</span>}</label><input ref={keyInput} id="model-api-key" type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); invalidateTest(); }} placeholder={profile ? `已保存 ${profile.keyMask}` : "粘贴你的 API Key"} maxLength={4096} required={!profile} disabled={!!busy} autoComplete="new-password" autoCapitalize="none" spellCheck={false} data-1p-ignore data-lpignore="true" /><small>密钥提交后由服务端加密保存，前端只展示掩码。</small></div>
       </div>
       <label className="model-default-checkbox"><input type="checkbox" checked={isDefault} onChange={(event) => setIsDefault(event.target.checked)} disabled={!!busy} />设为默认模型</label>
@@ -99,6 +134,8 @@ function SettingsContent() {
   const api = useMemo(() => createModelsApi(workspace), [workspace]);
   const loader = useCallback(() => api.list(), [api]);
   const { data: profiles, error: loadError, refresh } = usePrivateQuery(loader);
+  const catalogLoader = useCallback(() => api.catalog(), [api]);
+  const { data: catalog, error: catalogError } = usePrivateQuery(catalogLoader);
   const [editing, setEditing] = useState<ModelProfile | "new" | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
@@ -121,7 +158,7 @@ function SettingsContent() {
     <div className="settings-title-row"><div><div className="section-eyebrow">YOUR MODELS</div><h1>连接你的模型</h1><p>选择你熟悉的模型服务，让每个项目使用自己的配置。</p></div><Button onClick={() => { setEditing("new"); setNotice(""); }} disabled={!!busy}><Plus size={16} />添加模型</Button></div>
     {(error || loadError) && <div className="settings-error" role="alert"><p>{error || loadError}</p>{loadError && <Button variant="outline" onClick={refresh}>重新加载</Button>}</div>}
     {notice && <p className="model-notice" role="status">{notice}</p>}
-    {editing && <ModelProfileForm key={typeof editing === "string" ? editing : `${editing.id}:${editing.configVersion}`} api={api} profile={typeof editing === "string" ? undefined : editing} onCancel={() => setEditing(null)} onSaved={(profile, warning) => { setEditing(null); refresh(); setNotice(warning ?? (profile.lastTest ? profile.lastTest.status === "passed" ? "模型已保存，连接测试通过。" : "模型已保存，测试未通过，请查看测试结果。" : "模型已保存。你可以随时测试连接。")); }} />}
+    {editing && <ModelProfileForm key={typeof editing === "string" ? editing : `${editing.id}:${editing.configVersion}`} api={api} profile={typeof editing === "string" ? undefined : editing} catalog={catalog} catalogError={catalogError} onCancel={() => setEditing(null)} onSaved={(profile, warning) => { setEditing(null); refresh(); setNotice(warning ?? (profile.lastTest ? profile.lastTest.status === "passed" ? "模型已保存，连接测试通过。" : "模型已保存，测试未通过，请查看测试结果。" : "模型已保存。你可以随时测试连接。")); }} />}
     {!profiles && !loadError ? <div className="empty-projects" aria-label="正在加载模型配置"><LoaderCircle className="spin" size={22} /></div>
       : profiles?.length === 0 && !editing ? <div className="models-empty"><div className="models-empty-icon"><KeyRound size={25} /></div><h2>让 Pivloom 连接你的创造力</h2><p>添加一个模型服务。接口地址、模型和密钥都由你掌握。</p><Button onClick={() => setEditing("new")}><Plus size={15} />添加第一个模型</Button><small>支持多个配置，可随时切换默认模型。</small></div>
       : <div className="models-grid">{profiles?.map((profile) => <article className="model-profile-card" key={profile.id}>

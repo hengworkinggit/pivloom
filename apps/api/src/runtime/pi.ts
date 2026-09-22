@@ -72,6 +72,8 @@ function catalogModelFor(runtime: ModelRuntime, modelId: string) {
  * protocol, default endpoint and limits Pi would use, so the user only supplies
  * a key (and may override the endpoint).
  */
+export const SUPPORTED_MODEL_APIS: ReadonlySet<string> = new Set(["openai-completions", "anthropic-messages"]);
+
 export async function listModelCatalog() {
   const runtime = await ModelRuntime.create({ modelsPath: null, refreshOnCreate: false, allowModelNetwork: false });
   const providers = runtime.getProviders()
@@ -81,15 +83,19 @@ export async function listModelCatalog() {
       id: provider.id,
       name: provider.name,
       baseUrl: provider.baseUrl ?? "",
-      models: (runtime.getModels(provider.id) ?? []).map((model) => ({
-        id: model.id,
-        name: model.name,
-        api: model.api,
-        reasoning: model.reasoning ?? false,
-        input: model.input ?? ["text"],
-        contextWindow: model.contextWindow,
-        maxTokens: model.maxTokens,
-      })),
+      // Only protocols our runtime can actually drive are offered; listing an
+      // unsupported one would promise a configuration that cannot run.
+      models: (runtime.getModels(provider.id) ?? [])
+        .filter((model) => SUPPORTED_MODEL_APIS.has(model.api))
+        .map((model) => ({
+          id: model.id,
+          name: model.name,
+          api: model.api,
+          reasoning: model.reasoning ?? false,
+          input: model.input ?? ["text"],
+          contextWindow: model.contextWindow,
+          maxTokens: model.maxTokens,
+        })),
     }))
     .filter((provider) => provider.models.length > 0)
     .sort((left, right) => left.name.localeCompare(right.name));

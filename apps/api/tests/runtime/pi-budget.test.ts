@@ -145,7 +145,10 @@ test("the settings catalog is Pi's own provider list, limited to providers that 
   const moonshot = byId.get("moonshotai-cn");
   expect(moonshot?.baseUrl).toMatch(/^https:\/\//);
   expect(moonshot?.models.some((model) => model.id.startsWith("kimi-"))).toBe(true);
-  expect(moonshot?.models.every((model) => ["openai-completions", "anthropic-messages"].includes(model.api))).toBe(true);
+  // Only protocols this runtime can drive are offered; the catalog's
+  // google/openai-responses/bedrock entries must not leak into the picker.
+  expect(providers.every((provider) => provider.models.every((model) => ["openai-completions", "anthropic-messages"].includes(model.api)))).toBe(true);
+  expect(providers.some((provider) => provider.id === "google")).toBe(false);
   // OAuth-only providers cannot be configured with a key, so they are not offered.
   expect(byId.has("openai-codex")).toBe(false);
   expect(providers.every((provider) => provider.models.length > 0)).toBe(true);
