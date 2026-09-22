@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ProjectMessageSchema, RunSchema, RevisionSchema, PreviewSchema } from "./generation.js";
 export * from "./models.js";
 export * from "./generation.js";
+export * from "./planning.js";
 
 export const ProjectSummarySchema = z.object({
   id: z.uuid(),

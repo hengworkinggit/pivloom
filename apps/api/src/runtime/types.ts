@@ -1,4 +1,5 @@
 import type { Api } from "@earendil-works/pi-ai";
+import type { TokenUsage } from "./token-budget.js";
 
 export interface ModelConfig {
   provider: string;
@@ -115,6 +116,7 @@ export class RuntimeError extends Error {
     public readonly code: string,
     message: string,
     public readonly trustedBuild?: TrustedBuildRecord,
+    public readonly usage?: TokenUsage,
   ) {
     super(message);
     this.name = "RuntimeError";

@@ -85,7 +85,9 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
       if (holdRun) return new Promise<Response>((resolve) => { releaseRead ??= () => resolve(response); });
       return response;
     }
-    if (otherTabRun && url === `/api/v1/runs/${otherTabRun.id}`) return Response.json({ run: otherTabRun, revision: null, events: [], preview: null });
+    if (otherTabRun && url === `/api/v1/runs/${otherTabRun.id}`) return Response.json({ run: otherTabRun, revision: null, events: [], preview: null,
+      roles: [{ id: "8f867b3d-0da2-430d-b3e9-cbf72d51e615", runId: otherTabRun.id, role: "coordinator", attempt: 0,
+        sessionId: "9e9ec313-c626-45b3-836e-d3dfb1c21459", state: "succeeded", predecessorId: null, startedAt: now, finishedAt: now }] });
     if (url.startsWith(`/api/v1/runs/${runId}/events`)) {
       eventConnections += 1;
       return new Response(": heartbeat\n\n", { headers: { "Content-Type": "text/event-stream" } });
@@ -146,6 +148,7 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
     expect(submit()?.disabled).toBe(false);
     expect(input.value).toBe("下一条：增加作者筛选");
     expect(requests).toHaveLength(1);
+    expect(container.querySelector('[data-testid="role-activity"]')?.textContent).toContain("协调者");
     return;
   }
   if (snapshotFailsOnce) await act(async () => { window.dispatchEvent(new Event("focus")); });

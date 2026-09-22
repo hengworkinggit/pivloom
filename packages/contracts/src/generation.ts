@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ClarificationSchema, PlanSchema, RoleRunSchema } from "./planning.js";
 
 export const RunStateSchema = z.enum([
   "accepted", "planning", "building", "verifying", "repairing", "finalizing",
@@ -32,6 +33,7 @@ export const RunSchema = z.object({
   createdAt: z.iso.datetime(), deadlineAt: z.iso.datetime(), finishedAt: z.iso.datetime().nullable(),
   cleanupState: z.enum(["clear", "pending", "confirmed"]),
   error: RunErrorSchema.nullable(), summary: z.string().max(4000).nullable(),
+  plan: PlanSchema.nullable().optional(), clarification: ClarificationSchema.nullable().optional(), parentRunId: z.uuid().nullable().optional(),
 });
 export type Run = z.infer<typeof RunSchema>;
 export const CreateRunResponseSchema = z.object({
@@ -77,6 +79,7 @@ export const RunEventSchema = z.object({
 export type RunEvent = z.infer<typeof RunEventSchema>;
 export const RunDetailResponseSchema = z.object({
   run: RunSchema, revision: RevisionSchema.nullable(), events: z.array(RunEventSchema), preview: PreviewSchema.nullable(),
+  roles: z.array(RoleRunSchema).default([]),
 });
 export type RunDetailResponse = z.infer<typeof RunDetailResponseSchema>;
 export const RevisionFilesResponseSchema = z.object({

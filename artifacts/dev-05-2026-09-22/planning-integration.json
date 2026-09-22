@@ -1,0 +1,595 @@
+{
+  "at": "2026-09-22T06:39:52.123099+00:00",
+  "baseline": "1d9312ae06d668f39072a5d3f6219b179a874f51",
+  "environmentId": "pivloom-dev-e6d33625ef2b",
+  "node": "v24.19.0",
+  "build": "working tree source through Vitest; final source hashes below; this agent did not restart API or rebuild API dist",
+  "fileSha256": {
+    "packages/contracts/src/planning.ts": "2ef26bda6d1bb9faf3208591a10a5710f68d30f24bbf10dbd8c4652f03872b35",
+    "packages/contracts/src/generation.ts": "4710a0cb7f12e69de7d1f67b0701e1fbf693dd08ea47030d434761b04e5c48c7",
+    "packages/contracts/src/index.ts": "d97c43ec9e334741576c1450cef6091fe76656daf103a932666c088a6721582b",
+    "apps/api/src/data/generation.ts": "b445c52170d368b0c2f2d3d399a57edd299544bced487aff5c8c92401a196b5f",
+    "apps/api/src/models/service.ts": "aa329690d830bef236df2619dbfe915611d2a7bf09040f596160d48b6083a029",
+    "migrations/005_planning.sql": "a3be59df9fb92eb25b2665a8cf7511d87966081d5011b1a73531e2dcefa498ed",
+    "apps/api/tests/generation/planning.integration.test.ts": "53ac90fea73df6e205da53532e30d57a668e3d0a2170721ead0dfb85ac1b7239",
+    "apps/api/tests/generation/http.test.ts": "7b9a5d31b5b63cfa946781c0effa6aef8dfed14ce3eb3cbd75dcfc10369a62f5",
+    "apps/api/tests/generation/persistence.integration.test.ts": "0c90c97b690e485911872aa4ad373819af2c6482a07ee9ae3b3bec1f02699140",
+    "apps/api/tests/generation/planning-contracts.test.ts": "2b1bb459d5635acb79d25a82ee86c80215a36478255db60fd9be848aab161133"
+  },
+  "migration": {
+    "name": "005_planning.sql",
+    "status": "PASS",
+    "command": "cd apps/api && node --env-file=.env.local --import tsx scripts/supabase/manage.ts migrate --environment-id pivloom-dev-e6d33625ef2b"
+  },
+  "commandPrefix": "cd apps/api && PIVLOOM_PLANNING_INTEGRATION=1 node --env-file=.env.local ../../node_modules/vitest/vitest.mjs run tests/generation/planning.integration.test.ts",
+  "cases": [
+    {
+      "selection": "-t 'a new request queues'",
+      "status": "PASS",
+      "suiteDurationSeconds": 44.22,
+      "greenManifest": "planning-fixture-59afbe63-c3e5-4567-b725-58895c960f53.json",
+      "red": "Existing acceptance immediately queued Builder in provision instead of Coordinator in plan. A subsequent SELECT projection failure was also retained before GREEN.",
+      "covers": [
+        "Coordinator-only acceptance",
+        "normalized per-request text and idempotent replay",
+        "no Builder start before a valid saved plan"
+      ]
+    },
+    {
+      "selection": "-t 'only the current coordinator'",
+      "status": "PASS",
+      "suiteDurationSeconds": 72.03,
+      "greenManifest": "planning-fixture-efd9ffc1-e98b-416b-90dc-7d93531885ba.json",
+      "red": "startCoordinator public repository method was unavailable.",
+      "covers": [
+        "owner isolation",
+        "old attempt and wrong role rejected",
+        "1–5 unique bounded behavior targets; invalid schema/unknown fields/UTF-8 total limit rejected",
+        "real transaction rollback leaves no handoff/plan/notification",
+        "one queued Builder with independent session and predecessor",
+        "duplicate handoff rejected"
+      ]
+    },
+    {
+      "selection": "-t 'clarification commits'",
+      "status": "PASS",
+      "suiteDurationSeconds": 121.74,
+      "greenManifest": "planning-fixture-e5ff017d-b664-447a-8745-88832eec378e.json",
+      "red": "requestClarification public repository method was unavailable.",
+      "covers": [
+        "question/needs_input/lease release/operation release commit together",
+        "injected commit failure rolls back question and lease release",
+        "other project can accept after clarification",
+        "new child Run preserves normalized answer separately from merged original/question/answer context",
+        "parent remains terminal",
+        "wrong project/invalid parent/retry rejected",
+        "current remains null"
+      ]
+    },
+    {
+      "selection": "-t 'a modification must preserve'",
+      "status": "PASS",
+      "suiteDurationSeconds": 85.0,
+      "greenManifest": "planning-fixture-2eb6c37f-09ee-41ed-ab0b-9ef1ca70899d.json",
+      "red": "Exact current revision previousPlan was null in the planning context.",
+      "covers": [
+        "base plan is frozen from the exact owner/project/current revision",
+        "removing old behavior or retaining only ID while changing expected result is rejected",
+        "cosmetic title change plus unchanged observable contract is accepted",
+        "Builder reads the committed handoff",
+        "existing current is unchanged"
+      ]
+    },
+    {
+      "selection": "-t 'failure preserves observed'",
+      "status": "PASS",
+      "suiteDurationSeconds": 85.46,
+      "greenManifest": "planning-fixture-d470048c-ddb0-464d-830c-ff76f6e39ed5.json",
+      "red": "finishFailed ignored roleUsage and accepted a previous Run coordinator reference.",
+      "covers": [
+        "owner and cross-Run role isolation before terminal mutation",
+        "running current-role usage and failed state commit atomically",
+        "real database transaction failure rolls back both usage and terminal state",
+        "observed input=37 and unknown output/total=null are preserved",
+        "already succeeded role usage is not overwritten by later Run failure",
+        "shared canonical usage fields at all four write entrances; raw provider response rejected",
+        "new multi-question clarification request rejected without terminal state mutation"
+      ],
+      "latestRegressionManifest": "planning-fixture-e3042dc8-c4e4-4aae-9be1-188ba1869793.json",
+      "latestRegressionDurationSeconds": 106.45
+    }
+  ],
+  "disconnect": {
+    "status": "PASS",
+    "suiteDurationSeconds": 73.09,
+    "manifest": ".cache/generation-http/pivloom-dev-e6d33625ef2b/generation-disconnect-ef6f0a26-cd43-41fc-bd87-9ecc57657820.json",
+    "command": "cd apps/api && PIVLOOM_GENERATION_DISCONNECT_INTEGRATION=1 node --env-file=.env.local ../../node_modules/vitest/vitest.mjs run tests/generation/http.test.ts -t 'a socket closed during acceptance'",
+    "covers": [
+      "socket closes while acceptance waits on a real PostgreSQL row lock",
+      "accepted Run still dispatches once",
+      "same key replays same terminal Run and unique user message",
+      "subsequent new request can use the released slot",
+      "queued Coordinator is failed without falsely recording a started role",
+      "zero provider/sandbox calls"
+    ],
+    "cleanupCounts": {
+      "projects": 0,
+      "runs": 0,
+      "leases": 0,
+      "modelProfiles": 0,
+      "modelCredentials": 0
+    },
+    "observations": [
+      {
+        "request": "POST /projects",
+        "status": 201,
+        "elapsedMs": 4494
+      },
+      {
+        "disconnectedBeforeAcceptanceCommit": true,
+        "responseReceived": false
+      },
+      {
+        "request": "POST /projects/659fee9b-7204-4112-8734-9815eb8f4cee/runs",
+        "status": 202,
+        "elapsedMs": 7169
+      },
+      {
+        "request": "GET /runs/4a2a5551-83a4-4809-b7ac-056817ab545e",
+        "status": 200,
+        "elapsedMs": 3049
+      },
+      {
+        "request": "GET /runs/4a2a5551-83a4-4809-b7ac-056817ab545e",
+        "status": 200,
+        "elapsedMs": 4190
+      },
+      {
+        "request": "GET /runs/4a2a5551-83a4-4809-b7ac-056817ab545e",
+        "status": 200,
+        "elapsedMs": 3567
+      },
+      {
+        "request": "POST /projects/659fee9b-7204-4112-8734-9815eb8f4cee/runs",
+        "status": 202,
+        "elapsedMs": 4805
+      },
+      {
+        "request": "GET /projects/659fee9b-7204-4112-8734-9815eb8f4cee",
+        "status": 200,
+        "elapsedMs": 3106
+      },
+      {
+        "request": "POST /projects/659fee9b-7204-4112-8734-9815eb8f4cee/runs",
+        "status": 202,
+        "elapsedMs": 8120
+      },
+      {
+        "request": "GET /runs/bca9159d-7e7c-4df8-9729-bc6b8542b582",
+        "status": 200,
+        "elapsedMs": 3963
+      },
+      {
+        "request": "GET /runs/bca9159d-7e7c-4df8-9729-bc6b8542b582",
+        "status": 200,
+        "elapsedMs": 2360
+      },
+      {
+        "request": "GET /runs/bca9159d-7e7c-4df8-9729-bc6b8542b582",
+        "status": 200,
+        "elapsedMs": 4122
+      }
+    ],
+    "startedAt": "2026-09-22T06:02:03Z"
+  },
+  "fixtures": {
+    "database": "Real authorized self-hosted PostgreSQL through owner-scoped public repository. Exact environment identity checked. Commit failures injected at the external database transaction boundary; no internal repository/executor mock.",
+    "model": "Planning repository fixtures freeze the existing verified default profile without resolving the key or calling a model. Disconnect fixture uses one isolated non-default profile, random encrypted key and explicit capability metadata fixture; production SSRF rejects loopback Base URL before any provider call.",
+    "baseRevision": "Only the modification contract uses a synthetic pre-existing accepted revision with a declared fixture-only build and no Storage object; it does not claim a real build, source roundtrip or product modification E2E.",
+    "sandbox": "No sandbox is created. HTTP trap observes zero requests.",
+    "selection": "Five repository cases, one affected persistence case and one HTTP case passed in separate targeted invocations. Unselected/skipped tests are not counted as passes. No final whole-file run is claimed."
+  },
+  "checks": [
+    "API tsc --noEmit PASS",
+    "Contracts tsc --noEmit PASS",
+    "Contracts build PASS",
+    "Changed API data/models/tests ESLint PASS",
+    "git diff --check PASS"
+  ],
+  "cleanup": {
+    "planningManifestCount": 12,
+    "planningProjectsCreated": 16,
+    "planningRunsCreated": 19,
+    "planningLeasesCreated": 19,
+    "allPlanningManifestsVerified": true,
+    "planningRemainingProjectsRunsLeases": 0,
+    "disconnectProjectsCreated": 1,
+    "disconnectRunsCreated": 2,
+    "disconnectProfilesCreated": 1,
+    "disconnectRemaining": {
+      "projects": 0,
+      "runs": 0,
+      "leases": 0,
+      "modelProfiles": 0,
+      "modelCredentials": 0
+    },
+    "existingUserProjectsAndDefaultModelsPreserved": true
+  },
+  "manifests": [
+    {
+      "name": "planning-fixture-95f3efbc-7250-4566-b8e6-363e553acaf4.json",
+      "projects": 1,
+      "runs": 1,
+      "leases": 1,
+      "cleanupVerifiedAt": "2026-09-22T05:37:25.000Z"
+    },
+    {
+      "name": "planning-fixture-281010ab-a645-47e7-8f64-e8724b8c3b72.json",
+      "projects": 1,
+      "runs": 1,
+      "leases": 1,
+      "cleanupVerifiedAt": "2026-09-22T05:42:38.973Z"
+    },
+    {
+      "name": "planning-fixture-59afbe63-c3e5-4567-b725-58895c960f53.json",
+      "projects": 1,
+      "runs": 1,
+      "leases": 1,
+      "cleanupVerifiedAt": "2026-09-22T05:43:38.536Z"
+    },
+    {
+      "name": "planning-fixture-f9c4b815-b511-40f7-b78c-8b2b19103174.json",
+      "projects": 1,
+      "runs": 1,
+      "leases": 1,
+      "cleanupVerifiedAt": "2026-09-22T05:45:59.678Z"
+    },
+    {
+      "name": "planning-fixture-efd9ffc1-e98b-416b-90dc-7d93531885ba.json",
+      "projects": 1,
+      "runs": 1,
+      "leases": 1,
+      "cleanupVerifiedAt": "2026-09-22T05:48:45.240Z"
+    },
+    {
+      "name": "planning-fixture-9f2362e5-c0b8-4ec7-8e43-004d501265ce.json",
+      "projects": 1,
+      "runs": 1,
+      "leases": 1,
+      "cleanupVerifiedAt": "2026-09-22T05:51:16.301Z"
+    },
+    {
+      "name": "planning-fixture-e5ff017d-b664-447a-8745-88832eec378e.json",
+      "projects": 2,
+      "runs": 3,
+      "leases": 3,
+      "cleanupVerifiedAt": "2026-09-22T05:54:47.440Z"
+    },
+    {
+      "name": "planning-fixture-753c1232-9a33-41e1-a578-3f56b4a4ea45.json",
+      "projects": 1,
+      "runs": 2,
+      "leases": 2,
+      "cleanupVerifiedAt": "2026-09-22T05:59:38.212Z"
+    },
+    {
+      "name": "planning-fixture-2eb6c37f-09ee-41ed-ab0b-9ef1ca70899d.json",
+      "projects": 1,
+      "runs": 2,
+      "leases": 2,
+      "cleanupVerifiedAt": "2026-09-22T06:01:35.942Z"
+    },
+    {
+      "name": "planning-fixture-5ba5131d-5fbc-4a11-a279-a480e6120171.json",
+      "projects": 2,
+      "runs": 2,
+      "leases": 2,
+      "cleanupVerifiedAt": "2026-09-22T06:18:56.969Z"
+    },
+    {
+      "name": "planning-fixture-d470048c-ddb0-464d-830c-ff76f6e39ed5.json",
+      "projects": 2,
+      "runs": 2,
+      "leases": 2,
+      "cleanupVerifiedAt": "2026-09-22T06:24:10.399Z"
+    },
+    {
+      "name": "planning-fixture-e3042dc8-c4e4-4aae-9be1-188ba1869793.json",
+      "projects": 2,
+      "runs": 2,
+      "leases": 2,
+      "cleanupVerifiedAt": "2026-09-22T06:38:15.854Z"
+    }
+  ],
+  "notClaimed": [
+    "Real Coordinator/Builder model generation and browser E29/E21/E26 are root-owned and still need actual E2E",
+    "Reviewer/current promotion (#7)",
+    "Real modification/source restoration (#8)",
+    "Transparent restart/resume or cancellation implementation"
+  ],
+  "attempts": [
+    {
+      "startedAt": "2026-09-22T05:37:01Z",
+      "case": "new request",
+      "cycle": "RED",
+      "status": "FAIL",
+      "suiteDurationSeconds": 23.2,
+      "manifest": "planning-fixture-95f3efbc-7250-4566-b8e6-363e553acaf4.json",
+      "actual": "Builder was queued before Coordinator; provision phase instead of plan. Text standardization requirement was clarified and retained, not treated as a defect."
+    },
+    {
+      "startedAt": "2026-09-22T05:42:12Z",
+      "case": "new request",
+      "cycle": "intermediate",
+      "status": "FAIL",
+      "suiteDurationSeconds": 26.6,
+      "manifest": "planning-fixture-281010ab-a645-47e7-8f64-e8724b8c3b72.json",
+      "actual": "Role aggregate selected role text instead of the row because SQL alias matched a column; corrected to rr."
+    },
+    {
+      "startedAt": "2026-09-22T05:42:54Z",
+      "case": "new request",
+      "cycle": "GREEN",
+      "status": "PASS",
+      "suiteDurationSeconds": 44.22,
+      "manifest": "planning-fixture-59afbe63-c3e5-4567-b725-58895c960f53.json",
+      "actual": "Coordinator-only acceptance and normalized request replay passed."
+    },
+    {
+      "startedAt": "2026-09-22T05:45:35Z",
+      "case": "plan handoff",
+      "cycle": "RED",
+      "status": "FAIL",
+      "suiteDurationSeconds": 23.86,
+      "manifest": "planning-fixture-f9c4b815-b511-40f7-b78c-8b2b19103174.json",
+      "actual": "startCoordinator unavailable."
+    },
+    {
+      "startedAt": "2026-09-22T05:47:33Z",
+      "case": "plan handoff",
+      "cycle": "GREEN",
+      "status": "PASS",
+      "suiteDurationSeconds": 72.03,
+      "manifest": "planning-fixture-efd9ffc1-e98b-416b-90dc-7d93531885ba.json",
+      "actual": "Bounds, owner/role/attempt, rollback and one durable handoff passed."
+    },
+    {
+      "startedAt": "2026-09-22T05:50:47Z",
+      "case": "clarification",
+      "cycle": "RED",
+      "status": "FAIL",
+      "suiteDurationSeconds": 28.89,
+      "manifest": "planning-fixture-9f2362e5-c0b8-4ec7-8e43-004d501265ce.json",
+      "actual": "requestClarification unavailable."
+    },
+    {
+      "startedAt": "2026-09-22T05:52:45Z",
+      "case": "clarification",
+      "cycle": "GREEN",
+      "status": "PASS",
+      "suiteDurationSeconds": 121.74,
+      "manifest": "planning-fixture-e5ff017d-b664-447a-8745-88832eec378e.json",
+      "actual": "Atomic question/lease/slot, rollback, child context and parent validation passed."
+    },
+    {
+      "startedAt": "2026-09-22T05:58:46Z",
+      "case": "old behavior",
+      "cycle": "RED",
+      "status": "FAIL",
+      "suiteDurationSeconds": 52.18,
+      "manifest": "planning-fixture-753c1232-9a33-41e1-a578-3f56b4a4ea45.json",
+      "actual": "previousPlan was null for the exact current revision."
+    },
+    {
+      "startedAt": "2026-09-22T06:00:10Z",
+      "case": "old behavior",
+      "cycle": "GREEN",
+      "status": "PASS",
+      "suiteDurationSeconds": 85.0,
+      "manifest": "planning-fixture-2eb6c37f-09ee-41ed-ab0b-9ef1ca70899d.json",
+      "actual": "Old observable contract retained; altered expected result rejected; committed handoff read back."
+    },
+    {
+      "startedAt": "2026-09-22T06:17:49Z",
+      "case": "failure role usage",
+      "cycle": "RED",
+      "status": "FAIL",
+      "suiteDurationSeconds": 67.06,
+      "manifest": "planning-fixture-5ba5131d-5fbc-4a11-a279-a480e6120171.json",
+      "actual": "finishFailed ignored roleUsage: a previous Run coordinator ID unexpectedly finalized the current Run instead of rejecting STALE_ROLE."
+    },
+    {
+      "startedAt": "2026-09-22T06:22:44Z",
+      "case": "failure role usage",
+      "cycle": "GREEN",
+      "status": "PASS",
+      "suiteDurationSeconds": 85.46,
+      "manifest": "planning-fixture-d470048c-ddb0-464d-830c-ff76f6e39ed5.json",
+      "actual": "Current running role usage commits with failure, null fields remain null, foreign owner/role rejects, injected transaction failure rolls back, and completed role usage remains unchanged."
+    },
+    {
+      "startedAt": "2026-09-22T06:36:29Z",
+      "case": "canonical usage and single clarification contract",
+      "cycle": "affected regression",
+      "status": "PASS",
+      "suiteDurationSeconds": 106.45,
+      "manifest": "planning-fixture-e3042dc8-c4e4-4aae-9be1-188ba1869793.json",
+      "actual": "All four repository usage write entrances reject unchecked provider fields; canonical successful/failed usage survives readback; multi-question clarification rejects without state mutation; owner/role/rollback/completed preservation assertions remain passing."
+    }
+  ],
+  "counts": {
+    "planningTargetedInvocations": 12,
+    "planningBehaviorCasesPassed": 5,
+    "httpTargetedInvocations": 1,
+    "httpBehaviorCasesPassed": 1,
+    "wholePlanningFileRunAsFinalSuite": false,
+    "wholeHttpFileRunAsFinalSuite": false,
+    "realModelCalls": 0,
+    "realSandboxCreates": 0,
+    "affectedPersistenceTargetedInvocations": 1,
+    "affectedPersistenceBehaviorCasesPassed": 1,
+    "schemaTargetedInvocations": 4,
+    "schemaBehaviorCasesPassed": 2
+  },
+  "staticChecks": [
+    {
+      "command": "npm run typecheck -w @pivloom/api",
+      "status": "PASS"
+    },
+    {
+      "command": "npm run typecheck -w @pivloom/contracts",
+      "status": "PASS"
+    },
+    {
+      "command": "cd apps/api && ../../node_modules/.bin/eslint src/data/generation.ts src/models/service.ts tests/generation/planning.integration.test.ts tests/generation/persistence.integration.test.ts tests/generation/http.test.ts",
+      "status": "PASS"
+    },
+    {
+      "command": "git diff --check",
+      "status": "PASS"
+    }
+  ],
+  "interfaceCompatibility": {
+    "state": "READ_ONLY_REVIEW_COMPLETE",
+    "compatible": [
+      "Run nullable optional plan/clarification/parentRunId preserves stored #4/#5 reads",
+      "RunDetail roles defaults to [] for old fixture responses",
+      "Public roles omit private input/output/usage; startBuilder retains private persisted Handoff input",
+      "Coordinator decisions, repository role references, context and Handoff match executor/runtime calls",
+      "usage input/output/total may be null and are persisted without conversion to zero",
+      "Parent answer text remains separately normalized; merged context is never substituted into idempotency requestText",
+      "finishFailed accepts optional current-role usage; owner/run/current attempt and role pointer are checked, running usage updates atomically, and succeeded usage remains unchanged."
+    ],
+    "remainingConcreteFindingCount": 0,
+    "inFlightCoordination": "Shared request/usage contracts and owner-scoped writes are stable; canonical repository regression passed. Runtime metadata and root mapper are type-compatible in the final API typecheck. Root owns remaining real provider/browser E2E."
+  },
+  "affectedPersistenceRegression": {
+    "status": "PASS",
+    "startedAt": "2026-09-22T06:08:58Z",
+    "suiteDurationSeconds": 40.41,
+    "command": "cd apps/api && PIVLOOM_GENERATION_INTEGRATION=1 node --env-file=.env.local ../../node_modules/vitest/vitest.mjs run tests/generation/persistence.integration.test.ts -t 'acceptance atomically'",
+    "selectedTestsPassed": 1,
+    "unselectedTests": 4,
+    "wholeFilePassClaimed": false,
+    "manifest": ".cache/generation/pivloom-dev-e6d33625ef2b/generation-fixture-23317c99-d7b4-43a7-b959-e34fef437b0d.json",
+    "covers": [
+      "new run queues Coordinator and no Builder",
+      "same normalized request/key replays the accepted Run",
+      "one user message and one accepted event",
+      "changed request with reused key rejects",
+      "CHECK_BLOCKED terminal preserves current=null"
+    ],
+    "cleanup": {
+      "projectsCreated": 1,
+      "runsCreated": 1,
+      "leasesCreated": 1,
+      "sourceObjectsCreated": 0,
+      "remainingProjectsRunsLeasesObjects": 0,
+      "cleanupVerifiedAt": "2026-09-22T06:09:38.557Z"
+    },
+    "realModelCalls": 0,
+    "realSandboxCreates": 0
+  },
+  "failureUsageRegression": {
+    "status": "PASS",
+    "command": "cd apps/api && PIVLOOM_PLANNING_INTEGRATION=1 node --env-file=.env.local ../../node_modules/vitest/vitest.mjs run tests/generation/planning.integration.test.ts -t 'failure preserves observed'",
+    "selectedTestsPassed": 1,
+    "unselectedTests": 4,
+    "wholeFilePassClaimed": false,
+    "redManifest": "planning-fixture-5ba5131d-5fbc-4a11-a279-a480e6120171.json",
+    "greenManifest": "planning-fixture-d470048c-ddb0-464d-830c-ff76f6e39ed5.json",
+    "cleanup": {
+      "projectsCreated": 4,
+      "runsCreated": 4,
+      "leasesCreated": 4,
+      "remainingProjectsRunsLeases": 0,
+      "cleanupVerifiedAt": "2026-09-22T06:24:10.399Z"
+    },
+    "realModelCalls": 0,
+    "realSandboxCreates": 0,
+    "staticChecks": [
+      {
+        "command": "npm run typecheck --workspace=@pivloom/api",
+        "status": "PASS"
+      },
+      {
+        "command": "node node_modules/eslint/bin/eslint.js apps/api/src/data/generation.ts apps/api/tests/generation/planning.integration.test.ts",
+        "cwd": "repository root",
+        "status": "INVOCATION_FAILED",
+        "actual": "ESLint config is scoped to apps/api; corrected cwd below."
+      },
+      {
+        "command": "../../node_modules/.bin/eslint src/data/generation.ts tests/generation/planning.integration.test.ts",
+        "cwd": "apps/api",
+        "status": "PASS"
+      },
+      {
+        "command": "git diff --check",
+        "status": "PASS"
+      }
+    ]
+  },
+  "contractTightening": {
+    "historicalCompatibility": "ClarificationQuestionSchema remains 1000 characters for stored reads; no historical question or usage JSON was rewritten.",
+    "newClarification": "ClarificationRequestSchema is a strict object; trimmed question 1–300 characters, one line, at most one terminal question mark, no bullet/numbered list. Semantic selection of the single critical issue still depends on Coordinator behavior and real model E2E.",
+    "usage": "RoleUsageSchema requires named real modelCalls/toolCalls/elapsedMs and nullable inputTokens/outputTokens/cachedTokens plus explicit source; totalTokens is optional nullable. Source must match completeness. Unknown token fields remain null. Undefined optional usage is retained only as the prior empty-record compatibility path; all provided usage is parsed.",
+    "schemaCommand": "cd apps/api && node ../../node_modules/vitest/vitest.mjs run tests/generation/planning-contracts.test.ts",
+    "schemaCycles": [
+      {
+        "startedAt": "2026-09-22T06:31:39Z",
+        "case": "single question and historical compatibility",
+        "cycle": "RED",
+        "status": "FAIL",
+        "durationSeconds": 0.146,
+        "actual": "New ClarificationRequestSchema was not yet exported."
+      },
+      {
+        "startedAt": "2026-09-22T06:32:38Z",
+        "case": "single question and historical compatibility",
+        "cycle": "GREEN",
+        "status": "PASS",
+        "durationSeconds": 0.142,
+        "selectedTestsPassed": 1
+      },
+      {
+        "startedAt": "2026-09-22T06:33:26Z",
+        "case": "canonical role usage",
+        "cycle": "RED",
+        "status": "FAIL",
+        "durationSeconds": 0.137,
+        "actual": "New RoleUsageSchema was not yet exported; prior clarification case remained passing."
+      },
+      {
+        "startedAt": "2026-09-22T06:34:36Z",
+        "case": "canonical role usage",
+        "cycle": "GREEN",
+        "status": "PASS",
+        "durationSeconds": 0.165,
+        "selectedTestsPassed": 2
+      }
+    ],
+    "repositoryCommand": "cd apps/api && PIVLOOM_PLANNING_INTEGRATION=1 node --env-file=.env.local ../../node_modules/vitest/vitest.mjs run tests/generation/planning.integration.test.ts -t 'failure preserves observed'",
+    "repositoryStatus": "PASS",
+    "repositorySelectedTestsPassed": 1,
+    "repositoryUnselectedTests": 4,
+    "repositoryDurationSeconds": 106.45,
+    "repositoryManifest": "planning-fixture-e3042dc8-c4e4-4aae-9be1-188ba1869793.json",
+    "cleanup": {
+      "projectsCreated": 2,
+      "runsCreated": 2,
+      "leasesCreated": 2,
+      "remainingProjectsRunsLeases": 0,
+      "cleanupVerifiedAt": "2026-09-22T06:38:15.854Z"
+    },
+    "realModelCalls": 0,
+    "realSandboxCreates": 0,
+    "staticChecks": [
+      "Contracts build PASS",
+      "Contracts tsc --noEmit PASS",
+      "API tsc --noEmit PASS after runtime/executor changes settled",
+      "Changed data/planning tests ESLint PASS",
+      "git diff --check PASS"
+    ],
+    "intermediateTypecheck": "API typecheck during parallel editing failed on then-unfinished TokenUsage fields and old fixture aliases; fixture was updated and final typecheck rerun. No passing result was claimed for the intermediate invocation."
+  }
+}

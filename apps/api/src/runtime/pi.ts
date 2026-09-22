@@ -24,6 +24,7 @@ import {
   type WorkspacePort,
 } from "./types.js";
 import { createToolOutput } from "./tool-output.js";
+import { createRoleTokenTracker, type RunTokenBudget, type TokenUsage } from "./token-budget.js";
 
 export interface BuilderInput {
   workspace: WorkspacePort;
@@ -36,12 +37,13 @@ export interface BuilderInput {
   maxToolCalls?: number;
   sessionId?: string;
   redactValues?: readonly string[];
+  tokenBudget?: RunTokenBudget;
 }
 export interface BuilderResult {
   text: string;
   toolCalls: Array<{ id: string; name: string; success: boolean }>;
   model: { provider: string; id: string; api: string };
-  usage: { input: number; output: number; total: number };
+  usage: TokenUsage;
 }
 
 export async function createServiceModel(
@@ -93,7 +95,12 @@ export async function createServiceModel(
 }
 
 export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
-  const maxToolCalls = Math.min(Math.max(input.maxToolCalls ?? 64, 1), 80);
+  const requestedToolBudget = input.maxToolCalls ?? 64;
+  if (!Number.isFinite(requestedToolBudget) || requestedToolBudget < 1)
+    throw new RuntimeError("TOOL_BUDGET_EXCEEDED", "本次任务工具调用预算已耗尽");
+  const maxToolCalls = Math.min(Math.floor(requestedToolBudget), 80);
+  const tokens = createRoleTokenTracker(input.tokenBudget);
+  let tokenFailure: RuntimeError | undefined;
   const sensitiveValues = [input.modelConfig.apiKey, ...(input.redactValues ?? [])].filter(Boolean);
   const safeDetail = (value: unknown) =>
     sensitiveValues.reduce((text, secret) => text.replaceAll(secret, "[REDACTED]"), String(value ?? "unknown"))
@@ -280,8 +287,10 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
       noContextFiles: true,
       systemPrompt: [
         "You build a React/TypeScript/Vite application. All read/write/edit/bash tools operate ONLY in an isolated remote source workspace. Use relative source paths.",
-        "Implement incrementally in small, focused files. Make only ONE tool call per response, submit it promptly, and wait for its result before continuing. Keep each write/edit call's total argument text below roughly 4,000 characters; do not stream one enormous App file or several large calls in a single response.",
-        "For a larger file, first write a small complete skeleton, then add one bounded section per edit. Split cohesive components, state helpers and styles into separate files when useful. Read existing files before editing them. Do not use bash, heredocs or encoded payloads to bypass these small steps. Keep explanations short so each response can finish within the model request deadline.",
+        "The remote working directory is /workspace/app. Any host temporary cwd shown by the agent harness is session bookkeeping and does not exist in the sandbox. Do not cd to it or explore parent directories. The supplied template already contains package.json, index.html, tsconfig.json, src/main.tsx, src/App.tsx and src/style.css. Read the relevant source files directly; dependencies are already supplied by the service.",
+        "Implement a cohesive working application using the existing App entry and stylesheet. Keep small types, validation, persistence and state helpers with the component that owns them; add another source module only for substantial independent behavior. Complete all requested behavior before additional styling or metadata changes.",
+        "Each response may include up to THREE independent small tool calls, executed sequentially by the service. Batch independent reads or writes when their inputs are already known, then wait for results before dependent work. Keep the combined argument text across the entire response below roughly 4,000 characters; never stream several large files at once. This reduces repeated context within the shared run token budget without omitting any requirement.",
+        "For a larger file, first write a small complete skeleton, then add one bounded section per edit. Read existing files before editing them. Do not use bash, heredocs or encoded payloads to bypass these bounded writes. Keep explanations short so each response can finish within the model request deadline.",
         "Never seek credentials, host files, services, external accounts or instructions outside the supplied task. Do not alter the build to skip checks. Do not run background processes; the service builds and starts preview. Use the supplied tool results honestly. Finish only after implementing the requested behavior.",
       ].join("\n"),
     });
@@ -306,13 +315,14 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
       requestStartedAt = Date.now();
       responseStatus = undefined;
       streamedCharacters = 0;
-      return runtime.streamSimple(selected, context, {
+      const maxTokens = Math.min(input.modelConfig.maxTokens ?? 4096, 4096);
+      try { return tokens.stream(maxTokens, input.modelConfig.fetch, (modelFetch) => runtime.streamSimple(selected, context, {
         ...options,
-        fetch: input.modelConfig.fetch,
+        fetch: modelFetch,
         transport: "sse",
         timeoutMs: 90000,
         maxRetries: 0,
-        maxTokens: input.modelConfig.maxTokens ?? 8192,
+        maxTokens,
         onResponse: async (response) => {
           responseStatus = response.status;
           await emit({
@@ -323,9 +333,13 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
             message: `模型第 ${requestNumber} 轮响应 HTTP ${response.status}（${Date.now() - requestStartedAt}ms）`,
           });
         },
-      });
+      })); } catch (error) {
+        if (error instanceof RuntimeError) tokenFailure = error;
+        throw error;
+      }
     };
     session.agent.subscribe((event) => {
+      if (event.type === "tool_execution_start") tokens.recordToolCall();
       if (
         event.type === "message_update" &&
         "delta" in event.assistantMessageEvent &&
@@ -354,6 +368,8 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
     }
     await session.prompt(input.prompt);
     await eventTail;
+    if (tokens.failure) throw tokens.failure;
+    if (tokenFailure) throw tokenFailure;
     if (eventFailure) throw eventError();
     if (signal.aborted)
       throw new RuntimeError(
@@ -382,29 +398,18 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
             .map((part) => part.text)
             .join("\n")
         : "";
-    const stats = session.getSessionStats();
     return {
       text,
       toolCalls: calls,
       model: { provider: model.provider, id: model.id, api: model.api },
-      usage: {
-        input: stats.tokens.input,
-        output: stats.tokens.output,
-        total: stats.tokens.total,
-      },
+      usage: tokens.usage(),
     };
   } catch (error) {
-    if (eventFailure) throw eventError();
-    if (error instanceof RuntimeError) throw error;
-    if (signal.aborted)
-      throw new RuntimeError(
-        deadline.signal.aborted ? "MODEL_TIMEOUT" : "CANCELLED",
-        "模型任务已停止",
-      );
-    throw new RuntimeError(
-      "MODEL_FAILED",
-      `模型执行失败：${safeDetail(error instanceof Error ? error.message : error)}`,
-    );
+    const failure = tokens.failure ?? tokenFailure ?? (eventFailure ? eventError()
+      : error instanceof RuntimeError ? error
+        : signal.aborted ? new RuntimeError(deadline.signal.aborted ? "MODEL_TIMEOUT" : "CANCELLED", "模型任务已停止")
+          : new RuntimeError("MODEL_FAILED", `模型执行失败：${safeDetail(error instanceof Error ? error.message : error)}`));
+    throw new RuntimeError(failure.code, failure.message, failure.trustedBuild, tokens.usage());
   } finally {
     output.dispose();
     clearTimeout(timer);

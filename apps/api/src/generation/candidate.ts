@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { HandoffSchema, type Handoff } from "@pivloom/contracts";
 import {
   SandboxApiException,
   SandboxManager,
@@ -8,6 +9,7 @@ import {
   initializeReactWorkspace,
 } from "../runtime/generation.js";
 import { runBuilder, type BuilderResult } from "../runtime/pi.js";
+import type { RunTokenBudget } from "../runtime/token-budget.js";
 import { createSourceSnapshot } from "../runtime/snapshot.js";
 import {
   OpenSandboxWorkspace,
@@ -53,6 +55,9 @@ export interface RunCandidateInput {
   sessionId?: string;
   previewBasePath?: string;
   prompt: string;
+  handoff?: Handoff;
+  maxToolCalls?: number;
+  tokenBudget?: RunTokenBudget;
   modelConfig: ModelConfig;
   sandboxConfig: SandboxConfig;
   signal: AbortSignal;
@@ -223,6 +228,12 @@ export async function runCandidate(
   try {
     if (!input.prompt.trim() || input.prompt.length > 8_000)
       throw new RuntimeError("INVALID_PROMPT", "需求必须为 1–8000 个字符");
+    const handoff = input.handoff ? HandoffSchema.parse(input.handoff) : undefined;
+    if (handoff && (handoff.runId !== input.runId || handoff.toRole !== "builder"))
+      throw new RuntimeError("INVALID_HANDOFF", "交接目标与当前生成任务不一致");
+    const builderPrompt = handoff
+      ? `${handoff.task}\n\n已保存的实现目标与行为约定：\n${JSON.stringify(handoff.plan)}`
+      : input.prompt;
     signal.throwIfAborted();
     await emit({
       type: "stage",
@@ -257,11 +268,12 @@ export async function runCandidate(
       workspace,
       handle,
       modelConfig: input.modelConfig,
-      prompt: input.prompt,
+      prompt: builderPrompt,
       signal,
       onEvent: sink,
       timeoutMs: Math.max(1, 600_000 - (Date.now() - started)),
-      maxToolCalls: 80,
+      maxToolCalls: input.maxToolCalls ?? 80,
+      tokenBudget: input.tokenBudget,
       sessionId: input.sessionId,
       redactValues: [input.sandboxConfig.apiKey],
     });
@@ -328,6 +340,7 @@ export async function runCandidate(
     };
   } catch (error) {
     if (error instanceof RuntimeError && error.trustedBuild) trustedBuild = safeBuild(error.trustedBuild);
+    if (error instanceof RuntimeError && error.usage) usage = { ...error.usage };
     const timedOut = deadline.signal.aborted || input.signal.aborted && input.signal.reason === "RUN_TIMEOUT";
     const runtimeError = timedOut
       ? new RuntimeError("RUN_TIMEOUT", "本次生成超过 10 分钟，已停止")

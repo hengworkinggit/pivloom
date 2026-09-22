@@ -1,0 +1,11 @@
+{
+  "at": "2026-09-22T07:04:14.950Z",
+  "operation": "PivloomDatabase.owned -> SELECT 1",
+  "host": "local-api to remote-db via SSH",
+  "samplesMs": [
+    6355,
+    3690,
+    2513
+  ],
+  "mutations": 0
+}

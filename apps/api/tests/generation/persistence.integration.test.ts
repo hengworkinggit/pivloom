@@ -110,7 +110,7 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
     if (admin) await admin.end();
   }, 30_000);
 
-  test("acceptance atomically records one run, user message, builder and accepted event and safely replays its key", async () => {
+  test("acceptance atomically records one run, user message, coordinator and accepted event and safely replays its key", async () => {
     const id = await project();
     const input = request();
     const first = await generation.accept(ownerA, id, input);
@@ -119,7 +119,8 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
     expect(replay.replayed).toBe(true);
     expect(replay.run.id).toBe(first.run.id);
     expect(first.run.state).toBe("accepted");
-    expect(first.run.builderRoleRunId).toEqual(expect.any(String));
+    expect(first.run.coordinatorRoleRunId).toEqual(expect.any(String));
+    expect(first.run.builderRoleRunId).toBeNull();
     expect(first.run.credentialLeaseId).toEqual(expect.any(String));
     const messages = await generation.listProjectMessages(ownerA, id);
     expect(messages).toHaveLength(1);

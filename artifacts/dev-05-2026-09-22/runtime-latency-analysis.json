@@ -1,0 +1,278 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-22T07:02:30.016Z",
+  "runId": "b36a307d-f61b-429b-83f8-d020ae6bd9df",
+  "scope": {
+    "productionSourceChanged": false,
+    "realModelRequests": 0,
+    "databaseFixtures": 0,
+    "serviceRestarts": 0,
+    "method": "Read existing sanitized R4 artifact, graph-first discovery, targeted current runtime and installed Pi SDK source inspection. No live request issued."
+  },
+  "evidence": {
+    "artifact": "artifacts/dev-05-2026-09-22/browser-state.json",
+    "label": "reply-terminal-foundation-check",
+    "recordedAt": "2026-09-22T06:55:51.276Z",
+    "eventClock": "Database created_at, not raw local tool start/end or provider latency",
+    "graph": "runBuilder graph exists but line ranges are stale; Coordinator/output/workspace gaps inspected directly after graph returned insufficient results"
+  },
+  "outcome": {
+    "state": "failed",
+    "errorCode": "RUN_TIMEOUT",
+    "cleanupState": "confirmed",
+    "allRecordedRunSandboxesDestroyed": true,
+    "runLeaseReleased": true
+  },
+  "timing": {
+    "createdAt": "2026-09-22T06:43:48.663Z",
+    "deadlineAt": "2026-09-22T06:53:48.663Z",
+    "finishedAt": "2026-09-22T06:54:04.921Z",
+    "completionAfterDeadlineMs": 16258,
+    "acceptedToCoordinatorStartedMs": 13309,
+    "builderStartedToFirstRecordedStreamEventMs": 74764,
+    "roles": [
+      {
+        "role": "coordinator",
+        "startedAt": "2026-09-22T06:44:01.972Z",
+        "finishedAt": "2026-09-22T06:45:57.153Z",
+        "wallMs": 115181,
+        "runtimeTrackerMs": 105324.91145799999,
+        "usage": {
+          "source": "reported",
+          "elapsedMs": 105324.91145799999,
+          "toolCalls": 3,
+          "modelCalls": 3,
+          "inputTokens": 1798,
+          "totalTokens": 7432,
+          "cachedTokens": 3584,
+          "outputTokens": 2050
+        }
+      },
+      {
+        "role": "builder",
+        "startedAt": "2026-09-22T06:46:07.723Z",
+        "finishedAt": "2026-09-22T06:54:04.921Z",
+        "wallMs": 477198,
+        "runtimeTrackerMs": 398814.058458,
+        "usage": {
+          "source": "partial",
+          "elapsedMs": 398814.058458,
+          "toolCalls": 11,
+          "modelCalls": 9,
+          "inputTokens": 7644,
+          "totalTokens": 35921,
+          "cachedTokens": null,
+          "outputTokens": 3189
+        }
+      }
+    ]
+  },
+  "observedToolIntervals": {
+    "definition": "tool.started to tool.completed includes event persistence, active-role checks and remote operations. These are NOT isolated model or command execution durations.",
+    "coordinator": {
+      "count": 3,
+      "sumMs": 26082,
+      "meanMs": 8694,
+      "minMs": 6339,
+      "maxMs": 10852
+    },
+    "builder": {
+      "count": 11,
+      "sumMs": 200215,
+      "meanMs": 18201.363636363636,
+      "minMs": 7243,
+      "maxMs": 26374
+    },
+    "spans": [
+      {
+        "role": "coordinator",
+        "startEventId": "1009",
+        "endEventId": "1010",
+        "durationMs": 8891
+      },
+      {
+        "role": "coordinator",
+        "startEventId": "1012",
+        "endEventId": "1014",
+        "durationMs": 10852
+      },
+      {
+        "role": "coordinator",
+        "startEventId": "1016",
+        "endEventId": "1017",
+        "durationMs": 6339
+      },
+      {
+        "role": "builder",
+        "startEventId": "1022",
+        "endEventId": "1024",
+        "durationMs": 17669
+      },
+      {
+        "role": "builder",
+        "startEventId": "1026",
+        "endEventId": "1028",
+        "durationMs": 18065
+      },
+      {
+        "role": "builder",
+        "startEventId": "1030",
+        "endEventId": "1032",
+        "durationMs": 12933
+      },
+      {
+        "role": "builder",
+        "startEventId": "1033",
+        "endEventId": "1035",
+        "durationMs": 18044
+      },
+      {
+        "role": "builder",
+        "startEventId": "1036",
+        "endEventId": "1038",
+        "durationMs": 23025
+      },
+      {
+        "role": "builder",
+        "startEventId": "1040",
+        "endEventId": "1042",
+        "durationMs": 26374
+      },
+      {
+        "role": "builder",
+        "startEventId": "1044",
+        "endEventId": "1046",
+        "durationMs": 23878
+      },
+      {
+        "role": "builder",
+        "startEventId": "1048",
+        "endEventId": "1050",
+        "durationMs": 13851
+      },
+      {
+        "role": "builder",
+        "startEventId": "1052",
+        "endEventId": "1054",
+        "durationMs": 15275
+      },
+      {
+        "role": "builder",
+        "startEventId": "1056",
+        "endEventId": "1058",
+        "durationMs": 23858
+      },
+      {
+        "role": "builder",
+        "startEventId": "1060",
+        "endEventId": "1061",
+        "durationMs": 7243
+      }
+    ],
+    "builderOutputToCompletion": {
+      "count": 10,
+      "sumMs": 71292,
+      "meanMs": 7129.2,
+      "minMs": 3509,
+      "maxMs": 12095
+    }
+  },
+  "rankedCandidates": [
+    {
+      "priority": 1,
+      "name": "Serial persistence barriers around every tool",
+      "symbols": [
+        "apps/api/src/runtime/pi.ts:117 runBuilder.emit",
+        "apps/api/src/runtime/pi.ts:206 wrapped ToolDefinition.execute",
+        "apps/api/src/runtime/tool-output.ts:87 pump",
+        "apps/api/src/runtime/tool-output.ts:141 finish",
+        "apps/api/src/runtime/coordinator.ts:98 active",
+        "apps/api/src/runtime/coordinator.ts:106 emit",
+        "apps/api/src/runtime/coordinator.ts:150 ToolDefinition.execute"
+      ],
+      "chain": "Builder awaits tool.start -> remote operation -> output.finish/drain -> tool.end before Pi sees the tool result and can request the next model turn. Coordinator normally awaits active -> start event -> in-memory domain work -> active -> end event; final decision also awaits active and onDecision.",
+      "evidence": "11 Builder tool intervals total 200215ms. Ten output-to-completed gaps total 71292ms (3509–12095ms each); even three Coordinator tools total 26082ms although their business work is in memory.",
+      "measurement": "Measure each onEvent callback and assertActive duration independently, then compare same-demand run after API/DB co-location. Keep durable event ordering and fail-closed barriers."
+    },
+    {
+      "priority": 2,
+      "name": "Multiple serial remote calls for each small file operation",
+      "symbols": [
+        "apps/api/src/runtime/workspace.ts:106 realConnector.run",
+        "apps/api/src/runtime/workspace.ts:121 RemoteProcess.wait",
+        "apps/api/src/runtime/workspace.ts:471 OpenSandboxWorkspace.io",
+        "apps/api/src/runtime/pi.ts:135 read",
+        "apps/api/src/runtime/pi.ts:137 write",
+        "node_modules/@earendil-works/pi-coding-agent/dist/core/tools/edit.js:92 createEditToolDefinition.execute"
+      ],
+      "chain": "read/write uploads one staging JSON, starts a background source-io process, fetches logs, checks status, then fetches final logs. Minimum five sequential sandbox API operations for a short completed read/write; edit performs one read plus one write (minimum ten), plus local diff generation. Bash has minimum four command API operations. Additional polling adds logs/status pairs and 180ms delays.",
+      "measurement": "Separate staging-upload, command-start, polling and final-drain elapsed times; compare local API-to-sandbox RTT after co-location. No per-operation timing exists in R4 artifact."
+    },
+    {
+      "priority": 3,
+      "name": "Template initialization before Builder tracker/model starts",
+      "symbols": [
+        "apps/api/src/generation/candidate.ts:243 runCandidate",
+        "apps/api/src/generation/candidate.ts:260 initializeReactWorkspace call",
+        "apps/api/src/runtime/generation.ts:17 initializeReactWorkspace",
+        "apps/api/src/runtime/workspace.ts:265 initialize"
+      ],
+      "chain": "Sandbox create/register/renew -> setup command -> upload/chmod helper -> six serial template writes -> two commands to read baked package/lock -> two further writes. At the current facade this is at least 57 sandbox API operations for initialization when each short command finishes in its first status poll, excluding create/renew and database registration.",
+      "evidence": "Builder role start to first recorded stream event is 74764ms. Role wall time exceeds the runtime tracker by 78383.941542ms; this includes pre-Pi setup and post-runtime terminal persistence/cleanup and cannot all be assigned to initialization.",
+      "measurement": "Time create/register/renew and initializeReactWorkspace separately before runBuilder; retain the same trusted template and ownership checks."
+    },
+    {
+      "priority": 4,
+      "name": "Provider response callback can gate stream consumption",
+      "symbols": [
+        "apps/api/src/runtime/pi.ts:325 streamFunction.onResponse",
+        "node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js:202 stream",
+        "node_modules/@earendil-works/pi-agent-core/dist/agent-loop.js:123 runLoop",
+        "node_modules/@earendil-works/pi-agent-core/dist/agent-loop.js:336 executeToolCallsSequential",
+        "node_modules/@earendil-works/pi-agent-core/dist/agent.js:426 processEvents"
+      ],
+      "chain": "Installed Pi awaits onResponse before emitting start/consuming SSE. Builder onResponse awaits emit(stage). First delta schedules a fixed stream-start event without directly awaiting it, but the next awaited tool.start must drain that eventTail. Pi awaits the tool batch before the next model request.",
+      "measurement": "Record response-header time, onResponse callback duration and first delta separately; inspect whether the parent event adapter persists or drops stage events. R4 totals (Coordinator 3 model calls/2050 output tokens, Builder 9/3189) are not model-only timings."
+    }
+  ],
+  "excludedConclusions": [
+    "The 250ms output timer is a maximum flush interval, not a mandatory 250ms sleep per tool; finish flushes immediately.",
+    "No evidence supports attributing the 6–26s tool spans solely to the model, shell or gVisor CPU.",
+    "No individual provider latency, remote command CPU time or active-role callback duration was measured by this report.",
+    "No claim that co-location already improved latency; it requires a new comparable real run."
+  ],
+  "parentReportedNetworkContext": {
+    "source": "Parent independently measured during this investigation; not re-run by this agent",
+    "warmSelect1Ms": [
+      382,
+      385,
+      386,
+      447
+    ],
+    "eventTransactionApproximateRoundTrips": 9
+  },
+  "nextValidation": {
+    "change": "Co-locate the same API with DB and sandbox; local frontend may retain SSH forwarding",
+    "keep": [
+      "600000ms run deadline",
+      "90000ms model request limit",
+      "durable event barriers",
+      "real model/tool execution",
+      "explicitly requested persistence acceptance"
+    ],
+    "compare": [
+      "Coordinator wall/tracker time",
+      "Builder preparation-to-first-stream gap",
+      "tool start-to-completed and output-to-completed gaps",
+      "same-demand final build/preview and saved-result behavior"
+    ]
+  },
+  "frozenRuntimeSha256": {
+    "apps/api/src/runtime/coordinator.ts": "09f800ad94a27d7919a93f365158320f630d12cf878dfae4299f899900030af0",
+    "apps/api/src/runtime/pi.ts": "cf47dddb822fc001a370360e9f1cb6ad5b8d0baa69684772ac6919c5c4d1cde4",
+    "apps/api/src/runtime/tool-output.ts": "187adc3108f8dbaf45e13fc9464bdf5aff81878809ac55fb46c9fc5542a1b2c5",
+    "apps/api/src/runtime/workspace.ts": "af0950812bf5166f59a564222a11f4f9d42f2b78eefac728ce9fc08da9d9b095",
+    "apps/api/src/runtime/generation.ts": "be3d7b3af8527aabd660b569375c1f09b791d8f3acf547debecfbfd11debba9f",
+    "apps/api/src/runtime/token-budget.ts": "fb16d26ba200532809769e6fa37e73d4901b605c693ca7eb09bd447fda8b7662"
+  }
+}

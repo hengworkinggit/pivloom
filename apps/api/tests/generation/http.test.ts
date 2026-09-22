@@ -19,7 +19,6 @@ import {
 import {
   CreateProjectResponseSchema,
   CreateRunResponseSchema,
-  ModelProfilesResponseSchema,
   ProjectDetailResponseSchema,
   RunDetailResponseSchema,
   TerminalRunStates,
@@ -693,8 +692,8 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_HTTP_INTEGRATION !== "1")(
 );
 
 // This opt-in uses the global generation slot. Run it only when real user runs
-// are idle. Auth/Postgres and the public HTTP app are real; only OpenSandbox's
-// external create endpoint is a fault fixture, before any Pi/model call.
+// are idle. Auth/Postgres and HTTP are real. An isolated non-default model
+// profile points to forbidden loopback so execution fails before any model call.
 describe.skipIf(process.env.PIVLOOM_GENERATION_DISCONNECT_INTEGRATION !== "1")(
   "accepted generation survives a disconnected HTTP caller",
   () => {
@@ -712,7 +711,7 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_DISCONNECT_INTEGRATION !== "1")(
     let modelProfileId = "",
       modelConfigVersion = 0;
     let cleanupCounts:
-      | { projects: number; runs: number; leases: number }
+      | { projects: number; runs: number; leases: number; modelProfiles?: number; modelCredentials?: number }
       | undefined;
     const sandboxFault = createServer((request, response) => {
       sandboxRequests.push(`${request.method} ${request.url}`);
@@ -735,13 +734,14 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_DISCONNECT_INTEGRATION !== "1")(
             node: process.version,
             apiOrigin: origin,
             ownerId,
+            fixtureModelProfileId: modelProfileId || null,
             projectIds,
             runIds,
             sandboxRequests,
             observations,
             cleanupCounts,
             fixture:
-              "real Auth/Postgres/public HTTP; sandbox create returns HTTP 400; no model or real sandbox execution",
+              "real Auth/Postgres/public HTTP; non-default fixture profile has random encrypted key and explicit fixture capability metadata; production SSRF rejects its loopback Base URL before a provider call; no real model or sandbox execution",
           },
           null,
           2,
@@ -859,22 +859,24 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_DISCONNECT_INTEGRATION !== "1")(
       await mkdir(directory, { recursive: true, mode: 0o700 });
       artifactPath = resolve(directory, `${prefix}.json`);
       await record("prepared");
-      const profilesResponse = await api("/model-profiles");
-      expect(profilesResponse.status).toBe(200);
-      const profile = ModelProfilesResponseSchema.parse(
-        await profilesResponse.json(),
-      ).profiles.find(
-        (item) =>
-          item.isDefault &&
-          item.capabilities.streaming === "verified" &&
-          item.capabilities.tools === "verified",
-      );
-      if (!profile)
-        throw new Error(
-          "A genuinely verified default model profile is required",
-        );
-      modelProfileId = profile.id;
-      modelConfigVersion = profile.configVersion;
+      // This metadata is an explicit boundary fixture, never a claim that a
+      // provider was verified. It cannot contact a real provider or use a user key.
+      modelProfileId = randomUUID();
+      modelConfigVersion = 1;
+      await record("prepared");
+      const encrypted = createCredentialVault(env.MODEL_CREDENTIALS_ENCRYPTION_KEY).seal(randomBytes(32).toString("base64url"), {
+        ownerId, profileId: modelProfileId, version: modelConfigVersion,
+      });
+      await admin.query("BEGIN");
+      try {
+        await admin.query("INSERT INTO nano.model_profiles(id,owner_id,current_version,is_default) VALUES($1,$2,1,false)", [modelProfileId, ownerId]);
+        await admin.query(`INSERT INTO nano.model_profile_versions(profile_id,owner_id,config_version,name,provider,base_url,model_id,key_mask,capabilities)
+          VALUES($1,$2,1,$3,'openai-completions','https://127.0.0.1/v1','fixture-never-called','fixture',
+            '{"streaming":"verified","tools":"verified","vision":"unknown"}')`, [modelProfileId, ownerId, prefix]);
+        await admin.query("INSERT INTO nano.model_credentials(profile_id,config_version,owner_id,ciphertext,nonce,auth_tag) VALUES($1,1,$2,$3,$4,$5)",
+          [modelProfileId, ownerId, encrypted.ciphertext, encrypted.nonce, encrypted.authTag]);
+        await admin.query("COMMIT");
+      } catch (error) { await admin.query("ROLLBACK"); throw error; }
       const created = await api("/projects", {
         method: "POST",
         body: JSON.stringify({ title: prefix }),
@@ -951,6 +953,23 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_DISCONNECT_INTEGRATION !== "1")(
           leases: Number(remaining.rows[0].leases),
         };
         expect(cleanupCounts).toEqual({ projects: 0, runs: 0, leases: 0 });
+      }
+      if (admin && modelProfileId) {
+        const profileScope = await admin.query(`SELECT p.id,p.is_default,v.name FROM nano.model_profiles p
+          JOIN nano.model_profile_versions v ON v.profile_id=p.id AND v.owner_id=p.owner_id AND v.config_version=p.current_version
+          WHERE p.id=$1 AND p.owner_id=$2`, [modelProfileId, ownerId]);
+        if (profileScope.rows.some((row) => row.name !== prefix || row.is_default)) throw Error("Refusing model cleanup outside the disconnect fixture");
+        await admin.query("BEGIN");
+        try {
+          await admin.query("DELETE FROM nano.model_credentials WHERE profile_id=$1 AND owner_id=$2", [modelProfileId, ownerId]);
+          await admin.query("DELETE FROM nano.model_profile_versions WHERE profile_id=$1 AND owner_id=$2", [modelProfileId, ownerId]);
+          await admin.query("DELETE FROM nano.model_profiles WHERE id=$1 AND owner_id=$2 AND is_default=false", [modelProfileId, ownerId]);
+          await admin.query("COMMIT");
+        } catch (error) { await admin.query("ROLLBACK"); throw error; }
+        const remaining = await admin.query(`SELECT (SELECT count(*)::int FROM nano.model_profiles WHERE id=$1) AS profiles,
+          (SELECT count(*)::int FROM nano.model_credentials WHERE profile_id=$1) AS credentials`, [modelProfileId]);
+        expect(remaining.rows[0]).toEqual({ profiles: 0, credentials: 0 });
+        cleanupCounts = { ...cleanupCounts!, modelProfiles: 0, modelCredentials: 0 };
       }
       if (admin) await admin.end();
       if (sandboxFault.listening) {
@@ -1058,14 +1077,16 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_DISCONNECT_INTEGRATION !== "1")(
         state: "failed",
         cleanupState: "confirmed",
         resultRevisionId: null,
+        error: { code: "MODEL_ENDPOINT_NOT_ALLOWED" },
       });
       expect(
         finished.events.filter((event) => event.type === "role.started"),
-      ).toHaveLength(1);
+      ).toHaveLength(0);
+      expect(finished.roles).toMatchObject([{ role: "coordinator", state: "failed", startedAt: null }]);
       expect(
         finished.events.some((event) => event.type.startsWith("tool.")),
       ).toBe(false);
-      expect(sandboxRequests).toEqual(["POST /v1/sandboxes"]);
+      expect(sandboxRequests).toEqual([]);
 
       const replayFinished = await api(`/projects/${projectId}/runs`, {
         method: "POST",
@@ -1092,7 +1113,7 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_DISCONNECT_INTEGRATION !== "1")(
       expect(
         project.messages.filter((message) => message.kind === "result"),
       ).toHaveLength(1);
-      expect(sandboxRequests).toHaveLength(1);
+      expect(sandboxRequests).toHaveLength(0);
 
       // A fresh accepted request proves the previous task released the real
       // project operation and database-enforced global slot, without DB mocks.
@@ -1111,10 +1132,7 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_DISCONNECT_INTEGRATION !== "1")(
         state: "failed",
         cleanupState: "confirmed",
       });
-      expect(sandboxRequests).toEqual([
-        "POST /v1/sandboxes",
-        "POST /v1/sandboxes",
-      ]);
+      expect(sandboxRequests).toEqual([]);
       await record("running");
     }, 120_000);
   },

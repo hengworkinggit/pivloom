@@ -1,8 +1,9 @@
 "use client";
 
 import { LoaderCircle, TriangleAlert } from "lucide-react";
-import { TerminalRunStates, type Run, type RunEvent, type RunPhase } from "@pivloom/contracts";
+import { TerminalRunStates, type RoleRun, type Run, type RunEvent, type RunPhase } from "@pivloom/contracts";
 import { LoomMark } from "./brand";
+import { GenerationPlan } from "./generation-plan";
 
 const phaseLabels: Record<RunPhase, string> = {
   plan: "正在整理需求", provision: "正在准备构建环境", implement: "正在编写应用",
@@ -15,14 +16,17 @@ const eventLabels: Partial<Record<RunEvent["type"], string>> = {
   "preview.ready": "预览已就绪", "check.completed": "检查结果已记录", "run.finished": "任务已结束",
 };
 const textValue = (value: unknown) => typeof value === "string" ? value : "";
+const roleLabels: Record<RoleRun["role"], string> = { coordinator: "协调者", builder: "工程师", reviewer: "检查者" };
+const roleStateLabels: Record<RoleRun["state"], string> = { queued: "等待开始", running: "执行中", succeeded: "已完成", failed: "未完成", cancelled: "已停止", interrupted: "已中断" };
 function describe(event: RunEvent) {
   const phase = textValue(event.payload.phase);
   if (event.type === "run.phase") return phase in phaseLabels ? phaseLabels[phase as RunPhase] : "执行阶段更新";
-  const detail = textValue(event.payload.toolName) || textValue(event.payload.tool) || textValue(event.payload.role);
+  const role = textValue(event.payload.role);
+  const detail = textValue(event.payload.toolName) || textValue(event.payload.tool) || (role in roleLabels ? roleLabels[role as RoleRun["role"]] : role);
   return [eventLabels[event.type] ?? "执行状态更新", detail].filter(Boolean).join(" · ");
 }
 
-export function GenerationActivity({ run, events }: { run: Run; events: RunEvent[] }) {
+export function GenerationActivity({ run, events, roles = [] }: { run: Run; events: RunEvent[]; roles?: RoleRun[] }) {
   const active = !TerminalRunStates.has(run.state);
   const visible = events.filter((event) => event.runId === run.id);
   const latest = visible.filter((event) => event.type !== "tool.output").slice(-4);
@@ -31,6 +35,10 @@ export function GenerationActivity({ run, events }: { run: Run; events: RunEvent
     <div className="assistant-message-body">
       <p className="run-label" role="status">{active && <LoaderCircle className="spin" size={13} />}{run.state === "accepted" ? "需求已接收" : active ? phaseLabels[run.phase] : "本次任务已结束"}</p>
       <p className="generation-run-model">模型配置 v{run.modelConfigVersion} · 任务 {run.id.slice(0, 8)}</p>
+      {roles.length > 0 && <ul className="generation-role-activity" data-testid="role-activity" aria-label="实际角色活动">{roles.filter((role) => role.runId === run.id).map((role) => <li key={role.id}>
+        <strong>{roleLabels[role.role]}</strong><span>{roleStateLabels[role.state]}</span>
+      </li>)}</ul>}
+      {run.plan && <GenerationPlan plan={run.plan} />}
       {latest.length > 0 && <ul className="generation-activity-list">{latest.map((event) => <li key={event.eventId}>{describe(event)}</li>)}</ul>}
       {visible.length > 0 && <details className="generation-event-log"><summary>查看真实执行记录 <span>{visible.length}</span></summary>
         <ol>{visible.map((event) => <li key={event.eventId}><strong>{describe(event)}</strong><time dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleTimeString("zh-CN", { hour12: false })}</time>
@@ -48,7 +56,8 @@ export function GenerationOutcome({ run, candidateSaved }: { run: Run; candidate
     : unchecked ? "检查尚未完成" : run.state === "completed" ? "版本已保存"
       : run.state === "needs_input" ? "还需要一点信息" : run.state === "cancelled" ? "任务已停止" : "这次生成未完成";
   return <div className="run-notice generation-outcome" role="status" data-testid="run-result">
-    <TriangleAlert size={16} /><div><strong>{heading}</strong><p>{run.error?.message ?? run.summary ?? "可以查看已保存的任务记录。"}</p>
+    <TriangleAlert size={16} /><div><strong>{heading}</strong><p id={run.state === "needs_input" && run.clarification ? "clarification-question" : undefined}>{run.state === "needs_input" && run.clarification ? run.clarification.question : run.error?.message ?? run.summary ?? "可以查看已保存的任务记录。"}</p>
+      {run.state === "needs_input" && run.clarification && <p>本次任务已结束。填写回答后会接着原需求继续。</p>}
       {unchecked && candidateSaved && <p>构建与源码保存已完成，行为检查尚未完成。此候选尚未成为当前版本。</p>}
       <details><summary>任务详情</summary><p className="generation-identifier">{run.id}</p>{run.error && <p>{run.error.code}</p>}</details>
     </div>

@@ -1,0 +1,14 @@
+{
+  "at": "2026-09-22T07:44:14.974065+00:00",
+  "start": "2026-09-22T07:11:41.913434+00:00",
+  "end": "2026-09-22T07:41:41.403483+00:00",
+  "samples": 1750,
+  "errors": 0,
+  "minAvailableMiB": 1347.1,
+  "maxSwapUsedMiB": 0.0,
+  "maxApiMiB": 156.51,
+  "oldSiteChecks": 350,
+  "oldSiteFailures": 0,
+  "samplesWithTwoSandboxes": 116,
+  "scope": "Real remote API + Supabase + sandbox(s), including retained candidate and another generation; frontend remains local. Old-site monitoring checks existing localhost:3000; separate public HTTP200 check recorded in report."
+}

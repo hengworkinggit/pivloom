@@ -1,0 +1,70 @@
+{
+  "probe": "ark-glm-5.3-flash-pi-zai-thinking-off",
+  "startedAt": "2026-09-22T07:43:51.311Z",
+  "node": "v24.13.0",
+  "pi": "0.86.1",
+  "profileId": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+  "configVersion": 1,
+  "limit": {
+    "maximumRequests": 2,
+    "maxRetries": 0,
+    "maxTokens": 512,
+    "timeoutMs": 90000
+  },
+  "requests": [
+    {
+      "index": 1,
+      "startedAt": "2026-09-22T07:43:51.369Z",
+      "status": 400,
+      "elapsedMs": 10339,
+      "httpRequests": 1,
+      "toolCallCount": 0,
+      "expectedToolCall": false,
+      "thinkingDeltaEvents": 0,
+      "thinkingCharacters": 0,
+      "finalThinkingCharacters": 0,
+      "textCharacters": 0,
+      "toolArgumentCharacters": 0,
+      "stopReason": "error",
+      "outcome": "failed",
+      "wire": {
+        "thinkingType": "disabled",
+        "reasoningEffortPresent": false,
+        "stream": true,
+        "maxOutputTokens": 512
+      },
+      "headersAfterMs": 10336,
+      "toolNames": [],
+      "providerUsage": {
+        "input": null,
+        "output": null,
+        "cached": null,
+        "total": null,
+        "source": "unreported"
+      },
+      "errorMetadataCollected": false
+    }
+  ],
+  "cleanup": {
+    "leaseReleased": true,
+    "activeExactLeaseCount": 0,
+    "runtimeCredentialRemoved": true
+  },
+  "leaseId": "2e3e7566-05ea-4447-8d30-ce4b42d08bb7",
+  "endpoint": "https://ark.cn-beijing.volces.com/api/coding/v3",
+  "model": "glm-5.3-flash",
+  "outcome": "failed",
+  "totalHttpRequests": 1,
+  "finishedAt": "2026-09-22T07:44:01.717Z",
+  "limitations": [
+    "A zero thinking-character count on an HTTP 400 error is not proof of disabled-thinking support.",
+    "The response error body was not collected; the rejected parameter is unknown.",
+    "SDK-initialized zero usage counters were omitted because no provider usage was established.",
+    "No run, sandbox, profile edit or deployment was performed.",
+    "This capability probe does not identify the cause of R9's 43-second stream interruption or prove general generation reliability."
+  ],
+  "evidenceScope": "Real remote Pi/OpenAI HTTP compatibility request using a short-lived encrypted-profile lease; not a generation E2E.",
+  "reasonStopped": "The first real request returned HTTP 400, so a second compatibility request was not attempted.",
+  "conclusion": "The exact tested request was rejected. Support for thinking disabled is not established; HTTP status alone cannot identify the rejected parameter.",
+  "productionChanges": []
+}

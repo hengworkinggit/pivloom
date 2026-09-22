@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { TerminalRunStates, type ProjectDetailResponse, type Run, type RunEvent } from "@pivloom/contracts";
+import { TerminalRunStates, type ProjectDetailResponse, type RoleRun, type Run, type RunEvent } from "@pivloom/contracts";
 import { getApiWorkspace } from "@/lib/workspace";
 import { createGenerationApi } from "@/lib/generation-api";
 import { WorkspaceError } from "@/lib/api-workspace";
@@ -18,7 +18,7 @@ function hasFinalProjectSnapshot(project: ProjectDetailResponse, run: Run) {
 export function useGenerationState(projectId: string) {
   const workspace = getApiWorkspace();
   const generation = useMemo(() => createGenerationApi(workspace), [workspace]);
-  const [view, setView] = useState<{ project: ProjectDetailResponse; run: Run | null; events: RunEvent[] }>();
+  const [view, setView] = useState<{ project: ProjectDetailResponse; run: Run | null; roles: RoleRun[]; events: RunEvent[] }>();
   const [error, setError] = useState("");
   const [connection, setConnection] = useState<"idle" | "connecting" | "connected" | "polling" | "unavailable">("idle");
   const [acceptedRequestId, setAcceptedRequestId] = useState<string | null>(null);
@@ -55,7 +55,13 @@ export function useGenerationState(projectId: string) {
           setAcceptedRequestId((pendingId) => pendingId === acknowledgedId ? null : pendingId);
         }
         const refreshedRun = project.activeRun ?? project.latestRun;
-        const visibleRun = refreshedRun && refreshedRun.id !== detail?.run.id ? refreshedRun : detail?.run ?? refreshedRun;
+        const snapshotNamesParent = !!detail?.run.parentRunId && detail.run.parentRunId === refreshedRun?.id;
+        // An accepted answer is newer than its needs-input parent. An unrelated
+        // newer run named by the project still remains authoritative.
+        const visibleRun = refreshedRun && refreshedRun.id !== detail?.run.id && !snapshotNamesParent ? refreshedRun : detail?.run ?? refreshedRun;
+        // The project may already name another tab's newer run. Read that run's
+        // role records once even when it is terminal and needs no regular poll.
+        if (snapshotNamesParent || visibleRun && visibleRun.id !== detail?.run.id) refreshAgain.current = true;
         setView((previous) => {
           // A delayed snapshot cannot restart a run whose terminal result is
           // already visible, or discard its saved revision while reconnecting.
@@ -67,6 +73,7 @@ export function useGenerationState(projectId: string) {
               || hasFinalProjectSnapshot(previous.project, previous.run) && !hasFinalProjectSnapshot(project, visibleRun))) return previous;
           return {
             project, run: visibleRun,
+            roles: detail && visibleRun?.id === detail.run.id ? detail.roles : [],
             events: detail && visibleRun?.id === detail.run.id ? mergeRunEvents(previous?.events ?? [], detail.events, detail.run.id) : [],
           };
         });
@@ -126,7 +133,7 @@ export function useGenerationState(projectId: string) {
           setConnection("connected");
           setView((previous) => previous && previous.run?.id === event.runId
             ? { ...previous, events: mergeRunEvents(previous.events, [event], event.runId) } : previous);
-          if (["run.phase", "revision.saved", "preview.ready", "run.finished"].includes(event.type)) void refresh();
+          if (["run.phase", "role.started", "role.completed", "revision.saved", "preview.ready", "run.finished"].includes(event.type)) void refresh();
         }, controller.signal);
       } catch (reason) {
         if (controller.signal.aborted) return;

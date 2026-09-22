@@ -44,6 +44,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const [selectedRevisionId, setSelectedRevisionId] = useState("");
   const project = state.view?.project;
   const run = state.view?.run;
+  const clarification = run?.state === "needs_input" ? run.clarification : null;
   const lockedProfile = state.active && run ? modelQuery.data?.find((model) => model.id === run.modelProfileId && model.configVersion === run.modelConfigVersion) : null;
   const revisions = [project?.currentRevision, project?.latestCandidate].filter((revision) => !!revision);
   const revision = revisions.find((item) => item.id === selectedRevisionId) ?? project?.currentRevision ?? project?.latestCandidate ?? null;
@@ -68,7 +69,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
     const submission: RunSubmission = replay ?? {
       key: crypto.randomUUID(),
       body: { text: draft.trim(), expectedCurrentRevisionId: project!.project.currentRevisionId,
-        modelProfileId: selectedModel!.id, modelConfigVersion: selectedModel!.configVersion, retryOfRunId: null, parentRunId: null },
+        modelProfileId: selectedModel!.id, modelConfigVersion: selectedModel!.configVersion, retryOfRunId: null, parentRunId: clarification && run ? run.id : null },
     };
     sending.current = true; setPending(true); setSubmitError("");
     const persisted = savePendingSubmission(ownerId, projectId, submission);
@@ -98,9 +99,9 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
         <div className="chat-panel-heading"><div><span className="chat-heading-icon"><MessageSquare size={15} /></span><strong>构建你的想法</strong><span className="conversation-badge">对话</span></div><button className="icon-button collapse-button" onClick={() => setCollapsed(true)} aria-label="收起对话"><PanelLeftClose size={16} /></button></div>
         <div className="chat-scroll">
           {project.messages.length === 0 ? <div className="chat-welcome"><LoomMark /><h2>想法已经就位</h2><p>描述你想实现的功能，用自己的模型开始构建。</p></div>
-            : project.messages.map((message) => message.kind === "user" ? <article className="user-message" key={message.id}><div>{message.content}</div></article>
-              : <article className="assistant-message" key={message.id}><div className="assistant-message-heading"><LoomMark /><strong>Pivloom</strong></div><div className="assistant-message-body"><p className="message-content">{message.content}</p></div></article>)}
-          {run && <GenerationActivity run={run} events={state.view!.events} />}
+            : project.messages.filter((message) => !(clarification && message.kind === "question" && message.runId === run?.id)).map((message) => message.kind === "user" ? <article className="user-message" key={message.id}><div>{message.content}</div></article>
+              : <article className="assistant-message" key={message.id}><div className="assistant-message-heading"><LoomMark /><strong>{message.kind === "question" ? "协调者" : "Pivloom"}</strong></div><div className="assistant-message-body"><p className="message-content">{message.content}</p></div></article>)}
+          {run && <GenerationActivity run={run} events={state.view!.events} roles={state.view!.roles} />}
           <div ref={bottom} />
         </div>
         <div className="chat-bottom">
@@ -118,11 +119,11 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
           </div></div>
           {!state.active && (modelQuery.error || modelQuery.data && !modelReady) && <p className="generation-model-help" role="status">{modelQuery.error || (selectedModel ? "此配置尚未通过流式和工具调用测试。" : "先连接并测试你要使用的模型。")}{" "}<Link href="/settings/models">前往模型设置</Link></p>}
           <form className={cn("chat-composer", state.active && "composer-running")} onSubmit={(event) => { event.preventDefault(); void send(); }}>
-            <label className="sr-only" htmlFor="followup-prompt">应用需求</label>
-            <textarea id="followup-prompt" value={draft} onChange={(event) => editDraft(event.target.value)} placeholder={busy ? "可以先写下一条需求，任务结束后再发送…" : "描述你想实现或修改的功能…"} aria-invalid={tooLong} aria-describedby={tooLong ? "draft-error" : undefined} onKeyDown={(event) => {
+            <label className="sr-only" htmlFor="followup-prompt">{clarification ? "回答澄清问题" : "应用需求"}</label>
+            <textarea id="followup-prompt" value={draft} onChange={(event) => editDraft(event.target.value)} placeholder={busy ? "可以先写下一条需求，任务结束后再发送…" : clarification ? "回答上面的问题，继续原需求…" : "描述你想实现或修改的功能…"} aria-invalid={tooLong} aria-describedby={[tooLong ? "draft-error" : "", clarification ? "clarification-question" : ""].filter(Boolean).join(" ") || undefined} onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); void send(); }
             }} />
-            <div className="chat-composer-controls"><span><span className="small-status-dot" />{state.active ? "正在执行，可以继续写草稿" : run?.cleanupState === "pending" ? "正在清理执行资源" : "准备好你的下一个想法"}</span><Button type="submit" size="icon" disabled={busy || !!unknownSubmission || !draft.trim() || tooLong || !modelReady} aria-label="发送需求">{pending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</Button></div>
+            <div className="chat-composer-controls"><span><span className="small-status-dot" />{state.active ? "正在执行，可以继续写草稿" : run?.cleanupState === "pending" ? "正在清理执行资源" : clarification ? "回答后继续原需求" : "准备好你的下一个想法"}</span><Button type="submit" size="icon" disabled={busy || !!unknownSubmission || !draft.trim() || tooLong || !modelReady} aria-label={clarification ? "发送回答" : "发送需求"}>{pending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</Button></div>
           </form>
           {tooLong && <p id="draft-error" className="inline-error" role="alert">需求最多 {promptLimit.toLocaleString()} 个字符。</p>}
           <div className="composer-hint"><span>{draftStored ? "Enter 发送 · Shift + Enter 换行" : "草稿未保存，请保持页面打开"}</span><span>{draft.length} / {promptLimit}</span></div>

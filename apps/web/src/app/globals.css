@@ -2639,6 +2639,29 @@ svg {
 .generation-model-help a { text-decoration: underline; text-underline-offset: 3px; }
 .generation-connection-warning { color: #95784b; }
 .generation-activity-list { padding-left: 17px; margin: 10px 0; color: #7a886d; font-size: 11px; line-height: 1.9; }
+.generation-role-activity { display: flex; flex-wrap: wrap; gap: 7px; padding: 0; margin: 12px 0; list-style: none; }
+.generation-role-activity li { display: flex; align-items: center; gap: 8px; padding: 5px 9px; border: 1px solid #e4e9dc; border-radius: 8px; font-size: 11px; }
+.generation-role-activity strong { color: #526245; font-weight: 600; }
+.generation-role-activity span { color: #89947d; }
+.generation-plan { margin: 14px 0; padding: 13px; border: 1px solid #e4e9dc; border-radius: 10px; background: #fafbf7; overflow-wrap: anywhere; }
+.generation-plan .generation-plan-label { margin: 0 0 7px; font-size: 10px; color: #8a957e; }
+.generation-plan h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; line-height: 1.7; color: #526245; }
+.generation-plan p, .generation-plan li, .generation-plan dd { font-size: 11px; line-height: 1.8; color: #7a886d; }
+.generation-plan p { margin: 0; }
+.generation-plan-scope { margin-top: 10px; border-left: 2px solid #cabb95; padding-left: 9px; }
+.generation-plan-scope strong, .generation-plan-assumptions strong { font-size: 11px; font-weight: 500; color: #887346; }
+.generation-plan-scope ul, .generation-plan-assumptions ul { margin: 4px 0 0; padding-left: 16px; }
+.generation-plan-behaviors { margin-top: 12px; font-size: 11px; color: #70835e; }
+.generation-plan-behaviors summary { cursor: pointer; line-height: 1.8; }
+.generation-plan-behaviors summary:focus-visible { outline: 2px solid #aab895; outline-offset: 3px; border-radius: 3px; }
+.generation-plan-behaviors ol { margin: 10px 0 0; padding-left: 17px; }
+.generation-plan-behaviors li + li { margin-top: 10px; }
+.generation-plan-behaviors li > strong { font-weight: 600; color: #526245; }
+.generation-plan-required { margin-left: 7px; font-size: 10px; color: #94a087; }
+.generation-plan-behaviors dl { margin: 6px 0 0; }
+.generation-plan-behaviors dt { font-size: 10px; color: #97a28d; margin-top: 3px; }
+.generation-plan-behaviors dd { margin: 0; }
+.generation-plan-assumptions { margin-top: 12px; }
 .generation-event-log { color: #7a886d; font-size: 11px; margin: 12px 0; }
 .generation-event-log summary,
 .generation-outcome summary { cursor: pointer; line-height: 1.8; }

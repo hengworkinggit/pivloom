@@ -93,7 +93,8 @@ export function createModelFetch(baseUrl: string, options: { timeoutMs?: number;
     headers.host = url.host;
     headers["accept-encoding"] = "identity";
     if (body) headers["content-length"] = String(body.byteLength);
-    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(timeoutMs)]);
+    const deadline = AbortSignal.timeout(timeoutMs);
+    const signal = AbortSignal.any([request.signal, deadline]);
     return new Promise<Response>((resolve, reject) => {
       const outgoing = network.request({
         hostname: pinned.address, family: pinned.family,
@@ -123,6 +124,12 @@ export function createModelFetch(baseUrl: string, options: { timeoutMs?: number;
               if (bytes > 4 * 1024 * 1024) throw new Error("Model response exceeds the limit");
               yield chunk;
             }
+          } catch (error) {
+            if (deadline.aborted && signal.reason === deadline.reason) throw new Error("MODEL_REQUEST_TIMEOUT");
+            // Node reports a peer's premature HTTP close as `aborted` too. It is
+            // a stream failure, not evidence that our request deadline expired.
+            if (!signal.aborted && incoming.aborted) throw new Error("MODEL_RESPONSE_INTERRUPTED");
+            throw error;
           } finally { stream.destroy(); incoming.destroy(); outgoing.destroy(); }
         })());
         const responseBody = Readable.toWeb(limited) as ReadableStream<Uint8Array>;

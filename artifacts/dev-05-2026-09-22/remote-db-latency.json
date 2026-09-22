@@ -1,0 +1,11 @@
+{
+  "at": "2026-09-22T07:06:59.466Z",
+  "operation": "PivloomDatabase.owned -> SELECT 1",
+  "host": "remote-api co-located with database",
+  "samplesMs": [
+    20.02,
+    1.67,
+    1.09
+  ],
+  "mutations": 0
+}

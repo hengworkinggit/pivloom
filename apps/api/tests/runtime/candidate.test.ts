@@ -2,7 +2,9 @@ import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { afterEach, expect, test } from "vitest";
+import type { Handoff } from "@pivloom/contracts";
 import { runCandidate } from "../../src/generation/candidate.js";
+import { createRunTokenBudget } from "../../src/runtime/token-budget.js";
 import type {
   SandboxConnection,
   SandboxConnector,
@@ -116,7 +118,7 @@ async function remoteFixture(
   return { connector, files, commands, isLive: () => live };
 }
 
-function modelFixture(content: string) {
+function modelFixture(content: string, reportedUsage = { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 }) {
   const requests: Array<{
     messages: Array<{ role: string; content: unknown }>;
   }> = [];
@@ -147,7 +149,7 @@ function modelFixture(content: string) {
       choices: [{ index: 0, delta, finish_reason: null }],
     };
     return new Response(
-      `data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({ ...chunk, choices: [{ index: 0, delta: {}, finish_reason: requests.length === 1 ? "tool_calls" : "stop" }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } })}\n\ndata: [DONE]\n\n`,
+      `data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({ ...chunk, choices: [{ index: 0, delta: {}, finish_reason: requests.length === 1 ? "tool_calls" : "stop" }], usage: reportedUsage })}\n\ndata: [DONE]\n\n`,
       { headers: { "Content-Type": "text/event-stream" } },
     );
   };
@@ -169,6 +171,81 @@ const sandboxConfig = {
   apiKey: "sandbox-fixture-secret",
   image: "fixture",
 };
+
+test("a shared run token budget prevents another provider call and still cleans the candidate sandbox", async () => {
+  const remote = await remoteFixture();
+  const model = modelFixture("export default function App(){return <h1>不应生成</h1>}");
+  const result = await runCandidate({
+    runId: randomUUID(), revisionId: randomUUID(), prompt: "创建奖金计算器",
+    modelConfig: model.config, sandboxConfig, signal: new AbortController().signal,
+    tokenBudget: createRunTokenBudget(1),
+  }, { sandboxConnector: remote.connector });
+  expect(result).toMatchObject({ status: "failed", cleanup: "confirmed", error: { code: "TOKEN_BUDGET_EXCEEDED" } });
+  expect(model.requests).toEqual([]);
+  expect(remote.isLive()).toBe(false);
+  expect(result.usage).toMatchObject({ input: null, output: null, total: null, cachedTokens: null,
+    modelCalls: 0, toolCalls: 0, source: "unreported" });
+});
+
+test("a later token budget rejection retains real provider usage in the failed candidate result", async () => {
+  const remote = await remoteFixture();
+  const model = modelFixture("export default function App(){return <h1>奖金</h1>}", { prompt_tokens: 58_000, completion_tokens: 10, total_tokens: 58_010 });
+  const result = await runCandidate({
+    runId: randomUUID(), revisionId: randomUUID(), prompt: "创建奖金计算器",
+    modelConfig: model.config, sandboxConfig, signal: new AbortController().signal,
+    tokenBudget: createRunTokenBudget(),
+  }, { sandboxConnector: remote.connector });
+  expect(result).toMatchObject({ status: "failed", cleanup: "confirmed", error: { code: "TOKEN_BUDGET_EXCEEDED" },
+    usage: { input: 58_000, output: 10, total: 58_010, modelCalls: 1, toolCalls: 1, cachedTokens: null, source: "partial" } });
+  expect(result.usage?.elapsedMs).toBeGreaterThanOrEqual(0);
+  expect(model.requests).toHaveLength(1);
+  expect(remote.isLive()).toBe(false);
+});
+
+test("Builder receives the persisted plan and original clarification context, not just the short answer", async () => {
+  const remote = await remoteFixture();
+  const model = modelFixture("export default function App(){return <h1>奖金计算</h1>}");
+  const runId = randomUUID();
+  const task = `原始需求：奖金计算页面。\n澄清：奖金怎么算？\n回答：每满1000元奖金100元。\n${"已确认的需求上下文。".repeat(850)}`;
+  const input = {
+    runId, revisionId: randomUUID(), prompt: "每满1000元奖金100元。", modelConfig: model.config,
+    sandboxConfig, signal: new AbortController().signal,
+    handoff: {
+      runId, fromRoleRunId: randomUUID(), toRole: "builder", attempt: 0,
+      baseRevisionId: null, expectedRevisionId: null, sourceHash: null, task, artifactIds: [],
+      plan: { schemaVersion: 1, goal: "按明确公式计算奖金", changeSummary: "实现中文计算表单", assumptions: [], outOfScope: ["真实发薪"],
+        behaviors: [{ id: "B01", title: "计算整千奖励", precondition: "页面已打开", action: "输入2500并计算", expected: "显示奖金200元", required: true }] },
+    } satisfies Handoff,
+  };
+  const result = await runCandidate(input, { sandboxConnector: remote.connector });
+  expect(result.status).toBe("candidate");
+  const sent = JSON.stringify(model.requests[0].messages.filter((message) => message.role === "user"));
+  expect(sent).toContain("原始需求：奖金计算页面");
+  expect(sent).toContain("澄清：奖金怎么算");
+  expect(sent).toContain("显示奖金200元");
+  expect(sent).toContain("真实发薪");
+});
+
+test.each(["other-run", "wrong-role"])("a %s handoff cannot provision a Builder sandbox", async (invalid) => {
+  const remote = await remoteFixture();
+  const model = modelFixture("export default function App(){return <h1>不应运行</h1>}");
+  const runId = randomUUID();
+  const handoff: Handoff = {
+    runId: invalid === "other-run" ? randomUUID() : runId, fromRoleRunId: randomUUID(),
+    toRole: invalid === "wrong-role" ? "coordinator" : "builder", attempt: 0,
+    baseRevisionId: null, expectedRevisionId: null, sourceHash: null, task: "计算奖金", artifactIds: [],
+    plan: { schemaVersion: 1, goal: "奖金计算", changeSummary: "创建计算器", assumptions: [], outOfScope: [],
+      behaviors: [{ id: "B01", title: "计算", precondition: "页面已打开", action: "输入1000", expected: "显示100", required: true }] },
+  };
+  const result = await runCandidate({ runId, revisionId: randomUUID(), prompt: "计算奖金", handoff,
+    modelConfig: model.config, sandboxConfig, signal: new AbortController().signal }, { sandboxConnector: remote.connector });
+  expect(result.status).toBe("failed");
+  if (result.status !== "failed") throw new Error("Invalid handoff was accepted");
+  expect(result.error.code).toBe("INVALID_HANDOFF");
+  expect(result.cleanup).toBe("not_created");
+  expect(remote.commands).toEqual([]);
+  expect(model.requests).toEqual([]);
+});
 
 test("the real Pi tool loop implements the supplied task and returns an unreviewed versioned candidate after event flush", async () => {
   const remote = await remoteFixture();

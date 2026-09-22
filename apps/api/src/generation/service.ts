@@ -66,8 +66,8 @@ export function createGenerationService(options: {
         preview: selected ? previewView(ownerId, selected, binding) : null });
     },
     async runDetail(ownerId: string, runId: string) {
-      const { run, revision, events, binding } = await repository.readRunSnapshot(ownerId, runId);
-      return RunDetailResponseSchema.parse({ run, revision, events,
+      const { run, revision, events, binding, roles } = await repository.readRunSnapshot(ownerId, runId);
+      return RunDetailResponseSchema.parse({ run, revision, events, roles,
         preview: revision ? previewView(ownerId, revision, binding) : null });
     },
     preview,

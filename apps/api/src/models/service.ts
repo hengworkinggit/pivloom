@@ -121,6 +121,17 @@ export function createModelProfileService(database: PivloomDatabase, vault: Cred
       RETURNING id,profile_id,config_version,reference_id,released_at`, [ownerId, profileId, configVersion, referenceId]);
     return leaseReference(inserted.rows[0]);
   }
+  /** Release only inside the same owner transaction that ends the run. */
+  async function releaseInTransaction(client: PoolClient, ownerId: string, leaseId: string) {
+    const scoped = await client.query<{ owned: boolean }>(`SELECT current_user='nano_api'
+      AND nullif(current_setting('request.jwt.claim.sub', true), '')::uuid=$1 AS owned`, [ownerId]);
+    if (!scoped.rows[0]?.owned) throw new Error("Credential leases require an owner-scoped transaction");
+    await ownerLock(client, ownerId);
+    const released = await client.query<{ profile_id: string }>(`UPDATE nano.model_credential_leases
+      SET released_at=coalesce(released_at,now()) WHERE owner_id=$1 AND id=$2 RETURNING profile_id`, [ownerId, leaseId]);
+    if (!released.rows[0]) throw new ApiFailure(404, "NOT_FOUND", "找不到这个模型凭据引用。");
+    await reclaimDeletedCredentials(client, ownerId, released.rows[0].profile_id);
+  }
   async function test(ownerId: string, input: Pick<CreateModelProfile, "provider" | "baseUrl" | "modelId" | "apiKey">) {
     const now = Date.now();
     for (const [key, entry] of limits) if (entry.until < now && !entry.running) limits.delete(key);
@@ -206,6 +217,7 @@ export function createModelProfileService(database: PivloomDatabase, vault: Cred
       return result;
     },
     freezeInTransaction,
+    releaseInTransaction,
     async freezeForRun(ownerId: string, profileId: string, configVersion: number, referenceId: string) {
       return database.owned(ownerId, (client) => freezeInTransaction(client, ownerId, profileId, configVersion, referenceId));
     },
@@ -230,13 +242,7 @@ export function createModelProfileService(database: PivloomDatabase, vault: Cred
       });
     },
     async releaseForRun(ownerId: string, leaseId: string) {
-      return database.owned(ownerId, async (client) => {
-        await ownerLock(client, ownerId);
-        const released = await client.query<{ profile_id: string }>(`UPDATE nano.model_credential_leases
-          SET released_at=coalesce(released_at,now()) WHERE owner_id=$1 AND id=$2 RETURNING profile_id`, [ownerId, leaseId]);
-        if (!released.rows[0]) throw new ApiFailure(404, "NOT_FOUND", "找不到这个模型凭据引用。");
-        await reclaimDeletedCredentials(client, ownerId, released.rows[0].profile_id);
-      });
+      return database.owned(ownerId, (client) => releaseInTransaction(client, ownerId, leaseId));
     },
   };
 }

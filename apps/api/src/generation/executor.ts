@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { RunPhase } from "@pivloom/contracts";
+import type { RoleUsage, RunPhase } from "@pivloom/contracts";
 import type { GenerationRepository, StoredRun } from "../data/generation.js";
 import type { ModelProfileService } from "../models/service.js";
 import type { SourceStore } from "../storage/source.js";
-import type { ProbeEvent, SandboxConfig, TrustedBuildRecord } from "../runtime/types.js";
+import { RuntimeError, type ProbeEvent, type SandboxConfig, type TrustedBuildRecord } from "../runtime/types.js";
+import { runCoordinator } from "../runtime/coordinator.js";
+import { createRunTokenBudget, type TokenUsage } from "../runtime/token-budget.js";
 import { ApiFailure } from "../routes/errors.js";
 import { destroyCandidateSandbox, runCandidate, type CandidateSnapshot } from "./candidate.js";
 import type { PreviewGateway } from "./preview.js";
@@ -12,6 +14,14 @@ interface Resource {
   ownerId: string; runId: string; revisionId: string; sandboxId: string; expiresAt: string;
 }
 interface Task { controller: AbortController; done: Promise<void>; sandboxId?: string }
+
+function storedUsage(usage: TokenUsage): RoleUsage {
+  return {
+    modelCalls: usage.modelCalls, toolCalls: usage.toolCalls,
+    inputTokens: usage.input, outputTokens: usage.output, cachedTokens: usage.cachedTokens,
+    totalTokens: usage.total, elapsedMs: usage.elapsedMs, source: usage.source,
+  };
+}
 
 /** Single-process dispatcher. Only persisted, newly accepted runs enter here. */
 export function createGenerationExecutor(options: {
@@ -43,7 +53,10 @@ export function createGenerationExecutor(options: {
     let resource: Resource | undefined;
     let retained = false;
     let resultRevisionId: string | null = null;
+    let activeRoleId: string | undefined;
+    let activeUsage: RoleUsage | undefined;
     let phase: RunPhase = run.phase;
+    const tokenBudget = createRunTokenBudget();
     const revisionId = randomUUID();
     async function setPhase(next: RunPhase) {
       if (phase === next) return;
@@ -64,17 +77,21 @@ export function createGenerationExecutor(options: {
       return revision;
     }
     try {
-      const model = await models.resolveLease(run.ownerId, run.credentialLeaseId);
-      const role = await repository.startBuilder(run.ownerId, run.id);
+      const [model, context] = await Promise.all([
+        models.resolveLease(run.ownerId, run.credentialLeaseId),
+        repository.getPlanningContext(run.ownerId, run.id),
+      ]);
+      const modelConfig = { provider: "pivloom-byok", id: model.profile.modelId, api: model.profile.provider,
+        baseUrl: model.profile.baseUrl, apiKey: model.apiKey, fetch: model.fetch, supportsImages: false };
       const safeMessage = (message: string) => message.replaceAll(model.apiKey, "[REDACTED]")
         .replaceAll(sandbox.apiKey, "[REDACTED]").replace(/Bearer\s+[^\s"']+/gi, "Bearer [REDACTED]").slice(0, 2000);
-      const onEvent = async (event: ProbeEvent) => {
+      const recordEvent = (roleRunId: string) => async (event: ProbeEvent) => {
         const phases = { creating: "provision", generating: "implement", building: "build", previewing: "persist", checking: "review", ready: "persist", cleaning: "cleanup" } as const;
         if (event.type === "stage" && event.stage) await setPhase(phases[event.stage]);
         if (event.type !== "tool.start" && event.type !== "tool.end" && event.type !== "tool.output" && event.type !== "model.stream.started") return;
         await repository.appendEvent(run.ownerId, run.id, {
           type: event.type === "tool.start" ? "tool.started" : event.type === "tool.end" ? "tool.completed" : "tool.output",
-          roleRunId: role.id,
+          roleRunId,
           // Tool batches have already been redacted across chunk boundaries and
           // bounded by encoded JSON bytes. Re-clipping here would silently lose
           // their contents and split UTF-8 output before it reaches SSE.
@@ -82,12 +99,42 @@ export function createGenerationExecutor(options: {
             success: event.success, exitCode: event.exitCode, truncated: event.truncated },
         });
       };
+      const coordinator = await repository.startCoordinator(run.ownerId, run.id);
+      activeRoleId = coordinator.id;
+      const planning = await runCoordinator({
+        runId: run.id, roleRunId: coordinator.id, sessionId: coordinator.sessionId,
+        attempt: coordinator.attempt, baseRevisionId: run.baseRevisionId,
+        modelConfig, context, tokenBudget, signal: task.controller.signal, onEvent: recordEvent(coordinator.id),
+        assertActive: () => repository.assertRoleActive(run.ownerId, run.id, {
+          roleRunId: coordinator.id, attempt: coordinator.attempt, role: "coordinator",
+        }),
+        async onDecision(decision, metadata) {
+          task.controller.signal.throwIfAborted();
+          activeUsage = storedUsage(metadata.usage);
+          const source = { roleRunId: coordinator.id, attempt: coordinator.attempt, usage: activeUsage };
+          if (decision.kind === "clarification") {
+            await repository.requestClarification(run.ownerId, run.id, { ...source, question: decision.question });
+          } else {
+            await repository.submitPlan(run.ownerId, run.id, { ...source, plan: decision.plan });
+          }
+        },
+      });
+      if (planning.decision.kind === "clarification") return;
+      task.controller.signal.throwIfAborted();
+      // Only a committed handoff may start a new Builder session. The original
+      // request and accepted clarification answers travel in its bounded task.
+      const role = await repository.startBuilder(run.ownerId, run.id);
+      activeRoleId = role.id;
+      activeUsage = undefined;
+      const handoff = role.input;
+      if (!handoff) throw new RuntimeError("AGENT_OUTPUT_INVALID", "协调目标尚未可靠保存，未开始生成。");
+      phase = "provision";
       const result = await runCandidate({
         runId: run.id, revisionId, roleRunId: role.id, sessionId: role.sessionId,
-        previewBasePath: `/p/${revisionId}/`, prompt: run.requestText, sandboxConfig: sandbox,
-        modelConfig: { provider: "pivloom-byok", id: model.profile.modelId, api: model.profile.provider,
-          baseUrl: model.profile.baseUrl, apiKey: model.apiKey, fetch: model.fetch, supportsImages: false },
-        signal: task.controller.signal, onEvent,
+        previewBasePath: `/p/${revisionId}/`, prompt: run.requestText, handoff,
+        maxToolCalls: 80 - planning.toolCalls.length,
+        sandboxConfig: sandbox, modelConfig, tokenBudget,
+        signal: task.controller.signal, onEvent: recordEvent(role.id),
         async onSandbox(registration) {
           if (registration.state === "created") {
             resource = { ownerId: run.ownerId, runId: run.id, revisionId, sandboxId: registration.sandboxId, expiresAt: registration.expiresAt };
@@ -102,15 +149,17 @@ export function createGenerationExecutor(options: {
           }
         },
       });
+      activeUsage = result.usage ? storedUsage(result.usage) : undefined;
       if (result.status !== "candidate") {
         if (result.diagnosticSnapshot && result.trustedBuild) await save(result.diagnosticSnapshot, result.diagnosticBuildStatus ?? "failed", result.trustedBuild);
         await repository.finishFailed(run.ownerId, run.id, {
           ...result.error, retryable: true, resultRevisionId,
           cleanupState: result.cleanup === "pending" ? "pending" : "confirmed",
+          roleUsage: activeUsage ? { roleRunId: role.id, usage: activeUsage } : undefined,
         });
         return;
       }
-      await repository.completeBuilder(run.ownerId, run.id, { summary: "源码已生成并通过可信构建。", usage: result.usage });
+      await repository.completeBuilder(run.ownerId, run.id, { summary: "源码已生成并通过可信构建。", usage: activeUsage });
       await save(result.snapshot, "passed", result.trustedBuild);
       task.controller.signal.throwIfAborted();
       await repository.bindPreview(run.ownerId, run.id, {
@@ -124,14 +173,21 @@ export function createGenerationExecutor(options: {
       });
       retained = true;
     } catch (error) {
+      if (error instanceof RuntimeError && error.usage) activeUsage = storedUsage(error.usage);
       let confirmed = true;
       if (resource && resources.has(resource.sandboxId)) confirmed = await destroy(resource).catch(() => false);
       const failure = task.controller.signal.aborted
         ? new ApiFailure(503, task.controller.signal.reason === "RUN_TIMEOUT" ? "RUN_TIMEOUT" : "SERVICE_RESTARTED", task.controller.signal.reason === "RUN_TIMEOUT" ? "生成超过 10 分钟，已停止。" : "服务停止了本次执行，已保存的内容保留。", true)
-        : error instanceof ApiFailure ? error : new ApiFailure(503, "GENERATION_FAILED", "生成或保存未完成，请稍后重试。", true);
+        : error instanceof ApiFailure ? error
+          : error instanceof RuntimeError && error.code === "AGENT_OUTPUT_INVALID"
+            ? new ApiFailure(503, "AGENT_OUTPUT_INVALID", "需求整理结果未通过校验，请补充说明后重试。", true)
+            : error instanceof RuntimeError && error.code === "TOKEN_BUDGET_EXCEEDED"
+              ? new ApiFailure(503, "TOKEN_BUDGET_EXCEEDED", "本次任务的模型用量预算已耗尽，请缩小需求后重试。", true)
+            : new ApiFailure(503, "GENERATION_FAILED", "生成或保存未完成，请稍后重试。", true);
       await repository.finishFailed(run.ownerId, run.id, {
         code: failure.code, message: failure.message, retryable: failure.retryable,
         resultRevisionId, cleanupState: confirmed ? "confirmed" : "pending",
+        roleUsage: activeRoleId && activeUsage ? { roleRunId: activeRoleId, usage: activeUsage } : undefined,
       });
     } finally {
       clearTimeout(deadlineTimer);

@@ -1,0 +1,46 @@
+{
+  "at": "2026-09-22T08:50:00.011094+00:00",
+  "issue": 6,
+  "baseline": "1d9312ae06d668f39072a5d3f6219b179a874f51",
+  "scope": "DEV-05 Coordinator/Builder subset, not full application/product acceptance",
+  "gates": {
+    "E29": "PASS",
+    "E21_Coordinator_Builder": "PASS",
+    "E26_incremental": "PASS",
+    "I08": "PASS"
+  },
+  "apiTests": {
+    "passed": 138,
+    "optInSkipped": 22,
+    "typecheck": "PASS",
+    "lint": "PASS",
+    "build": "PASS"
+  },
+  "webTests": {
+    "passed": 51,
+    "typecheck": "PASS",
+    "lint": "PASS",
+    "build": "PASS",
+    "scope": "Previous full check covers unchanged frontend source in this module"
+  },
+  "review": {
+    "Standards": {
+      "hard": 0,
+      "smells": 0
+    },
+    "Spec": {
+      "findings": 0
+    }
+  },
+  "latestRun": "a9d0402c-f989-4980-b6fd-e0259e60fb01",
+  "resourceReadback": {
+    "currentRevisionId": null,
+    "operationKind": null,
+    "operationId": null,
+    "credentialLeaseReleasedAt": "2026-09-22T08:38:18.965Z"
+  },
+  "candidateFindings": [
+    "R12-EMAIL-PROMISE: unsupported email promise remains in unreviewed candidate; carried to DEV-06"
+  ],
+  "cleanup": "Candidate preview retained until existing TTL; prior failed and clarification sandboxes destroyed, model lease and generation lock released."
+}

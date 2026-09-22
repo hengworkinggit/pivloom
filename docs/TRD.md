@@ -846,6 +846,8 @@ Caddy 在 Pivloom 域名下将 `/api/*` 转发到 API 的宿主回环端口，�
 
 API **只部署一个 replica**，不进行滚动双实例执行，也不自动扩容。单实例 semaphore 与进程内 registry 不支持多活；若以后扩容，必须先换跨实例租约/队列与副作用控制。48h 范围不假装具备高可用。
 
+2026-09-22 内部联调部署例外：为消除本地 API 到远端 PostgreSQL / OpenSandbox 的逐次网络往返，API 先与这些服务同机，采用独立 `pivloom-api` 账号和 systemd 常驻服务；本地 web 经 SSH 转发访问 API 18010 与独立预览 18011 的回环端口。配置、停止旧实例和回滚步骤见 [API 部署说明](../infra/api/README.md)。这是正式公网发布前的过渡方式；最终 Compose 部署 API 前必须停止该 systemd 实例，不能同时启动两个 executor。公网 web、HTTPS/SSE 和完整容量验收仍由 DEV-13 完成，不以内部 API 健康代替发布验收。
+
 ### 12.2 配置清单
 
 | 配置 | 所在位置 | 规则 |

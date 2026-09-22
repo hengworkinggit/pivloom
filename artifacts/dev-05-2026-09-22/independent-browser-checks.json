@@ -1,0 +1,121 @@
+[
+  {
+    "date": "2026-09-22",
+    "tool": "Codex in-app browser via CUA",
+    "projectId": "50d3e6dd-b6aa-4970-ac74-24706ed33e73",
+    "runId": "6243a713-c09d-4588-877f-e799798c80dd",
+    "parentRunId": "af6df6dc-4338-48b4-99cf-be30dd69b057",
+    "revisionId": "0e69a5a3-147f-4d24-ad83-ba217075b192",
+    "sourceHash": "a031112d7cef2dcd19276c7fcece19e7b1afae01457c1c5fae7823ff3c29c930",
+    "apiBoot": "03eff461-d35c-446e-a641-24d22c4e0139",
+    "moduleScope": "Coordinator→Builder and saved candidate; product Reviewer not yet implemented; Run CHECK_BLOCKED, current remains null",
+    "actualSteps": [
+      {
+        "action": "390px workspace, fill Chinese clarification answer and send",
+        "observed": "innerWidth=scrollWidth=390; accessible answer label; new parent-linked Run",
+        "status": "PASS"
+      },
+      {
+        "action": "Enter sales 2500, click 计算",
+        "observed": "200 元",
+        "status": "PASS"
+      },
+      {
+        "action": "Enter sales 999, click 计算",
+        "observed": "0 元",
+        "status": "PASS"
+      },
+      {
+        "action": "Enter sales 1500, click 计算",
+        "observed": "100 元",
+        "status": "PASS"
+      },
+      {
+        "action": "Click 清空",
+        "observed": "Input empty; result removed",
+        "status": "PASS"
+      },
+      {
+        "action": "Recalculate 2500, click workspace 刷新预览",
+        "observed": "Reloaded iframe shows sales 2500 and result 200 元",
+        "status": "PASS"
+      },
+      {
+        "action": "Open 代码 then src/App.tsx",
+        "observed": "7 saved files, current v1; formula floor(sales/1000)*100, localStorage save/restore/clear displayed read-only",
+        "status": "PASS"
+      }
+    ],
+    "screenshot": "Actual viewport screenshot emitted in conversation after reload; no disk screenshot artifact claimed",
+    "cleanup": "Retained candidate preview until recorded TTL; credential lease released; final destruction recorded separately"
+  },
+  {
+    "at": "2026-09-22T08:47:43.681587+00:00",
+    "tool": "Codex in-app browser via CUA",
+    "projectId": "9934dbae-035a-45af-a828-64571a3412ef",
+    "runId": "a9d0402c-f989-4980-b6fd-e0259e60fb01",
+    "revisionId": "09d00eb6-661f-4ed7-9e96-a46f4e2c800e",
+    "sourceHash": "f96f9722bb25362d37c08548c825304ee04e4ee46265c12cb621ee3c75b06b5a",
+    "apiBoot": "ee5dfec1-3521-4f5d-9b66-b56501c505e0",
+    "moduleScope": "DEV-05 Coordinator/Builder subset only. Candidate CHECK_BLOCKED/current null; not full application acceptance.",
+    "actualSteps": [
+      {
+        "action": "Submit unchanged original signup request in workbench",
+        "observed": "Actual Coordinator then Builder; persisted scope excludes real payment, shared backend and email",
+        "status": "PASS"
+      },
+      {
+        "action": "Submit empty signup form",
+        "observed": "请输入姓名; remains on form",
+        "status": "PASS"
+      },
+      {
+        "action": "Name 独立验收甲 and invalid email",
+        "observed": "邮箱格式不正确; no payment step",
+        "status": "PASS"
+      },
+      {
+        "action": "Use independent-a@example.test and submit",
+        "observed": "Payment confirmation shows 99 and explicit simulated/no real charge explanation",
+        "status": "PASS"
+      },
+      {
+        "action": "Click 确认支付 99 元（模拟）",
+        "observed": "Success, unique record with masked email; count 3→4",
+        "status": "PASS"
+      },
+      {
+        "action": "Click workbench 刷新预览",
+        "observed": "Reloaded app preserves unique record and count 4",
+        "status": "PASS"
+      },
+      {
+        "action": "390×844 workspace; switch 结果, type 手机验收乙/mobile-b@example.test, press Enter",
+        "observed": "innerWidth=scrollWidth=390; accessible fields; keyboard enters payment confirmation",
+        "status": "PASS"
+      },
+      {
+        "action": "Complete second simulated payment on mobile",
+        "observed": "Unique second record and count 5",
+        "status": "PASS"
+      },
+      {
+        "action": "Reset viewport; open 代码 / src/App.tsx",
+        "observed": "Same v1/09d00eb6; seven saved files; FEE=99, localStorage and simulator code match inspected behavior",
+        "status": "PASS"
+      }
+    ],
+    "candidateFindings": [
+      {
+        "id": "R12-EMAIL-PROMISE",
+        "status": "FAIL",
+        "observed": "Success copy claims 确认邮件将发送至 although no email service exists and plan excludes it",
+        "evidence": "Actual mobile success screenshot emitted inline; saved App.tsx contains same copy",
+        "handoff": "DEV-06 Reviewer must account for unsupported capability claims; do not promote this candidate based on these checks",
+        "moduleGateAssessment": "Independent Spec review: does not invalidate DEV-05 Coordinator/Builder subset and explicit payment/backend scope checks; candidate remains unreviewed, not accepted"
+      }
+    ],
+    "screenshot": "Actual 390px screenshot emitted inline in conversation; no disk screenshot claimed",
+    "cleanup": "Credential lease released; saved candidate preview retained under existing TTL; not an active generation lock."
+  }
+]
