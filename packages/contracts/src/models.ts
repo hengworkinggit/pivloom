@@ -2,6 +2,25 @@ import { z } from "zod";
 
 export const ModelProtocolSchema = z.enum(["openai-completions", "anthropic-messages"]);
 export type ModelProtocol = z.infer<typeof ModelProtocolSchema>;
+/** Pi's own provider/model catalog, offered to the settings page. */
+export const ModelCatalogSchema = z.object({
+  providers: z.array(z.object({
+    id: z.string().min(1).max(120),
+    name: z.string().min(1).max(200),
+    baseUrl: z.string().max(2048),
+    models: z.array(z.object({
+      id: z.string().min(1).max(160),
+      name: z.string().min(1).max(200),
+      api: ModelProtocolSchema,
+      reasoning: z.boolean(),
+      input: z.array(z.enum(["text", "image"])),
+      contextWindow: z.number().int().positive().optional(),
+      maxTokens: z.number().int().positive().optional(),
+    })).max(500),
+  })).max(80),
+});
+export type ModelCatalog = z.infer<typeof ModelCatalogSchema>;
+
 export const ModelCapabilitiesSchema = z.object({
   streaming: z.enum(["verified", "unknown"]),
   tools: z.enum(["verified", "unknown"]),

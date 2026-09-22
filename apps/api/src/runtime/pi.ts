@@ -64,6 +64,38 @@ function catalogModelFor(runtime: ModelRuntime, modelId: string) {
   return candidates.reduce((best, candidate) => specificity(candidate) > specificity(best) ? candidate : best);
 }
 
+/**
+ * The catalog the settings page offers, mirroring how Pi itself lets a user
+ * choose a provider and model. Only providers that accept an API key are listed:
+ * an OAuth-only provider cannot be configured with a pasted key, so offering it
+ * would promise a capability this product does not have. Every entry carries the
+ * protocol, default endpoint and limits Pi would use, so the user only supplies
+ * a key (and may override the endpoint).
+ */
+export async function listModelCatalog() {
+  const runtime = await ModelRuntime.create({ modelsPath: null, refreshOnCreate: false, allowModelNetwork: false });
+  const providers = runtime.getProviders()
+    // `auth` is a record keyed by auth type (`{ apiKey: {...}, oauth: {...} }`).
+    .filter((provider) => Object.hasOwn(provider.auth ?? {}, "apiKey"))
+    .map((provider) => ({
+      id: provider.id,
+      name: provider.name,
+      baseUrl: provider.baseUrl ?? "",
+      models: (runtime.getModels(provider.id) ?? []).map((model) => ({
+        id: model.id,
+        name: model.name,
+        api: model.api,
+        reasoning: model.reasoning ?? false,
+        input: model.input ?? ["text"],
+        contextWindow: model.contextWindow,
+        maxTokens: model.maxTokens,
+      })),
+    }))
+    .filter((provider) => provider.models.length > 0)
+    .sort((left, right) => left.name.localeCompare(right.name));
+  return { providers };
+}
+
 export async function createServiceModel(
   config: ModelConfig,
   signal?: AbortSignal,

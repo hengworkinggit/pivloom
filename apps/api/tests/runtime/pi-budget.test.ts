@@ -136,6 +136,21 @@ test("aborting after actual Pi stream content does not release a reservation aga
   expect(budget.snapshot()).toMatchObject({ accountedTokens: reserved, pendingRequests: 0, unreportedRequests: 1 });
 });
 
+test("the settings catalog is Pi's own provider list, limited to providers that accept an API key", async () => {
+  const { listModelCatalog } = await import("../../src/runtime/pi.js");
+  const { providers } = await listModelCatalog();
+  const byId = new Map(providers.map((provider) => [provider.id, provider]));
+  // A provider a user can configure with a pasted key, with a default endpoint
+  // and its models, exactly like Pi's own selection list.
+  const moonshot = byId.get("moonshotai-cn");
+  expect(moonshot?.baseUrl).toMatch(/^https:\/\//);
+  expect(moonshot?.models.some((model) => model.id.startsWith("kimi-"))).toBe(true);
+  expect(moonshot?.models.every((model) => ["openai-completions", "anthropic-messages"].includes(model.api))).toBe(true);
+  // OAuth-only providers cannot be configured with a key, so they are not offered.
+  expect(byId.has("openai-codex")).toBe(false);
+  expect(providers.every((provider) => provider.models.length > 0)).toBe(true);
+}, 60_000);
+
 test("a BYOK model that exists in Pi's catalog inherits Pi's own protocol adaptation", async () => {
   const { createServiceModel } = await import("../../src/runtime/pi.js");
   const config = { provider: "pivloom-byok", api: "openai-completions" as const,
