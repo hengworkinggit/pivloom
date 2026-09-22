@@ -94,3 +94,28 @@ export const RevisionFileResponseSchema = z.object({
   revisionId: z.uuid(), path: z.string(), content: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
 export const PreviewResponseSchema = z.object({ preview: PreviewSchema.nullable() });
+
+export const CancelRunResponseSchema = z.object({
+  runId: z.uuid(),
+  state: RunStateSchema,
+  phase: RunPhaseSchema,
+  cleanupState: z.enum(["clear", "pending", "confirmed"]),
+});
+export type CancelRunResponse = z.infer<typeof CancelRunResponseSchema>;
+
+export const RestorePreviewRequestSchema = z.strictObject({
+  revisionId: z.uuid(),
+});
+export type RestorePreviewRequest = z.infer<typeof RestorePreviewRequestSchema>;
+
+export const RestorePreviewResponseSchema = z.object({
+  operationId: z.uuid(),
+  preview: PreviewSchema,
+});
+export type RestorePreviewResponse = z.infer<typeof RestorePreviewResponseSchema>;
+
+export const ProjectQuotaSchema = z.object({
+  dailyLimit: z.number().int().nonnegative(),
+  dailyAccepted: z.number().int().nonnegative(),
+});
+export type ProjectQuota = z.infer<typeof ProjectQuotaSchema>;

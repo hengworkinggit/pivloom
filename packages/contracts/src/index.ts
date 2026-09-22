@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ProjectMessageSchema, RunSchema, RevisionSchema, PreviewSchema } from "./generation.js";
+import { ProjectMessageSchema, RunSchema, RevisionSchema, PreviewSchema, ProjectQuotaSchema } from "./generation.js";
 import { CheckSchema } from "./review.js";
 export * from "./models.js";
 export * from "./generation.js";
@@ -35,6 +35,8 @@ export const ProjectDetailResponseSchema = z.object({
   latestCandidate: RevisionSchema.nullable().default(null),
   latestCheck: CheckSchema.nullable().default(null),
   preview: PreviewSchema.nullable(),
+  // Optional so older stored snapshots and test fixtures stay valid.
+  quota: ProjectQuotaSchema.nullish(),
 });
 export type ProjectDetailResponse = z.infer<typeof ProjectDetailResponseSchema>;
 

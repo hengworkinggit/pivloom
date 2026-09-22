@@ -61,6 +61,9 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const sending = useRef(false);
   const [unknownSubmission, setUnknownSubmission] = useState<RunSubmission | null>(() => readPendingSubmission(ownerId, projectId));
   const [submitError, setSubmitError] = useState("");
+  const [stopping, setStopping] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [actionError, setActionError] = useState("");
   const [mobileTab, setMobileTab] = useState<"chat" | "result">("chat");
   const [collapsed, setCollapsed] = useState(false);
   const [selectedRevisionId, setSelectedRevisionId] = useState("");
@@ -119,6 +122,41 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
     } finally { sending.current = false; setPending(false); }
   }
 
+  const canStop = state.active && !!run && run.state !== "cancel_requested";
+  const quotaFull = !!project?.quota && project.quota.dailyAccepted >= project.quota.dailyLimit;
+  async function stop() {
+    if (!run || stopping) return;
+    setStopping(true); setActionError("");
+    try { await state.generation.cancel(run.id); await state.refresh(); }
+    catch (reason) { setActionError(errorMessage(reason)); }
+    finally { setStopping(false); }
+  }
+  /** Retry creates a new run that links to the failed one; the old record stays. */
+  async function retry() {
+    if (sending.current || !run || !project || !selectedModel) return;
+    await send({ key: crypto.randomUUID(),
+      body: { text: run.requestText, expectedCurrentRevisionId: project.project.currentRevisionId,
+        modelProfileId: selectedModel.id, modelConfigVersion: selectedModel.configVersion,
+        ...(effectiveModelId && effectiveModelId !== selectedModel.modelId ? { modelId: effectiveModelId } : {}),
+        retryOfRunId: run.id, parentRunId: null } });
+  }
+  /** Rebuilds a preview from the saved snapshot; it never calls a model. */
+  async function restore() {
+    if (!revision || restoring) return;
+    setRestoring(true); setActionError("");
+    try {
+      await state.generation.restorePreview(projectId, revision.id);
+      // Poll until the service reports a terminal preview state for this version.
+      for (let attempt = 0; attempt < 60; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        const preview = await state.generation.getPreview(projectId, revision.id);
+        if (preview && preview.state !== "restoring") break;
+      }
+      await state.refresh(); previewQuery.refresh();
+    } catch (reason) { setActionError(errorMessage(reason)); }
+    finally { setRestoring(false); }
+  }
+
   if (!project && state.error) return <><AppHeader /><main className="standalone-state"><TriangleAlert size={30} /><h1>暂时无法打开这个项目</h1><p role="alert">{state.error}</p><div className="inline-actions"><Button variant="outline" onClick={() => void state.refresh()}>重新加载</Button><Button asChild><Link href="/projects">返回我的项目</Link></Button></div></main></>;
   if (!project) return <><AppHeader /><div className="page-loader" aria-label="正在打开项目"><LoaderCircle className="spin" size={24} /></div></>;
   return <div className="workbench-page">
@@ -138,6 +176,8 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
           {run && <GenerationOutcome run={run} candidateSaved={project.latestCandidate?.runId === run.id && project.latestCandidate.id === run.resultRevisionId} check={runCheck} />}
           {state.active && <p className={cn("generation-connection", (state.connection === "polling" || state.connection === "unavailable") && "generation-connection-warning")} role="status">{state.connection === "awaiting_snapshot" ? "需求已接收，正在读取任务状态。" : state.connection === "unavailable" ? "任务不存在或无权访问，已停止重连。" : state.connection === "polling" ? "实时连接暂不可用，正在定时读取任务状态。" : state.connection === "connected" ? "已连接实时执行记录" : "正在连接实时执行记录…"}{state.connection === "unavailable" && <button className="generation-inline-retry" onClick={() => void state.refresh()}>重新读取任务</button>}</p>}
           {state.error && <p className="inline-error" role="alert">{state.error}<button className="generation-inline-retry" onClick={() => void state.refresh()}>重新读取</button></p>}
+          {actionError && <p className="inline-error" role="alert">{actionError}</p>}
+          {!state.active && run && run.error?.retryable && <p className="generation-retry-row" role="status">{run.error.message}<Button variant="outline" size="sm" disabled={pending || !modelReady} onClick={() => void retry()}>以新任务重试</Button></p>}
           {submitError && <p className="inline-error" role="alert">{submitError}</p>}
           {unknownSubmission && <div className="run-notice" role="status"><div><strong>上次提交的结果尚未确认</strong><p>确认会沿用原请求，不会把正在编辑的草稿重复发送。</p></div><button disabled={pending} onClick={() => void send(unknownSubmission)}>确认提交结果</button></div>}
           <div className="generation-model-field"><label htmlFor="generation-model">使用模型</label><div>
@@ -171,8 +211,10 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
             <textarea id="followup-prompt" value={draft} onChange={(event) => editDraft(event.target.value)} placeholder={busy ? "可以先写下一条需求，任务结束后再发送…" : clarification ? "回答上面的问题，继续原需求…" : "描述你想实现或修改的功能…"} aria-invalid={tooLong} aria-describedby={[tooLong ? "draft-error" : "", clarification ? "clarification-question" : ""].filter(Boolean).join(" ") || undefined} onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); void send(); }
             }} />
-            <div className="chat-composer-controls"><span><span className="small-status-dot" />{state.active ? "正在执行，可以继续写草稿" : run?.cleanupState === "pending" ? "正在清理执行资源" : clarification ? "回答后继续原需求" : "准备好你的下一个想法"}</span><Button type="submit" size="icon" disabled={busy || !!unknownSubmission || !draft.trim() || tooLong || !modelReady} aria-label={clarification ? "发送回答" : "发送需求"}>{pending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</Button></div>
+            <div className="chat-composer-controls"><span><span className="small-status-dot" />{run?.state === "repairing" ? `检查未通过，正在自动修复（第 ${run.attempt + 1} 轮）` : run?.state === "cancel_requested" || stopping ? "正在停止：等待远端模型与沙箱清理确认" : state.active ? "正在执行，可以继续写草稿" : run?.cleanupState === "pending" ? "正在清理执行资源" : clarification ? "回答后继续原需求" : "准备好你的下一个想法"}{project.quota && <span className="generation-quota">今日额度 {project.quota.dailyAccepted}/{project.quota.dailyLimit}</span>}</span>
+              <span className="composer-actions">{canStop && <Button type="button" variant="outline" size="sm" disabled={stopping} onClick={() => void stop()} aria-label="停止任务">{stopping ? <><LoaderCircle className="spin" size={14} />正在停止</> : "停止"}</Button>}<Button type="submit" size="icon" disabled={busy || !!unknownSubmission || !draft.trim() || tooLong || !modelReady} aria-label={clarification ? "发送回答" : "发送需求"}>{pending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</Button></span></div>
           </form>
+          {quotaFull && <p className="generation-model-help" role="status">今日任务额度已用完（{project.quota!.dailyLimit} 个），请明日再试或联系维护者。</p>}
           {tooLong && <p id="draft-error" className="inline-error" role="alert">需求最多 {promptLimit.toLocaleString()} 个字符。</p>}
           <div className="composer-hint"><span>{draftStored ? "Enter 发送 · Shift + Enter 换行" : "草稿未保存，请保持页面打开"}</span><span>{draft.length} / {promptLimit}</span></div>
         </div>
@@ -181,7 +223,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
         {collapsed && <button className="generation-expand-chat icon-button" aria-label="展开对话" onClick={() => setCollapsed(false)}><PanelLeftOpen size={16} /></button>}
         {revisions.length > 1 && <label className="generation-revision-picker">查看版本<select value={revision?.id ?? ""} onChange={(event) => setSelectedRevisionId(event.target.value)}>{revisions.map((item) => <option key={item.id} value={item.id}>v{item.revisionNo} · {item.status === "candidate" ? "候选" : item.status === "rejected" ? "未通过候选" : "当前版本"}</option>)}</select></label>}
         {previewQuery.error && <p className="inline-error" role="alert">{previewQuery.error}</p>}
-        <GenerationResult revision={revision} preview={hasSnapshotPreview ? snapshotPreview! : previewQuery.data ?? null} generation={state.generation} active={state.active} latestCheck={project.latestCheck} checking={state.active && run?.phase === "review" && revision?.runId === run.id} />
+        <GenerationResult revision={revision} preview={hasSnapshotPreview ? snapshotPreview! : previewQuery.data ?? null} generation={state.generation} active={state.active} latestCheck={project.latestCheck} checking={state.active && run?.phase === "review" && revision?.runId === run.id} restoring={restoring || (previewQuery.data?.state === "restoring" && previewQuery.data.revisionId === revision?.id)} onRestore={state.active ? undefined : () => void restore()} />
       </div>
     </main>
   </div>;

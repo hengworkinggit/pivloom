@@ -57,6 +57,8 @@ export interface RunCandidateInput {
   previewBasePath?: string;
   prompt: string;
   handoff?: Handoff;
+  /** Repair attempts start from the previous immutable snapshot, not a blank template. */
+  seed?: SourceFile[];
   maxToolCalls?: number;
   tokenBudget?: RunTokenBudget;
   modelConfig: ModelConfig;
@@ -258,7 +260,7 @@ export async function runCandidate(
       sandboxId: handle.sandboxId,
       message: "候选沙箱已登记",
     });
-    await initializeReactWorkspace(workspace, handle);
+    await initializeReactWorkspace(workspace, handle, input.seed);
     signal.throwIfAborted();
     await emit({
       type: "stage",

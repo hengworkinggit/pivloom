@@ -33,6 +33,27 @@ export class PivloomDatabase {
     }
   }
 
+  /**
+   * Runs a maintenance statement as `nano_api` without impersonating an owner.
+   * Only the two SECURITY DEFINER recovery functions are callable this way, so
+   * the API process never needs a privileged connection string.
+   */
+  async system<T>(operation: (client: PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL ROLE nano_api");
+      const result = await operation(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async healthy() {
     try {
       await this.owned("00000000-0000-4000-8000-000000000000", async (client) => {

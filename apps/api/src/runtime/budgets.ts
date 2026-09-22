@@ -42,6 +42,20 @@ export const RUN_TOKEN_LIMIT = 400_000;
 export const RUN_TOOL_LIMIT = 80;
 
 /**
+ * Accepted runs per account in a rolling 24 hours. Only a run the service
+ * actually accepted is counted; an idempotent replay of the same request never
+ * charges the quota twice and a rejected request is never charged at all.
+ */
+export const DAILY_ACCEPTED_LIMIT = 20;
+
+/**
+ * Ceiling for one preview rebuild. It covers sandbox start, locked dependency
+ * install and the trusted build, but never a model call; it stays well under
+ * the run ceiling so a stuck restore cannot hold the project lock for long.
+ */
+export const RESTORE_TIMEOUT_MS = 300_000;
+
+/**
  * Bounded transient-provider retry. The Pi SDK applies exponential backoff
  * (`baseDelayMs * 2 ** (attempt - 1)`, capped by `maxAgentDelayMs`) and only
  * retries errors it classifies as transient; quota, billing and auth failures

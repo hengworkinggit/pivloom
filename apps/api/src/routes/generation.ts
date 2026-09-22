@@ -1,7 +1,10 @@
 import { once } from "node:events";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { CreateRunRequestSchema, CreateRunResponseSchema, PreviewResponseSchema } from "@pivloom/contracts";
+import {
+  CancelRunResponseSchema, CreateRunRequestSchema, CreateRunResponseSchema, PreviewResponseSchema,
+  RestorePreviewRequestSchema,
+} from "@pivloom/contracts";
 import type { GenerationService } from "../generation/service.js";
 import { ApiFailure } from "./errors.js";
 import { parseInput, requireOwner } from "./identity.js";
@@ -44,6 +47,17 @@ export async function registerGenerationRoutes(app: FastifyInstance, options: {
       return reply.code(202).send(response);
     });
     secured.get("/api/v1/runs/:id", async (request) => service().runDetail(requireOwner(request), id(request)));
+    secured.post("/api/v1/runs/:id/cancel", async (request) => {
+      const run = await service().cancel(requireOwner(request), id(request));
+      return CancelRunResponseSchema.parse({ runId: run.id, state: run.state, phase: run.phase, cleanupState: run.cleanupState });
+    });
+    secured.post("/api/v1/projects/:id/preview/restore", async (request) => {
+      const ownerId = requireOwner(request);
+      const projectId = id(request);
+      const body = parseInput(RestorePreviewRequestSchema, request.body);
+      const key = parseInput(z.uuid(), request.headers["idempotency-key"]);
+      return service().restorePreview(ownerId, projectId, { revisionId: body.revisionId, idempotencyKey: key });
+    });
     secured.get("/api/v1/revisions/:id/check", async (request) => service().check(requireOwner(request), id(request)));
     secured.get("/api/v1/checks/:id/artifacts/:artifactId", async (request, reply) => {
       const params = parseInput(z.object({ id: z.uuid(), artifactId: z.uuid() }), request.params);

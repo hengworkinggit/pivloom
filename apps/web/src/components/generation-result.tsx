@@ -60,8 +60,9 @@ function previewUrl(preview: Preview | null, revision: Revision | null, origin: 
   } catch { return null; }
 }
 
-export function GenerationResult({ revision, preview, generation, active, latestCheck, checking = false }: {
+export function GenerationResult({ revision, preview, generation, active, latestCheck, checking = false, restoring = false, onRestore }: {
   revision: Revision | null; preview: Preview | null; generation: GenerationApi; active: boolean; latestCheck?: Check | null; checking?: boolean;
+  restoring?: boolean; onRestore?: () => void;
 }) {
   const [tab, setTab] = useState<"preview" | "code">("preview");
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
@@ -98,12 +99,16 @@ export function GenerationResult({ revision, preview, generation, active, latest
       {tab === "code" && (revision ? <SourceViewer key={revision.id} revision={revision} generation={generation} /> : <div className="preview-empty"><Code2 size={28} /><h2>还没有生成源码</h2><p>候选保存后，可以查看对应的多文件快照。</p></div>)}
     </div>
     <div id="preview-panel" role="tabpanel" aria-labelledby="preview-tab" className={cn("preview-canvas", device === "mobile" && "preview-canvas-mobile")} hidden={tab !== "preview"}>
+      {restoring && <div className="preview-empty" role="status" data-testid="preview-restoring"><LoaderCircle className="spin" size={22} />
+        <h2>正在重建预览</h2><p>从已保存的源码重新启动预览，不会调用模型，也不会改变版本或检查结论。</p></div>}
       {url ? <div className={cn("preview-frame", device === "mobile" && "phone-frame")}>
         {loaded !== frameKey && <div className="generation-preview-loading" role="status"><LoaderCircle className="spin" size={16} />正在加载预览…</div>}
         <iframe key={frameKey} src={url} title="应用预览" className="app-preview-iframe" sandbox="allow-scripts allow-same-origin allow-forms" referrerPolicy="no-referrer" onLoad={() => setLoaded(frameKey)} />
       </div> : <div className="preview-empty"><div className="empty-preview-icon"><Monitor size={27} /></div>
         <h2>{expired ? "预览已到期" : revision ? "预览暂不可用" : active ? "正在构建你的应用" : "你的应用，将从这里开始"}</h2>
-        <p>{expired ? "源码快照已保存，可以在代码页查看。" : revision ? preview?.error ?? "候选源码已保存，尚未获得可访问的预览。" : active ? "实际构建与快照保存完成后，候选预览会出现在这里。" : "在左侧描述需求，开始第一次真实构建。"}</p>
+        <p>{expired ? "源码快照已保存，可以在代码页查看；重新启动预览不会调用模型。" : revision ? preview?.error ?? "候选源码已保存，尚未获得可访问的预览。" : active ? "实际构建与快照保存完成后，候选预览会出现在这里。" : "在左侧描述需求，开始第一次真实构建。"}</p>
+        {expired && revision && revision.buildStatus === "passed" && onRestore &&
+          <Button onClick={onRestore} disabled={restoring}>{restoring ? <><LoaderCircle className="spin" size={14} />正在重建…</> : "重新启动预览"}</Button>}
       </div>}
     </div>
     <footer className="result-footer"><span>{revision ? `版本 ${revision.revisionNo} · ${revision.id.slice(0, 8)}` : "尚无版本"}</span><span>{device === "mobile" ? "窄屏布局 · 非移动设备模拟" : "独立应用预览"}</span></footer>

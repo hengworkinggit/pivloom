@@ -19,6 +19,14 @@ export interface SourceBundle {
   manifest: SourceFileInfo[];
 }
 export interface SourceObject { key: string; revisionId: string; sourceHash: string; createdAt: string; bytes: number }
+/**
+ * Turns a stored bundle back into the byte-level source files a workspace
+ * writes. The bundle only ever holds validated UTF-8 text, so re-encoding is
+ * lossless and reproduces the exact original hash.
+ */
+export function sourceBundleFiles(bundle: SourceBundle): { path: string; content: Uint8Array; sha256: string }[] {
+  return bundle.files.map((file) => ({ path: file.path, content: Buffer.from(file.content, "utf8"), sha256: file.sha256 }));
+}
 export interface SourceObjectStore {
   upload(key: string, body: Uint8Array): Promise<void>;
   download(key: string): Promise<Uint8Array>;

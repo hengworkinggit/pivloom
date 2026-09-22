@@ -1,6 +1,7 @@
 import {
   CreateRunRequestSchema, CreateRunResponseSchema, RunDetailResponseSchema,
   RevisionFilesResponseSchema, RevisionFileResponseSchema, PreviewResponseSchema, RevisionCheckResponseSchema,
+  CancelRunResponseSchema, RestorePreviewResponseSchema,
   type CreateRunRequest, type RunEvent, type ReviewArtifact,
 } from "@pivloom/contracts";
 import { WorkspaceError, type ApiWorkspace } from "./api-workspace";
@@ -28,6 +29,17 @@ export function createGenerationApi(api: Pick<ApiWorkspace, "request" | "request
       method: "POST", headers: { "Idempotency-Key": submission.key },
       body: JSON.stringify(CreateRunRequestSchema.parse(submission.body)),
     })),
+    /** Idempotent stop request; the run leaves cancel_requested only once the
+     * service has confirmed its remote model call and sandbox are gone. */
+    cancel: async (runId: string) => CancelRunResponseSchema.parse(await api.request(`/runs/${encodeURIComponent(runId)}/cancel`, {
+      method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() },
+    })),
+    /** Rebuilds a preview from saved source. It never calls a model. */
+    restorePreview: async (projectId: string, revisionId: string) => RestorePreviewResponseSchema.parse(
+      await api.request(`/projects/${encodeURIComponent(projectId)}/preview/restore`, {
+        method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify({ revisionId }),
+      })),
     getRun: async (runId: string) => RunDetailResponseSchema.parse(await api.request(`/runs/${encodeURIComponent(runId)}`)),
     getCheck: async (revisionId: string) => {
       const result = RevisionCheckResponseSchema.safeParse(await api.request(`/revisions/${encodeURIComponent(revisionId)}/check`));

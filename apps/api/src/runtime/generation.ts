@@ -17,8 +17,14 @@ import {
 export async function initializeReactWorkspace(
   workspace: OpenSandboxWorkspace,
   handle: WorkspaceHandle,
+  seed?: SourceFile[],
 ): Promise<void> {
-  await workspace.initialize(handle, REACT_TEMPLATE, SOURCE_IO_SCRIPT);
+  // A repair or a preview restore starts from the previous immutable snapshot
+  // instead of the blank template, so the candidate keeps its real history.
+  const files = seed
+    ? Object.fromEntries(seed.map((file) => [file.path, new TextDecoder("utf-8", { fatal: true }).decode(file.content)]))
+    : REACT_TEMPLATE;
+  await workspace.initialize(handle, files, SOURCE_IO_SCRIPT);
   // Reuse the exact dependency graph actually baked into the verified image.
   const pkg = await workspace.executeService(
     handle,

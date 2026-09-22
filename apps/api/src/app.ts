@@ -12,6 +12,16 @@ import { registerGenerationRoutes } from "./routes/generation.js";
 import { createGenerationService, type GenerationService } from "./generation/service.js";
 import type { SourceObjectStore } from "./storage/source.js";
 
+declare module "fastify" {
+  interface FastifyInstance {
+    /**
+     * Reconciles work left behind by a previous process. It is a boot step, not
+     * a request step, so it never runs as a side effect of serving traffic.
+     */
+    recoverStaleRuns(): Promise<number>;
+  }
+}
+
 export interface CreateAppOptions {
   env?: NodeJS.ProcessEnv;
   logger?: boolean;
@@ -23,6 +33,7 @@ export function createApp(options: CreateAppOptions = {}) {
   const env = options.env ?? process.env;
   const configuration = readIdentityConfig(env);
   const bootId = randomUUID();
+  const recovering: { run?: () => Promise<number> } = {};
   const database = configuration.ready ? new PivloomDatabase(configuration.value.databaseUrl) : null;
   const verifier = configuration.ready ? createIdentityVerifier(configuration.value) : null;
   let generation: GenerationService | null = null;
@@ -33,6 +44,7 @@ export function createApp(options: CreateAppOptions = {}) {
     bodyLimit: 32 * 1024,
   });
   app.decorateRequest("identity", null);
+  app.decorate("recoverStaleRuns", async () => (recovering.run ? await recovering.run() : 0));
   app.addHook("onClose", async () => { await generation?.close(); await database?.close(); });
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ApiFailure) {
@@ -82,6 +94,10 @@ export function createApp(options: CreateAppOptions = {}) {
             previewOrigin: env.PREVIEW_BASE_URL, maxSandboxes, sourceObjects: options.sourceObjects,
             sandbox: { baseUrl: env.OPENSANDBOX_BASE_URL, apiKey: env.OPENSANDBOX_API_KEY, image: env.OPENSANDBOX_IMAGE, lifetimeMs: 900_000 },
           });
+          // Nothing left behind by a previous process may keep a project locked
+          // or claim to be running; the server awaits this before it is used.
+          const service = generation;
+          recovering.run = () => service.recover();
           if (options.previewListen) {
             const service = generation;
             const address = options.previewListen;
