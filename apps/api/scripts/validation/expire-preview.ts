@@ -6,15 +6,18 @@
  * confirmed before the row is marked expired. Nothing else is touched, so a
  * concurrent candidate or another project can never be reclaimed by accident.
  *
- * Run: node --env-file=.env.local --import tsx scripts/validation/expire-preview.ts <ownerId> <projectId>
+ * Run: node --env-file=.env.local --import tsx scripts/validation/expire-preview.ts <ownerId> <projectId> [bindingId]
+ * With a binding id it expires exactly that binding; without one it requires
+ * that the project has a single active preview binding, so a
+ * multi-preview project can never be expired by accident.
  * It prints ids and states only, never credentials.
  */
 import { Pool } from "pg";
 import { SandboxManager } from "@alibaba-group/opensandbox";
 import { sandboxConnectionConfig } from "../../src/runtime/workspace.js";
 
-const [ownerId, projectId] = process.argv.slice(2);
-if (!ownerId || !projectId) throw new Error("usage: expire-preview.ts <ownerId> <projectId>");
+const [ownerId, projectId, requestedBinding] = process.argv.slice(2);
+if (!ownerId || !projectId) throw new Error("usage: expire-preview.ts <ownerId> <projectId> [bindingId]");
 for (const [label, value] of [["ownerId", ownerId], ["projectId", projectId]] as const)
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) throw new Error(`${label} must be a uuid`);
 const baseUrl = process.env.OPENSANDBOX_BASE_URL;
@@ -24,8 +27,9 @@ if (!baseUrl || !apiKey || !process.env.MIGRATION_DATABASE_URL) throw new Error(
 const database = new Pool({ connectionString: process.env.MIGRATION_DATABASE_URL, max: 1 });
 const bindings = await database.query<{ id: string; remote_id: string; revision_id: string; state: string }>(
   `SELECT id, remote_id, revision_id, state FROM nano.sandboxes
-   WHERE owner_id=$1 AND project_id=$2 AND purpose='preview' AND state IN ('creating','active')`,
-  [ownerId, projectId]);
+   WHERE owner_id=$1 AND project_id=$2 AND purpose='preview' AND state IN ('creating','active')
+   ${requestedBinding ? "AND id=$3" : ""} ORDER BY created_at DESC`,
+  requestedBinding ? [ownerId, projectId, requestedBinding] : [ownerId, projectId]);
 if (bindings.rows.length !== 1)
   throw new Error(`expected exactly one active preview binding, found ${bindings.rows.length}`);
 const binding = bindings.rows[0];
