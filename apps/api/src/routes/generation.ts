@@ -1,7 +1,7 @@
-import { setTimeout as delay } from "node:timers/promises";
+import { once } from "node:events";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { CreateRunRequestSchema, CreateRunResponseSchema, PreviewResponseSchema, TerminalRunStates } from "@pivloom/contracts";
+import { CreateRunRequestSchema, CreateRunResponseSchema, PreviewResponseSchema } from "@pivloom/contracts";
 import type { GenerationService } from "../generation/service.js";
 import { ApiFailure } from "./errors.js";
 import { parseInput, requireOwner } from "./identity.js";
@@ -58,42 +58,50 @@ export async function registerGenerationRoutes(app: FastifyInstance, options: {
       const runId = id(request);
       const query = parseInput(z.strictObject({ after: z.string().regex(/^\d{1,18}$/).default("0") }), request.query);
       const generation = service();
-      await generation.repository.getRun(ownerId, runId);
-      // The token has already been remotely authenticated; exp only limits stream lifetime.
-      let expiresAt = Date.now();
+      // Auth has already verified the token remotely; exp only limits this stream.
+      let expiresAt = 0;
       try {
         const claims = JSON.parse(Buffer.from(request.headers.authorization!.slice(7).split(".")[1], "base64url").toString());
-        if (typeof claims.exp === "number") expiresAt = claims.exp * 1000;
-      } catch { /* Fail closed when the verified token has no usable expiry. */ }
+        if (typeof claims.exp === "number" && Number.isFinite(claims.exp)) expiresAt = claims.exp * 1000;
+      } catch { /* A verified token still requires a finite stream expiry. */ }
+      if (expiresAt <= Date.now() + 1000) throw new ApiFailure(401, "UNAUTHENTICATED", "登录需要刷新，请重新连接。");
       const stream = new AbortController();
       streams.add(stream);
-      const timer = setTimeout(() => stream.abort(), Math.max(1, Math.min(60_000, expiresAt - Date.now() - 1000)));
+      const timer = setTimeout(() => stream.abort("AUTH_REFRESH_REQUIRED"), Math.max(1, Math.min(60_000, expiresAt - Date.now() - 1000)));
       const response = reply.raw;
-      response.once("close", () => stream.abort());
-      reply.hijack();
-      response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-transform", "x-accel-buffering": "no", connection: "keep-alive" });
-      response.flushHeaders();
-      let cursor = query.after;
-      let heartbeat = Date.now();
+      const disconnected = () => stream.abort("CLIENT_DISCONNECTED");
+      response.once("close", disconnected);
+      let heartbeat: ReturnType<typeof setInterval> | undefined;
+      let session: Awaited<ReturnType<GenerationService["openEvents"]>> | undefined;
       try {
-        while (!stream.signal.aborted) {
-          // Durable cursor polling is the initial SSE path; no history/subscription gap.
-          const events = await generation.repository.listEvents(ownerId, runId, cursor, 100);
-          for (const event of events) {
-            if (stream.signal.aborted) break;
-            if (!response.write(`id: ${event.eventId}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)) {
-              stream.abort(); break; // Slow consumers resume from their last acknowledged cursor.
-            }
-            cursor = event.eventId;
+        session = await generation.openEvents(ownerId, runId, query.after, stream.signal);
+        if (stream.signal.aborted || response.destroyed) return;
+        reply.hijack();
+        response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-transform", "x-accel-buffering": "no", connection: "keep-alive" });
+        response.flushHeaders();
+        heartbeat = setInterval(() => {
+          if (!response.destroyed && !response.writableNeedDrain && !response.write(": heartbeat\n\n")) stream.abort("SLOW_CONSUMER");
+        }, 15_000);
+        for await (const event of session) {
+          if (session.signal.aborted || response.destroyed) break;
+          if (!response.write(`id: ${event.eventId}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)) {
+            const slow = setTimeout(() => stream.abort("SLOW_CONSUMER"), 15_000);
+            try { await once(response, "drain", { signal: session.signal }); }
+            finally { clearTimeout(slow); }
           }
-          if (events.length === 100) continue;
-          const run = await generation.repository.getRun(ownerId, runId);
-          if (TerminalRunStates.has(run.state) && events.length === 0) break;
-          if (Date.now() - heartbeat >= 15_000) { response.write(": heartbeat\n\n"); heartbeat = Date.now(); }
-          await delay(750, undefined, { signal: stream.signal });
         }
-      } catch { /* Client disconnect or backend outage is recovered by authenticated cursor replay. */ }
-      finally { clearTimeout(timer); streams.delete(stream); response.end(); }
+      } catch (error) {
+        if (!response.headersSent && !response.destroyed) throw error;
+        // Disconnects/outages recover through an authenticated durable cursor.
+      } finally {
+        clearTimeout(timer); clearInterval(heartbeat);
+        session?.close(); stream.abort(); streams.delete(stream);
+        response.off("close", disconnected);
+        if (response.headersSent && !response.destroyed) {
+          if (response.writableNeedDrain || session?.signal.reason === "SLOW_CONSUMER") response.destroy();
+          else response.end();
+        }
+      }
     });
   });
 }

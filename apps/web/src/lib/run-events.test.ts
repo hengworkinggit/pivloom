@@ -26,3 +26,16 @@ it("rejects an event belonging to another run without exposing it to the workspa
   await expect(readRunEvents(response, { runId, signal: new AbortController().signal, onEvent: (item) => received.push(item) })).rejects.toThrow("事件");
   expect(received).toEqual([]);
 });
+
+it("releases a silent response body as soon as the caller leaves the subscription", async () => {
+  let cancelled = false;
+  const response = new Response(new ReadableStream({ cancel() { cancelled = true; } }), { headers: { "Content-Type": "text/event-stream" } });
+  const controller = new AbortController();
+  const received: unknown[] = [];
+  const reading = readRunEvents(response, { runId, signal: controller.signal, onEvent: (item) => received.push(item) });
+  controller.abort();
+  await Promise.resolve();
+  expect(cancelled).toBe(true);
+  await expect(reading).resolves.toBe("0");
+  expect(received).toEqual([]);
+});

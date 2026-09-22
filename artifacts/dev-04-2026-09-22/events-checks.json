@@ -1,0 +1,195 @@
+{
+  "at": "2026-09-22T05:10:07.877293+00:00",
+  "baseline": "281621fc43848cd92ddfb2abce1ff32e466bcbfb",
+  "build": "working tree, source execution through Vitest; no dist rebuilt by this agent",
+  "environmentId": "pivloom-dev-e6d33625ef2b",
+  "fileSha256": {
+    "apps/api/src/data/generation.ts": "4633cf06de489313c6136d7719e8b106848bf6402111ed7e6ed62a2b7c71b61a",
+    "apps/api/src/routes/generation.ts": "ca1cada779d488aa9ce59a34f9aaabacc1d5da32fbb962dc9f9c9c77e2fa156f",
+    "apps/api/src/generation/events.ts": "ba633e800bd466fd8f8ef2c06eb9edf912f072e45c20f7fac71d748108479616",
+    "apps/api/src/generation/service.ts": "735758ca5006c836d17bc1188eb178095379aea8e8b17e9fca4ab98fac447792",
+    "apps/api/tests/generation/events.integration.test.ts": "0e0512e49154ddc827fe55fdbb27a837bdfc41350aa1427d412c6859e8f567c4"
+  },
+  "commandPrefix": "cd apps/api && PIVLOOM_EVENTS_INTEGRATION=1 node --env-file=.env.local ../../node_modules/vitest/vitest.mjs run tests/generation/events.integration.test.ts",
+  "cases": [
+    {
+      "selection": "-t notifications",
+      "status": "PASS",
+      "durationSeconds": 49.77,
+      "manifest": "events-fixture-66f40e9c-2919-4797-812e-5db1780ea199.json",
+      "covers": [
+        "post-COMMIT notification",
+        "ordinary subscriber not awaited",
+        "failed COMMIT no notification",
+        "accepted/phase/terminal events durable",
+        "complete envelope over 16 KiB rolls back"
+      ],
+      "redEvidence": "Before notifications: accepted yielded no notification. Before full-envelope cap: 16,250-byte payload was accepted despite envelope exceeding 16 KiB."
+    },
+    {
+      "selection": "-t \"terminal commit\"",
+      "status": "PASS",
+      "durationSeconds": 47.86,
+      "manifest": "events-fixture-31bc71c2-4ae3-4fb6-92c0-62d730ff17da.json",
+      "covers": [
+        "real PostgreSQL history read/terminal commit handoff",
+        "run.finished delivered once",
+        "cursor reconnect does not duplicate",
+        "real Supabase B token receives 404"
+      ],
+      "redEvidence": "Previous polling returned zero events after run.finished committed during the paused history SELECT result."
+    },
+    {
+      "selection": "-t \"bounded buffers\"",
+      "status": "PASS",
+      "durationSeconds": 93.99,
+      "manifest": "events-fixture-bcb36da8-e120-4035-806b-e58fc23de75b.json",
+      "covers": [
+        "future cursor 422 before SSE headers",
+        "count and byte overflow close subscription",
+        "durable events still commit after overflow",
+        "15-second heartbeat",
+        "finite auth expiry closes SSE",
+        "client departure does not cancel accepted Run",
+        "replay equals durable IDs with no duplicate"
+      ]
+    }
+  ],
+  "fixtures": {
+    "database": "Real authorized self-hosted Postgres, owner-scoped repository. One SELECT response is delayed at the PostgreSQL client boundary to expose the handoff race.",
+    "auth": "Real Supabase A/B tokens except expiry subcase: explicit local Auth HTTP response with a short exp; no JWT secret read/changed and no natural Supabase expiry claim.",
+    "buffer": "Isolated service configuration uses maxBufferedEvents=1 or maxBufferedBytes=1 while history read is held; tests bounded queue overflow, not kernel socket load capacity.",
+    "model": "Not invoked. The existing verified default profile is frozen into fixture leases; its value/default/credential are never changed.",
+    "sandbox": "Not invoked; fixture endpoint cannot provision one."
+  },
+  "cleanup": {
+    "manifestCount": 10,
+    "projectsCreated": 10,
+    "runsCreated": 10,
+    "leasesCreated": 10,
+    "allManifestsVerified": true,
+    "remainingOwnedProjectsRunsLeases": 0,
+    "originalUsersProjectsModelsPreserved": true
+  },
+  "notClaimed": [
+    "Real product UI E10/E19/E20/E26 results; root performs these",
+    "Model/output batching tests; another agent owns runtime",
+    "Cross-process notification or transparent execution recovery"
+  ],
+  "snapshotHistoryFix": {
+    "at": "2026-09-22T05:27:59.116823+00:00",
+    "finding": "P2: reopening a terminal run previously returned its earliest 200 events and omitted the final events.",
+    "productionChange": "readRunSnapshot inner ORDER BY e.id DESC LIMIT 200; outer JSON aggregation still ORDER BY replay.id ascending.",
+    "fileSha256": {
+      "apps/api/src/data/generation.ts": "e84f35984ed4116b7b05a01c551714fba9804e6b709c6eb12f1c119f11b8352e",
+      "apps/api/tests/generation/events.integration.test.ts": "ec09a492f87ea21161a6e6df7010b9d093af3645aded701415ce8d3160ceb64e"
+    },
+    "command": "cd apps/api && PIVLOOM_EVENTS_INTEGRATION=1 node --env-file=.env.local ../../node_modules/vitest/vitest.mjs run tests/generation/events.integration.test.ts -t 'reopening a terminal run'",
+    "attempts": [
+      {
+        "status": "FAIL",
+        "cycle": "RED",
+        "suiteDurationSeconds": 56.66,
+        "manifest": "events-fixture-c26d48fb-d2de-4e3b-b519-fcf97272049e.json",
+        "actual": "First returned ordinal=1, expected=7 for the last 200 of 206 durable events."
+      },
+      {
+        "status": "FAIL",
+        "cycle": "post-fix boundary timeout",
+        "suiteDurationSeconds": 51.6,
+        "manifest": "events-fixture-ecab275e-a7e9-4edb-b062-7831de8cee99.json",
+        "actual": "Repository recent-200/ascending/final-event assertions passed; subsequent real HTTP request aborted at its unchanged 15-second deadline."
+      },
+      {
+        "status": "PASS",
+        "cycle": "GREEN with boundary timings",
+        "suiteDurationSeconds": 45.94,
+        "manifest": "events-fixture-d1879427-2868-4f66-a1cc-eea8091bbfd4.json",
+        "actual": "Repository and real authenticated HTTP returned ordinals 7 through 206 ascending, including the final run.finished, with the same ordered IDs.",
+        "timings": {
+          "authTimingsMs": [
+            827
+          ],
+          "snapshotTimingsMs": [
+            7329
+          ],
+          "httpTimingsMs": [
+            11799
+          ],
+          "queries": [
+            {
+              "operation": "SELECT",
+              "durationMs": 386
+            },
+            {
+              "operation": "INSERT",
+              "durationMs": 383
+            },
+            {
+              "operation": "SELECT",
+              "durationMs": 381
+            },
+            {
+              "operation": "SELECT",
+              "durationMs": 693
+            },
+            {
+              "operation": "SELECT",
+              "durationMs": 390
+            },
+            {
+              "operation": "SELECT",
+              "durationMs": 391
+            },
+            {
+              "operation": "SELECT",
+              "durationMs": 380
+            },
+            {
+              "operation": "INSERT",
+              "durationMs": 385
+            },
+            {
+              "operation": "INSERT",
+              "durationMs": 401
+            },
+            {
+              "operation": "INSERT",
+              "durationMs": 383
+            },
+            {
+              "operation": "INSERT",
+              "durationMs": 390
+            },
+            {
+              "operation": "run_snapshot",
+              "durationMs": 5198
+            },
+            {
+              "operation": "run_snapshot",
+              "durationMs": 9439
+            }
+          ]
+        }
+      }
+    ],
+    "fixtureBoundary": "Explicit already-terminal failed Run inserted with one role and 206 events. Never accepted/executed a generation; no active global slot, model call, sandbox or Storage object. Uses the real existing A profile lease without changing its version/default/credentials.",
+    "checks": [
+      "API TypeScript noEmit PASS",
+      "Scoped ESLint from apps/api PASS",
+      "git diff --check PASS"
+    ],
+    "cleanup": {
+      "projectsCreated": 3,
+      "runsCreated": 3,
+      "leasesCreated": 3,
+      "remainingProjectsRunsLeases": 0,
+      "verifiedManifests": [
+        "events-fixture-c26d48fb-d2de-4e3b-b519-fcf97272049e.json",
+        "events-fixture-ecab275e-a7e9-4edb-b062-7831de8cee99.json",
+        "events-fixture-d1879427-2868-4f66-a1cc-eea8091bbfd4.json"
+      ]
+    },
+    "specRecheck": "No remaining concrete P1/P2 implementation finding on the Spec axis after this fix. UI E2E/final module closure remains root-owned; prior observed HTTP timeout is retained as a latency limitation, not erased by the successful retry."
+  }
+}

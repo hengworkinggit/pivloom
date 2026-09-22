@@ -263,6 +263,7 @@ export async function runCandidate(
       timeoutMs: Math.max(1, 600_000 - (Date.now() - started)),
       maxToolCalls: 80,
       sessionId: input.sessionId,
+      redactValues: [input.sandboxConfig.apiKey],
     });
     usage = built.usage;
     await flush();

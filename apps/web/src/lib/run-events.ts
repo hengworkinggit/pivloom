@@ -26,6 +26,8 @@ export async function readRunEvents(response: Response, options: {
     },
   });
   const reader = response.body.getReader();
+  const cancel = () => { void reader.cancel().catch(() => {}); };
+  options.signal.addEventListener("abort", cancel, { once: true });
   const decoder = new TextDecoder();
   try {
     while (!options.signal.aborted) {
@@ -35,6 +37,7 @@ export async function readRunEvents(response: Response, options: {
       parser.feed(decoder.decode(chunk.value, { stream: true }));
     }
   } finally {
+    options.signal.removeEventListener("abort", cancel);
     await reader.cancel().catch(() => {});
     reader.releaseLock();
   }

@@ -61,6 +61,8 @@ export interface GenerationRepository {
   listProjectMessages(ownerId: string, projectId: string): Promise<ProjectMessage[]>;
   listProjectRevisions(ownerId: string, projectId: string): Promise<StoredRevision[]>;
   listEvents(ownerId: string, runId: string, after?: string, limit?: number): Promise<RunEvent[]>;
+  readEventHead(ownerId: string, runId: string): Promise<{ eventId: string; state: RunState }>;
+  listEventsThrough(ownerId: string, runId: string, after: string, through: string, limit?: number): Promise<RunEvent[]>;
   appendEvent(ownerId: string, runId: string, input: AppendEventInput): Promise<RunEvent>;
   setPhase(ownerId: string, runId: string, input: { phase: RunPhase; state?: RunState }): Promise<StoredRun>;
   startBuilder(ownerId: string, runId: string): Promise<StoredRoleRun>;
@@ -131,8 +133,27 @@ function boundedJson(value: Record<string, unknown>, max = 16 * 1024) {
 export function createGenerationRepository(
   database: Pick<PivloomDatabase, "owned">,
   models: ModelProfileService,
-  options: { executorBootId: string; hasSandboxCapacity?: () => boolean },
+  options: {
+    executorBootId: string; hasSandboxCapacity?: () => boolean;
+    onCommittedEvent?: (ownerId: string, event: RunEvent) => void | Promise<void>;
+  },
 ): GenerationRepository {
+  const transactionEvents = new WeakMap<PoolClient, RunEvent[]>();
+  async function owned<T>(ownerId: string, operation: (client: PoolClient) => Promise<T>): Promise<T> {
+    const committed: RunEvent[] = [];
+    const result = await database.owned(ownerId, async (client) => {
+      transactionEvents.set(client, committed);
+      try { return await operation(client); }
+      finally { transactionEvents.delete(client); }
+    });
+    // Database.owned resolves only after COMMIT. Notifications are hints, never
+    // a transaction barrier, and subscriber failures cannot undo durable state.
+    for (const event of committed) {
+      try { void Promise.resolve(options.onCommittedEvent?.(ownerId, event)).catch(() => {}); }
+      catch { /* An authenticated reconnect always replays the durable event. */ }
+    }
+    return result;
+  }
   async function project(client: PoolClient, ownerId: string, projectId: string, lock = false) {
     const result = await client.query(`SELECT * FROM nano.projects WHERE owner_id=$1 AND id=$2${lock ? " FOR UPDATE" : ""}`, [ownerId, projectId]);
     if (!result.rows[0]) throw notFound();
@@ -162,7 +183,10 @@ export function createGenerationRepository(
     const result = await client.query(`INSERT INTO nano.run_events
       (owner_id,project_id,run_id,role_run_id,attempt,type,payload_json) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
     [current.owner_id, current.project_id, current.id, input.roleRunId ?? null, attempt, input.type, boundedJson(input.payload)]);
-    return storedEvent(result.rows[0]);
+    const saved = storedEvent(result.rows[0]);
+    boundedJson(saved);
+    transactionEvents.get(client)!.push(saved);
+    return saved;
   }
   async function revision(client: PoolClient, ownerId: string, revisionId: string) {
     const result = await client.query("SELECT * FROM nano.revisions WHERE owner_id=$1 AND id=$2", [ownerId, revisionId]);
@@ -171,10 +195,10 @@ export function createGenerationRepository(
   }
   return {
     // A single statement keeps related values in one MVCC snapshot and avoids repeated remote transaction setup.
-    readRunSnapshot: (ownerId, runId) => database.owned(ownerId, async (client) => {
+    readRunSnapshot: (ownerId, runId) => owned(ownerId, async (client) => {
       const result = await client.query(`SELECT r.*, to_jsonb(v) AS revision_json, to_jsonb(binding) AS binding_json,
         coalesce((SELECT jsonb_agg(to_jsonb(replay) || jsonb_build_object('id',replay.id::text) ORDER BY replay.id)
-          FROM (SELECT e.* FROM nano.run_events e WHERE e.owner_id=r.owner_id AND e.run_id=r.id ORDER BY e.id LIMIT 200) replay),'[]'::jsonb) AS events_json
+          FROM (SELECT e.* FROM nano.run_events e WHERE e.owner_id=r.owner_id AND e.run_id=r.id ORDER BY e.id DESC LIMIT 200) replay),'[]'::jsonb) AS events_json
         FROM nano.runs r
         LEFT JOIN nano.revisions v ON v.owner_id=r.owner_id AND v.project_id=r.project_id AND v.id=r.result_revision_id
         LEFT JOIN LATERAL (SELECT s.* FROM nano.sandboxes s WHERE s.owner_id=r.owner_id AND s.project_id=r.project_id
@@ -185,7 +209,7 @@ export function createGenerationRepository(
       return { run: storedRun(row), revision: row.revision_json ? storedRevision(row.revision_json) : null,
         events: (row.events_json as Row[]).map(storedEvent), binding: row.binding_json ? storedSandbox(row.binding_json) : null };
     }),
-    readProjectSnapshot: (ownerId, projectId) => database.owned(ownerId, async (client) => {
+    readProjectSnapshot: (ownerId, projectId) => owned(ownerId, async (client) => {
       const result = await client.query(`SELECT p.*, to_jsonb(latest) AS latest_run_json, to_jsonb(current) AS current_revision_json,
         to_jsonb(candidate) AS latest_candidate_json, to_jsonb(binding) AS binding_json,
         coalesce((SELECT jsonb_agg(to_jsonb(m) ORDER BY m.created_at,m.id) FROM nano.messages m
@@ -218,7 +242,7 @@ export function createGenerationRepository(
         normalized.modelProfileId, normalized.modelConfigVersion,
       ])).digest("hex");
       try {
-        return await database.owned(ownerId, async (client) => {
+        return await owned(ownerId, async (client) => {
           const parent = await project(client, ownerId, projectId, true);
           const previous = await client.query("SELECT * FROM nano.runs WHERE owner_id=$1 AND project_id=$2 AND idempotency_key=$3", [ownerId, projectId, idempotencyKey]);
           if (previous.rows[0]) {
@@ -253,29 +277,45 @@ export function createGenerationRepository(
         throw error;
       }
     },
-    getRun: (ownerId, runId) => database.owned(ownerId, async (client) => storedRun(await run(client, ownerId, runId))),
-    getLatestRun: (ownerId, projectId) => database.owned(ownerId, async (client) => {
+    getRun: (ownerId, runId) => owned(ownerId, async (client) => storedRun(await run(client, ownerId, runId))),
+    getLatestRun: (ownerId, projectId) => owned(ownerId, async (client) => {
       await project(client, ownerId, projectId);
       const result = await client.query("SELECT * FROM nano.runs WHERE owner_id=$1 AND project_id=$2 ORDER BY created_at DESC,id DESC LIMIT 1", [ownerId, projectId]);
       return result.rows[0] ? storedRun(result.rows[0]) : null;
     }),
-    listProjectMessages: (ownerId, projectId) => database.owned(ownerId, async (client) => {
+    listProjectMessages: (ownerId, projectId) => owned(ownerId, async (client) => {
       await project(client, ownerId, projectId);
       const result = await client.query("SELECT * FROM nano.messages WHERE owner_id=$1 AND project_id=$2 ORDER BY created_at,id", [ownerId, projectId]);
       return result.rows.map(storedMessage);
     }),
-    listEvents: (ownerId, runId, after = "0", limit = 200) => database.owned(ownerId, async (client) => {
+    listEvents: (ownerId, runId, after = "0", limit = 200) => owned(ownerId, async (client) => {
       await run(client, ownerId, runId);
       if (!/^\d{1,18}$/.test(after) || !Number.isInteger(limit) || limit < 1 || limit > 500) throw new ApiFailure(422, "INVALID_INPUT", "事件游标或数量无效。");
       const result = await client.query("SELECT * FROM nano.run_events WHERE owner_id=$1 AND run_id=$2 AND id>$3 ORDER BY id LIMIT $4", [ownerId, runId, after, limit]);
       return result.rows.map(storedEvent);
     }),
-    appendEvent: (ownerId, runId, input) => database.owned(ownerId, async (client) => {
+    readEventHead: (ownerId, runId) => owned(ownerId, async (client) => {
+      // State and high watermark share one MVCC snapshot, including a racing finalization.
+      const result = await client.query(`SELECT r.state, coalesce((SELECT max(e.id) FROM nano.run_events e
+        WHERE e.owner_id=r.owner_id AND e.run_id=r.id),0)::text AS event_id
+        FROM nano.runs r WHERE r.owner_id=$1 AND r.id=$2`, [ownerId, runId]);
+      if (!result.rows[0]) throw notFound();
+      return { eventId: result.rows[0].event_id, state: result.rows[0].state };
+    }),
+    listEventsThrough: (ownerId, runId, after, through, limit = 16) => owned(ownerId, async (client) => {
+      await run(client, ownerId, runId);
+      if (!/^\d{1,18}$/.test(after) || !/^\d{1,18}$/.test(through) || !Number.isInteger(limit) || limit < 1 || limit > 500) {
+        throw new ApiFailure(422, "INVALID_INPUT", "事件游标或数量无效。");
+      }
+      const result = await client.query("SELECT * FROM nano.run_events WHERE owner_id=$1 AND run_id=$2 AND id>$3 AND id<=$4 ORDER BY id LIMIT $5", [ownerId, runId, after, through, limit]);
+      return result.rows.map(storedEvent);
+    }),
+    appendEvent: (ownerId, runId, input) => owned(ownerId, async (client) => {
       const { current } = await lockedRun(client, ownerId, runId);
       return event(client, current, input);
     }),
     async finishFailed(ownerId, runId, input) {
-      return database.owned(ownerId, async (client) => {
+      return owned(ownerId, async (client) => {
         const { current, parent } = await lockedRun(client, ownerId, runId, false);
         if (TerminalRunStates.has(current.state)) return storedRun(current);
         if (parent.operation_id !== runId) throw new ApiFailure(409, "RUN_NOT_ACTIVE", "任务操作已失效。");
@@ -294,7 +334,7 @@ export function createGenerationRepository(
         return storedRun(result.rows[0]);
       });
     },
-    setPhase: (ownerId, runId, input) => database.owned(ownerId, async (client) => {
+    setPhase: (ownerId, runId, input) => owned(ownerId, async (client) => {
       const { current } = await lockedRun(client, ownerId, runId);
       const state = input.state ?? current.state;
       const permitted: Record<string, string[]> = { accepted: ["accepted", "building"], building: ["building", "verifying"], verifying: ["verifying"] };
@@ -304,7 +344,7 @@ export function createGenerationRepository(
       await event(client, changed.rows[0], { type: "run.phase", payload: { state, phase: input.phase } });
       return storedRun(changed.rows[0]);
     }),
-    startBuilder: (ownerId, runId) => database.owned(ownerId, async (client) => {
+    startBuilder: (ownerId, runId) => owned(ownerId, async (client) => {
       const { current } = await lockedRun(client, ownerId, runId);
       const prior = await client.query("SELECT * FROM nano.role_runs WHERE owner_id=$1 AND id=$2 AND run_id=$3", [ownerId, current.builder_role_run_id, runId]);
       if (prior.rows[0]?.state === "running") return storedRole(prior.rows[0]);
@@ -314,7 +354,7 @@ export function createGenerationRepository(
       await event(client, current, { type: "role.started", roleRunId: current.builder_role_run_id, payload: { role: "builder", phase: "implement" } });
       return storedRole(updated.rows[0]);
     }),
-    completeBuilder: (ownerId, runId, input = {}) => database.owned(ownerId, async (client) => {
+    completeBuilder: (ownerId, runId, input = {}) => owned(ownerId, async (client) => {
       const { current } = await lockedRun(client, ownerId, runId);
       const prior = await client.query("SELECT * FROM nano.role_runs WHERE owner_id=$1 AND id=$2 AND run_id=$3", [ownerId, current.builder_role_run_id, runId]);
       if (prior.rows[0]?.state === "succeeded") return storedRole(prior.rows[0]);
@@ -327,7 +367,7 @@ export function createGenerationRepository(
     saveCandidate: async (ownerId, runId, input) => {
       assertVerifiedSourceSnapshot(input.source);
       if (input.source.ownerId !== ownerId) throw notFound();
-      return database.owned(ownerId, async (client) => {
+      return owned(ownerId, async (client) => {
         const { current, parent } = await lockedRun(client, ownerId, runId);
         if (input.source.projectId !== current.project_id) throw notFound();
         const existing = await client.query("SELECT * FROM nano.revisions WHERE owner_id=$1 AND run_id=$2 AND attempt=$3", [ownerId, runId, current.attempt]);
@@ -352,13 +392,13 @@ export function createGenerationRepository(
         return storedRevision(result.rows[0]);
       });
     },
-    getRevision: (ownerId, revisionId) => database.owned(ownerId, async (client) => storedRevision(await revision(client, ownerId, revisionId))),
-    listProjectRevisions: (ownerId, projectId) => database.owned(ownerId, async (client) => {
+    getRevision: (ownerId, revisionId) => owned(ownerId, async (client) => storedRevision(await revision(client, ownerId, revisionId))),
+    listProjectRevisions: (ownerId, projectId) => owned(ownerId, async (client) => {
       await project(client, ownerId, projectId);
       const result = await client.query("SELECT * FROM nano.revisions WHERE owner_id=$1 AND project_id=$2 ORDER BY revision_no DESC", [ownerId, projectId]);
       return result.rows.map(storedRevision);
     }),
-    registerSandbox: (ownerId, runId, input) => database.owned(ownerId, async (client) => {
+    registerSandbox: (ownerId, runId, input) => owned(ownerId, async (client) => {
       const { current } = await lockedRun(client, ownerId, runId);
       if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}$/.test(input.sandboxId) || !z.iso.datetime().safeParse(input.expiresAt).success) throw new ApiFailure(422, "INVALID_SANDBOX_BINDING", "沙箱标识或有效期无效。");
       const prior = await client.query("SELECT * FROM nano.sandboxes WHERE owner_id=$1 AND run_id=$2 AND attempt=$3", [ownerId, runId, current.attempt]);
@@ -370,7 +410,7 @@ export function createGenerationRepository(
         VALUES($1,$2,$3,$4,$5,'candidate',$6,$7) RETURNING *`, [ownerId, current.project_id, runId, current.attempt, input.sandboxId, input.state ?? "active", input.expiresAt]);
       return storedSandbox(result.rows[0]);
     }),
-    bindPreview: (ownerId, runId, input) => database.owned(ownerId, async (client) => {
+    bindPreview: (ownerId, runId, input) => owned(ownerId, async (client) => {
       const { current } = await lockedRun(client, ownerId, runId);
       const saved = await revision(client, ownerId, input.revisionId);
       if (saved.run_id !== runId || saved.attempt !== current.attempt || saved.source_hash !== input.sourceHash
@@ -385,26 +425,26 @@ export function createGenerationRepository(
       await event(client, current, { type: "preview.ready", payload: { revisionId: input.revisionId, sourceHash: input.sourceHash, expiresAt: input.expiresAt, checked: false } });
       return storedSandbox(result.rows[0]);
     }),
-    getPreviewBinding: (ownerId, projectId, revisionId) => database.owned(ownerId, async (client) => {
+    getPreviewBinding: (ownerId, projectId, revisionId) => owned(ownerId, async (client) => {
       await project(client, ownerId, projectId);
       const saved = await revision(client, ownerId, revisionId);
       if (saved.project_id !== projectId) throw notFound();
       const result = await client.query("SELECT * FROM nano.sandboxes WHERE owner_id=$1 AND project_id=$2 AND revision_id=$3 AND purpose IN ('candidate-preview','preview') ORDER BY created_at DESC LIMIT 1", [ownerId, projectId, revisionId]);
       return result.rows[0] ? storedSandbox(result.rows[0]) : null;
     }),
-    markDestroyed: (ownerId, runId, sandboxId) => database.owned(ownerId, async (client) => {
+    markDestroyed: (ownerId, runId, sandboxId) => owned(ownerId, async (client) => {
       await lockedRun(client, ownerId, runId, false);
       const result = await client.query("UPDATE nano.sandboxes SET state='destroyed',last_checked_at=now() WHERE owner_id=$1 AND run_id=$2 AND remote_id=$3 RETURNING id", [ownerId, runId, sandboxId]);
       if (!result.rows[0]) throw notFound();
     }),
-    markCleanupPending: (ownerId, runId, message) => database.owned(ownerId, async (client) => {
+    markCleanupPending: (ownerId, runId, message) => owned(ownerId, async (client) => {
       const { parent } = await lockedRun(client, ownerId, runId, false);
       if (parent.operation_id !== runId) throw new ApiFailure(409, "RUN_NOT_ACTIVE", "不能重新占用已释放的项目操作。");
       const result = await client.query("UPDATE nano.runs SET cleanup_state='pending',phase='cleanup' WHERE owner_id=$1 AND id=$2 RETURNING *", [ownerId, runId]);
       await event(client, result.rows[0], { type: "run.phase", payload: { phase: "cleanup", cleanupState: "pending", message: message.slice(0, 2000) } });
       return storedRun(result.rows[0]);
     }),
-    confirmCleanup: (ownerId, runId) => database.owned(ownerId, async (client) => {
+    confirmCleanup: (ownerId, runId) => owned(ownerId, async (client) => {
       const { current, parent } = await lockedRun(client, ownerId, runId, false);
       if (!TerminalRunStates.has(current.state)) throw new ApiFailure(409, "RUN_STILL_ACTIVE", "任务尚未结束，不能释放清理占用。");
       if (current.cleanup_state !== "pending") return storedRun(current);
@@ -414,7 +454,7 @@ export function createGenerationRepository(
       await event(client, result.rows[0], { type: "run.phase", payload: { phase: "cleanup", cleanupState: "confirmed" } });
       return storedRun(result.rows[0]);
     }),
-    listReferencedSourceKeys: (ownerId, projectId) => database.owned(ownerId, async (client) => {
+    listReferencedSourceKeys: (ownerId, projectId) => owned(ownerId, async (client) => {
       await project(client, ownerId, projectId);
       const result = await client.query<{ source_key: string }>("SELECT source_key FROM nano.revisions WHERE owner_id=$1 AND project_id=$2", [ownerId, projectId]);
       return result.rows.map((row) => row.source_key);

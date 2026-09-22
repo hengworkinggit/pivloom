@@ -23,13 +23,13 @@
 
 ## 执行顺序与边界
 
-服务器沙箱基础设施、真实 Pi 生成、维护页面 iframe、模型实际输出后的取消、Auth/Storage、身份/项目及模型设置 UI、单沙箱联合容量均已通过。DEV-01/DEV-02/DEV-14 的本模块验收见[联合记录](../../foundation-validation-2026-09-22.md)，依赖它们的 DEV-03 尚未实现。先真实候选，再协调与检查；DEV-03 的候选子链路不能提前把完整 E04/E12 记 PASS，DEV-06 需复测。
+服务器沙箱基础设施、真实 Pi 生成、维护页面 iframe、模型实际输出后的取消、Auth/Storage、身份/项目及模型设置 UI、单沙箱联合容量均已通过。DEV-01/DEV-02/DEV-14 的本模块验收见[联合记录](../../foundation-validation-2026-09-22.md)。DEV-03 已在 `281621f` 实现并关闭：正式工作台真实生成两种应用、构建、保存及可操作候选均通过，[验收记录](../../generation-validation-2026-09-22.md)。DEV-03 的候选子链路不代表完整 E04/E12 通过，DEV-06 需由真实 Reviewer 复测。DEV-04 的刷新、断线、未知提交确认、双标签与日志恢复已通过本票验收，见[恢复记录](../../recovery-validation-2026-09-22.md)。
 
-Supabase优先自托管，代理准备服务URL/密钥、迁移与测试数据；用户模型通过设置页配置，保留Pi。域名仅为公网发布前置。OpenSandbox Docker + gVisor已经实测并部署内部服务，无需E2B账号；正式WorkspacePort/BrowserPort已通过真实探针，工作台生成尚未接入。原48h期限不重新计时。
+Supabase优先自托管，代理准备服务URL/密钥、迁移与测试数据；用户模型通过设置页配置，保留Pi。域名仅为公网发布前置。OpenSandbox Docker + gVisor已经实测并部署内部服务，无需E2B账号；正式WorkspacePort/BrowserPort已通过真实探针，工作台已接入真实候选生成。真实产品多角色检查、版本迭代及公网部署继续按上述依赖推进。原48h期限不重新计时。
 
 ## 测试规则
 
-主流程用Codex内置浏览器；产品Reviewer用隔离沙箱中的agent-browser，Postgres/HTTP/取消用集成测试补证。每票有具体前置、动作和断言；Mock、fixture与真实执行分别记录，正式用例仍为NOT_RUN。当前范围E01–E31/I01–I12；不要求用户逐版本阅读长报告。
+主流程用Codex内置浏览器；产品Reviewer用隔离沙箱中的agent-browser，Postgres/HTTP/取消用集成测试补证。每票有具体前置、动作和断言；Mock、fixture与真实执行分别记录，用例实际状态以对应模块报告为准，未执行项目不算通过。当前范围E01–E31/I01–I12；不要求用户逐版本阅读长报告。
 
 ## 本地与远端
 

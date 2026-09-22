@@ -1,0 +1,15 @@
+{
+  "runId": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+  "projectId": "cb7aac35-16a0-40f7-959d-0e004ce5b37f",
+  "status": "PASS",
+  "acceptedRequests": 1,
+  "explicitSameRequestReplay": 1,
+  "competingConflict": 1,
+  "injectedStreamCloses": 1,
+  "firstReconnectCursor": "218",
+  "afterFaultDeliveredEvents": 36,
+  "afterFaultDuplicateIds": 0,
+  "streamEndBoundary": "Last observed stream closed when browser tabs left before terminal; final 48 durable events and result were restored by project/run GET, not falsely claimed as live stream delivery.",
+  "scope": "One real model Run. No second model call from duplicate acceptance. Multiple model turns/tools belong to this same Run.",
+  "journalNote": "Initial non-stream requests were mistakenly journaled as stream_requested/closed with absent runId before acceptance; original journal is preserved. Guard fixed and HTTP fixture regression passed; summaries filter real run IDs."
+}

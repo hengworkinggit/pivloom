@@ -1,0 +1,12 @@
+{
+  "at": "2026-09-22T05:27:24.094Z",
+  "apiBoot": "fc6374c1-03b5-4587-beb4-29ee4c51a8d2",
+  "apiPort": 45310,
+  "proxyStopped": true,
+  "temporaryUpstreamPortReleased": 45314,
+  "sandboxState": "destroyed",
+  "remoteSandboxContainers": 0,
+  "oldSiteStatus": 200,
+  "retained": "Real test project, source revision, user/default model preserved; terminal preview reclaimed.",
+  "integrationFixturesRemaining": 0
+}

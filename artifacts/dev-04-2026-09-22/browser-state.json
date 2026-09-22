@@ -1,0 +1,1705 @@
+[
+  {
+    "at": "2026-09-22T05:02:39.273Z",
+    "label": "prepared",
+    "environment": "pivloom-dev-e6d33625ef2b",
+    "baseline": "281621f",
+    "apiBoot": "c626092f-99a7-4e7d-b77c-def365ec5276",
+    "projectId": "cb7aac35-16a0-40f7-959d-0e004ce5b37f",
+    "currentRevisionId": null,
+    "run": null,
+    "revision": null,
+    "preview": null,
+    "messages": [],
+    "counts": {
+      "runs": 0,
+      "messages": 0,
+      "role_runs": 0,
+      "revisions": 0,
+      "sandboxes": 0
+    },
+    "runs": [],
+    "roles": [],
+    "events": [],
+    "sandboxes": []
+  },
+  {
+    "at": "2026-09-22T05:12:09.351Z",
+    "label": "after-concurrent-submission",
+    "environment": "pivloom-dev-e6d33625ef2b",
+    "baseline": "281621f",
+    "apiBoot": "17e84c53-0ccf-47b4-82e9-43a798820a87",
+    "projectId": "cb7aac35-16a0-40f7-959d-0e004ce5b37f",
+    "currentRevisionId": null,
+    "run": {
+      "id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+      "projectId": "cb7aac35-16a0-40f7-959d-0e004ce5b37f",
+      "state": "accepted",
+      "phase": "provision",
+      "attempt": 0,
+      "requestText": "做一个蓝色的中文计数器，显示数字和加一、减一、重置按钮，localStorage 保存。此条是第二标签尚未接受的草稿。",
+      "modelProfileId": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+      "modelConfigVersion": 1,
+      "baseRevisionId": null,
+      "resultRevisionId": null,
+      "createdAt": "2026-09-22T05:11:42.141Z",
+      "deadlineAt": "2026-09-22T05:21:42.141Z",
+      "finishedAt": null,
+      "cleanupState": "clear",
+      "error": null,
+      "summary": null
+    },
+    "revision": null,
+    "preview": null,
+    "messages": [
+      {
+        "id": "e8ee8591-45f0-4eb0-8be3-364203fbef37",
+        "runId": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "kind": "user"
+      }
+    ],
+    "counts": {
+      "runs": 1,
+      "messages": 1,
+      "role_runs": 1,
+      "revisions": 0,
+      "sandboxes": 0
+    },
+    "runs": [
+      {
+        "id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "request_hash": "c56453f6d8ac1f93d52893e5bfbd91c93c50ef66c9589fe1075fc888af8205cb",
+        "idempotency_key": "805accd4-5320-4447-b392-bad5657b7c9d",
+        "state": "building",
+        "phase": "implement",
+        "executor_boot_id": "17e84c53-0ccf-47b4-82e9-43a798820a87",
+        "model_profile_id": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+        "model_config_version": 1,
+        "credential_lease_id": "98b1ec0a-55db-4309-9981-89646f73bdc2",
+        "created_at": "2026-09-22T05:11:42.141Z",
+        "finished_at": null,
+        "cleanup_state": "clear"
+      }
+    ],
+    "roles": [
+      {
+        "id": "e4a8e8b7-79d3-4065-9e7d-0d9c7560145d",
+        "run_id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "role": "builder",
+        "attempt": 0,
+        "session_id": "949be28e-5d09-4184-9732-4c2716208745",
+        "state": "running",
+        "started_at": "2026-09-22T05:11:52.810Z",
+        "finished_at": null
+      }
+    ],
+    "events": [
+      {
+        "id": "213",
+        "type": "run.accepted",
+        "created_at": "2026-09-22T05:11:42.141Z",
+        "bytes": 43
+      },
+      {
+        "id": "214",
+        "type": "role.started",
+        "created_at": "2026-09-22T05:11:52.810Z",
+        "bytes": 41
+      }
+    ],
+    "sandboxes": [
+      {
+        "run_id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "remote_id": "cc6ccbda-eb39-4937-bb1c-c15b7353aa98",
+        "state": "active",
+        "purpose": "candidate",
+        "source_hash": null,
+        "expires_at": "2026-09-22T05:27:05.899Z"
+      }
+    ]
+  },
+  {
+    "at": "2026-09-22T05:18:26.367Z",
+    "label": "foundation-readiness",
+    "environment": "pivloom-dev-e6d33625ef2b",
+    "baseline": "281621f",
+    "apiBoot": "17e84c53-0ccf-47b4-82e9-43a798820a87",
+    "projectId": "cb7aac35-16a0-40f7-959d-0e004ce5b37f",
+    "currentRevisionId": null,
+    "run": {
+      "id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+      "projectId": "cb7aac35-16a0-40f7-959d-0e004ce5b37f",
+      "state": "building",
+      "phase": "build",
+      "attempt": 0,
+      "requestText": "做一个蓝色的中文计数器，显示数字和加一、减一、重置按钮，localStorage 保存。此条是第二标签尚未接受的草稿。",
+      "modelProfileId": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+      "modelConfigVersion": 1,
+      "baseRevisionId": null,
+      "resultRevisionId": null,
+      "createdAt": "2026-09-22T05:11:42.141Z",
+      "deadlineAt": "2026-09-22T05:21:42.141Z",
+      "finishedAt": null,
+      "cleanupState": "clear",
+      "error": null,
+      "summary": null
+    },
+    "revision": null,
+    "preview": null,
+    "messages": [
+      {
+        "id": "e8ee8591-45f0-4eb0-8be3-364203fbef37",
+        "runId": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "kind": "user"
+      }
+    ],
+    "counts": {
+      "runs": 1,
+      "messages": 1,
+      "role_runs": 1,
+      "revisions": 0,
+      "sandboxes": 1
+    },
+    "runs": [
+      {
+        "id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "request_hash": "c56453f6d8ac1f93d52893e5bfbd91c93c50ef66c9589fe1075fc888af8205cb",
+        "idempotency_key": "805accd4-5320-4447-b392-bad5657b7c9d",
+        "state": "building",
+        "phase": "build",
+        "executor_boot_id": "17e84c53-0ccf-47b4-82e9-43a798820a87",
+        "model_profile_id": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+        "model_config_version": 1,
+        "credential_lease_id": "98b1ec0a-55db-4309-9981-89646f73bdc2",
+        "created_at": "2026-09-22T05:11:42.141Z",
+        "finished_at": null,
+        "cleanup_state": "clear"
+      }
+    ],
+    "roles": [
+      {
+        "id": "e4a8e8b7-79d3-4065-9e7d-0d9c7560145d",
+        "run_id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "role": "builder",
+        "attempt": 0,
+        "session_id": "949be28e-5d09-4184-9732-4c2716208745",
+        "state": "running",
+        "started_at": "2026-09-22T05:11:52.810Z",
+        "finished_at": null
+      }
+    ],
+    "events": [
+      {
+        "id": "213",
+        "type": "run.accepted",
+        "created_at": "2026-09-22T05:11:42.141Z",
+        "bytes": 43
+      },
+      {
+        "id": "214",
+        "type": "role.started",
+        "created_at": "2026-09-22T05:11:52.810Z",
+        "bytes": 41
+      },
+      {
+        "id": "215",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:12:54.430Z",
+        "bytes": 57
+      },
+      {
+        "id": "216",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:13:00.366Z",
+        "bytes": 99
+      },
+      {
+        "id": "217",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:13:06.382Z",
+        "bytes": 1097
+      },
+      {
+        "id": "218",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:13:09.915Z",
+        "bytes": 117
+      },
+      {
+        "id": "219",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:13:18.452Z",
+        "bytes": 57
+      },
+      {
+        "id": "220",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:13:21.873Z",
+        "bytes": 99
+      },
+      {
+        "id": "221",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:13:35.410Z",
+        "bytes": 151
+      },
+      {
+        "id": "222",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:13:46.223Z",
+        "bytes": 117
+      },
+      {
+        "id": "223",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:13:53.061Z",
+        "bytes": 99
+      },
+      {
+        "id": "224",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:14:06.614Z",
+        "bytes": 153
+      },
+      {
+        "id": "225",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:14:10.045Z",
+        "bytes": 117
+      },
+      {
+        "id": "226",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:14:17.665Z",
+        "bytes": 99
+      },
+      {
+        "id": "227",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:14:25.383Z",
+        "bytes": 150
+      },
+      {
+        "id": "228",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:14:30.642Z",
+        "bytes": 117
+      },
+      {
+        "id": "229",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:14:37.974Z",
+        "bytes": 57
+      },
+      {
+        "id": "230",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:14:42.865Z",
+        "bytes": 101
+      },
+      {
+        "id": "231",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:14:50.414Z",
+        "bytes": 169
+      },
+      {
+        "id": "232",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:14:56.069Z",
+        "bytes": 118
+      },
+      {
+        "id": "233",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:04.869Z",
+        "bytes": 57
+      },
+      {
+        "id": "234",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:15:08.955Z",
+        "bytes": 101
+      },
+      {
+        "id": "235",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:14.615Z",
+        "bytes": 167
+      },
+      {
+        "id": "236",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:15:19.054Z",
+        "bytes": 118
+      },
+      {
+        "id": "237",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:29.070Z",
+        "bytes": 57
+      },
+      {
+        "id": "238",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:15:38.398Z",
+        "bytes": 101
+      },
+      {
+        "id": "239",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:45.240Z",
+        "bytes": 156
+      },
+      {
+        "id": "240",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:15:49.052Z",
+        "bytes": 118
+      },
+      {
+        "id": "241",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:57.303Z",
+        "bytes": 57
+      },
+      {
+        "id": "242",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:16:02.385Z",
+        "bytes": 101
+      },
+      {
+        "id": "243",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:16:10.984Z",
+        "bytes": 152
+      },
+      {
+        "id": "244",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:16:14.988Z",
+        "bytes": 118
+      },
+      {
+        "id": "245",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:16:20.501Z",
+        "bytes": 57
+      },
+      {
+        "id": "246",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:16:25.638Z",
+        "bytes": 99
+      },
+      {
+        "id": "247",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:16:44.404Z",
+        "bytes": 150
+      },
+      {
+        "id": "248",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:16:50.366Z",
+        "bytes": 117
+      },
+      {
+        "id": "249",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:17:03.796Z",
+        "bytes": 57
+      },
+      {
+        "id": "250",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:17:14.931Z",
+        "bytes": 99
+      },
+      {
+        "id": "251",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:17:27.466Z",
+        "bytes": 382
+      },
+      {
+        "id": "252",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:17:32.521Z",
+        "bytes": 117
+      },
+      {
+        "id": "253",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:17:43.395Z",
+        "bytes": 57
+      },
+      {
+        "id": "254",
+        "type": "run.phase",
+        "created_at": "2026-09-22T05:17:55.135Z",
+        "bytes": 39
+      }
+    ],
+    "sandboxes": [
+      {
+        "run_id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "remote_id": "cc6ccbda-eb39-4937-bb1c-c15b7353aa98",
+        "state": "active",
+        "purpose": "candidate",
+        "source_hash": null,
+        "expires_at": "2026-09-22T05:27:05.899Z"
+      }
+    ]
+  },
+  {
+    "at": "2026-09-22T05:20:22.100Z",
+    "label": "resumed-goal",
+    "environment": "pivloom-dev-e6d33625ef2b",
+    "baseline": "281621f",
+    "apiBoot": "17e84c53-0ccf-47b4-82e9-43a798820a87",
+    "projectId": "cb7aac35-16a0-40f7-959d-0e004ce5b37f",
+    "currentRevisionId": null,
+    "run": {
+      "id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+      "projectId": "cb7aac35-16a0-40f7-959d-0e004ce5b37f",
+      "state": "building",
+      "phase": "persist",
+      "attempt": 0,
+      "requestText": "做一个蓝色的中文计数器，显示数字和加一、减一、重置按钮，localStorage 保存。此条是第二标签尚未接受的草稿。",
+      "modelProfileId": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+      "modelConfigVersion": 1,
+      "baseRevisionId": null,
+      "resultRevisionId": null,
+      "createdAt": "2026-09-22T05:11:42.141Z",
+      "deadlineAt": "2026-09-22T05:21:42.141Z",
+      "finishedAt": null,
+      "cleanupState": "clear",
+      "error": null,
+      "summary": null
+    },
+    "revision": null,
+    "preview": null,
+    "messages": [
+      {
+        "id": "e8ee8591-45f0-4eb0-8be3-364203fbef37",
+        "runId": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "kind": "user"
+      }
+    ],
+    "counts": {
+      "runs": 1,
+      "messages": 1,
+      "role_runs": 1,
+      "revisions": 0,
+      "sandboxes": 1
+    },
+    "runs": [
+      {
+        "id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "request_hash": "c56453f6d8ac1f93d52893e5bfbd91c93c50ef66c9589fe1075fc888af8205cb",
+        "idempotency_key": "805accd4-5320-4447-b392-bad5657b7c9d",
+        "state": "building",
+        "phase": "snapshot",
+        "executor_boot_id": "17e84c53-0ccf-47b4-82e9-43a798820a87",
+        "model_profile_id": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+        "model_config_version": 1,
+        "credential_lease_id": "98b1ec0a-55db-4309-9981-89646f73bdc2",
+        "created_at": "2026-09-22T05:11:42.141Z",
+        "finished_at": null,
+        "cleanup_state": "clear"
+      }
+    ],
+    "roles": [
+      {
+        "id": "e4a8e8b7-79d3-4065-9e7d-0d9c7560145d",
+        "run_id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "role": "builder",
+        "attempt": 0,
+        "session_id": "949be28e-5d09-4184-9732-4c2716208745",
+        "state": "succeeded",
+        "started_at": "2026-09-22T05:11:52.810Z",
+        "finished_at": "2026-09-22T05:20:09.118Z"
+      }
+    ],
+    "events": [
+      {
+        "id": "213",
+        "type": "run.accepted",
+        "created_at": "2026-09-22T05:11:42.141Z",
+        "bytes": 43
+      },
+      {
+        "id": "214",
+        "type": "role.started",
+        "created_at": "2026-09-22T05:11:52.810Z",
+        "bytes": 41
+      },
+      {
+        "id": "215",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:12:54.430Z",
+        "bytes": 57
+      },
+      {
+        "id": "216",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:13:00.366Z",
+        "bytes": 99
+      },
+      {
+        "id": "217",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:13:06.382Z",
+        "bytes": 1097
+      },
+      {
+        "id": "218",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:13:09.915Z",
+        "bytes": 117
+      },
+      {
+        "id": "219",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:13:18.452Z",
+        "bytes": 57
+      },
+      {
+        "id": "220",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:13:21.873Z",
+        "bytes": 99
+      },
+      {
+        "id": "221",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:13:35.410Z",
+        "bytes": 151
+      },
+      {
+        "id": "222",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:13:46.223Z",
+        "bytes": 117
+      },
+      {
+        "id": "223",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:13:53.061Z",
+        "bytes": 99
+      },
+      {
+        "id": "224",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:14:06.614Z",
+        "bytes": 153
+      },
+      {
+        "id": "225",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:14:10.045Z",
+        "bytes": 117
+      },
+      {
+        "id": "226",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:14:17.665Z",
+        "bytes": 99
+      },
+      {
+        "id": "227",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:14:25.383Z",
+        "bytes": 150
+      },
+      {
+        "id": "228",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:14:30.642Z",
+        "bytes": 117
+      },
+      {
+        "id": "229",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:14:37.974Z",
+        "bytes": 57
+      },
+      {
+        "id": "230",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:14:42.865Z",
+        "bytes": 101
+      },
+      {
+        "id": "231",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:14:50.414Z",
+        "bytes": 169
+      },
+      {
+        "id": "232",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:14:56.069Z",
+        "bytes": 118
+      },
+      {
+        "id": "233",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:04.869Z",
+        "bytes": 57
+      },
+      {
+        "id": "234",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:15:08.955Z",
+        "bytes": 101
+      },
+      {
+        "id": "235",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:14.615Z",
+        "bytes": 167
+      },
+      {
+        "id": "236",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:15:19.054Z",
+        "bytes": 118
+      },
+      {
+        "id": "237",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:29.070Z",
+        "bytes": 57
+      },
+      {
+        "id": "238",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:15:38.398Z",
+        "bytes": 101
+      },
+      {
+        "id": "239",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:45.240Z",
+        "bytes": 156
+      },
+      {
+        "id": "240",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:15:49.052Z",
+        "bytes": 118
+      },
+      {
+        "id": "241",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:57.303Z",
+        "bytes": 57
+      },
+      {
+        "id": "242",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:16:02.385Z",
+        "bytes": 101
+      },
+      {
+        "id": "243",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:16:10.984Z",
+        "bytes": 152
+      },
+      {
+        "id": "244",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:16:14.988Z",
+        "bytes": 118
+      },
+      {
+        "id": "245",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:16:20.501Z",
+        "bytes": 57
+      },
+      {
+        "id": "246",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:16:25.638Z",
+        "bytes": 99
+      },
+      {
+        "id": "247",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:16:44.404Z",
+        "bytes": 150
+      },
+      {
+        "id": "248",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:16:50.366Z",
+        "bytes": 117
+      },
+      {
+        "id": "249",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:17:03.796Z",
+        "bytes": 57
+      },
+      {
+        "id": "250",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:17:14.931Z",
+        "bytes": 99
+      },
+      {
+        "id": "251",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:17:27.466Z",
+        "bytes": 382
+      },
+      {
+        "id": "252",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:17:32.521Z",
+        "bytes": 117
+      },
+      {
+        "id": "253",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:17:43.395Z",
+        "bytes": 57
+      },
+      {
+        "id": "254",
+        "type": "run.phase",
+        "created_at": "2026-09-22T05:17:55.135Z",
+        "bytes": 39
+      },
+      {
+        "id": "255",
+        "type": "run.phase",
+        "created_at": "2026-09-22T05:20:04.901Z",
+        "bytes": 41
+      },
+      {
+        "id": "256",
+        "type": "role.completed",
+        "created_at": "2026-09-22T05:20:09.118Z",
+        "bytes": 95
+      },
+      {
+        "id": "257",
+        "type": "run.phase",
+        "created_at": "2026-09-22T05:20:14.089Z",
+        "bytes": 42
+      }
+    ],
+    "sandboxes": [
+      {
+        "run_id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "remote_id": "cc6ccbda-eb39-4937-bb1c-c15b7353aa98",
+        "state": "active",
+        "purpose": "candidate",
+        "source_hash": null,
+        "expires_at": "2026-09-22T05:27:05.899Z"
+      }
+    ]
+  },
+  {
+    "at": "2026-09-22T05:21:45.247Z",
+    "label": "candidate-terminal-check",
+    "environment": "pivloom-dev-e6d33625ef2b",
+    "baseline": "281621f",
+    "apiBoot": "17e84c53-0ccf-47b4-82e9-43a798820a87",
+    "projectId": "cb7aac35-16a0-40f7-959d-0e004ce5b37f",
+    "currentRevisionId": null,
+    "run": {
+      "id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+      "projectId": "cb7aac35-16a0-40f7-959d-0e004ce5b37f",
+      "state": "failed",
+      "phase": "cleanup",
+      "attempt": 0,
+      "requestText": "做一个蓝色的中文计数器，显示数字和加一、减一、重置按钮，localStorage 保存。此条是第二标签尚未接受的草稿。",
+      "modelProfileId": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+      "modelConfigVersion": 1,
+      "baseRevisionId": null,
+      "resultRevisionId": "df34573b-af20-4072-88bf-a19f0d589dec",
+      "createdAt": "2026-09-22T05:11:42.141Z",
+      "deadlineAt": "2026-09-22T05:21:42.141Z",
+      "finishedAt": "2026-09-22T05:20:54.964Z",
+      "cleanupState": "clear",
+      "error": {
+        "code": "CHECK_BLOCKED",
+        "message": "候选已保存并可预览，业务检查尚未接入。",
+        "retryable": false
+      },
+      "summary": "已生成应用并通过构建。当前为尚未检查的候选，可查看预览和源码。"
+    },
+    "revision": {
+      "id": "df34573b-af20-4072-88bf-a19f0d589dec",
+      "projectId": "cb7aac35-16a0-40f7-959d-0e004ce5b37f",
+      "runId": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+      "revisionNo": 1,
+      "attempt": 0,
+      "sourceHash": "0f3c29597b746924ba50c3bd8874fe06320ffcad485ca5378df45c0209e68dc6",
+      "templateVersion": "react-vite-node24-20260922",
+      "buildStatus": "passed",
+      "status": "candidate",
+      "createdAt": "2026-09-22T05:20:28.678Z",
+      "manifest": [
+        {
+          "path": "index.html",
+          "bytes": 263,
+          "sha256": "0097652d3cbcdd6a74962d5b697cccb41fda41198618ce93f057d275d4d19655"
+        },
+        {
+          "path": "package-lock.json",
+          "bytes": 26874,
+          "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6"
+        },
+        {
+          "path": "package.json",
+          "bytes": 517,
+          "sha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65"
+        },
+        {
+          "path": "src/App.tsx",
+          "bytes": 136,
+          "sha256": "fcc7dc76942d42d523c10e384d1b004ea297e0962d1454fc8409e587a762eb17"
+        },
+        {
+          "path": "src/components/Counter.tsx",
+          "bytes": 1075,
+          "sha256": "0310c6e2a9b2e2159bd1ee5a2836eeaf36de3e9bcddc29638ad415235502a9ba"
+        },
+        {
+          "path": "src/counter.css",
+          "bytes": 1451,
+          "sha256": "07350f7ac7a47c0b61cb3a2c26201fe02b5444d5dccad4d23ce7d1356373a238"
+        },
+        {
+          "path": "src/hooks/useLocalStorage.ts",
+          "bytes": 699,
+          "sha256": "19d23ce536123d0d592d79aefda0f1ad5bc0d2738e4889ec50a4c5bbbc7b8243"
+        },
+        {
+          "path": "src/main.tsx",
+          "bytes": 153,
+          "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c"
+        },
+        {
+          "path": "src/style.css",
+          "bytes": 292,
+          "sha256": "c890470f782db22b3bef534573e7b70b96cf1acce9ba9995cdd486db92820084"
+        },
+        {
+          "path": "tsconfig.json",
+          "bytes": 331,
+          "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837"
+        }
+      ]
+    },
+    "preview": {
+      "state": "ready",
+      "revisionId": "df34573b-af20-4072-88bf-a19f0d589dec",
+      "sourceHash": "0f3c29597b746924ba50c3bd8874fe06320ffcad485ca5378df45c0209e68dc6",
+      "expiresAt": "2026-09-22T05:27:05.899Z"
+    },
+    "messages": [
+      {
+        "id": "e8ee8591-45f0-4eb0-8be3-364203fbef37",
+        "runId": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "kind": "user"
+      },
+      {
+        "id": "b8ee69ed-6a3c-4841-8dcc-de2e37425e7d",
+        "runId": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "kind": "result"
+      }
+    ],
+    "counts": {
+      "runs": 1,
+      "messages": 2,
+      "role_runs": 1,
+      "revisions": 1,
+      "sandboxes": 1
+    },
+    "runs": [
+      {
+        "id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "request_hash": "c56453f6d8ac1f93d52893e5bfbd91c93c50ef66c9589fe1075fc888af8205cb",
+        "idempotency_key": "805accd4-5320-4447-b392-bad5657b7c9d",
+        "state": "failed",
+        "phase": "cleanup",
+        "executor_boot_id": "17e84c53-0ccf-47b4-82e9-43a798820a87",
+        "model_profile_id": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+        "model_config_version": 1,
+        "credential_lease_id": "98b1ec0a-55db-4309-9981-89646f73bdc2",
+        "created_at": "2026-09-22T05:11:42.141Z",
+        "finished_at": "2026-09-22T05:20:54.964Z",
+        "cleanup_state": "clear"
+      }
+    ],
+    "roles": [
+      {
+        "id": "e4a8e8b7-79d3-4065-9e7d-0d9c7560145d",
+        "run_id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "role": "builder",
+        "attempt": 0,
+        "session_id": "949be28e-5d09-4184-9732-4c2716208745",
+        "state": "succeeded",
+        "started_at": "2026-09-22T05:11:52.810Z",
+        "finished_at": "2026-09-22T05:20:09.118Z"
+      }
+    ],
+    "events": [
+      {
+        "id": "213",
+        "type": "run.accepted",
+        "created_at": "2026-09-22T05:11:42.141Z",
+        "bytes": 43
+      },
+      {
+        "id": "214",
+        "type": "role.started",
+        "created_at": "2026-09-22T05:11:52.810Z",
+        "bytes": 41
+      },
+      {
+        "id": "215",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:12:54.430Z",
+        "bytes": 57
+      },
+      {
+        "id": "216",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:13:00.366Z",
+        "bytes": 99
+      },
+      {
+        "id": "217",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:13:06.382Z",
+        "bytes": 1097
+      },
+      {
+        "id": "218",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:13:09.915Z",
+        "bytes": 117
+      },
+      {
+        "id": "219",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:13:18.452Z",
+        "bytes": 57
+      },
+      {
+        "id": "220",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:13:21.873Z",
+        "bytes": 99
+      },
+      {
+        "id": "221",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:13:35.410Z",
+        "bytes": 151
+      },
+      {
+        "id": "222",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:13:46.223Z",
+        "bytes": 117
+      },
+      {
+        "id": "223",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:13:53.061Z",
+        "bytes": 99
+      },
+      {
+        "id": "224",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:14:06.614Z",
+        "bytes": 153
+      },
+      {
+        "id": "225",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:14:10.045Z",
+        "bytes": 117
+      },
+      {
+        "id": "226",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:14:17.665Z",
+        "bytes": 99
+      },
+      {
+        "id": "227",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:14:25.383Z",
+        "bytes": 150
+      },
+      {
+        "id": "228",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:14:30.642Z",
+        "bytes": 117
+      },
+      {
+        "id": "229",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:14:37.974Z",
+        "bytes": 57
+      },
+      {
+        "id": "230",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:14:42.865Z",
+        "bytes": 101
+      },
+      {
+        "id": "231",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:14:50.414Z",
+        "bytes": 169
+      },
+      {
+        "id": "232",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:14:56.069Z",
+        "bytes": 118
+      },
+      {
+        "id": "233",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:04.869Z",
+        "bytes": 57
+      },
+      {
+        "id": "234",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:15:08.955Z",
+        "bytes": 101
+      },
+      {
+        "id": "235",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:14.615Z",
+        "bytes": 167
+      },
+      {
+        "id": "236",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:15:19.054Z",
+        "bytes": 118
+      },
+      {
+        "id": "237",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:29.070Z",
+        "bytes": 57
+      },
+      {
+        "id": "238",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:15:38.398Z",
+        "bytes": 101
+      },
+      {
+        "id": "239",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:45.240Z",
+        "bytes": 156
+      },
+      {
+        "id": "240",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:15:49.052Z",
+        "bytes": 118
+      },
+      {
+        "id": "241",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:57.303Z",
+        "bytes": 57
+      },
+      {
+        "id": "242",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:16:02.385Z",
+        "bytes": 101
+      },
+      {
+        "id": "243",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:16:10.984Z",
+        "bytes": 152
+      },
+      {
+        "id": "244",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:16:14.988Z",
+        "bytes": 118
+      },
+      {
+        "id": "245",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:16:20.501Z",
+        "bytes": 57
+      },
+      {
+        "id": "246",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:16:25.638Z",
+        "bytes": 99
+      },
+      {
+        "id": "247",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:16:44.404Z",
+        "bytes": 150
+      },
+      {
+        "id": "248",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:16:50.366Z",
+        "bytes": 117
+      },
+      {
+        "id": "249",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:17:03.796Z",
+        "bytes": 57
+      },
+      {
+        "id": "250",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:17:14.931Z",
+        "bytes": 99
+      },
+      {
+        "id": "251",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:17:27.466Z",
+        "bytes": 382
+      },
+      {
+        "id": "252",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:17:32.521Z",
+        "bytes": 117
+      },
+      {
+        "id": "253",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:17:43.395Z",
+        "bytes": 57
+      },
+      {
+        "id": "254",
+        "type": "run.phase",
+        "created_at": "2026-09-22T05:17:55.135Z",
+        "bytes": 39
+      },
+      {
+        "id": "255",
+        "type": "run.phase",
+        "created_at": "2026-09-22T05:20:04.901Z",
+        "bytes": 41
+      },
+      {
+        "id": "256",
+        "type": "role.completed",
+        "created_at": "2026-09-22T05:20:09.118Z",
+        "bytes": 95
+      },
+      {
+        "id": "257",
+        "type": "run.phase",
+        "created_at": "2026-09-22T05:20:14.089Z",
+        "bytes": 42
+      },
+      {
+        "id": "258",
+        "type": "revision.saved",
+        "created_at": "2026-09-22T05:20:28.678Z",
+        "bytes": 178
+      },
+      {
+        "id": "259",
+        "type": "preview.ready",
+        "created_at": "2026-09-22T05:20:41.844Z",
+        "bytes": 195
+      },
+      {
+        "id": "260",
+        "type": "run.finished",
+        "created_at": "2026-09-22T05:20:54.964Z",
+        "bytes": 201
+      }
+    ],
+    "sandboxes": [
+      {
+        "run_id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "remote_id": "cc6ccbda-eb39-4937-bb1c-c15b7353aa98",
+        "state": "active",
+        "purpose": "candidate-preview",
+        "source_hash": "0f3c29597b746924ba50c3bd8874fe06320ffcad485ca5378df45c0209e68dc6",
+        "expires_at": "2026-09-22T05:27:05.899Z"
+      }
+    ]
+  },
+  {
+    "at": "2026-09-22T05:27:24.094Z",
+    "label": "restored-normal-service",
+    "environment": "pivloom-dev-e6d33625ef2b",
+    "baseline": "281621f",
+    "apiBoot": "fc6374c1-03b5-4587-beb4-29ee4c51a8d2",
+    "projectId": "cb7aac35-16a0-40f7-959d-0e004ce5b37f",
+    "currentRevisionId": null,
+    "run": {
+      "id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+      "projectId": "cb7aac35-16a0-40f7-959d-0e004ce5b37f",
+      "state": "failed",
+      "phase": "cleanup",
+      "attempt": 0,
+      "requestText": "做一个蓝色的中文计数器，显示数字和加一、减一、重置按钮，localStorage 保存。此条是第二标签尚未接受的草稿。",
+      "modelProfileId": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+      "modelConfigVersion": 1,
+      "baseRevisionId": null,
+      "resultRevisionId": "df34573b-af20-4072-88bf-a19f0d589dec",
+      "createdAt": "2026-09-22T05:11:42.141Z",
+      "deadlineAt": "2026-09-22T05:21:42.141Z",
+      "finishedAt": "2026-09-22T05:20:54.964Z",
+      "cleanupState": "clear",
+      "error": {
+        "code": "CHECK_BLOCKED",
+        "message": "候选已保存并可预览，业务检查尚未接入。",
+        "retryable": false
+      },
+      "summary": "已生成应用并通过构建。当前为尚未检查的候选，可查看预览和源码。"
+    },
+    "revision": {
+      "id": "df34573b-af20-4072-88bf-a19f0d589dec",
+      "projectId": "cb7aac35-16a0-40f7-959d-0e004ce5b37f",
+      "runId": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+      "revisionNo": 1,
+      "attempt": 0,
+      "sourceHash": "0f3c29597b746924ba50c3bd8874fe06320ffcad485ca5378df45c0209e68dc6",
+      "templateVersion": "react-vite-node24-20260922",
+      "buildStatus": "passed",
+      "status": "candidate",
+      "createdAt": "2026-09-22T05:20:28.678Z",
+      "manifest": [
+        {
+          "path": "index.html",
+          "bytes": 263,
+          "sha256": "0097652d3cbcdd6a74962d5b697cccb41fda41198618ce93f057d275d4d19655"
+        },
+        {
+          "path": "package-lock.json",
+          "bytes": 26874,
+          "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6"
+        },
+        {
+          "path": "package.json",
+          "bytes": 517,
+          "sha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65"
+        },
+        {
+          "path": "src/App.tsx",
+          "bytes": 136,
+          "sha256": "fcc7dc76942d42d523c10e384d1b004ea297e0962d1454fc8409e587a762eb17"
+        },
+        {
+          "path": "src/components/Counter.tsx",
+          "bytes": 1075,
+          "sha256": "0310c6e2a9b2e2159bd1ee5a2836eeaf36de3e9bcddc29638ad415235502a9ba"
+        },
+        {
+          "path": "src/counter.css",
+          "bytes": 1451,
+          "sha256": "07350f7ac7a47c0b61cb3a2c26201fe02b5444d5dccad4d23ce7d1356373a238"
+        },
+        {
+          "path": "src/hooks/useLocalStorage.ts",
+          "bytes": 699,
+          "sha256": "19d23ce536123d0d592d79aefda0f1ad5bc0d2738e4889ec50a4c5bbbc7b8243"
+        },
+        {
+          "path": "src/main.tsx",
+          "bytes": 153,
+          "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c"
+        },
+        {
+          "path": "src/style.css",
+          "bytes": 292,
+          "sha256": "c890470f782db22b3bef534573e7b70b96cf1acce9ba9995cdd486db92820084"
+        },
+        {
+          "path": "tsconfig.json",
+          "bytes": 331,
+          "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837"
+        }
+      ]
+    },
+    "preview": {
+      "state": "expired",
+      "revisionId": "df34573b-af20-4072-88bf-a19f0d589dec",
+      "sourceHash": "0f3c29597b746924ba50c3bd8874fe06320ffcad485ca5378df45c0209e68dc6",
+      "expiresAt": "2026-09-22T05:27:05.899Z"
+    },
+    "messages": [
+      {
+        "id": "e8ee8591-45f0-4eb0-8be3-364203fbef37",
+        "runId": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "kind": "user"
+      },
+      {
+        "id": "b8ee69ed-6a3c-4841-8dcc-de2e37425e7d",
+        "runId": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "kind": "result"
+      }
+    ],
+    "counts": {
+      "runs": 1,
+      "messages": 2,
+      "role_runs": 1,
+      "revisions": 1,
+      "sandboxes": 1
+    },
+    "runs": [
+      {
+        "id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "request_hash": "c56453f6d8ac1f93d52893e5bfbd91c93c50ef66c9589fe1075fc888af8205cb",
+        "idempotency_key": "805accd4-5320-4447-b392-bad5657b7c9d",
+        "state": "failed",
+        "phase": "cleanup",
+        "executor_boot_id": "17e84c53-0ccf-47b4-82e9-43a798820a87",
+        "model_profile_id": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+        "model_config_version": 1,
+        "credential_lease_id": "98b1ec0a-55db-4309-9981-89646f73bdc2",
+        "created_at": "2026-09-22T05:11:42.141Z",
+        "finished_at": "2026-09-22T05:20:54.964Z",
+        "cleanup_state": "clear"
+      }
+    ],
+    "roles": [
+      {
+        "id": "e4a8e8b7-79d3-4065-9e7d-0d9c7560145d",
+        "run_id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "role": "builder",
+        "attempt": 0,
+        "session_id": "949be28e-5d09-4184-9732-4c2716208745",
+        "state": "succeeded",
+        "started_at": "2026-09-22T05:11:52.810Z",
+        "finished_at": "2026-09-22T05:20:09.118Z"
+      }
+    ],
+    "events": [
+      {
+        "id": "213",
+        "type": "run.accepted",
+        "created_at": "2026-09-22T05:11:42.141Z",
+        "bytes": 43
+      },
+      {
+        "id": "214",
+        "type": "role.started",
+        "created_at": "2026-09-22T05:11:52.810Z",
+        "bytes": 41
+      },
+      {
+        "id": "215",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:12:54.430Z",
+        "bytes": 57
+      },
+      {
+        "id": "216",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:13:00.366Z",
+        "bytes": 99
+      },
+      {
+        "id": "217",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:13:06.382Z",
+        "bytes": 1097
+      },
+      {
+        "id": "218",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:13:09.915Z",
+        "bytes": 117
+      },
+      {
+        "id": "219",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:13:18.452Z",
+        "bytes": 57
+      },
+      {
+        "id": "220",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:13:21.873Z",
+        "bytes": 99
+      },
+      {
+        "id": "221",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:13:35.410Z",
+        "bytes": 151
+      },
+      {
+        "id": "222",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:13:46.223Z",
+        "bytes": 117
+      },
+      {
+        "id": "223",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:13:53.061Z",
+        "bytes": 99
+      },
+      {
+        "id": "224",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:14:06.614Z",
+        "bytes": 153
+      },
+      {
+        "id": "225",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:14:10.045Z",
+        "bytes": 117
+      },
+      {
+        "id": "226",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:14:17.665Z",
+        "bytes": 99
+      },
+      {
+        "id": "227",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:14:25.383Z",
+        "bytes": 150
+      },
+      {
+        "id": "228",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:14:30.642Z",
+        "bytes": 117
+      },
+      {
+        "id": "229",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:14:37.974Z",
+        "bytes": 57
+      },
+      {
+        "id": "230",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:14:42.865Z",
+        "bytes": 101
+      },
+      {
+        "id": "231",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:14:50.414Z",
+        "bytes": 169
+      },
+      {
+        "id": "232",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:14:56.069Z",
+        "bytes": 118
+      },
+      {
+        "id": "233",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:04.869Z",
+        "bytes": 57
+      },
+      {
+        "id": "234",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:15:08.955Z",
+        "bytes": 101
+      },
+      {
+        "id": "235",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:14.615Z",
+        "bytes": 167
+      },
+      {
+        "id": "236",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:15:19.054Z",
+        "bytes": 118
+      },
+      {
+        "id": "237",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:29.070Z",
+        "bytes": 57
+      },
+      {
+        "id": "238",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:15:38.398Z",
+        "bytes": 101
+      },
+      {
+        "id": "239",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:45.240Z",
+        "bytes": 156
+      },
+      {
+        "id": "240",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:15:49.052Z",
+        "bytes": 118
+      },
+      {
+        "id": "241",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:15:57.303Z",
+        "bytes": 57
+      },
+      {
+        "id": "242",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:16:02.385Z",
+        "bytes": 101
+      },
+      {
+        "id": "243",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:16:10.984Z",
+        "bytes": 152
+      },
+      {
+        "id": "244",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:16:14.988Z",
+        "bytes": 118
+      },
+      {
+        "id": "245",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:16:20.501Z",
+        "bytes": 57
+      },
+      {
+        "id": "246",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:16:25.638Z",
+        "bytes": 99
+      },
+      {
+        "id": "247",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:16:44.404Z",
+        "bytes": 150
+      },
+      {
+        "id": "248",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:16:50.366Z",
+        "bytes": 117
+      },
+      {
+        "id": "249",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:17:03.796Z",
+        "bytes": 57
+      },
+      {
+        "id": "250",
+        "type": "tool.started",
+        "created_at": "2026-09-22T05:17:14.931Z",
+        "bytes": 99
+      },
+      {
+        "id": "251",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:17:27.466Z",
+        "bytes": 382
+      },
+      {
+        "id": "252",
+        "type": "tool.completed",
+        "created_at": "2026-09-22T05:17:32.521Z",
+        "bytes": 117
+      },
+      {
+        "id": "253",
+        "type": "tool.output",
+        "created_at": "2026-09-22T05:17:43.395Z",
+        "bytes": 57
+      },
+      {
+        "id": "254",
+        "type": "run.phase",
+        "created_at": "2026-09-22T05:17:55.135Z",
+        "bytes": 39
+      },
+      {
+        "id": "255",
+        "type": "run.phase",
+        "created_at": "2026-09-22T05:20:04.901Z",
+        "bytes": 41
+      },
+      {
+        "id": "256",
+        "type": "role.completed",
+        "created_at": "2026-09-22T05:20:09.118Z",
+        "bytes": 95
+      },
+      {
+        "id": "257",
+        "type": "run.phase",
+        "created_at": "2026-09-22T05:20:14.089Z",
+        "bytes": 42
+      },
+      {
+        "id": "258",
+        "type": "revision.saved",
+        "created_at": "2026-09-22T05:20:28.678Z",
+        "bytes": 178
+      },
+      {
+        "id": "259",
+        "type": "preview.ready",
+        "created_at": "2026-09-22T05:20:41.844Z",
+        "bytes": 195
+      },
+      {
+        "id": "260",
+        "type": "run.finished",
+        "created_at": "2026-09-22T05:20:54.964Z",
+        "bytes": 201
+      }
+    ],
+    "sandboxes": [
+      {
+        "run_id": "5d25deaa-67c4-4198-9e31-0e6be3275be9",
+        "remote_id": "cc6ccbda-eb39-4937-bb1c-c15b7353aa98",
+        "state": "destroyed",
+        "purpose": "candidate-preview",
+        "source_hash": "0f3c29597b746924ba50c3bd8874fe06320ffcad485ca5378df45c0209e68dc6",
+        "expires_at": "2026-09-22T05:27:05.899Z"
+      }
+    ]
+  }
+]

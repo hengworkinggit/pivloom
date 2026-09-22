@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TerminalRunStates, type ProjectDetailResponse, type Run, type RunEvent } from "@pivloom/contracts";
 import { getApiWorkspace } from "@/lib/workspace";
 import { createGenerationApi } from "@/lib/generation-api";
+import { WorkspaceError } from "@/lib/api-workspace";
 import { mergeRunEvents } from "@/lib/run-events";
 import { errorMessage } from "@/lib/utils";
 
@@ -19,7 +20,7 @@ export function useGenerationState(projectId: string) {
   const generation = useMemo(() => createGenerationApi(workspace), [workspace]);
   const [view, setView] = useState<{ project: ProjectDetailResponse; run: Run | null; events: RunEvent[] }>();
   const [error, setError] = useState("");
-  const [connection, setConnection] = useState<"idle" | "connecting" | "connected" | "polling">("idle");
+  const [connection, setConnection] = useState<"idle" | "connecting" | "connected" | "polling" | "unavailable">("idle");
   const [acceptedRequestId, setAcceptedRequestId] = useState<string | null>(null);
   const alive = useRef(true);
   const sequence = useRef(0);
@@ -55,10 +56,20 @@ export function useGenerationState(projectId: string) {
         }
         const refreshedRun = project.activeRun ?? project.latestRun;
         const visibleRun = refreshedRun && refreshedRun.id !== detail?.run.id ? refreshedRun : detail?.run ?? refreshedRun;
-        setView((previous) => ({
-          project, run: visibleRun,
-          events: detail && visibleRun?.id === detail.run.id ? mergeRunEvents(previous?.events ?? [], detail.events, detail.run.id) : [],
-        }));
+        setView((previous) => {
+          // A delayed snapshot cannot restart a run whose terminal result is
+          // already visible, or discard its saved revision while reconnecting.
+          if (previous?.run && visibleRun?.id === previous.run.id
+            && TerminalRunStates.has(previous.run.state)
+            && (visibleRun.state !== previous.run.state
+              || visibleRun.resultRevisionId !== previous.run.resultRevisionId
+              || previous.run.cleanupState === "confirmed" && visibleRun.cleanupState !== "confirmed"
+              || hasFinalProjectSnapshot(previous.project, previous.run) && !hasFinalProjectSnapshot(project, visibleRun))) return previous;
+          return {
+            project, run: visibleRun,
+            events: detail && visibleRun?.id === detail.run.id ? mergeRunEvents(previous?.events ?? [], detail.events, detail.run.id) : [],
+          };
+        });
         setError("");
       } catch (reason) {
         if (alive.current && current === sequence.current) setError(errorMessage(reason));
@@ -87,12 +98,14 @@ export function useGenerationState(projectId: string) {
   const awaitingAccepted = !!acceptedRequestId && run?.id !== acceptedRequestId;
   const awaitingCleanup = run?.cleanupState === "pending";
   const awaitingFinalSnapshot = !!view && !!run && TerminalRunStates.has(run.state) && !hasFinalProjectSnapshot(view.project, run);
+  const connectionUnavailable = active && connection === "unavailable";
   useEffect(() => {
     // Cleanup can finish after the terminal event; keep reading until confirmed.
+    if (connectionUnavailable) return;
     if (!active && !awaitingAccepted && !awaitingCleanup && !awaitingFinalSnapshot) return;
     const interval = setInterval(() => { void refresh(); }, 2500);
     return () => clearInterval(interval);
-  }, [active, awaitingAccepted, awaitingCleanup, awaitingFinalSnapshot, refresh, run?.id]);
+  }, [active, awaitingAccepted, awaitingCleanup, awaitingFinalSnapshot, connectionUnavailable, refresh, run?.id]);
 
   const cursor = useRef("0");
   const runId = run?.id;
@@ -115,11 +128,19 @@ export function useGenerationState(projectId: string) {
             ? { ...previous, events: mergeRunEvents(previous.events, [event], event.runId) } : previous);
           if (["run.phase", "revision.saved", "preview.ready", "run.finished"].includes(event.type)) void refresh();
         }, controller.signal);
-      } catch { /* Authoritative snapshots continue through the polling boundary. */ }
+      } catch (reason) {
+        if (controller.signal.aborted) return;
+        if (reason instanceof WorkspaceError && reason.httpStatus === 404) {
+          setConnection("unavailable");
+          return;
+        }
+        // Other failures recover through the authoritative snapshot boundary.
+      }
       if (controller.signal.aborted) return;
       setConnection("polling");
       void refresh();
-      timer = setTimeout(() => { void connect(); }, backoff);
+      const retryDelay = Math.min(8000, Math.round(backoff * (0.9 + Math.random() * 0.2)));
+      timer = setTimeout(() => { void connect(); }, retryDelay);
       backoff = Math.min(backoff * 2, 8000);
     };
     void connect();

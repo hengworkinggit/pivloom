@@ -14,7 +14,7 @@ afterEach(async () => {
   vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.resetModules();
 });
 
-it.each(["normal", "snapshot failure", "slow run read", "accepted during snapshot", "completion between reads", "accepted after newer run"] as const)("retains drafts and reads the accepted run without duplicate submission: %s", async (scenario) => {
+it.each(["normal", "snapshot failure", "slow run read", "accepted during snapshot", "completion between reads", "accepted after newer run", "stale terminal snapshot", "stale terminal project"] as const)("retains drafts and reads the accepted run without duplicate submission: %s", async (scenario) => {
   const snapshotFailsOnce = scenario === "snapshot failure";
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubEnv("NEXT_PUBLIC_APP_MODE", "api");
@@ -41,6 +41,8 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
   let holdLatestSnapshot = false;
   let releaseLatestSnapshot: (() => void) | undefined;
   let staleSnapshotOnce: ProjectDetailResponse | null = null;
+  let staleSnapshotReads = 1;
+  let staleRunOnce: Run | null = null;
   let holdRun = scenario === "slow run read";
   let otherTabRun: Run | null = null;
   let releaseRead: (() => void) | undefined;
@@ -59,7 +61,7 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
       }
       if (staleSnapshotOnce) {
         const response = Response.json(staleSnapshotOnce);
-        staleSnapshotOnce = null;
+        if (--staleSnapshotReads === 0) staleSnapshotOnce = null;
         return response;
       }
       if (holdSnapshot) {
@@ -78,7 +80,8 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
       return new Promise<Response>((resolve) => { accept = resolve; });
     }
     if (url === `/api/v1/runs/${runId}`) {
-      const response = Response.json({ run, revision: project.latestCandidate, events: [], preview: null });
+      const response = Response.json({ run: staleRunOnce ?? run, revision: project.latestCandidate, events: [], preview: null });
+      staleRunOnce = null;
       if (holdRun) return new Promise<Response>((resolve) => { releaseRead ??= () => resolve(response); });
       return response;
     }
@@ -160,6 +163,7 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
   }
   expect(container.querySelectorAll(".user-message")).toHaveLength(1);
 
+  const executingSnapshot = structuredClone(project);
   const completesBetweenReads = scenario === "completion between reads";
   if (completesBetweenReads) staleSnapshotOnce = structuredClone(project);
   Object.assign(run, { state: "failed", phase: "review", cleanupState: completesBetweenReads ? "confirmed" : "pending", resultRevisionId: revisionId, finishedAt: now, error: { code: "CHECK_BLOCKED", message: "检查能力尚未就绪", retryable: false } });
@@ -178,6 +182,20 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
   expect(submit()?.disabled).toBe(false);
   expect(input.value).toBe("下一条：增加作者筛选");
   expect(eventConnections).toBe(connectionsAtTerminal);
+  if (scenario === "stale terminal snapshot" || scenario === "stale terminal project") {
+    staleSnapshotOnce = executingSnapshot;
+    if (scenario === "stale terminal snapshot") staleRunOnce = executingSnapshot.activeRun;
+    else staleSnapshotReads = 2; // Both project reads predate the saved candidate.
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    expect(container.querySelector('[data-testid="run-result"]')?.textContent).toContain("候选已保存 · 尚未检查");
+    expect(container.querySelector('[data-testid="role-timeline"]')?.textContent).toContain("本次任务已结束");
+    expect(submit()?.disabled).toBe(false);
+    expect(eventConnections).toBe(connectionsAtTerminal);
+    staleRunOnce = { ...run, cleanupState: "pending" };
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    expect(submit()?.disabled).toBe(false);
+    expect(container.textContent).not.toContain("正在清理执行资源");
+  }
   await act(async () => { container.querySelector<HTMLButtonElement>('#code-tab')?.click(); });
   expect(container.querySelector('[data-testid="source-viewer"]')?.textContent).toContain('export const title = "读书清单";');
   expect(container.querySelector('[data-testid="source-viewer"]')?.textContent).toContain("只读");

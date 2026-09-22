@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "issue": 5,
+  "module": "runtime tool output batching and public event persistence",
+  "status": "PASS",
+  "evidenceDate": "2026-09-22",
+  "nodeVersion": "v24.19.0",
+  "isEndToEndEvidence": false,
+  "modelCalls": 0,
+  "realSandboxesCreated": 0,
+  "evidenceSource": "Recorded command output from the completed implementation turn; writing this report did not rerun the tests or change production files.",
+  "boundary": {
+    "publicSeams": [
+      "runBuilder",
+      "runCandidate"
+    ],
+    "realCode": [
+      "Pi session and tool execution loop",
+      "OpenSandboxWorkspace adapter",
+      "tool output batching, byte accounting and streaming redaction",
+      "serial event persistence barriers and cancellation handling",
+      "candidate lifecycle, fixed build orchestration and snapshot logic"
+    ],
+    "fixtures": [
+      "Model HTTP fetch returns fixture SSE responses; no provider request is sent.",
+      "SandboxConnector returns fixture remote file and process responses; shell commands are not executed on the host or in a real sandbox.",
+      "Event persistence callbacks model success, delayed persistence and write failure; these tests do not exercise PostgreSQL or a real SSE HTTP connection.",
+      "Candidate preview marker responses come from a local fixture HTTP server. Fixture build responses do not prove that TypeScript or Vite ran remotely."
+    ],
+    "notCoveredByThisReport": [
+      "Paid model or real OpenSandbox execution",
+      "Browser UI rendering or user interaction",
+      "Real database event durability, SSE replay, reconnect or HTTP delivery"
+    ]
+  },
+  "commands": [
+    {
+      "cwd": "apps/api",
+      "command": "/Users/heng/.nvm/versions/node/v24.19.0/bin/node ../../node_modules/vitest/vitest.mjs run tests/runtime/tool-output.test.ts tests/runtime/candidate.test.ts",
+      "recordedStartLocal": "2026-09-22 13:08:15 Asia/Shanghai",
+      "exitCode": 0,
+      "testFilesPassed": 2,
+      "testsPassed": 19,
+      "breakdown": {
+        "tests/runtime/tool-output.test.ts": 9,
+        "tests/runtime/candidate.test.ts": 10
+      },
+      "reportedDurationSeconds": 2.53
+    },
+    {
+      "cwd": "apps/api",
+      "command": "/Users/heng/.nvm/versions/node/v24.19.0/bin/node ../../node_modules/vitest/vitest.mjs run tests/runtime",
+      "recordedStartLocal": "2026-09-22 13:09:53 Asia/Shanghai",
+      "exitCode": 0,
+      "testFilesPassed": 5,
+      "testsPassed": 26,
+      "reportedDurationSeconds": 3.06,
+      "scopeNote": "This total includes the nine tool-output tests and ten candidate tests above; the counts must not be added together."
+    },
+    {
+      "cwd": "apps/api",
+      "command": "/Users/heng/.nvm/versions/node/v24.19.0/bin/node ../../node_modules/typescript/bin/tsc --noEmit",
+      "exitCode": 0,
+      "scope": "API source and tests"
+    },
+    {
+      "cwd": "apps/api",
+      "command": "/Users/heng/.nvm/versions/node/v24.19.0/bin/node ../../node_modules/eslint/bin/eslint.js src/runtime/pi.ts src/runtime/types.ts src/runtime/tool-output.ts src/generation/candidate.ts src/generation/executor.ts tests/runtime/tool-output.test.ts tests/runtime/candidate.test.ts",
+      "exitCode": 0,
+      "scope": "Runtime-owned changed files and candidate regression tests"
+    },
+    {
+      "cwd": ".",
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "verifiedLimits": {
+    "batchIntervalMs": 250,
+    "batchUtf8Bytes": 8192,
+    "jsonEncodedMessageBytes": 12288,
+    "completeEventEnvelopeMaxBytes": 16384,
+    "runLogMaxBytes": 2097152,
+    "lifecycleReserveBytes": 131072,
+    "outputBudgetAccounting": "The output budget reserves 128 KiB for lifecycle events and counts each serialized probe event plus 1024 bytes of envelope allowance. Tests independently assert complete public-shaped event JSON stays within 16 KiB and aggregate persisted output remains within 2 MiB.",
+    "maxQueuedBatches": 8,
+    "maxInFlightBatch": 1,
+    "pendingCredentialPrefixMaxCodeUnits": 16384,
+    "truncation": "Output is dropped at the bounded queue, run budget or credential-prefix limit and an explicit truncated=true notice is emitted."
+  },
+  "toolOutputTests": [
+    {
+      "name": "remote shell output is visible within a batch interval and is flushed before tool completion",
+      "status": "PASS",
+      "assertions": "A fixture command remains running while its first output batch is observed after a 330 ms wait. Remaining output precedes tool.end; tool identity is preserved; hidden reasoning fixture text is absent."
+    },
+    {
+      "name": "UTF-8 and JSON-expanded output is bounded per event and per run with explicit truncation",
+      "status": "PASS",
+      "assertions": "Large Chinese, emoji, NUL, quote, backslash and newline output is split without replacement characters. Every independently constructed complete event envelope is at most 16 KiB; total output is at most 2 MiB and truncation is explicit."
+    },
+    {
+      "name": "credentials remain redacted when their values and labels cross timed batches",
+      "status": "PASS",
+      "assertions": "Known model and sandbox fixture keys plus unknown Bearer and api_key values are redacted when values or labels cross multiple chunks and 280 ms waits. Concatenating visible batches does not reconstruct the credentials."
+    },
+    {
+      "name": "file tools expose useful result summaries without copying source or edit diffs into logs",
+      "status": "PASS",
+      "assertions": "Actual Pi write, read and edit calls produce path-specific summaries. Source body and edited source identifiers are absent from public logs."
+    },
+    {
+      "name": "a failed output persistence barrier stops the run and discards later output",
+      "status": "PASS",
+      "assertions": "A rejected output sink causes EVENT_APPEND_FAILED instead of being consumed as an ordinary Pi tool error. Later output is absent and no delayed event appears after settlement."
+    },
+    {
+      "name": "cancelling a command discards its pending batch and leaves no delayed output",
+      "status": "PASS",
+      "assertions": "Abort before a pending batch flush produces CANCELLED. Invoking the retained external output callback after settlement and waiting 300 ms produces no public tool output. This is fixture cancellation evidence, not proof of stopping a real model or remote process."
+    },
+    {
+      "name": "a slow persistence sink has bounded queued batches and completes them before tool.end",
+      "status": "PASS",
+      "assertions": "A blocked sink receives one in-flight batch while a burst fills the bounded queue. Persistence callbacks remain serial; no more than one in-flight plus eight queued batches and one truncation notice are emitted, all before tool.end."
+    },
+    {
+      "name": "the total output budget holds across many successfully persisted batches",
+      "status": "PASS",
+      "assertions": "Four hundred paced 8 KiB external chunks exercise the run budget without relying on a slow-sink overflow. Persisted output exceeds 1 MiB, stays within 2 MiB, and contains exactly one truncation notice."
+    },
+    {
+      "name": "an unfinished credential label cannot accumulate an unbounded pending buffer",
+      "status": "PASS",
+      "assertions": "An api_key label followed by 100000 spaces and a value triggers bounded-prefix truncation; the credential value is absent from public output."
+    }
+  ],
+  "tddEvidence": {
+    "observedRedBeforeGreen": [
+      "No tool.output events before batching implementation",
+      "Oversized output remained a single event before byte and queue limits",
+      "Cross-chunk fixture credentials appeared in logs before streaming redaction",
+      "File tool result summaries were absent before summary emission",
+      "Output persistence failure resolved as a completed model run before run-level event abort",
+      "An unfinished credential label did not truncate before the pending-prefix limit"
+    ],
+    "remainingCases": "Cancellation, slow-sink queue limits and aggregate run budget were regression assertions over the implemented public behavior; no prior failing result is claimed for those cases."
+  },
+  "testedSourceSha256": {
+    "apps/api/src/runtime/pi.ts": "dbe3a80488a4f39e0f14dac97daeccd65ce927b5ef1cc8326aa40725b70ff3e6",
+    "apps/api/src/runtime/types.ts": "d1a936386e916d3cc608b161c45051ecf097f48b14e3762a5ca1d1838799d8b8",
+    "apps/api/src/runtime/tool-output.ts": "187adc3108f8dbaf45e13fc9464bdf5aff81878809ac55fb46c9fc5542a1b2c5",
+    "apps/api/src/generation/candidate.ts": "837b35b2b3b24c023c3d13b7c2ed7831eee823cf71a419f54b32a84da8d1bc7f",
+    "apps/api/src/generation/executor.ts": "4d950d3c67c33c7f7b1cada82a48d36f29085ebb4086c8cf0bd458072880215d"
+  }
+}

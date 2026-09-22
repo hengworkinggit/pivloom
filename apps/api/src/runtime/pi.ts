@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, isAbsolute } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { InMemoryCredentialStore, type Api } from "@earendil-works/pi-ai";
 import {
   createAgentSession,
@@ -18,10 +18,12 @@ import {
 import {
   RuntimeError,
   type ModelConfig,
+  type ProbeEvent,
   type ProbeEventSink,
   type WorkspaceHandle,
   type WorkspacePort,
 } from "./types.js";
+import { createToolOutput } from "./tool-output.js";
 
 export interface BuilderInput {
   workspace: WorkspacePort;
@@ -33,6 +35,7 @@ export interface BuilderInput {
   timeoutMs?: number;
   maxToolCalls?: number;
   sessionId?: string;
+  redactValues?: readonly string[];
 }
 export interface BuilderResult {
   text: string;
@@ -91,15 +94,29 @@ export async function createServiceModel(
 
 export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
   const maxToolCalls = Math.min(Math.max(input.maxToolCalls ?? 64, 1), 80);
+  const sensitiveValues = [input.modelConfig.apiKey, ...(input.redactValues ?? [])].filter(Boolean);
   const safeDetail = (value: unknown) =>
-    String(value ?? "unknown")
-      .replaceAll(input.modelConfig.apiKey, "[REDACTED]")
+    sensitiveValues.reduce((text, secret) => text.replaceAll(secret, "[REDACTED]"), String(value ?? "unknown"))
       .replace(/Bearer\s+[^\s\"']+/gi, "Bearer [REDACTED]")
       .slice(0, 800);
   const isolated = await mkdtemp(join(tmpdir(), "pivloom-pi-"));
   const deadline = new AbortController();
+  const eventAbort = new AbortController();
   const timer = setTimeout(() => deadline.abort(), input.timeoutMs ?? 360000);
-  const signal = AbortSignal.any([input.signal, deadline.signal]);
+  const signal = AbortSignal.any([input.signal, deadline.signal, eventAbort.signal]);
+  let eventTail = Promise.resolve(), eventFailure = false;
+  const eventError = () => new RuntimeError("EVENT_APPEND_FAILED", "运行事件保存失败，已停止模型执行");
+  const emit = (event: ProbeEvent) => {
+    const operation = eventTail.then(async () => {
+      if (eventFailure) throw eventError();
+      if (signal.aborted && event.type === "tool.output") return;
+      try { await input.onEvent?.(event); }
+      catch { eventFailure = true; eventAbort.abort(); throw eventError(); }
+    });
+    eventTail = operation.catch(() => {});
+    return operation;
+  };
+  const output = createToolOutput(emit, signal, sensitiveValues);
   const calls: BuilderResult["toolCalls"] = [];
   const toRemote = (absolute: string) => {
     const path = relative(isolated, absolute);
@@ -152,18 +169,21 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
             signal: combined,
             timeoutMs: Math.min((options.timeout ?? 60) * 1000, 120000),
             onOutput: (chunk) => {
+              output.append(chunk);
               const clipped = chunk.slice(0, Math.max(0, 16000 - forwarded));
               forwarded += clipped.length;
               if (clipped) options.onData(Buffer.from(clipped));
             },
           });
           const result = await handle.wait();
-          if (forwarded === 0)
+          if (forwarded === 0) {
+            output.append(result.stdoutTail + "\n" + result.stderrTail);
             options.onData(
               Buffer.from(
                 (result.stdoutTail + "\n" + result.stderrTail).slice(-16000),
               ),
             );
+          }
           return { exitCode: result.exitCode };
         },
       },
@@ -183,15 +203,19 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
           "本次任务工具调用已达上限",
         );
       const call = { id, name: definition.name, success: false };
+      const publicCallId = /^[\w.:-]{1,128}$/.test(id) && !sensitiveValues.some((secret) => id.includes(secret))
+        ? id : `tool-${createHash("sha256").update(id).digest("hex").slice(0, 32)}`;
+      call.id = publicCallId;
       calls.push(call);
-      await input.onEvent?.({
+      await emit({
         id: randomUUID(),
         at: new Date().toISOString(),
         type: "tool.start",
-        toolCallId: id,
+        toolCallId: publicCallId,
         toolName: definition.name,
         message: `执行远程 ${definition.name}`,
       });
+      output.start({ toolCallId: publicCallId, toolName: definition.name });
       try {
         const result = await definition.execute(
           id,
@@ -201,13 +225,19 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
           context,
         );
         call.success = true;
+        if (definition.name !== "bash") {
+          const path = params && typeof params === "object" && "path" in params && typeof params.path === "string" ? safeDetail(params.path) : "指定文件";
+          const action = { read: "已读取", write: "已写入", edit: "已修改" }[definition.name] ?? "已处理";
+          output.append(`${action} ${path}；源码与编辑内容不写入运行日志。`);
+        }
         return result;
       } finally {
-        await input.onEvent?.({
+        await output.finish();
+        await emit({
           id: randomUUID(),
           at: new Date().toISOString(),
           type: "tool.end",
-          toolCallId: id,
+          toolCallId: publicCallId,
           toolName: definition.name,
           success: call.success,
           message: call.success ? "远程工具完成" : "远程工具未完成",
@@ -285,7 +315,7 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
         maxTokens: input.modelConfig.maxTokens ?? 8192,
         onResponse: async (response) => {
           responseStatus = response.status;
-          await input.onEvent?.({
+          await emit({
             id: randomUUID(),
             at: new Date().toISOString(),
             type: "stage",
@@ -304,7 +334,7 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
         const delta = event.assistantMessageEvent.delta;
         if (delta.length && streamedCharacters === 0)
           void Promise.resolve(
-            input.onEvent?.({
+            emit({
               id: randomUUID(),
               at: new Date().toISOString(),
               type: "model.stream.started",
@@ -323,6 +353,8 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
       throw new RuntimeError("CANCELLED", "模型任务已取消");
     }
     await session.prompt(input.prompt);
+    await eventTail;
+    if (eventFailure) throw eventError();
     if (signal.aborted)
       throw new RuntimeError(
         deadline.signal.aborted ? "MODEL_TIMEOUT" : "CANCELLED",
@@ -362,6 +394,7 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
       },
     };
   } catch (error) {
+    if (eventFailure) throw eventError();
     if (error instanceof RuntimeError) throw error;
     if (signal.aborted)
       throw new RuntimeError(
@@ -373,6 +406,7 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
       `模型执行失败：${safeDetail(error instanceof Error ? error.message : error)}`,
     );
   } finally {
+    output.dispose();
     clearTimeout(timer);
     signal.removeEventListener("abort", abort);
     if (aborting) {
@@ -387,7 +421,7 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
         }),
       ]);
       clearTimeout(stopTimer);
-      await input.onEvent?.({
+      if (!eventFailure) await emit({
         id: randomUUID(),
         at: new Date().toISOString(),
         type: "model.stopped",
@@ -398,6 +432,7 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
           : "Pi abort 结束尚未确认",
       });
     }
+    await eventTail;
     session?.dispose();
     await rm(isolated, { recursive: true, force: true });
   }

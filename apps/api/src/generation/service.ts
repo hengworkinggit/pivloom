@@ -12,15 +12,19 @@ import type { SandboxConfig } from "../runtime/types.js";
 import { ApiFailure } from "../routes/errors.js";
 import { createGenerationExecutor } from "./executor.js";
 import { createPreviewGateway } from "./preview.js";
+import { createRunEventHub, openRunEventStream, type RunEventLimits } from "./events.js";
 
 export function createGenerationService(options: {
   database: PivloomDatabase; models: ModelProfileService; identity: IdentityConfig;
   sandbox: SandboxConfig; previewOrigin: string; bootId: string; maxSandboxes: number;
   sourceObjects?: SourceObjectStore;
+  eventLimits?: RunEventLimits;
 }) {
   const projects = createProjectRepository(options.database);
+  const eventHub = createRunEventHub();
   const repository = createGenerationRepository(options.database, options.models, {
     executorBootId: options.bootId, hasSandboxCapacity: () => executor.hasCapacity(),
+    onCommittedEvent: eventHub.publish,
   });
   const sources = createSourceStore({ url: options.identity.supabaseUrl, secret: options.identity.supabaseSecretKey, objects: options.sourceObjects });
   const previews = createPreviewGateway({ publicOrigin: options.previewOrigin, appOrigin: options.identity.appOrigin, sandboxOrigin: options.sandbox.baseUrl });
@@ -47,6 +51,9 @@ export function createGenerationService(options: {
   return {
     repository,
     previews,
+    openEvents(ownerId: string, runId: string, after: string, signal: AbortSignal) {
+      return openRunEventStream(repository, eventHub, { ownerId, runId, after, signal }, options.eventLimits);
+    },
     async accept(ownerId: string, projectId: string, input: CreateRunRequest, idempotencyKey: string) {
       return repository.accept(ownerId, projectId, { ...input, idempotencyKey });
     },

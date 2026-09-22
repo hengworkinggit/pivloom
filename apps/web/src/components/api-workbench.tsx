@@ -105,7 +105,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
         </div>
         <div className="chat-bottom">
           {run && <GenerationOutcome run={run} candidateSaved={project.latestCandidate?.runId === run.id && project.latestCandidate.id === run.resultRevisionId} />}
-          {state.active && <p className={cn("generation-connection", state.connection === "polling" && "generation-connection-warning")} role="status">{state.connection === "awaiting_snapshot" ? "需求已接收，正在读取任务状态。" : state.connection === "polling" ? "实时连接暂不可用，正在定时读取任务状态。" : state.connection === "connected" ? "已连接实时执行记录" : "正在连接实时执行记录…"}</p>}
+          {state.active && <p className={cn("generation-connection", (state.connection === "polling" || state.connection === "unavailable") && "generation-connection-warning")} role="status">{state.connection === "awaiting_snapshot" ? "需求已接收，正在读取任务状态。" : state.connection === "unavailable" ? "任务不存在或无权访问，已停止重连。" : state.connection === "polling" ? "实时连接暂不可用，正在定时读取任务状态。" : state.connection === "connected" ? "已连接实时执行记录" : "正在连接实时执行记录…"}{state.connection === "unavailable" && <button className="generation-inline-retry" onClick={() => void state.refresh()}>重新读取任务</button>}</p>}
           {state.error && <p className="inline-error" role="alert">{state.error}<button className="generation-inline-retry" onClick={() => void state.refresh()}>重新读取</button></p>}
           {submitError && <p className="inline-error" role="alert">{submitError}</p>}
           {unknownSubmission && <div className="run-notice" role="status"><div><strong>上次提交的结果尚未确认</strong><p>确认会沿用原请求，不会把正在编辑的草稿重复发送。</p></div><button disabled={pending} onClick={() => void send(unknownSubmission)}>确认提交结果</button></div>}

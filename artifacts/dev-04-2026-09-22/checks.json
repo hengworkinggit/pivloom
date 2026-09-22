@@ -1,0 +1,35 @@
+{
+  "baseline": "281621fc43848cd92ddfb2abce1ff32e466bcbfb",
+  "source": "DEV-04 working tree",
+  "node": "24.19.0",
+  "checks": [
+    {
+      "command": "npm test",
+      "status": "PASS",
+      "api": {
+        "passed": 81,
+        "skippedOptIn": 17
+      },
+      "web": {
+        "passed": 47
+      }
+    },
+    {
+      "command": "npm run lint",
+      "status": "PASS"
+    },
+    {
+      "command": "npm run typecheck",
+      "status": "PASS"
+    },
+    {
+      "command": "npm run build",
+      "status": "PASS"
+    },
+    {
+      "command": "git diff --check",
+      "status": "PASS"
+    }
+  ],
+  "notClaimed": "Opt-in integration tests are not passes in the default run; separately executed evidence is listed in events-checks.json."
+}

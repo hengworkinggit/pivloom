@@ -71,12 +71,15 @@ export function createGenerationExecutor(options: {
       const onEvent = async (event: ProbeEvent) => {
         const phases = { creating: "provision", generating: "implement", building: "build", previewing: "persist", checking: "review", ready: "persist", cleaning: "cleanup" } as const;
         if (event.type === "stage" && event.stage) await setPhase(phases[event.stage]);
-        if (event.type !== "tool.start" && event.type !== "tool.end" && event.type !== "model.stream.started") return;
+        if (event.type !== "tool.start" && event.type !== "tool.end" && event.type !== "tool.output" && event.type !== "model.stream.started") return;
         await repository.appendEvent(run.ownerId, run.id, {
           type: event.type === "tool.start" ? "tool.started" : event.type === "tool.end" ? "tool.completed" : "tool.output",
           roleRunId: role.id,
-          payload: { message: safeMessage(event.message), toolName: event.toolName, toolCallId: event.toolCallId,
-            success: event.success, exitCode: event.exitCode },
+          // Tool batches have already been redacted across chunk boundaries and
+          // bounded by encoded JSON bytes. Re-clipping here would silently lose
+          // their contents and split UTF-8 output before it reaches SSE.
+          payload: { message: event.type === "tool.output" ? event.message : safeMessage(event.message), toolName: event.toolName, toolCallId: event.toolCallId,
+            success: event.success, exitCode: event.exitCode, truncated: event.truncated },
         });
       };
       const result = await runCandidate({

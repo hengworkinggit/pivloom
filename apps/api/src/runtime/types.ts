@@ -28,6 +28,7 @@ export interface ProbeEvent {
   type:
     | "stage"
     | "tool.start"
+    | "tool.output"
     | "tool.end"
     | "resource.created"
     | "resource.cleaned"
@@ -49,6 +50,7 @@ export interface ProbeEvent {
   exitCode?: number;
   success?: boolean;
   requestNumber?: number;
+  truncated?: boolean;
 }
 
 export type ProbeEventSink = (event: ProbeEvent) => void | Promise<void>;
