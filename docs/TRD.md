@@ -1,6 +1,10 @@
 # Pivloom TRD
 
-版本：1.0 · 2026-09-22 · 状态：设计规格，待实现与集成验证。范围以 [PRD](PRD.md) 为准，测试以 [E2E](E2E.md) 为准。
+> 最新执行状态：2026-09-22基础联合验证已通过：真实Pi四工具生成、OpenSandbox/gVisor构建与Chrome、跨来源iframe交互和刷新、Auth/Storage、BYOK页面、单沙箱与Supabase共同负载。正式工作台生成尚待接入，模块完整E2E仍按各票门槛执行。详见[联合验收](foundation-validation-2026-09-22.md)。
+
+版本：1.1 · 2026-09-22 · 状态：设计规格，待实现与集成验证。范围以 [PRD](PRD.md) 为准，测试以 [E2E](E2E.md) 为准。
+
+2026-09-22沙箱决定：采用OpenSandbox Docker + gVisor systrap，已在授权服务器通过沙箱基础设施实测；Pi保留，E2B不再是前置。已验证文件/命令、React构建、Chrome、跨origin iframe、取消、TTL和清理。完整Pi生成与Supabase联调、联合容量及正式产品E2E仍待通过。详见[实测记录](sandbox-g0-results.md)与[方案依据](sandbox-options.md)。本地开发/E2E使用localhost或隧道，不依赖公网域名。
 
 本文中的接口、表结构、文件目录与伪代码是我们的实现契约；标注“官方 API”的部分才是上游能力。版本是研究基线，不能把尚未编译、部署的组合写成已验证栈。
 
@@ -12,15 +16,17 @@
 | Agent | Pi coding-agent SDK，三个独立 session | 复用工具循环、精确编辑、流事件和上下文管理；不再套 DSH/Codex 第二层 loop |
 | API 与调度 | 一个常驻 Fastify 进程，进程内执行器，Postgres 持久状态 | 不在短生命周期 HTTP/serverless 请求里跑长任务；不引入 Redis/BullMQ/Temporal |
 | 生成应用 | 一个 React + TypeScript + Vite 模板 | 多文件、可持续修改；不同时支持 Next/后端/移动/视频模板 |
-| 代码执行 | E2B 云沙箱 | 所有生成代码、安装、构建、预览和产品 Chrome 都在沙箱；服务端只保留可信调度与模型调用 |
+| 代码执行 | OpenSandbox Docker + gVisor systrap，已通过沙箱基础设施探针 | 所有生成代码、安装、构建、预览和产品 Chrome 都在沙箱；服务端只保留可信调度与模型调用 |
 | 产品内浏览器 | agent-browser CLI，独立 Chrome session | Reviewer 真实操作；不做 stream、远程接管、Midscene 或另一个浏览器 Agent 平台 |
-| 身份与平台数据 | Supabase Auth + Postgres + 私有 Storage | 预建评审账号；项目/消息/源码快照独立于 E2B 生命周期 |
+| 身份与平台数据 | 自托管Supabase Auth + Postgres + 私有 Storage | 预建评审账号；项目/消息/源码快照独立于 OpenSandbox 生命周期 |
 | 开发 E2E | Codex 桌面内置浏览器 | 验证真实工作台与 iframe；它是开发工具，不是产品可嵌入的开源 SDK |
-| 部署形态 | 单 Linux 主机的 Docker Compose：Caddy + web + api | 一个公网 HTTPS 来源，API/SSE 反向代理到常驻进程；云数据库和 E2B 在外部 |
+| 部署形态 | 单 Linux 主机，Docker Compose 管理 web + api，复用宿主 Caddy | 一个公网 HTTPS 来源，API/SSE 反向代理到常驻进程；Supabase优先同机裁剪部署；沙箱同机部署，Supabase共存容量仍须联合验证 |
 | 源码版本 | 完整、不可变、带内容哈希的文本快照 | 本轮不用 Git 作为运行时数据库；GitHub 只交付我们自己的仓库 |
 | 多角色 | 固定 Coordinator → Builder → Reviewer，最多两次修复 | 只允许 Builder 写源码；不用通用多团队/评论触发系统 |
 
-部署主机供应商不进入代码耦合；优先使用用户已有、可以运行常驻容器的主机，不在编写文档时购买资源。`APP_ORIGIN`、模型 profile、E2B template ID 与实际截止时间是部署输入，G0 验证后写入交付记录。
+部署主机供应商不进入代码耦合；优先使用用户已有、可以运行常驻容器的主机，不在编写文档时购买资源。`APP_ORIGIN`、模型 profile、沙箱镜像digest 与实际截止时间是部署输入，G0 验证后写入交付记录。
+
+已授权主机检查补充：主机已有 Caddy 和其他 Next.js 应用，部署时复用宿主 Caddy、保留既有站点，Pivloom web/api 使用独立服务与未占用的回环端口，不再启动第二个争抢 80/443 的代理。Compose 管理本项目服务；此调整不改变单实例 API、同源 HTTPS/SSE 和身份/私有存储与隔离沙箱的边界。实测资源见[部署检查记录](deployment-readiness.md)。
 
 ### 1.1 研究基线与版本锁定
 
@@ -28,8 +34,9 @@
 |---|---|---|
 | Node.js | 24 LTS；Pi 包要求至少 22.19 | G0 记录准确 patch 和容器 digest |
 | Pi | `@earendil-works/pi-coding-agent@0.86.1`，相关 Pi 包同一版本 | 精确依赖 + lockfile；不使用旧命名示例拼新 API |
-| E2B | `e2b@2.51.0` | 精确依赖；适配器编译与远端实测 |
-| agent-browser | `0.38.1` | E2B 镜像固定二进制版本及 Chrome 版本 |
+| OpenSandbox | SDK `@alibaba-group/opensandbox@1.1.0`；服务端 `15426df5d146d6ce7499a16bd1ed871e7242fe27` | 沙箱探针已执行；正式adapter尚待实现和编译 |
+| gVisor | `release-20260914.0`，systrap | 官方SHA512校验；独立Docker runtime已实测 |
+| agent-browser | `0.38.1` | OpenSandbox 镜像固定二进制版本及 Chrome 版本 |
 | Next / React | 研究基线 Next `16.3.5` / React 19 | G0 核对 peer dependency，记录实际完整版本 |
 | 生成模板 | Vite `8.3.0` / React 19 / TS | 模板带 lockfile，与应用依赖版本一起快照 |
 | Fastify | 研究基线 `5.12.5` | 精确依赖，Node 24 上构建验证 |
@@ -37,7 +44,7 @@
 
 这些不是“截至今天全部最新”的声明。已研究的固定提交和证据级别见第 3 节。API 签名必须以最终锁定包的类型声明和编译结果为准。
 
-2026-09-22 已通过 npm registry 再次确认表中 Pi、E2B、agent-browser、Next、Fastify、Vite 六个精确版本均存在，并核实 Pi 的 Node engine 为 `>=22.19.0`；这只证明包元数据，不证明组合已安装、编译或通过兼容测试。
+2026-09-22核对了Pi、agent-browser、Next、Fastify、Vite的包元数据，Pi要求Node `>=22.19.0`。另已实际执行OpenSandbox/gVisor、Node24.13.0、React19.2.4、Vite8.3.0、TS5.9.3和Chromium153.0.8010.52的基础设施探针；锁定镜像及记录见[结果](sandbox-g0-results.md)。Pi与完整产品组合仍未通过。
 
 ### 1.2 补充 ADR：是否需要 Deep Agents / LangChain / LangGraph
 
@@ -49,7 +56,7 @@
 | [LangChain](https://docs.langchain.com/oss/javascript/langchain/overview) | 模型/工具抽象和可配置 Agent；Agent 基于 LangGraph | 当前模型调用、工具执行已由 Pi 负责。没有不可替代集成需求时，不增加消息、工具、事件与取消协议转换 |
 | [LangGraph](https://docs.langchain.com/oss/javascript/langgraph/persistence) | 图编排、checkpointer、跨运行数据存储、暂停/恢复等 | 当前固定三角色 + 有限修复可用显式状态机；已接受重启后中断并手动重试，不需要为透明恢复引入图运行时 |
 
-这不表示 LangGraph 与 Pi 技术上不能组合。未来若要求长任务跨进程恢复、跨天人工暂停、复杂并行分支归并，可让 LangGraph 只负责外层业务节点，节点内部调用 `RoleRunner`，保留 Pi 作为唯一 coding loop。届时必须设计 checkpoint 与项目 revision 的一致性、节点重复执行的幂等、E2B/Chrome 的重建和远端副作用确认；存图状态不会自动保存这些外部资源。内存 checkpointer 也不提供跨重启持久性。[Checkpointers](https://docs.langchain.com/oss/javascript/langgraph/checkpointers)
+这不表示 LangGraph 与 Pi 技术上不能组合。未来若要求长任务跨进程恢复、跨天人工暂停、复杂并行分支归并，可让 LangGraph 只负责外层业务节点，节点内部调用 `RoleRunner`，保留 Pi 作为唯一 coding loop。届时必须设计 checkpoint 与项目 revision 的一致性、节点重复执行的幂等、OpenSandbox/Chrome 的重建和远端副作用确认；存图状态不会自动保存这些外部资源。内存 checkpointer 也不提供跨重启持久性。[Checkpointers](https://docs.langchain.com/oss/javascript/langgraph/checkpointers)
 
 重新评估的触发条件：明确要求自动从中断继续、需要数小时以上的人为等待、固定流程已无法清楚表达的动态分支，或现成 LangChain 集成能经原型证明显著减少适配工作。在此之前，`RoleRunner / WorkspacePort / BrowserPort` 足够保留替换边界，不提前开发通用编排框架。
 
@@ -66,8 +73,8 @@ flowchart TD
     Runner --> Pi[Pi 独立角色 sessions]
     Pi --> Model[配置的模型 provider]
     Pi --> Tools[受控工具适配器]
-    Tools --> Candidate[E2B 候选：文件 / 构建 / Chrome]
-    Web -->|跨源 iframe| Preview[E2B 成功预览]
+    Tools --> Candidate[OpenSandbox 候选：文件 / 构建 / Chrome]
+    Web -->|跨源 iframe| Preview[OpenSandbox 成功预览]
     Candidate -->|检查及保存完成后切换引用| Preview
 ```
 
@@ -83,7 +90,7 @@ flowchart TD
 | T02 | `api/repositories` | 业务命令 → 事务化项目/任务/版本记录；参数化 SQL 与冲突控制 |
 | T03 | `api/orchestrator` | accepted run → 有限阶段状态机；角色交接、预算、取消、终态 |
 | T04 | `api/agents` | RoleInput + toolset → RoleResult；Pi SDK 集成，不决定产品成功 |
-| T05 | `api/workspace` | sandbox 操作 → 文件/命令/预览句柄；E2B adapter、资源清理 |
+| T05 | `api/workspace` | sandbox 操作 → 文件/命令/预览句柄；OpenSandbox adapter、资源清理 |
 | T06 | `api/snapshots` | 冻结源文件 → 校验快照/文件查询/恢复；保存与指针切换 |
 | T07 | `api/browser` | scoped action → 观察/截图/日志；agent-browser adapter、版本绑定 |
 | T08 | `api/events` + `web/run-events` | 持久事件 → SSE → UI 投影；重连、去重、限流与错误显示 |
@@ -102,7 +109,7 @@ apps/api/src/
   agents/ workspace/ snapshots/ browser/ events/ limits/ recovery/
 packages/contracts/           JSON schema、共享类型、错误码；无运行时凭据
 templates/react-vite/          可构建空模板、精确 lockfile
-infra/                        Dockerfile、Compose、Caddyfile、E2B 模板说明
+infra/                        Dockerfile、Compose、Caddyfile、OpenSandbox 模板说明
 migrations/                   有序 SQL
 tests/integration/            状态机、适配器、真实数据库测试
 tests/fixtures/               明确标注的预览/缺陷/故障场景
@@ -124,7 +131,7 @@ docs/                         本套规格与以后实际测试报告
 | [`createAgentSession`，main sdk.ts:175](https://github.com/earendil-works/pi/blob/c7cdb460aa8a0cebef3446c4166729b8a0d97ead/packages/coding-agent/src/core/sdk.ts#L175)；[stable SDK](https://github.com/earendil-works/pi/blob/13cbf77df2396303013a41646bcfa77b4271ae56/packages/coding-agent/docs/sdk.md) | SDK 组装 Agent、AgentSession、模型、会话与资源加载 | 独立 session、模型配置、远程工具、任务生命周期 |
 | [read 工厂](https://github.com/earendil-works/pi/blob/13cbf77df2396303013a41646bcfa77b4271ae56/packages/coding-agent/src/core/tools/read.ts)、[write 工厂](https://github.com/earendil-works/pi/blob/13cbf77df2396303013a41646bcfa77b4271ae56/packages/coding-agent/src/core/tools/write.ts) | `createReadToolDefinition` / `createWriteToolDefinition`，替换 operations | 远端读写、路径边界、文件大小、写权限与取消检查 |
 | [edit 工厂](https://github.com/earendil-works/pi/blob/13cbf77df2396303013a41646bcfa77b4271ae56/packages/coding-agent/src/core/tools/edit.ts) | `createEditToolDefinition` 的精确替换、diff、同文件 mutation queue | 同项目只有一个 Builder；远端文件是唯一写目标 |
-| [bash 工厂](https://github.com/earendil-works/pi/blob/13cbf77df2396303013a41646bcfa77b4271ae56/packages/coding-agent/src/core/tools/bash.ts) | `operations.exec(command,cwd,{onData,signal,timeout,env})` | E2B 命令句柄、流输出、deadline、远端 kill 与环境白名单 |
+| [bash 工厂](https://github.com/earendil-works/pi/blob/13cbf77df2396303013a41646bcfa77b4271ae56/packages/coding-agent/src/core/tools/bash.ts) | `operations.exec(command,cwd,{onData,signal,timeout,env})` | OpenSandbox 命令句柄、流输出、deadline、远端 kill 与环境白名单 |
 | [SessionManager](https://github.com/earendil-works/pi/blob/13cbf77df2396303013a41646bcfa77b4271ae56/packages/coding-agent/src/core/session-manager.ts)、[sessions 文档](https://github.com/earendil-works/pi/blob/13cbf77df2396303013a41646bcfa77b4271ae56/packages/coding-agent/docs/sdk.md#sessions) | 每角色独立 in-memory session，按需保存结束摘要/entries 供诊断 | 项目真相放数据库和快照；下一轮以结构化上下文重建，不使用 `continueRecent` 猜用户 |
 | [`AgentSession._emit`，main:626](https://github.com/earendil-works/pi/blob/c7cdb460aa8a0cebef3446c4166729b8a0d97ead/packages/coding-agent/src/core/agent-session.ts#L626) | 普通 `session.subscribe` 做 UI 事件投影 | 此回调不 await；不能用 `subscribe(async()=>写库)` 当阶段持久化屏障 |
 | [`Agent.subscribe`，stable:265](https://github.com/earendil-works/pi/blob/13cbf77df2396303013a41646bcfa77b4271ae56/packages/agent/src/agent.ts#L265) | 底层 await 事件机制，可在必要点接屏障 | 优先用我们自己的工具 wrapper + `flush()` + 事务推进保证关键顺序 |
@@ -152,7 +159,7 @@ docs/                         本套规格与以后实际测试报告
 | 项目与证据 | 采用的模块 / 用法 | 保留在我们这边的实现 |
 |---|---|---|
 | [agent-browser 0.38.1 README](https://github.com/vercel-labs/agent-browser/blob/aff6125c023b810ea3f2e5deec5379e9a4270bdc/README.md)，Apache-2.0 | 直接调用 CLI 的 session、open、snapshot、click/fill、screenshot、console/errors 等能力；以实际锁定 CLI help 验证参数 | 独立 session 命名、允许目标、工具 schema、版本绑定、文件上传、预算与清理 |
-| [E2B 2.51.0 release](https://github.com/e2b-dev/E2B/releases/tag/e2b%402.51.0)，SDK Apache-2.0 | Sandbox 创建/连接、文件、命令、预览端口 | 项目权限、模板、完整源码存储、任务恢复；云服务不是免费开源自托管承诺 |
+| [OpenSandbox](https://github.com/opensandbox-group/OpenSandbox)，Apache-2.0 | 创建/连接、文件、命令、端口、TTL与生命周期 | 项目权限、预览代理、源码存储、Pi工具适配；采用已实测Docker + gVisor配置 |
 | [bolt.diy Workbench](https://github.com/stackblitz-labs/bolt.diy/blob/2e254ac19a696394030601bc602f54945b12bfc4/app/components/workbench/Workbench.client.tsx)、[Preview](https://github.com/stackblitz-labs/bolt.diy/blob/2e254ac19a696394030601bc602f54945b12bfc4/app/components/workbench/Preview.tsx)、[FileTree](https://github.com/stackblitz-labs/bolt.diy/blob/2e254ac19a696394030601bc602f54945b12bfc4/app/components/workbench/FileTree.tsx)，MIT | 参考聊天旁边的预览/代码组织，目录存在性已核对 | 自己用本产品状态和 API 实现；不移植 WebContainers、action parser 或整套前端状态库；这些文件未做逐函数审计 |
 | [Dyad Versioning](https://www.dyad.sh/docs/guides/versioning) | 参考将应用版本与聊天分开、已保存结果可恢复的体验 | 本轮完整快照；不复制桌面 IPC/Pro agent；tagger 和恢复 UI 延期 |
 | [shadcn/ui](https://github.com/shadcn-ui/ui)，MIT | Button、Tabs、Textarea、Dialog、ScrollArea 等必要交互组件 | 工作台业务状态、可访问名称、错误和布局 |
@@ -322,10 +329,14 @@ executeRun():
       flush events; verify source unchanged; transactionally promote current revision
       finish completed; close browser; retire old preview by policy
       return
-  always: cleanup non-promoted candidates and release in-process slot
+  always: close browser and revoke writers; cleanup candidates not explicitly retained as TTL preview bindings; release in-process slot only when cleanup is confirmed
 ```
 
 重试和修复分别计数：一次 run 内最多两轮 repair；用户手动 retry 新建 run，仍受账号总配额。模型的单个 Builder session 可自行使用编译反馈做编辑，但工具/时间总预算限制它；服务端最终构建失败才触发新的 repair attempt，不能产生没有上限的隐藏重试。
+
+失败候选的源码与检查记录必须保留。构建通过的末次候选可在撤销写权限、关闭 Chrome 后转为有明确 TTL 的 candidate-preview；未显式保留的活沙箱正常清理。用户查看时优先使用有效绑定，失效后按所选 revision 显式恢复，不调用模型、不晋升 current。构建失败候选仅提供源码和问题。
+
+早期 Builder-only 联调在检查组件未就绪时以 `CHECK_BLOCKED` 明确结束并保留带 TTL 的未检查候选，不能晋升 current 或记正式生成成功。完整生成验收在真实 Reviewer 接入后重跑；详细开发依赖以正式开发 Spec 与 DEV issues 为准。
 
 ## 6. Pi 集成与模型配置
 
@@ -352,20 +363,28 @@ interface RoleRunner {
 1. 在服务端创建独立、空的 agentDir/settings；关闭自动加载本机/项目的 extensions、skills、prompt templates 和 context files，只注入本产品受控指令。
 2. 每个 RoleRun 一个 `SessionManager.inMemory`，显式 session ID；项目摘要、计划和准确 base snapshot 构成新 session 输入。连续开发不依赖恢复上次完整模型执行栈。
 3. v0.86.1 的 `tools` 是**名称 allowlist**，真正定义放 `customTools`，同名覆盖内置工具；不能把旧版 `AgentTool[]` 示例照搬到 `tools`。
-4. read/write/edit 工厂使用 remote operations；bash operations 只执行 E2B。未适配的 find/ls/grep 等工具不启用。各项目的逻辑 cwd 使用唯一命名，adapter 再映射到远端 `/workspace/app`，避免 SDK 的本地路径锁混淆项目。
+4. read/write/edit 工厂使用 remote operations；bash operations 只执行 OpenSandbox。未适配的 find/ls/grep 等工具不启用。各项目的逻辑 cwd 使用唯一命名，adapter 再映射到远端 `/workspace/app`，避免 SDK 的本地路径锁混淆项目。
 5. `session.subscribe` 的增量事件进入我们串行的 EventAppender；关键 tool start/end 可在 wrapper 中 await 持久化。角色结束、快照提交和阶段转换前显式 `await flush()`。
 6. 超长命令输出在 adapter 内截断并保存远端/Storage 工件；不把 Pi 默认本地临时日志路径暴露给只会读远端的模型。
 7. 取消调用 `session.abort()`，同时由 workspace/browser adapter 终止远端活动；设置最长等待，无法确认则保留 cleanup pending。
 
 ### 6.3 模型选择规则
 
-用部署配置 `MODEL_PROVIDER / MODEL_ID / MODEL_BASE_URL(可选)` 定义一个已验证 profile，三角色默认共用。Builder 需要稳定 tool calling；Reviewer 若要用截图判断布局，profile 必须支持图像输入且在 Pi 所用 provider adapter 中实测可用。没有真实可用凭据和验证结果前，不凭模型排行榜捏造“已锁定最优模型”。
+模型通信直接复用 Pi 的 `pi-ai`，通过 coding-agent SDK 及其模型/凭据接口组装；不自己重写 OpenAI/Anthropic 等 provider，也不接第二个 Agent loop。我们只实现产品允许的配置列表、权限、选择和任务记录。当前 Mock 前端尚未安装或调用 Pi，不能把技术决策当成已集成。
+
+用户通过 `/settings/models` 管理自己的Provider、Base URL、API Key和模型；测试连接、保存、编辑、更新密钥、设默认、删除均纳入F15/DEV-14。服务端复用pi-ai，设置API按owner鉴权；普通用户无需编辑环境文件。
+
+私有model_profiles保存归属/名称/默认状态，model_profile_versions保存不可变的provider、baseUrl、modelId、协议和配置版本；凭据使用独立于数据库的服务端主密钥加密并绑定owner/profile/version。响应只返回元数据、掩码与实测能力，不返回密钥或解密材料。修改创建新版本；Run保存modelProfileId/configVersion及内部凭据版本引用，幂等hash包含模型版本。删除阻止新任务使用，在途引用按结束后清理规则处理，不能悄悄切换模型。
+
+连接测试必须真实验证Pi请求/流式/无副作用工具调用。自定义Base URL限制公开HTTPS并防止私网、回环、链路本地、DNS与重定向绕过。支持的协议以实测为准。用户首个方舟配置的地址/模型见基础设施文档，密钥不入规格。
+
+Builder 需要稳定 tool calling；Reviewer 若要用截图判断布局，profile 必须支持图像输入且在 Pi 所用 provider adapter 中实测可用。没有真实可用凭据和验证结果前，不凭模型排行榜捏造“已锁定最优模型”。
 
 G0 必须记录：准确模型 ID、provider、Pi provider 协议、工具调用和截图读取是否通过、一次生成的耗时/用量。若只有文本模型，必须明确 Reviewer 只做 DOM 行为检查、视觉检查由 Codex E2E 完成，不保留未经验证的“自动视觉验收”宣传。
 
-凭据由 API 进程持有；不转发到 E2B、生成应用前端、SSE 或 prompt。SDK 使用独立服务配置，不读取开发者的个人 CLI 登录态。对 provider 的超时/限流只做有上限的瞬时重试；鉴权失败直接报错，避免无意义重复消耗。
+凭据由 API 进程持有；不转发到 OpenSandbox、生成应用前端、SSE 或 prompt。SDK 使用独立服务配置，不读取开发者的个人 CLI 登录态。对 provider 的超时/限流只做有上限的瞬时重试；鉴权失败直接报错，避免无意义重复消耗。
 
-## 7. E2B 工程、命令与预览
+## 7. OpenSandbox 工程、命令与预览
 
 ### 7.1 我们的 WorkspacePort
 
@@ -388,16 +407,16 @@ interface CommandHandle {
 }
 ```
 
-这是产品接口，**不是 E2B 的原样 API**。底层映射到已锁定 SDK 的 sandbox、files、commands、kill/生命周期方法。已读的公开 commands 参考存在旧版本 URL，因此 G0 必须通过 `e2b@2.51.0` 类型检查，核实 `background`、命令句柄、流回调、取消和 port URL 的真实签名，再编写 adapter，不在本文杜撰可直接运行的 SDK 调用。
+这是产品接口，**不是OpenSandbox的原样API**。使用锁定的TypeScript SDK：Sandbox.create/connect、files.readFile/writeFiles/readBytes、commands.run/getCommandStatus/interrupt及Sandbox.kill。close仅释放客户端资源，不能替代kill。已用真实SDK验证background、非零退出码、长命令及子进程停止和创建途中取消；正式WorkspacePort仍须编译并接入Pi测试。gVisor文件导出统一走files API，不依赖docker cp。
 
 ### 7.2 模板与构建约定
 
 - 模板包含 `package.json`、准确 lockfile、`index.html`、`src/main.tsx`、基础 `App.tsx` 和 CSS、TS/Vite 配置。
-- E2B 模板预装 Node、基础包缓存、agent-browser、Chrome 与字体；浏览器版本和模板 ID 记录在部署产物中。空模板必须在本地和 E2B 都能 typecheck/build。
+- OpenSandbox 模板预装 Node、基础包缓存、agent-browser、Chrome 与字体；浏览器版本和模板 ID 记录在部署产物中。空模板必须在本地和 OpenSandbox 都能 typecheck/build。
 - 应用源根目录 `/workspace/app`；检查者缓存/Chrome profile 位于另一个受控目录，浏览器工具不向模型开放目录写入。
 - 默认允许 React 原型所需的依赖；本轮避免原生模块和后端进程。改变依赖后生成并保存 lockfile，恢复时使用锁定安装。安装/构建脚本在沙箱执行。
 - 服务端最终 gate 固定执行类型检查、production build 和预览启动；不相信模型自行汇报的 exit code。记录具体命令、退出码和日志尾部。
-- 预览基于 build 产物运行在固定端口 4173，监听远端可访问地址；用实际 SDK 生成 HTTPS preview host。生产式预览减少 HMR 与检查中代码变化。
+- 预览基于 build 产物运行在固定端口 4173，监听远端可访问地址；用SDK取得内部/proxy/4173端点，再由可信反向代理映射到独立预览origin；SDK端点本身不等于公开HTTPS入口。生产式预览减少 HMR 与检查中代码变化。
 - 生成代码不能覆写可信服务端 gate。若使用项目脚本，服务端先校验关键脚本或直接调用模板中锁定的构建入口；不能让模型把 `build` 改成空命令从而伪造通过。
 
 ### 7.3 文件与命令限制
@@ -456,7 +475,7 @@ BrowserAction 是限定联合：click(ref)、fill(ref,text)、select(ref,value)�
 
 session 命名含内部随机 ID，绑定 `run/attempt/revision`；不同项目不能共享默认 profile。每次页面变化先重新 observe，再使用该次返回的 refs。refs 带 observation ID，只接受同一 browser session 最近有效观察中的引用，防止过期 ref 点错元素。
 
-Chrome 在候选沙箱中访问 `127.0.0.1:4173` 的该候选预览；用户 iframe 访问 E2B HTTPS host。二者是相同构建的两个入口、两个独立浏览器状态。服务端核验相同 revision marker；发布验收还需 Codex 内置浏览器实际访问公网 iframe，不能用内网检查代替对公网代理/iframe 行为的验证。
+Chrome 在候选沙箱中访问 `127.0.0.1:4173` 的该候选预览；用户 iframe 访问独立预览origin，经可信代理访问OpenSandbox内部端点。二者是相同构建的两个入口、两个独立浏览器状态。服务端核验相同 revision marker；发布验收还需 Codex 内置浏览器实际访问公网 iframe，不能用内网检查代替对公网代理/iframe 行为的验证。
 
 ### 8.2 行为检查判定
 
@@ -689,6 +708,10 @@ Storage 与 DB 没有分布式事务：先对象、后引用。对象写成功�
 
 | 方法 / 路径 | 请求 / 响应要点 | 行为 |
 |---|---|---|
+| `GET/POST /model-profiles` | 配置列表/创建；按owner隔离 | 创建可接收Key，响应只回掩码 |
+| `PATCH/DELETE /model-profiles/:id` | 更新配置/默认/密钥或删除 | 变更产生版本；保留在途引用 |
+| `POST /model-profiles/test` | 未保存配置的真实Pi测试 | 不持久化草稿Key；与保存版本测试同等目标校验 |
+| `POST /model-profiles/:id/test` | 真实Pi连接/流式/工具能力结果 | 限频、超时、目标校验、错误脱敏 |
 | `GET /me` | user ID、显示名、允许操作及余量摘要 | 不返回 provider/Storage 凭据 |
 | `GET /projects?cursor=` | owned projects + nextCursor | 不混入其它 owner |
 | `POST /projects` | `{title?}` → 201 `{project}` | UI 防重复提交；接受后跳转 |
@@ -705,7 +728,7 @@ Storage 与 DB 没有分布式事务：先对象、后引用。对象写成功�
 | `POST /projects/:id/preview/restore` | `{revisionId}` → 202 `{operationId}` | 项目忙则 409；相同 operation 返回已有状态；不调用模型 |
 | `GET /projects/:id/preview?revisionId=` | `{state,revisionId,url?,expiresAt?,error?}` | 默认 current；显式指定可查看已授权候选；poll 恢复状态，URL 只在有效绑定时返回 |
 
-Supabase Auth 登录使用其 JS SDK 的 `signInWithPassword`，无需再自建密码数据库；Fastify 用服务端 `auth.getUser(jwt)` 等经验证的身份接口校验访问，不仅 decode JWT。前端仅持公开 publishable/anon key 与用户 session，私有数据走 API。[登录](https://supabase.com/docs/reference/javascript/auth-signinwithpassword)、[身份验证](https://supabase.com/docs/reference/javascript/auth-getuser)
+Supabase Auth 登录使用其 JS SDK 的 `signInWithPassword`，无需再自建密码数据库；Fastify 用服务端 `auth.getUser(jwt)` 等经验证的身份接口校验访问，不仅 decode JWT。前端持公开publishable/anon key与用户session，私有数据走API；模型Key仅在用户录入时短暂存在表单中，HTTPS提交后清除，不持久缓存或从API回显。[登录](https://supabase.com/docs/reference/javascript/auth-signinwithpassword)、[身份验证](https://supabase.com/docs/reference/javascript/auth-getuser)
 
 登录持久化/刷新由 Supabase JS 管理，过期认证失败由 UI 提示重新登录。退出清除前端 session 与私有缓存；本轮不额外构建立即吊销每个已签发 JWT 的会话平台，不声称复制出来的旧 access token 在退出瞬间必然失效。
 
@@ -716,11 +739,13 @@ Supabase Auth 登录使用其 JS SDK 的 `signInWithPassword`，无需再自建�
   "text": "增加已完成状态筛选，并保留已有表单校验。",
   "expectedCurrentRevisionId": "7b8ed31a-a884-4f75-a93e-7175f948c514",
   "retryOfRunId": null,
-  "parentRunId": null
+  "parentRunId": null,
+  "modelProfileId": "6b54c7f4-0b25-4ce2-934e-a8fa4d8e8a9f",
+  "modelConfigVersion": 1
 }
 ```
 
-请求头 `Idempotency-Key: UUID` 必填。相同 key 和标准化 body 返回同一 run；网络重试必须沿用 key，用户修改输入后才换 key。hash 覆盖 text、expected revision、retry/parent 信息。`retryOfRunId` 与 `parentRunId` 互斥，前者只允许适用失败终态，后者用于回答 needs_input；均需归属当前项目。
+请求头 `Idempotency-Key: UUID` 必填。相同 key 和标准化 body 返回同一 run；网络重试必须沿用 key，用户修改输入后才换 key。hash 覆盖 text、expected revision、retry/parent、modelProfileId和modelConfigVersion。`retryOfRunId` 与 `parentRunId` 互斥，前者只允许适用失败终态，后者用于回答 needs_input；均需归属当前项目。
 
 `expectedCurrentRevisionId` 的类型是 UUID 字符串或 JSON null，新项目为 null；例中 UUID 只是格式示例，实际值取刚读取的项目状态。重试时 text 必须与原失败 run 的请求一致；用户改变要求时使用新的普通修改请求。回答澄清时 parentRunId 指向 needs_input run，由服务合并原问题上下文与本次回答。
 
@@ -751,7 +776,7 @@ request 不接受 role、模型凭据、sandbox ID、文件系统路径或任意
 | `STALE_BASE` / `IDEMPOTENCY_CONFLICT` | 409 | 拉取最新状态，不自动覆盖或重复生成 |
 | `SERVICE_BUSY` | 503 + Retry-After | 全局容量满，未接受需求 |
 | `QUOTA_EXCEEDED` | 429 | 提示额度限制，不自动无限重试 |
-| `MODEL_AUTH_FAILED` / `MODEL_UNAVAILABLE` | run failed | 维护者处理配置/稍后重试，不暴露凭据 |
+| `MODEL_AUTH_FAILED` / `MODEL_UNAVAILABLE` | run failed | 用户在模型设置更新自己的配置/稍后重试，不暴露凭据 |
 | `BUILD_FAILED` | repair 或 needs_changes | 展示构建摘要；达到上限后重试入口 |
 | `PREVIEW_START_FAILED` / `SANDBOX_EXPIRED` | failed 或 preview expired | 恢复预览或重试 |
 | `CHECK_BLOCKED` | run failed，check blocked | 明确未完成检查 |
@@ -807,7 +832,7 @@ URL 的 project ID 决定当前项目；页面 mount 后取 server snapshot，�
 
 ### 11.3 安全呈现与 iframe
 
-消息与日志按文本转义，Markdown 禁止任意 HTML 执行；源码只读展示不执行。外链新标签使用适当 opener 隔离。iframe 的 origin 与 APP_ORIGIN 分离，CSP frame-src 限定实际 E2B 预览来源集合；不得给整个工作台设置任意 `frame-src *` 作为长期解决方案。
+消息与日志按文本转义，Markdown 禁止任意 HTML 执行；源码只读展示不执行。外链新标签使用适当 opener 隔离。iframe 的 origin 与 APP_ORIGIN 分离，CSP frame-src 限定实际 OpenSandbox 预览来源集合；不得给整个工作台设置任意 `frame-src *` 作为长期解决方案。
 
 窄屏切换只改变预览容器宽度，不宣称模拟移动设备 UA/触摸/真实手机。完整工作台在小视口使用可切换区域，不让隐藏面板保留覆盖点击的透明层。
 
@@ -815,9 +840,9 @@ URL 的 project ID 决定当前项目；页面 mount 后取 server snapshot，�
 
 ### 12.1 常驻部署
 
-Compose 包含 `web`、`api`、`caddy`；Postgres/Auth/Storage 使用 Supabase，代码与浏览器运行使用 E2B。web 可使用 Next standalone 输出；需要一起复制 public 和静态资源，不能只复制最小 server.js 后漏样式。[Next output](https://nextjs.org/docs/app/api-reference/config/next-config-js/output)
+Compose 管理 `web`、`api`，反向代理复用已授权主机上现有的 Caddy，保留既有站点配置。Postgres/Auth/Storage优先裁剪自托管Supabase，服务凭据由部署过程生成；代码与浏览器使用通过G0验证的隔离沙箱。OpenSandbox Docker + gVisor已通过基础设施探针并部署内部服务，尚须Pi/Supabase联合验收。web 可使用 Next standalone 输出；需要一起复制 public 和静态资源，不能只复制最小 server.js 后漏样式。[Next output](https://nextjs.org/docs/app/api-reference/config/next-config-js/output)
 
-Caddy 路由设计：`/api/*` 到 `api:4000`，其余到 `web:3000`；API 保留完整前缀，SSE 不做响应缓存。官方对 `text/event-stream` 有即时 flush 处理，部署时仍用实际线上事件验证代理未缓冲，不靠配置文字认定成功。[Caddy streaming](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)
+Caddy 在 Pivloom 域名下将 `/api/*` 转发到 API 的宿主回环端口，其余转发到 web 的宿主回环端口；端口在部署前检查后确定，避开已有服务占用的 3000 等端口。容器内部可分别使用 4000、3000，但宿主 Caddy 使用 `127.0.0.1:<独立映射端口>` 访问，不能依赖 Compose 内部服务名解析。API 保留完整前缀，SSE 不做响应缓存。官方对 `text/event-stream` 有即时 flush 处理，部署时仍用实际线上事件验证代理未缓冲，不靠配置文字认定成功。[Caddy streaming](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)
 
 API **只部署一个 replica**，不进行滚动双实例执行，也不自动扩容。单实例 semaphore 与进程内 registry 不支持多活；若以后扩容，必须先换跨实例租约/队列与副作用控制。48h 范围不假装具备高可用。
 
@@ -829,9 +854,11 @@ API **只部署一个 replica**，不进行滚动双实例执行，也不自动�
 | `NEXT_PUBLIC_SUPABASE_URL` / publishable key | web | 公开项目配置可进前端；不授予私有 schema/bucket 权限 |
 | `SUPABASE_URL` / server Storage key | api secret | 仅可信服务，日志脱敏 |
 | `DATABASE_URL` | api secret | 参数化 SQL、TLS、连接池；不进沙箱 |
-| `E2B_API_KEY` / `E2B_TEMPLATE_ID` | api secret/config | 仅 backend 创建和管理资源 |
-| `MODEL_PROVIDER / MODEL_ID / MODEL_BASE_URL` | api config | G0 验证的 profile；URL 不能由普通用户改成任意代理 |
-| provider API key | api secret | 服务专用，不读取个人 CLI 授权 |
+| `OPEN_SANDBOX_URL` / `OPEN_SANDBOX_API_KEY` | api config/secret | 仅可信backend访问回环或私有管理端点；部署代理生成Key |
+| `SANDBOX_IMAGE` / `PREVIEW_ORIGIN` | api/proxy config | 锁定工作镜像digest，预览独立origin；runtime由服务端固定为gVisor |
+| 用户模型provider/baseUrl/modelId | 私有profile元数据 | 通过设置API校验归属、端点和协议 |
+| 用户模型API Key | 私有加密凭据 | 页面录入，服务端解密使用；不读取个人CLI授权 |
+| `MODEL_CREDENTIALS_ENCRYPTION_KEY` | api secret | 部署生成，独立于数据库保存，不发给浏览器或沙箱 |
 | `MAX_* / *_TIMEOUT_MS` | api config | 启动验证范围，不能客户端覆盖 |
 | `TEST_PROFILE` | 仅隔离测试环境 | 生产构建/启动拒绝启用故障注入 |
 
@@ -854,7 +881,7 @@ API **只部署一个 replica**，不进行滚动双实例执行，也不自动�
 | 每项目活动生成 | 1；生成与恢复互斥 |
 | 全局活动生成 | 1；满额返回 SERVICE_BUSY，明确未接受，不建隐形队列 |
 | 全局预览恢复 | 1；总 sandbox 容量也必须允许 |
-| 活跃 sandbox | 最多 4；只清理已到期/可回收的空闲预览，不驱逐正在检查的候选 |
+| 活跃 sandbox | 与Supabase联合实测后设置硬上限，不沿用旧候选值4；须覆盖旧成功预览+新候选的共存，不驱逐正在检查的候选 |
 | 一次 run 墙钟上限 | 10 分钟；包含所有角色与修复 |
 | 一次模型请求 | 90 秒；受 run 剩余时间再次限制 |
 | 单安装 / build | 120 / 90 秒；都受外层 deadline 限制 |
@@ -869,7 +896,7 @@ API **只部署一个 replica**，不进行滚动双实例执行，也不自动�
 
 Token 预算按已知 usage 和每次调用预估/预留做约束；在途调用可能产生已授权范围内的少量超额，不能声称精确计费硬截断。任务 deadline 到达立即停止新调用并清理。金额预算只有配置了准确模型价格才计算，不能用未知价格给出虚假总费用。
 
-资源到期策略必须实际实现：至少每分钟扫本服务登记的过期候选/预览并清理；云端 lifetime 作为兜底。离开工作台不立即停止用户正在生成的任务；也不能让无人使用的 Chrome 和预览无限存活。
+资源到期策略必须实际实现：至少每分钟扫本服务登记的过期候选/预览并清理；OpenSandbox服务端TTL作为兜底（最小60秒；本次配置最大1800秒）。离开工作台不立即停止用户正在生成的任务；也不能让无人使用的 Chrome 和预览无限存活。
 
 ## 13. 测试分层与可观察性
 
@@ -887,7 +914,7 @@ Token 预算按已知 usage 和每次调用预估/预留做约束；在途调用
 
 | 阶段 | 建议预算 | 必须完成的结果 | 不通过时的动作 |
 |---|---:|---|---|
-| G0 · 最小技术探针 + 早部署 | 10% | 锁包；Pi 真实 tool call；E2B 远程读改写/命令取消；React 构建和公网 iframe；agent-browser 在 E2B 的操作/截图；Auth/Storage 可用；线上 API/SSE 骨架 | 暂停产品 UI 扩展，定位具体适配问题；不能凭本地 smoke 跳过 |
+| G0 · 最小技术探针 + 早部署 | 10% | 锁包；Pi 真实 tool call；OpenSandbox 远程读改写/命令取消；React 构建和公网 iframe；agent-browser 在 OpenSandbox 的操作/截图；Auth/Storage 可用；线上 API/SSE 骨架 | 暂停产品 UI 扩展，定位具体适配问题；不能凭本地 smoke 跳过 |
 | G1 · 一次完整生成 | 25% | 登录/项目/需求 → Builder → build → snapshot → 预览；真实源文件与活动；先允许开发阶段未检查状态 | 模型、快照、预览链路未通，不做团队动效和额外导航 |
 | G2 · 持续修改与可靠性 | 20% | 两次修改、源码视图、刷新/登录恢复、预览重建、停止/失败重试、同项目互斥 | 先修断链，P2 全部取消 |
 | G3 · 固定团队延展 | 20% | Coordinator/Reviewer 独立 session；真实检查、带版本交接、两次修复上限；单个故障链路走通 | 记录阻塞与剩余工作，不把单 Builder 宣称为完成团队 |
@@ -900,7 +927,7 @@ G1 的暂时 Builder-only 是开发顺序，不是最终公开产品的虚假 Te
 | 任务 | 依赖 | 完成产物 / 验证 |
 |---|---|---|
 | W01 建立 workspace 与 contracts | 无 | 类型/错误码/配置 schema；空模板 build；锁文件 |
-| W02 G0 适配探针 | W01 | Pi/E2B/browser 实测记录；失败时保留确切版本与错误 |
+| W02 G0 适配探针 | W01 | Pi/OpenSandbox/browser 实测记录；失败时保留确切版本与错误 |
 | W03 DB/Auth/API 骨架 | W01 | 迁移、owner 检查、项目 API；I01/I09 |
 | W04 单 Builder runner | W02/W03 | remote tools、输出、最终 build；不使用宿主执行 |
 | W05 snapshot/preview | W04 | 快照可读取/恢复，revision marker，源码 API；I05 |
@@ -918,7 +945,9 @@ G1 的暂时 Builder-only 是开发顺序，不是最终公开产品的虚假 Te
 |---|---|
 | 已完成 | 飞书要求重读、Atoms 官方功能核对、Pi/Multica 关键源码机制、候选版本/许可研究 |
 | 已完成局部试验 | agent-browser 本地独立 smoke；Codex 内置浏览器表单/跨源 iframe/刷新/控制台/视口探针 |
-| 尚未完成 | Pi + E2B + 模型实际集成，E2B 内 Chrome，工作台代码、云资源部署、产品 E2E、提交材料发送 |
-| 必须 G0 决定 | 模型 profile、实际包锁版本、E2B 模板和 lifetime 行为、部署输入与截止时间 |
+| 已完成前端 | 可运行的 Mock 工作台、模拟流程及本地交互验证；不代表真实服务通过 |
+| 已完成沙箱子探针 | 授权服务器OpenSandbox/gVisor、React构建、Chrome真实操作、独立iframe、取消/TTL/清理及资源采样；[实测报告](sandbox-g0-results.md) |
+| 尚未完成 | Pi + OpenSandbox + 模型实际集成，工作台真实API接入、Supabase部署与联合容量、正式产品E2E、提交材料发送 |
+| G0剩余门槛 | 模型profile与Pi工具兼容、正式adapter类型检查、Auth/Storage与联合容量；锁定完整部署输入与截止时间 |
 
 只有出现明确新需求才扩展：多实例需要 durable queue/租约；跨进程长任务恢复再评估 LangGraph；多人同时编辑需要冲突模型；应用永久托管需要部署服务；生成应用后端需要独立数据库/凭据隔离；可视化编辑再评估 Dyad tagger。当前端口接口为这些可能性留边界，不提前把它们实现进 48h Demo。

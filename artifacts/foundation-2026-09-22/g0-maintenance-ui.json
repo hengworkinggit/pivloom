@@ -1,0 +1,135 @@
+{
+  "bootId": "ed7973b0-3ff3-4b18-aa3d-aca0ca056fed",
+  "maintenanceRunId": "10f75c2b-7740-4543-9255-ab5eee0492e5",
+  "runId": "d2078358-6207-4df9-8100-2619d1f7f186",
+  "status": "ready",
+  "cleanup": {
+    "state": "confirmed",
+    "sandboxId": "40c8eb69-e5ca-44e4-9d16-c5e7b75e0921"
+  },
+  "evidence": {
+    "model": {
+      "provider": "pivloom-ark",
+      "id": "glm-5.3-flash",
+      "api": "openai-completions",
+      "imageCapability": "dom_only"
+    },
+    "versions": {
+      "pi": "0.86.1",
+      "opensandbox": "1.1.0",
+      "image": "pivloom-g0:20260922",
+      "node": "v22.15.1",
+      "sourceSchemaVersion": "1",
+      "templateVersion": "react-vite-node24-20260922",
+      "remote": "v24.13.0\nChromium 153.0.8010.52 built on Debian GNU/Linux 12 (bookworm)\nagent-browser 0.38.1"
+    },
+    "toolCalls": [
+      {
+        "id": "call_ab991b29527b40928c0c3259",
+        "name": "read",
+        "success": true
+      },
+      {
+        "id": "call_663d8573a6c24127a587fa2f",
+        "name": "write",
+        "success": true
+      },
+      {
+        "id": "call_3e741a143ba54b06b8065131",
+        "name": "edit",
+        "success": true
+      },
+      {
+        "id": "call_fd6a48a5ce4d423d9ca57f02",
+        "name": "bash",
+        "success": true
+      }
+    ],
+    "checks": [
+      {
+        "name": "pi-remote-tools",
+        "status": "PASS",
+        "detail": "真实模型成功执行远程 read/write/edit/bash"
+      },
+      {
+        "name": "typecheck-production-build-marker",
+        "status": "PASS",
+        "detail": "固定入口退出码均为 0，预览 marker 与源码哈希一致"
+      },
+      {
+        "name": "chrome-fill-submit-observe-screenshot-close",
+        "status": "PASS",
+        "detail": "真实 Chrome 填写、提交，独立DOM确认记录，并保存截图和关闭会话"
+      },
+      {
+        "name": "vision-model",
+        "status": "BLOCKED",
+        "detail": "此次模型视觉能力未实测；仅 DOM 行为检查"
+      }
+    ],
+    "elapsedMs": 236002,
+    "sources": [
+      {
+        "path": "index.html",
+        "sha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42",
+        "bytes": 263
+      },
+      {
+        "path": "package-lock.json",
+        "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6",
+        "bytes": 26874
+      },
+      {
+        "path": "package.json",
+        "sha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65",
+        "bytes": 517
+      },
+      {
+        "path": "src/App.tsx",
+        "sha256": "296aea6f41b3b9fecbcd039effe048496d221d3be8e20d9296504cfb0079b68b",
+        "bytes": 1637
+      },
+      {
+        "path": "src/main.tsx",
+        "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c",
+        "bytes": 153
+      },
+      {
+        "path": "src/style.css",
+        "sha256": "c890470f782db22b3bef534573e7b70b96cf1acce9ba9995cdd486db92820084",
+        "bytes": 292
+      },
+      {
+        "path": "tsconfig.json",
+        "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837",
+        "bytes": 331
+      }
+    ],
+    "screenshot": {
+      "mimeType": "image/png",
+      "sha256": "505982f706e7307b2e7da8c4fe25e9b7431e356261bb7aa1f63dcbafe2750a34"
+    }
+  },
+  "previewIdentity": {
+    "revisionId": "6a2f9ffa-960e-4c99-a23b-236c9ccdc5b3",
+    "sourceHash": "e53d9b9cd4f38a6e4024b90003f50e6fe24e9fba22f5a189e1b1dd4a166259ac",
+    "sandboxId": "40c8eb69-e5ca-44e4-9d16-c5e7b75e0921",
+    "expiresAt": "2026-09-22T02:49:23.429Z"
+  },
+  "independentBrowser": {
+    "surface": "Codex in-app browser",
+    "result": "PASS",
+    "steps": [
+      "enter requirement in maintenance UI",
+      "start real generation",
+      "fill and submit unique record in cross-origin iframe",
+      "reload outer page and observe same record",
+      "submit another record at 390px outer viewport",
+      "check zero error/warn console entries",
+      "click cleanup and confirm remote sandbox destruction"
+    ],
+    "viewportWidth": 390,
+    "documentScrollWidth": 390,
+    "iframeRenderedWidth": 312
+  }
+}

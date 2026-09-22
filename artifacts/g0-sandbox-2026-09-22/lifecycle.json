@@ -1,0 +1,23 @@
+[
+  {
+    "at": "2026-09-22T00:59:16.779Z",
+    "name": "cancel-during-create",
+    "sandboxId": "6d8822c8-1364-4eeb-bfc3-fc6f257aba19",
+    "removed": true
+  },
+  {
+    "at": "2026-09-22T00:59:18.432Z",
+    "name": "two-sandbox-file-isolation",
+    "passed": true,
+    "primaryId": "4aba45a7-5b58-4e6e-89a3-030499759f05",
+    "ttlId": "51f6722d-0a70-404b-b0f0-f8635cccc672"
+  },
+  {
+    "at": "2026-09-22T01:00:17.114Z",
+    "name": "ttl-expiry",
+    "sandboxId": "51f6722d-0a70-404b-b0f0-f8635cccc672",
+    "removed": true,
+    "elapsedMs": 59734,
+    "configuredSeconds": 60
+  }
+]

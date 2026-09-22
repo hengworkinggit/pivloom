@@ -1,0 +1,10 @@
+{
+  "verifiedImage": "pivloom-g0:20260922",
+  "verifiedImageId": "sha256:6209e7d0901b95a0150e884afb8bef734c88e4017a544cc7b391ac3e8b4792c0",
+  "runtime": "gvisor systrap",
+  "node": "24.13.0",
+  "chromium": "153.0.8010.52",
+  "agentBrowser": "0.38.1",
+  "source": "package.json and package-lock.json copied from the verified image without starting a container",
+  "rebuiltFromRepositoryDockerfile": false
+}

@@ -1,0 +1,117 @@
+name: pivloom-data
+services:
+  db:
+    image: public.ecr.aws/supabase/postgres:17.6.1.136
+    restart: unless-stopped
+    mem_limit: 512m
+    ports: ["127.0.0.1:54322:5432"]
+    environment:
+      POSTGRES_HOST: /var/run/postgresql
+      PGPORT: 5432
+      POSTGRES_PORT: 5432
+      PGPASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      PGDATABASE: postgres
+      POSTGRES_DB: postgres
+      JWT_EXP: 3600
+    volumes:
+      - ./init/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
+      - ./init/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
+      - data:/var/lib/postgresql/data
+      - db-config:/etc/postgresql-custom
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf", "-c", "shared_buffers=64MB", "-c", "max_connections=80", "-c", "work_mem=4MB", "-c", "log_min_messages=fatal"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  auth:
+    image: public.ecr.aws/supabase/gotrue:v2.196.0
+    restart: unless-stopped
+    mem_limit: 192m
+    ports: ["127.0.0.1:54323:9999"]
+    depends_on:
+      db: {condition: service_healthy}
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      GOTRUE_CORS_ALLOWED_HEADERS: apikey,x-supabase-api-version
+      API_EXTERNAL_URL: ${SUPABASE_PUBLIC_URL}/auth/v1
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      GOTRUE_SITE_URL: ${APP_ORIGIN}
+      GOTRUE_URI_ALLOW_LIST: ${APP_ORIGIN}/**
+      GOTRUE_DISABLE_SIGNUP: "true"
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_SECRET: ${JWT_SECRET:?required}
+      GOTRUE_JWT_ISSUER: ${SUPABASE_PUBLIC_URL}/auth/v1
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "false"
+      GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--tries=1", "http://localhost:9999/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  rest:
+    image: public.ecr.aws/supabase/postgrest:v14.17
+    restart: unless-stopped
+    mem_limit: 128m
+    ports: ["127.0.0.1:54324:3000"]
+    depends_on:
+      db: {condition: service_healthy}
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/postgres
+      PGRST_DB_SCHEMAS: public,storage
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_DB_POOL: 5
+      PGRST_DB_MAX_ROWS: 1000
+      PGRST_JWT_SECRET: ${JWT_SECRET:?required}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_EXP: 3600
+      PGRST_ADMIN_SERVER_PORT: 3001
+      PGRST_ADMIN_SERVER_HOST: localhost
+    healthcheck:
+      test: ["CMD", "postgrest", "--ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  storage:
+    image: public.ecr.aws/supabase/storage-api:v1.74.0
+    restart: unless-stopped
+    mem_limit: 384m
+    ports: ["127.0.0.1:54325:5000"]
+    depends_on:
+      db: {condition: service_healthy}
+      rest: {condition: service_healthy}
+    environment:
+      ANON_KEY: ${ANON_KEY:?required}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY:?required}
+      POSTGREST_URL: http://rest:3000
+      AUTH_JWT_SECRET: ${JWT_SECRET:?required}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      STORAGE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL}
+      REQUEST_ALLOW_X_FORWARDED_PATH: "true"
+      FILE_SIZE_LIMIT: 10485760
+      STORAGE_BACKEND: file
+      GLOBAL_S3_BUCKET: pivloom
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: pivloom
+      REGION: local
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+    volumes:
+      - objects:/var/lib/storage
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--tries=1", "http://127.0.0.1:5000/status"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+volumes:
+  data:
+  db-config:
+  objects:

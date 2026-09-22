@@ -1,0 +1,39 @@
+{
+  "name": "@pivloom/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=.env.local src/server.ts",
+    "start": "node --env-file-if-exists=.env.local dist/server.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src scripts tests",
+    "g0:serve": "node --env-file-if-exists=.env.local --import tsx scripts/g0/serve.ts",
+    "g0:abort": "node --env-file-if-exists=.env.local --import tsx scripts/g0/abort.ts"
+  },
+  "dependencies": {
+    "@alibaba-group/opensandbox": "1.1.0",
+    "@earendil-works/pi-agent-core": "0.86.1",
+    "@earendil-works/pi-ai": "0.86.1",
+    "@earendil-works/pi-coding-agent": "0.86.1",
+    "@pivloom/contracts": "0.1.0",
+    "@supabase/supabase-js": "2.116.0",
+    "fastify": "5.12.5",
+    "pg": "8.23.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.4",
+    "@types/pg": "8.23.1",
+    "eslint": "9.39.4",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.1",
+    "vitest": "4.1.11"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

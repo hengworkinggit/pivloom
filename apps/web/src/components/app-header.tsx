@@ -6,7 +6,8 @@ import { DropdownMenu } from "radix-ui";
 import { ArrowLeft, ChevronDown, LogOut } from "lucide-react";
 import { useState } from "react";
 import { Brand } from "./brand";
-import { demoApi } from "@/lib/mock-api";
+import { useWorkspaceAuth } from "@/lib/use-workspace";
+import { isDemoMode } from "@/lib/workspace";
 import { errorMessage } from "@/lib/utils";
 
 export function AppHeader({
@@ -19,11 +20,12 @@ export function AppHeader({
   children?: React.ReactNode;
 }) {
   const router = useRouter();
+  const { user, auth } = useWorkspaceAuth();
   const [error, setError] = useState("");
   async function logout() {
     try {
-      await demoApi.logout();
-      router.push("/login");
+      await auth.logout();
+      router.replace("/login");
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -49,19 +51,20 @@ export function AppHeader({
         {title && (
           <span className="saved-state">
             <i className={saving ? "status-dot dot-pulse" : "status-dot"} />
-            {saving ? "生成中" : "本地已保存"}
+            {saving ? "生成中" : isDemoMode ? "本地已保存" : "已保存"}
           </span>
         )}
-        <span
+        {!isDemoMode && <Link className="settings-header-link" href="/settings/models">模型设置</Link>}
+        {isDemoMode && <span
           className="demo-badge"
           title="所有接口与生成过程使用模拟数据，不会调用模型"
         >
           演示模式
-        </span>
+        </span>}
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <button className="account-trigger" aria-label="账号菜单">
-              <span className="avatar">H</span>
+              <span className="avatar">{(user?.name || user?.email || "?").slice(0, 1).toUpperCase()}</span>
               <ChevronDown size={12} />
             </button>
           </DropdownMenu.Trigger>
@@ -72,8 +75,8 @@ export function AppHeader({
               align="end"
             >
               <div className="account-description">
-                <strong>Heng 的工作空间</strong>
-                <span>demo@pivloom.app</span>
+                <strong>{user?.name || "我的"} 的工作空间</strong>
+                <span>{user?.email}</span>
               </div>
               <DropdownMenu.Separator className="menu-separator" />
               <DropdownMenu.Item

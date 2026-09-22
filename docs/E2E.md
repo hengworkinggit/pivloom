@@ -1,8 +1,12 @@
 # Pivloom E2E 测试规格
 
-版本：1.0 · 2026-09-22。范围：[PRD F01–F14](PRD.md)，实现契约：[TRD](TRD.md)。
+版本：1.1 · 2026-09-22。范围：[PRD F01–F15](PRD.md)，实现契约：[TRD](TRD.md)。
 
-**当前产品尚未实现，本文所有产品用例均为 NOT_RUN。** 第 11 节的 PASS 仅指 Codex 内置浏览器在独立夹具上的能力探针。测试方案、用例和门槛已定义，不能据此声称 Demo 可用或已经完成验收。
+2026-09-22沙箱决定：采用OpenSandbox Docker + gVisor systrap，已在授权服务器通过沙箱基础设施实测；Pi保留，E2B不再是前置。已验证文件/命令、React构建、Chrome、跨origin iframe、取消、TTL和清理。完整Pi生成与Supabase联调、联合容量及正式产品E2E仍待通过。详见[实测记录](sandbox-g0-results.md)与[方案依据](sandbox-options.md)。本地开发/E2E使用localhost或隧道，不依赖公网域名。
+
+**当前已实现 Mock 前端，真实后端、模型与隔离沙箱链路尚未实现，本文所有正式产品用例均为 NOT_RUN。** 第 11 节的 PASS 仅指 Codex 内置浏览器在独立夹具上的能力探针；已有 Mock 前端验证另见[实际记录](frontend-verification.md)，不能继承为正式通过。
+
+每个 [DEV 模块](tickets/real-development-v1/README.md) 实现后立即执行该票的相关 E2E 与必要集成断言，通过后才能关闭并解除依赖。缺少前置条件记录 BLOCKED，保持 issue 打开；发布回归不能替代模块即时验证。
 
 ## 1. 测试策略
 
@@ -11,8 +15,8 @@
 | 层次 | 工具 / 环境 | 能证明什么 | 不能替代什么 |
 |---|---|---|---|
 | 开发 UI E2E | Codex 内置浏览器 + 真实工作台 | 可见流程、iframe 操作、键盘、状态、错误、布局 | 不能仅凭截图证明后台取消/事务/隔离 |
-| 产品内部检查 | E2B 中 agent-browser + Reviewer | 生成应用的限定行为检查和修复反馈 | 不能验收 Pivloom 登录、工作台、SSE 或公网代理 |
-| 服务集成测试 | 测试 runner + Postgres + adapter；关键操作接真实 E2B | 幂等、状态竞争、owner 权限、远端清理、数据一致性 | 不能把 API 返回成功记成 UI 流程成功 |
+| 产品内部检查 | OpenSandbox 中 agent-browser + Reviewer | 生成应用的限定行为检查和修复反馈 | 不能验收 Pivloom 登录、工作台、SSE 或公网代理 |
+| 服务集成测试 | 测试 runner + Postgres + adapter；关键操作接真实 OpenSandbox | 幂等、状态竞争、owner 权限、远端清理、数据一致性 | 不能把 API 返回成功记成 UI 流程成功 |
 | 静态与构建检查 | 类型检查、lint、production build | 基本类型、导入、构建 | 不证明点击、保存或持续修改有效 |
 
 不把外部 Playwright 测试进程作为默认 UI 验收入口。Codex 工具内部可能将语义定位对象命名为 `playwright`；使用它仍是在 Codex 内置浏览器当前页面操作，不是另外启动浏览器或安装测试 runner。优先使用实际 AX 状态；复杂 iframe 可用工具已公开的语义定位能力。
@@ -26,12 +30,14 @@
 | 环境 | 用途 | 约束 |
 |---|---|---|
 | Local/isolated test | 开发与可重复故障 | 经统一代理访问，如已配置的 `http://localhost:8080`；测试数据库、测试账号；允许维护脚本注入故障 |
-| Staging | 接真实模型/E2B/Supabase 的完整联调 | HTTPS 与正式拓扑一致；合成数据；故障测试不得影响正常评审 |
+| Staging | 接真实模型/OpenSandbox/Supabase 的完整联调 | HTTPS 与正式拓扑一致；合成数据；故障测试不得影响正常评审 |
 | Online Demo | 发布候选的最后核验 | 故障注入关闭；使用提供给评审的入口；只做正常流程和明确允许的测试项目操作 |
 
-每份测试报告必须填写真实 URL、build commit/版本、API boot ID、模型 profile、E2B template、浏览器环境和测试时间。当前没有已部署 URL；示例 localhost 地址不是已经启动的产品。
+每份测试报告必须填写真实 URL、build commit/版本、API boot ID、模型 profile、沙箱镜像digest、浏览器环境和测试时间。当前没有已部署 URL；示例 localhost 地址不是已经启动的产品。
 
 ### 2.2 账号
+
+测试基础设施由开发代理在已授权服务器部署自托管Supabase并生成服务URL/密钥，执行迁移、私有bucket、幂等A/B身份、测试前缀/manifest和精确清理。用户模型通过页面配置；Pi、沙箱与Supabase仍须联合验证。开发期使用localhost/SSH隧道，不要求域名；公网HTTPS阶段另测。见[基础设施分工](infrastructure-setup.md)。
 
 - `tester-A`：普通评审账号，拥有测试项目；凭据由安全配置提供，不写进文档或截图。
 - `tester-B`：不同 owner，验证隔离；本轮没有团队管理员功能。
@@ -73,8 +79,8 @@
 
 ### 2.5 开测前清单
 
-1. G0 的 Pi/E2B/模型/Chrome 实际集成通过，服务健康，DB 迁移版本正确。
-2. A/B 身份已准备、测试项目有独立前缀，模型和 E2B 有足够测试额度。
+1. G0 的 Pi/OpenSandbox/模型/Chrome 实际集成通过，服务健康，DB 迁移版本正确。
+2. A/B 身份已准备、测试项目有独立前缀，模型有足够测试额度，OpenSandbox通过容量门槛且有可分配资源。
 3. 正常用例关闭 fake runner 与故障 profile；有明确 build 与配置记录。
 4. 用例涉及维护脚本时先在隔离环境预设故障，再由 UI 触发真实流程。
 5. 每个测试项目的活动 run、sandbox、revision 能由维护者关联查询；查询结果要脱敏。
@@ -115,7 +121,7 @@ var preview = richTab.playwright.frameLocator('iframe[title="应用预览"]');
 
 截图用当次工具返回的图片或实际文件路径作为证据；若只有会话内图片，记录工具调用/时间/页面标题，不编造磁盘路径。正式报告引用实际可访问附件；本规格不包含不存在的产品截图。
 
-跨源 iframe 探针成功不保证实际 E2B 的 CSP、cookie、重定向完全兼容；必须在部署的 iframe 上重测。若工具无法展开，先截图和真实坐标操作；新标签可补充定位问题，但不能把“新标签成功”当作嵌入预览已经通过。
+跨源 iframe 探针成功不保证实际 OpenSandbox 的 CSP、cookie、重定向完全兼容；必须在部署的 iframe 上重测。若工具无法展开，先截图和真实坐标操作；新标签可补充定位问题，但不能把“新标签成功”当作嵌入预览已经通过。
 
 ### 3.3 控制台与响应式
 
@@ -156,7 +162,7 @@ var preview = richTab.playwright.frameLocator('iframe[title="应用预览"]');
 
 ### E04 · 真实生成需求 A · P0
 
-- 前置：新空项目，真实模型/E2B，所有 fixture 关闭。
+- 前置：新空项目，真实模型/OpenSandbox，所有 fixture 关闭。
 - 步骤：输入需求 A；发送一次；观察真实阶段；打开结果；记录 run/revision；查看至少 2 个实际源文件。
 - 通过：真实模型及远程工具执行；生成多文件代码，构建、保存和预览成功；结果具备报名目标，不是静态成功动画。
 - 证据：需求消息、阶段与源码；模型调用/命令/快照记录。若 F13/F14 已接入，还须 E21 通过才声明团队完成。
@@ -228,7 +234,7 @@ var preview = richTab.playwright.frameLocator('iframe[title="应用预览"]');
 
 ### E14 · 远程命令阶段停止 · P0
 
-- 前置：隔离环境在真实 E2B 执行一个受控长命令，包含可观察的周期写入，不模拟远端句柄。
+- 前置：隔离环境在真实 OpenSandbox 执行一个受控长命令，包含可观察的周期写入，不模拟远端句柄。
 - 步骤：UI 开始任务；到命令阶段点击停止；等待确认；查看上一成功预览；随后尝试新任务。
 - 通过：已知进程/候选 sandbox 真正结束，周期写入停止；旧预览不受影响；确认前不接受新任务，确认后可正常开始。
 - 证据：UI + I02 的远端清理核验。仅 SSE 停止输出不能算通过。
@@ -349,6 +355,13 @@ var preview = richTab.playwright.frameLocator('iframe[title="应用预览"]');
 - 通过：停止新工具调用，明确超时和清理待确认；未确认前不假显示已停止或接受新生成；确认后解除项目阻塞，旧资产保留。
 - 证据：UI + 远端与数据库记录；缺少真实终止补证时不记完整 PASS。
 
+### E31 · 用户模型设置与真实连接 · P0
+
+- 前置：真实身份与私有存储可用；用户自有模型配置。
+- 步骤：从UI打开设置→填Provider/Base URL/Key/模型→错误连接→更正并真实测试→保存→刷新/重登→更新密钥/切换默认/删除；以B账号访问A配置。
+- 通过：流式与工具能力确实经过Pi验证；配置持久、按owner隔离，Key仅掩码回显，浏览器不持久存明文；桌面/390px和键盘可操作。截图不得展示输入中的Key。
+- 联动：DEV-03选择配置后生成，同幂等键异profile/version拒绝；编辑/默认切换/删除不改变在途Run的冻结配置。连接测试和正式生成分别记录，不互相替代。
+
 ## 8. 集成测试与故障注入
 
 ### 8.1 不由 UI 单独证明的不变量
@@ -358,18 +371,19 @@ var preview = richTab.playwright.frameLocator('iframe[title="应用预览"]');
 | ID | 精确验证 | 必须断言 |
 |---|---|---|
 | I01 幂等/互斥 | 并发发送同 key、不同 key、同 key 不同 body；生成与 restore 同时提交 | 同 key 同内容一个 run/用户消息；不同请求同项目至多一个 accepted；冲突没有隐藏排队；项目操作正常释放 |
-| I02 远端取消 | Pi streaming abort；真实 E2B 长命令/子进程；create 尚未返回时取消 | 信号传递；进程或整个候选被确认结束；迟到创建被销毁；旧成功 sandbox 不误杀；清理失败仍阻塞 |
+| I02 远端取消 | Pi streaming abort；真实 OpenSandbox 长命令/子进程；create 尚未返回时取消 | 信号传递；进程或整个候选被确认结束；迟到创建被销毁；旧成功 sandbox 不误杀；清理失败仍阻塞 |
 | I03 停止/完成竞争 | 在 finalize 事务前后并发 cancel；延迟 tool result | 取消先提交则无 promote；完成先提交则终态保持 completed；迟到结果不派下个角色 |
 | I04 SSE | 历史读取和实时订阅之间插入事件；重复/分块/断流/慢客户端；token 过期 | cursor 单调、无漏关键事件、UI 去重；过期后重鉴权；客户端离开不取消 run；普通 subscriber 不冒充 await 屏障 |
 | I05 snapshot 事务 | 上传失败；上传成功 DB 提交失败；超限/链接/路径逃逸；恢复 roundtrip | current 不悬空；孤儿对象可识别；未引用对象不当成功版本；恢复 hash 一致；不吞二进制或密钥文件 |
 | I06 版本绑定 | 错 revision/hash/attempt/session 的报告；检查期间源码变化 | 拒绝结果且不 promote；所有附件和事件归属相同版本；修复不复用旧 browser session |
 | I07 重启恢复 | 持久化 accepted 后未启动就停进程；build 中退出；重启扫描 | 遗留任务 interrupted，保留原请求/current；不透明重放 shell；清理确认前不接受新任务 |
 | I08 角色/预算 | Coordinator/Reviewer 调写工具；重复 handoff；持续失败；schema 无效；needs_input | 服务拒绝写入；每 role/attempt 唯一；repair≤2；预算停机；澄清释放槽；不会仅根据头像或模型“完成”改变状态 |
-| I09 owner/路径 | B 访问 A 的项目/run/SSE/source/artifact/cancel/retry/restore；任意路径和 URL | 所有被拒绝；无数据/状态副作用；可信服务凭据不出现在响应、日志、bundle 或 E2B env |
+| I12 模型配置 | A/B配置CRUD/test、密钥轮换、版本冻结、私网/DNS/重定向、掩码保存 | 跨owner拒绝；加密落库；无响应/日志泄漏；不请求未授权目标；旧Run与新默认分离 |
+| I09 owner/路径 | B 访问 A 的项目/run/SSE/source/artifact/cancel/retry/restore；任意路径和 URL | 所有被拒绝；无数据/状态副作用；可信服务凭据不出现在响应、日志、bundle 或 OpenSandbox env |
 | I10 浏览器 adapter | refs 失效、导航越界、命令参数注入、输出路径、超时、close | 仅允许受控动作/来源，拒绝跨 session refs；JSON/截图正确处理；观察重试不盲重放写动作 |
 | I11 生产部署 | 构建产物、单实例配置、proxy/SSE、故障开关、schema/bucket 权限 | 正常前端资源齐全；API/SSE 可用；生产禁止 TEST_PROFILE；anon 不能直接读私有数据；无宿主执行生成代码 |
 
-I01–I11 当前均 NOT_RUN。测试名只是实现建议，不代表已经有测试文件。只为上述真实风险编写必要断言，不为每个文案写镜像实现的测试。
+I01–I12 当前均 NOT_RUN。测试名只是实现建议，不代表已经有测试文件。只为上述真实风险编写必要断言，不为每个文案写镜像实现的测试。
 
 ### 8.2 故障 profile 设计
 
@@ -378,7 +392,7 @@ I01–I11 当前均 NOT_RUN。测试名只是实现建议，不代表已经有�
 | Profile | 替换/影响边界 | 用例 | 不得据此声称 |
 |---|---|---|---|
 | `SLOW_MODEL` | 模型 adapter 的受控慢响应，尊重 abort | E13 | 真实 provider 已中断，除非另有真实测试 |
-| `LONG_REMOTE_COMMAND` | 在真实 E2B 添加测试长命令 | E14 | 仅 UI 停止即证明进程退出 |
+| `LONG_REMOTE_COMMAND` | 在真实 OpenSandbox 添加测试长命令 | E14 | 仅 UI 停止即证明进程退出 |
 | `MODEL_ERROR_ONCE` | 首次模型调用抛不可重试测试错误 | E15 | 初次任务调用过真实模型 |
 | `INVALID_TS_FIRST_ATTEMPT` | 首次 Builder 产物夹具，后续 Builder 真实 | E16 | 初次代码由真实模型生成 |
 | `BROKEN_FILTER_FIRST_ATTEMPT` | 构建正常但筛选失效的首版夹具；后续修复真实 | E22 | 所有自然生成任务必然出现相同缺陷 |
@@ -428,6 +442,7 @@ D01–D05 当前均 NOT_RUN；本次只交付规格，不自动发送消息或�
 | F12 在线交付 | T10 | E01/E04/E11 + D01–D05 | I11 |
 | F13 三角色 | T03/T04 | E21/E29 | I08 |
 | F14 检查修复 | T03/T07 | E22/E23/E24 | I06/I08/I10 |
+| F15 模型设置 | T01/T02/T04/T09 | E31 + E04模型联动 | I12 |
 
 题面映射：R01→E04/E12；R02→E04/E06/E26；R03→E05/E08/E09；R04→E11/E17/I05；R05→D01；R06→D02/D04；R07→D05；R08→TRD 工期记录；R09→E01/E03/E04（注册已明确延期）；R10→E21–E24；R11→D03；R12→D04/D05。R08/R09/R10 的条件性不改变原题强度。
 
@@ -435,7 +450,7 @@ D01–D05 当前均 NOT_RUN；本次只交付规格，不自动发送消息或�
 
 **开发 smoke**：E01/E03/E04/E05/E07，接着 E08/E09/E10/E11；早期每修一次主链路就复测相关部分，不为无关文案改动重新消耗两套完整生成。
 
-**发布候选完整验收**：E01–E30、I01–I11、D01–D05 中与当前交付阶段适用的项目；真实生成至少 A 的初次+两次修改和 B 的初次。故障用例在隔离环境执行，线上重跑 E01/E04/E05/E08/E11/E21 与 D01。其它正常 UI 行为可复用同一测试项目降低调用成本。
+**发布候选完整验收**：E01–E31、I01–I12、D01–D05 中与当前交付阶段适用的项目；真实生成至少 A 的初次+两次修改和 B 的初次。故障用例在隔离环境执行，线上重跑 E01/E04/E05/E08/E11/E21/E31 与 D01。其它正常 UI 行为可复用同一测试项目降低调用成本。
 
 严重度：S0 为数据/凭据泄漏、跨用户越权或不可控资源；S1 为主流程不可用、假成功、取消无效、资产丢失；S2 为重要非阻塞交互问题；S3 为外观细节。所有 S0/S1 必须修复并复测才能宣称对应交付可用；保留的 S2/S3 要在说明中列出影响。
 
@@ -447,14 +462,14 @@ PASS = 实际结果满足全部断言；FAIL = 已执行且不满足；BLOCKED =
 
 执行提示（填入真实环境和账号获取方式后使用，不把密码写入共享报告）：
 
-> 使用 Codex 内置浏览器测试 Pivloom，目标是【实际 URL / build】。遵循 docs/E2E.md，先执行【用例编号】。正常生成使用真实模型和 E2B，检查当前环境没有 fixture。通过页面操作登录、发送需求、使用 iframe 和源码视图；不要用 API 或脚本设置页面状态来代替 UI。每次操作后读取实际页面，记录预期、实际、run/revision 和必要截图。后台不变量执行对应 I 用例，分开标注证据。遇到 blocker 记录并继续独立用例；禁止把未执行记为通过。结束清理本轮测试资源并报告残留资源。故障测试仅在指定隔离环境执行。
+> 使用 Codex 内置浏览器测试 Pivloom，目标是【实际 URL / build】。遵循 docs/E2E.md，先执行【用例编号】。正常生成使用真实模型和 OpenSandbox，检查当前环境没有 fixture。通过页面操作登录、发送需求、使用 iframe 和源码视图；不要用 API 或脚本设置页面状态来代替 UI。每次操作后读取实际页面，记录预期、实际、run/revision 和必要截图。后台不变量执行对应 I 用例，分开标注证据。遇到 blocker 记录并继续独立用例；禁止把未执行记为通过。结束清理本轮测试资源并报告残留资源。故障测试仅在指定隔离环境执行。
 
 报告建议写到实际存在的 `docs/test-runs/<timestamp>-<build>.md`，创建目录时才成为真实工件：
 
 ```markdown
 # E2E 实测记录
 时间 / 环境 URL / build / API boot ID：
-模型 profile / Pi / E2B template / agent-browser / Chrome：
+模型 profile / Pi / 沙箱镜像digest / agent-browser / Chrome：
 账号别名 / 数据前缀 / fixture 开关：
 本次范围及未执行原因：
 
@@ -485,7 +500,7 @@ PASS = 实际结果满足全部断言；FAIL = 已执行且不满足；BLOCKED =
 
 ## 11. 2026-09-22 内置浏览器能力核验记录
 
-这是本次编写规格时实际执行的独立夹具试验，**不是产品 E2E**。夹具位于本机临时目录 `/tmp/nano-atoms-codex-e2e-probe`，两个 HTTP 来源为 `127.0.0.1:45231` 与 `127.0.0.1:45232`，没有连接模型、E2B、Supabase 或 Pivloom 代码。
+这是本次编写规格时实际执行的独立夹具试验，**不是产品 E2E**。夹具位于本机临时目录 `/tmp/nano-atoms-codex-e2e-probe`，两个 HTTP 来源为 `127.0.0.1:45231` 与 `127.0.0.1:45232`，没有连接模型、OpenSandbox、Supabase 或 Pivloom 代码。
 
 | 能力 | 实际操作与观察 | 结果 |
 |---|---|---|
@@ -498,4 +513,4 @@ PASS = 实际结果满足全部断言；FAIL = 已执行且不满足；BLOCKED =
 | 390px 视口 | capability.set 后只读测得 390×844，scrollWidth=390；frameLocator 实际点击计数 0→1 | PASS |
 | 清理 | reset 视口、关闭探针标签、终止两个端口的临时服务进程 | 完成 |
 
-该结果证明当前工具接口能支持本计划的基本操作，不证明实际产品的认证、CSP、E2B iframe、SSE、云恢复或生成质量。内置浏览器 API 随桌面工具版本提供，执行新一轮测试仍须读取当次文档。官方功能背景可参考 [Browser](https://learn.chatgpt.com/docs/browser?surface=app) 与 [QA with Computer Use](https://learn.chatgpt.com/use-cases/qa-your-app-with-computer-use)；具体已用 API 以当前会话返回文档和以上试验为准。
+该结果证明当前工具接口能支持本计划的基本操作，不证明实际产品的认证、CSP、OpenSandbox iframe、SSE、云恢复或生成质量。内置浏览器 API 随桌面工具版本提供，执行新一轮测试仍须读取当次文档。官方功能背景可参考 [Browser](https://learn.chatgpt.com/docs/browser?surface=app) 与 [QA with Computer Use](https://learn.chatgpt.com/use-cases/qa-your-app-with-computer-use)；具体已用 API 以当前会话返回文档和以上试验为准。

@@ -1,0 +1,39 @@
+# Generate a private config with prepare_config.py; do not start this template.
+[server]
+host = "127.0.0.1"
+port = 18080
+api_key = "__GENERATE_LOCALLY__"
+max_sandbox_timeout_seconds = 1800
+
+[proxy]
+resolve_internal = true
+
+[log]
+level = "INFO"
+
+[runtime]
+type = "docker"
+execd_image = "opensandbox/execd:v1.1.0"
+
+[store]
+type = "sqlite"
+path = "__STATE_DIR__/store.db"
+
+[storage]
+allowed_host_paths = []
+
+[docker]
+network_mode = "bridge"
+port_range_min = 19000
+port_range_max = 19199
+publish_host = "127.0.0.1"
+drop_capabilities = ["AUDIT_WRITE", "MKNOD", "NET_ADMIN", "NET_RAW", "SYS_ADMIN", "SYS_MODULE", "SYS_PTRACE", "SYS_TIME", "SYS_TTY_CONFIG"]
+no_new_privileges = true
+pids_limit = 512
+
+[ingress]
+mode = "direct"
+
+[secure_runtime]
+type = "gvisor"
+docker_runtime = "pivloom-g0-runsc"

@@ -9,7 +9,8 @@
     "start": "next start --hostname 127.0.0.1 --port 45231",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev:demo": "NEXT_PUBLIC_APP_MODE=demo next dev --hostname 127.0.0.1 --port 45231"
   },
   "dependencies": {
     "next": "16.3.5",
@@ -19,7 +20,9 @@
     "lucide-react": "^0.577.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "tailwind-merge": "^3.5.0"
+    "tailwind-merge": "^3.5.0",
+    "@pivloom/contracts": "0.1.0",
+    "@supabase/supabase-js": "2.116.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.3",

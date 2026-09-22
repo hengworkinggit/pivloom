@@ -7,6 +7,7 @@ export default async function Page({
   params: Promise<{ kind: string }>;
   searchParams: Promise<{ revision?: string; features?: string }>;
 }) {
+  if (process.env.NEXT_PUBLIC_APP_MODE !== "demo") notFound();
   const { kind } = await params;
   if (kind !== "events" && kind !== "books" && kind !== "portfolio") notFound();
   const query = await searchParams;

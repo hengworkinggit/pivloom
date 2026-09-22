@@ -1,0 +1,611 @@
+[
+  {
+    "key": "DEV-01",
+    "slug": "runtime-probe",
+    "title": "G0：打通 Pi → 隔离沙箱 → 可操作预览的真实垂直探针",
+    "priority": "P0",
+    "deps": [],
+    "features": "F03/F05/F09/F14 的技术前置",
+    "delivery": "维护者从本地受控探针页面输入一个小需求，经真实 Pi tool call 修改隔离沙箱空模板，在 iframe 操作结果，并由沙箱内 agent-browser 独立执行同一交互；失败能定位到实际边界。此探针用于决定后续实现可行性，不作为正式产品 E04 的替代。",
+    "decisions": [
+      "先检查并保留现有 Mock 前端工作区，建立可复现代码基线，禁止覆盖用户未提交改动；共享 contracts 只放请求、事件和错误 schema，API 与 web 独立工作区。",
+      "采用 Pi coding-agent SDK、经G0验证的沙箱适配器、React/TypeScript/Vite 空模板；准确版本以已选 TRD 基线、实际包类型与编译结果锁定。记录 Node、Pi、沙箱SDK/runtime、CLI、Chrome、模板ID/digest，不把当前本地 CLI 版本当成远程镜像版本。",
+      "Pi 使用隔离资源加载、受控模型配置；工具名称 allowlist 与 customTools 按锁定版本核实。read/write/edit/bash 全部映射远端；禁用未远程适配的宿主工具。",
+      "探针仅本地或维护者受控测试环境可用，不能把匿名生成、原始 shell、凭据或测试开关暴露公网；不新增永久产品导航。",
+      "BrowserPort 封装观察、点击、填写、截图及清理；UI 浏览器与产品 Chrome 独立 session。锁定预览端口、origin、marker、lifetime与跨源iframe兼容性；本地可用不同回环端口，公网阶段验证HTTPS。",
+      "所需输入为受控模型profile、所选沙箱服务/模板、自托管Supabase与A/B身份；基础设施由代理准备，OpenSandbox服务与管理Key已在授权服务器生成；只记录配置是否可用，不输出 secret。缺项记 BLOCKED，不自动购买资源或借用个人 CLI 登录态。"
+    ],
+    "criteria": [
+      "干净安装可 typecheck/build，空模板本地与所选沙箱构建通过；记录准确工具签名和可复现命令。",
+      "真实模型至少执行远端读、写、精确编辑和一个命令；宿主项目没有被生成代码执行或写入。",
+      "沙箱内 Chrome 打开指定预览、填写并提交表单、观察结果、保存截图、关闭 session；不能只截首页。",
+      "Pi abort 和真实长命令/子进程取消均验证结束确认；create 返回前取消后得到的沙箱被登记并销毁。",
+      "Auth 身份验证和私有 Storage 上传/读回/哈希 roundtrip smoke 成立；无模型明文Key或平台私钥从API回显、进入日志或沙箱环境。"
+    ],
+    "cases": [
+      [
+        "G0-UI",
+        "内置浏览器打开探针 → 输入需求 → 观察实际阶段 → 在跨源 iframe 添加一条合成记录。",
+        "页面行为、marker 与源码对应；无控制台错误；390px 容器可操作。"
+      ],
+      [
+        "G0-REAL / I02 / I10 子集",
+        "真实 Pi 与所选沙箱执行后，检查 Chrome 动作及取消长命令；失败资源按本轮 manifest 清理。",
+        "记录调用 ID、退出状态、截图及资源最终状态；缺 credentials 或图像能力即明确 BLOCKED/DOM-only，不能改用 fixture 宣布通过。"
+      ]
+    ],
+    "exclusions": "不做完整用户项目、三角色协作或通用工具平台；无 Deep Agents/LangChain/LangGraph，无宿主执行生成应用。",
+    "body_file": "/Users/heng/Desktop/nano-Atoms/docs/tickets/real-development-v1/dev-01-runtime-probe.md",
+    "followup_2026_09_22": "## 接入与环境准备补充（2026-09-22）\n\n- 模型通信直接复用pi-ai，Pi包版本保持一致。G0可使用维护者受控的临时模型输入进行探针；正式用户必须经过DEV-14页面配置，不把环境文件当产品流程，不读取个人CLI授权。\n- Supabase优先在已授权服务器裁剪自托管，服务地址/密钥由开发代理生成；迁移、私有bucket、A/B身份、测试数据及清理均由代理准备。本地使用localhost或SSH隧道，无须先准备域名。\n- 沙箱选定OpenSandbox Docker + gVisor systrap并已部署内部服务；服务端15426df5d146d6ce7499a16bd1ed871e7242fe27、SDK1.1.0、gVisor20260914.0。固定React fixture的文件/命令/真实安装构建、Chrome和跨origin iframe、长命令及子进程取消、创建中取消、两沙箱文件隔离、60秒TTL与清理均PASS。\n- gVisor单沙箱1核/1GiB，cgroup峰值746.40MiB，旧站点193次探测无错误、swap为0；Supabase未参与，联合容量尚未通过。系统服务启动后的create/exec/kill也PASS，管理端点仅回环并要求Key，测试容器已清理。\n- **本票保持打开**：真实Pi工具生成、正式WorkspacePort/BrowserPort适配、Auth/Storage及与Supabase联合容量未完成。fixture不计入正式E04或G0-REAL通过。仓库记录：docs/sandbox-g0-results.md；原始工件：artifacts/g0-sandbox-2026-09-22/。\n- [ ] 配置准备可重跑；真实验证Pi工具、沙箱启停与子进程取消、Chrome交互、私有Storage roundtrip、新旧服务共存与峰值内存。只输出状态，不输出密钥。\n"
+  },
+  {
+    "key": "DEV-02",
+    "slug": "identity-projects",
+    "title": "登录后创建、重开并隔离服务端项目",
+    "priority": "P0",
+    "deps": [],
+    "features": "F01/F02/F07",
+    "delivery": "评审用户以预建账号登录，从真实服务创建自己的空项目，刷新和重新登录后仍可打开；其他账号无法读取或操作。现有首页样式保留，真实模式不显示三张预置项目或自动登录。",
+    "decisions": [
+      "Supabase Auth signInWithPassword 与 session 刷新；Fastify 校验 access token 的有效身份，不能仅 decode JWT。",
+      "建立 owner 隔离的 Project 与分页查询；GET /me、GET/POST /projects、GET /projects/:id 走 /api/v1。私有表和 bucket 不向 anon 直接开放。",
+      "把前端数据调用收敛为显式可切换的 Demo/API adapter；真实模式配置缺失必须显示配置错误，禁止悄悄降级到 Mock。登录退出清除私有查询缓存。",
+      "正式项目列表从服务读取，空态提供示例需求但不生成预制成品；可安全保留未发送草稿。初步同源代理与健康检查在此落地，已有部署环境时同步跑 staging 入口，不等发布票才验证网络。"
+    ],
+    "criteria": [
+      "有效账号进入；错误登录反馈一致；过期 session 返回登录；退出后受保护页面不残留项目内容。",
+      "A 连续创建两个项目，得到独立 ID；刷新与重新登录后还在；B 的列表不包含 A 的项目。",
+      "B 读取/修改 A 的项目返回不泄漏归属的拒绝响应；直接访问数据库/Storage 不能绕过 API。",
+      "登录、空列表、创建中、创建失败都有实际状态；失败保留输入；正式模式无测试口令/账号硬编码。"
+    ],
+    "cases": [
+      [
+        "E01/E02/E03/E11 项目子集",
+        "A 错误登录→正确登录→创建两项目→刷新→退出→重新登录→分别打开。",
+        "账号、标题、项目 ID 一致；空文本/超长提示不触发提交；中文输入 composition 不误发。"
+      ],
+      [
+        "E25 / I09 项目子集",
+        "记录 A 项目 ID，退出后登录 B；由浏览器和真实 HTTP 请求访问 A 的资源。",
+        "UI 不展示 A 内容；服务返回拒绝且无写入；不同标签不能冒充独立登录 context。"
+      ],
+      [
+        "E26 增量",
+        "1280×800 和 390px 完成登录/创建，键盘操作核心按钮。",
+        "无整页横向溢出，输入及错误有可访问名称。"
+      ]
+    ],
+    "exclusions": "不做注册、找回密码、组织、多团队、删除和项目共享；本票不调用模型。",
+    "body_file": "/Users/heng/Desktop/nano-Atoms/docs/tickets/real-development-v1/dev-02-identity-projects.md",
+    "followup_2026_09_22": "## 接入与环境准备补充（2026-09-22）\n\n- Supabase Auth/Postgres/私有Storage优先由代理在已授权服务器自托管，保留已有Caddy与站点，裁掉未用组件。服务URL、API Key及数据库密码由部署过程生成，不要求用户申请Supabase云项目。\n- 代理负责迁移、私有schema/bucket、A/B身份、随机测试密码、幂等seed、资源manifest及精确清理；本地开发通过localhost/SSH隧道连接，不依赖域名。\n- 每个实例有显式环境ID；维护脚本核对目标地址和实例标识，不把supabase.co后缀当唯一合法环境。环境级故障用可丢弃隔离实例，共享/评审数据禁止全库reset。\n- 源码快照、截图和诊断工件使用Storage私有bucket及持久卷，设计备份恢复；本轮不增加MinIO。\n- [ ] setup/seed可重跑；A/B登录、跨owner拒绝、Storage上传/读回/删除与测试资源精确清理通过。\n- [ ] 测量裁剪栈与原站点共存的资源占用；4GB主机是否有余量供沙箱构建和Chrome使用仍须实测。\n"
+  },
+  {
+    "key": "DEV-14",
+    "slug": "model-settings",
+    "title": "在页面配置自己的模型服务并验证连接",
+    "priority": "P0",
+    "deps": [
+      "DEV-02"
+    ],
+    "features": "F15 / E31 / I12",
+    "delivery": "登录用户从“设置 → 模型服务”添加 Provider、Base URL、API Key 和模型名称，测试连接、保存、编辑、更新密钥、设为默认及删除配置。刷新或重新登录后配置仍在，只回显密钥掩码。工作台显示用户选中的模型，并在真实生成中使用它。普通用户不编辑服务器环境文件。",
+    "decisions": [
+      "页面、鉴权 API、私有数据库记录和 Pi 连接探针一起交付；模型通信直接复用 pi-ai，不新增 Provider 框架。",
+      "模型配置按 owner 隔离，元数据与加密凭据分开；凭据使用服务端随机生成、独立于数据库保存的主密钥加密。加密记录绑定 owner/profile/version，响应只含掩码和配置状态。密钥不进入 localStorage、日志、Run/SSE、源码快照或 OpenSandbox。",
+      "设置 API 提供 GET/POST /api/v1/model-profiles、PATCH/DELETE /model-profiles/:id、POST /model-profiles/test（未保存草稿）、POST /model-profiles/:id/test（已保存版本）；草稿测试不持久化Key；PATCH 中省略 apiKey 表示保留，掩码字符串不能当新密钥保存。默认项按账号维护。",
+      "列表返回 provider、baseUrl、modelId、配置版本、掩码、默认状态和已验证能力，不返回可解密材料。测试通过实际 Pi 请求验证连接、流式和无副作用的工具调用；图像能力另测，未经验证标 unknown/DOM-only。",
+      "用户提供的首个配置为火山方舟 Coding Plan，Base URL https://ark.cn-beijing.volces.com/api/coding/v3，模型 glm-5.3-flash。密钥不写入工单。协议由实际 Pi 兼容性验证决定；不自动改到其他计费端点。",
+      "Base URL 只接受本轮支持的公开 HTTPS 模型端点；拒绝内嵌凭据、回环/私网/链路本地地址和重定向绕过，对 DNS 解析与实际连接目标做一致校验。连接探针有超时、限频和有限输出。",
+      "配置变更产生新版本。Run 固定 modelProfileId/configVersion 及服务端凭据版本引用；运行中编辑、设默认或删除不悄悄切换已接受任务。删除阻止新任务引用；在途任务所需凭据版本按任务结束后清理规则保留，不把明文复制到 Run。",
+      "本票在 #3 通过后执行，不要求先完成整条生成链。#4 依赖本票，将 modelProfileId/configVersion 纳入请求幂等校验，并在那里验证选中配置真正生成应用。"
+    ],
+    "criteria": [
+      "A 从 UI 添加首个配置，错误 Key 得到脱敏错误；更正后真实 Pi 连接、流式、工具调用通过。",
+      "保存、刷新、重新登录、编辑、默认切换、密钥更新、删除均实际可用；从不回显完整 Key。",
+      "B 无法列举、读取、修改、测试或删除 A 的配置；数据库直接访问不能越权。",
+      "页面无配置时指向设置，失败保留非敏感输入；不自动用其他账号/部署者模型，也不退回 Mock。",
+      "不支持的协议/模型与能力不足有明确反馈；视觉能力未经实测不标通过。",
+      "已删除配置不能接受新任务；配置版本与默认切换语义有可执行契约，#4 实测运行中一致性。"
+    ],
+    "cases": [
+      [
+        "E31 设置全流程",
+        "Codex 内置浏览器登录 A → 打开设置 → 添加配置 → 错误连接 → 更正 → 真实测试 → 保存 → 刷新/重登 → 更新/设默认/删除",
+        "真实反馈、配置持久、密钥只显掩码；桌面及 390px、键盘可操作；截图避开正在输入的密钥"
+      ],
+      [
+        "E31 / I12 owner",
+        "切换 B 并用真实 HTTP 尝试访问 A 的 profile",
+        "一致拒绝且无模型调用/配置副作用"
+      ],
+      [
+        "I12 凭据与目标",
+        "检查存储与响应；测试私网 URL、DNS/重定向绕过、掩码误保存和超时",
+        "数据库无明文 Key，响应/日志无泄漏，未授权网络目标不被请求"
+      ],
+      [
+        "#4 联动复测",
+        "工作台选择配置并生成；同幂等键换配置、运行中修改默认/配置、删除",
+        "实际调用与冻结版本一致；冲突明确，不影响正在运行的任务"
+      ]
+    ],
+    "exclusions": "组织共享密钥、自动供应商路由、自动充值、OAuth 供应商授权、计费平台和读取个人 CLI 登录态。",
+    "body_file": "/Users/heng/Desktop/nano-Atoms/docs/tickets/real-development-v1/dev-14-model-settings.md"
+  },
+  {
+    "key": "DEV-03",
+    "slug": "first-real-generation",
+    "title": "从一个真实需求生成、保存并预览多文件应用",
+    "priority": "P0",
+    "deps": [
+      "DEV-01",
+      "DEV-02",
+      "DEV-14"
+    ],
+    "features": "F03/F04/F05/F07",
+    "delivery": "用户在空项目提交活动报名需求，服务真实生成源码、构建、保存快照并提供能操作的预览。第二种读书需求独立生成不同实现，彻底替换按类型选静态成品的 Mock 路径。",
+    "decisions": [
+      "实现 POST /projects/:id/runs、GET /runs/:id、基础 SSE、项目结果读取。接受事务创建 Run、用户消息和 accepted 事件后才返回 202；一个项目一个操作，全局初始一个生成。",
+      "Idempotency-Key 与规范请求 hash 去重；expectedCurrentRevisionId 防过时提交；冲突/未接受保留草稿。执行器在响应之后运行，SDK 事件进入串行 EventAppender，关键阶段 await flush。",
+      "Builder 为唯一写入者；新候选独立于已有成功预览；可信服务执行固定 typecheck/build，禁止模型改脚本空跑冒充通过。",
+      "源码快照采用确定性文本 manifest+哈希+压缩 bundle，先私有 Storage 校验上传，再 DB 引用；大小/路径/链接/敏感文件按既定约束拒绝。",
+      "预览绑定 revisionId/sourceHash/sandbox，服务写 marker 并核对；iframe 只接受后端生成的不同来源地址，禁止顶层导航和工作台 token 泄漏。",
+      "G1 仅交付真实生成并保存的候选：Reviewer 尚未接入时，以 CHECK_BLOCKED（检查能力尚未就绪）明确结束 run，释放生成操作锁；候选展示“尚未检查”，current 保持为空。关闭Chrome并撤销写权限后，将候选转为明确登记、受短TTL限制的candidate-preview供UI验收；不得被run的finally立即销毁。过期提示不可用，DEV-10接入后提供恢复。不得造passed；DEV-06接入后重跑完整E04/E12，才验收正常completed/current。",
+      "真实调用从本票起就具备最小安全结束边界：run10分钟、单模型90秒、工具80次、输出/文件大小上限、短sandbox lifetime、超时后远端清理。DEV-11集中实现日额度、统一跨角色计量、扫描和压力验收，不能等它完成才给早期真实E2E加超时。"
+    ],
+    "criteria": [
+      "1–8000 字符有效输入才接受；请求失败不丢草稿；accepted 成功后有唯一用户消息与 run ID。",
+      "活动报名和读书清单各用新项目走真实模型/工具，产物符合不同需求，不读取预制成品作为结果。",
+      "状态来自实际执行；非零 build、预览失败、Storage 失败均不宣告成功或破坏已有 current。",
+      "已保存快照可从服务端读回，文件 hash 与执行源一致；成功/失败都保留可读原因和关联 ID。",
+      "本票只验收生成/构建/保存/可操作候选子链路；检查未就绪以可解释的 blocked 结果结束，current 不变；完整 E04/E12 在 DEV-06 由真实 Reviewer 验收。"
+    ],
+    "cases": [
+      [
+        "E04/E05/E06/E12 的候选生成子集",
+        "内置浏览器输入既定活动需求A；依次验证空字段、not-an-email、添加林舟/田禾/宋宁、确认田禾、搜索林；另建项目输入读书需求B并添加两书。",
+        "A 新增/校验/确认/搜索实际成立；B 无活动/邮箱字段且标已读可用；相同预览来源刷新保留业务数据；新标签 revision一致。 本票结果明确为已保存候选、检查受阻；不把完整成功生成 E04/E12 记 PASS。"
+      ],
+      [
+        "E27 / I05",
+        "隔离环境对本 run 注入 Storage 上传失败，以及上传成功但 DB 引用失败。",
+        "UI 显示保存失败；current 不悬空；没有假成功 revision；孤儿对象可识别；实际执行结果和注入边界分别记录。"
+      ],
+      [
+        "I01/I11 子集 + E02 提交子集",
+        "相同 key 同/异内容、不同 key 并发提交；无效身份发起生成；篡改 build script 测可信 gate。",
+        "唯一 run/消息、冲突正确、未鉴权无模型调用、无宿主运行；准确记录本票未完成的 Reviewer 部分。"
+      ]
+    ],
+    "exclusions": "不在本票实现完整重连、停止 UI、有限修复或永久应用托管；这些由后续依赖票验收。",
+    "body_file": "/Users/heng/Desktop/nano-Atoms/docs/tickets/real-development-v1/dev-03-first-real-generation.md",
+    "followup_2026_09_22": "## 模型入口补充（2026-09-22）\n\n- DEV-14（#15）的用户模型设置是本票前置。工作台读取当前owner的配置，展示默认/选中模型；无配置引导设置，不借用其他账号密钥或退回Mock。\n- 请求传modelProfileId/modelConfigVersion；服务端验证owner、版本有效性和已实测能力。Run固定配置与凭据版本的服务端引用，幂等hash包含profile/version；Key不进入Run、SSE、日志、快照或沙箱。\n- 运行中更新、默认切换、删除不得悄悄换模型；未开始的新任务按新配置校验。真实连接/流式/工具调用在#15验收，本票再次验证所选配置实际完成应用生成。\n- [ ] UI选择与真实provider/model/version一致；两个有效配置的切换实际验证，无前置的用例记BLOCKED。\n- [ ] 覆盖伪造/他人/删除的profile、同幂等key异profile/version、运行中配置编辑/默认切换/删除；桌面与390px可操作，响应无Key。\n- 图片存储不等于附件聊天/音视频；视觉能力未经实测仍为unknown/DOM-only。\n"
+  },
+  {
+    "key": "DEV-04",
+    "slug": "durable-events",
+    "title": "执行中刷新与 SSE 断线后恢复同一个任务",
+    "priority": "P0",
+    "deps": [
+      "DEV-03"
+    ],
+    "features": "F04/F06/F07",
+    "delivery": "用户生成中刷新、断网或切换标签，重新进入仍看到同一任务的真实阶段和唯一消息；未被服务接受的修改保留为草稿。",
+    "decisions": [
+      "fetch + Bearer + eventsource-parser；eventId 为字符串，按 ID 去重；支持 after cursor，1/2/4/8 秒上限重连，401 刷新授权，404 停止。",
+      "后端先订阅缓冲、读高水位并重放、再衔接实时事件；设心跳、慢客户端缓冲上限；关键事件持久化顺序不得依赖 SDK 普通 subscriber 被 await。",
+      "GET project/run 恢复服务端权威状态；UI 保存提交中幂等 key，仅在接受结果未知时重发相同请求；已知 run 只查询/订阅。终态单调，迟到旧事件不能倒退状态。",
+      "跨标签项目忙和 stale base 明确反馈；离开页面断开订阅，不取消后台任务。"
+    ],
+    "criteria": [
+      "运行中刷新后 run ID、用户消息数量不变，最终结果可见；不多收一次模型费用。",
+      "SSE_CLOSE_ONCE 后显示连接问题，重连自动补事件且不重放 UI 消息；token 过期不会无限读取旧连接。",
+      "同项目两个标签同时发送只接受一份，失败侧草稿保留；忙碌不建立隐形队列。",
+      "tool 输出截断、分批持久化，原始日志折叠；无隐藏推理与 secret。"
+    ],
+    "cases": [
+      [
+        "E10/E20",
+        "真实生成过程中刷新；隔离环境关闭一次目标 SSE，然后等待结果。",
+        "只一个 run/用户消息；当前阶段连续恢复；完成状态不倒退；离开浏览器后服务仍继续。"
+      ],
+      [
+        "E19 / I01 / I04",
+        "两标签同时提交；集成侧在历史读取与实时订阅之间插入事件，并测试重复/分块/慢连接/授权过期。",
+        "事件不漏关键终态、不重复；409/503 不吞草稿；网络恢复不自动创建新任务。"
+      ],
+      [
+        "E26 增量",
+        "窄屏切换对话/结果并继续编辑草稿，查看重连错误。",
+        "草稿和执行状态不丢，提示键盘可达。"
+      ]
+    ],
+    "exclusions": "不提供跨进程透明恢复 Agent 执行栈；重启中断语义由重试票承担。",
+    "body_file": "/Users/heng/Desktop/nano-Atoms/docs/tickets/real-development-v1/dev-04-durable-events.md"
+  },
+  {
+    "key": "DEV-05",
+    "slug": "coordinator",
+    "title": "协调者澄清需求并向工程师交接可观察目标",
+    "priority": "P1",
+    "deps": [
+      "DEV-03"
+    ],
+    "features": "F03/F13；F14的计划前置",
+    "delivery": "用户提出需求后看到协调者实际整理目标和1–5个可观察行为，再由独立工程师执行；必要时只问一个关键问题并释放资源，用户补充后继续新任务。",
+    "decisions": [
+      "Coordinator与Builder独立Pi session；服务端工具allowlist隔离，Coordinator只读摘要、提交计划和请求澄清。",
+      "计划与handoff schema校验并先持久化，记录run/roleRun/attempt/base revision；执行状态由服务端推进而非模型声称完成。",
+      "needs_input为终态并释放资源；回答创建带parentRunId的新run，合并问题上下文；与retryOfRunId互斥。",
+      "普通配色布局合理默认；支付、跨用户后端等范围外请求说明前端演示限制，不能静默假付款。参考Multica交接机制但不复制受附加许可约束源码。"
+    ],
+    "criteria": [
+      "本票新建/澄清链路都有实际Coordinator→Builder活动及独立session ID；修改计划保留旧行为的契约先做集成断言，DEV-07真实修改时立即回归；不存在未执行角色动画。",
+      "计划行为可直接用于交互检查；无效schema、重复handoff、旧attempt输出不能推进。",
+      "澄清结束无活动槽位/沙箱泄漏，回复关联新run与原问题；颜色等可逆选择不反复审批。",
+      "协调者写源码或执行shell请求被服务端拒绝，不能仅依赖prompt。"
+    ],
+    "cases": [
+      [
+        "E29",
+        "输入缺关键业务语义的需求→收到单个问题→查看任务已结束→回复；另输入范围外要求。",
+        "新run有parent引用，原需求未丢；说明能力边界；普通需求无需不必要澄清。"
+      ],
+      [
+        "E21 Coordinator/Builder子集 + I08",
+        "执行正常需求并查看真实角色摘要；测试无效计划、重复交接、越权工具。",
+        "独立session、先持久后通知；写工具拒绝；旧run/attempt不接收。"
+      ],
+      [
+        "E26 增量",
+        "在390px工作台回答澄清，并观察needs_input资源释放。",
+        "问题与输入可访问、无隐藏排队；不要求本票尚未开发的用户停止入口。"
+      ]
+    ],
+    "exclusions": "不做自由组队、并行Race、任意角色mention派工；Reviewer由下一票实现。",
+    "body_file": "/Users/heng/Desktop/nano-Atoms/docs/tickets/real-development-v1/dev-05-coordinator.md"
+  },
+  {
+    "key": "DEV-06",
+    "slug": "reviewer",
+    "title": "检查者实际操作候选应用并绑定检查结果",
+    "priority": "P1",
+    "deps": [
+      "DEV-05"
+    ],
+    "features": "F13/F14",
+    "delivery": "构建后由独立检查者在OpenSandbox Chrome里执行计划行为；用户看到准确的通过、失败或受阻，详情可展开，但无需阅读长报告。只有匹配版本的通过结果才允许正式成功提交。",
+    "decisions": [
+      "Reviewer独立Pi session和每attempt独立Chrome session，仅source_read和受控BrowserPort，禁止shell与写源码。",
+      "动作schema包含open/observe/click/fill/select/press/scroll/screenshot/logs，工具参数不拼任意shell；目标仅已绑定预览origin，refs不跨session复用；过期refs重新观察，不盲重放写动作。",
+      "每项至少一个真实动作与结果观察，保存expected/actual/status及必要工件；check包含run/roleRun/attempt/revision/sourceHash/sandbox/browserSession。前后哈希/marker不符拒收。",
+      "passed、failed、blocked分别处理；浏览器失联=CHECK_BLOCKED，不触发基于业务失败的盲修复。默认卡片摘要，详情按需读且owner授权。",
+      "正式finalize须对象已保存+build通过+preview marker匹配+本revision check passed，同事务提交revision/current/run/result/event。将DEV-03的检查未接入blocked分支替换为真实Reviewer；未检查候选绝不promote，也不提供生产绕过配置。"
+    ],
+    "criteria": [
+      "三角色真实独立执行；Reviewer读不到工作台token且不能改代码；检查结束关闭Chrome。",
+      "正常A/B场景有实际浏览器动作和观察；只看标题/截图/模型总结不算行为通过。",
+      "失败/受阻有原因且不promote；错误revision/hash/attempt/session与迟到报告拒绝。",
+      "UI查看检查细节与工件可用，B无法读取A截图；不泄露隐藏推理或原始secret。"
+    ],
+    "cases": [
+      [
+        "完整 E04/E05/E12/E21",
+        "内置浏览器分别触发真实活动A和读书B生成→观察三角色→查看检查摘要→独立在用户iframe重做关键行为。",
+        "正式run=completed且current匹配真实检查版本；三session/handoff审计存在；Reviewer报告与独立E2E分别记录；满足完整E04/E12关闭门槛。"
+      ],
+      [
+        "E24 / I06/I10",
+        "PREVIEW_UNREACHABLE、旧版本迟到报告、ref过期、越界导航和参数注入。",
+        "blocked未被记passed；不替换旧current；越界拒绝且会话清理，旧报告不能污染新版本。"
+      ],
+      [
+        "I08/I09 + E25 工件子集",
+        "Reviewer尝试写工具；B请求A check/artifact/SSE。",
+        "服务端拒绝越权；无secret泄漏；相关UI可解释结果。用户在review中停止由DEV-08实现并立即回归。"
+      ]
+    ],
+    "exclusions": "不做浏览器直播或接管用户iframe；DOM-only模型不宣传自动视觉理解；不实现自动修复循环。",
+    "body_file": "/Users/heng/Desktop/nano-Atoms/docs/tickets/real-development-v1/dev-06-reviewer.md"
+  },
+  {
+    "key": "DEV-07",
+    "slug": "revisions-iteration",
+    "title": "同项目两轮真实修改与版本一致的源码查看",
+    "priority": "P0",
+    "deps": [
+      "DEV-06"
+    ],
+    "features": "F05/F06/F07/F08",
+    "delivery": "用户在同一活动项目追加“状态筛选”和“统计及窄屏”，保留原有行为；预览与只读源码都来自正在查看的实际版本，重新登录仍能取回。",
+    "decisions": [
+      "普通修改从 current 的已保存快照构建新候选，输入 expectedCurrentRevisionId；旧成功版本仍可操作，candidate 不原地覆盖旧运行目录。",
+      "Revision 不可变且每个 attempt 最多一个最终 snapshot；GET revisions files/file 只从授权 manifest 读文本，不能直接读取服务器路径。",
+      "文件树、选中文件、sourceHash、preview marker 与 revisionId 一致；编译产物、依赖、密钥不展示。前端选版本不按本地递增数字猜数据。",
+      "每轮重新录入预览业务测试数据；新 origin 不承诺迁移 localStorage。项目、聊天与源码的云端持久化必须独立验证。"
+    ],
+    "criteria": [
+      "同项目初版+两次修改都有独立 run/revision 和历史消息；两轮都保持新增、校验、确认与搜索。",
+      "状态筛选和搜索联合生效；总数/已确认数不随筛选改变；390px 生成应用无整页横向滚动。",
+      "查看真实源码可找到需求实现，刷新/重新登录后 hash 与内容一致；切文件不显示别的版本内容。",
+      "构建失败、保存失败或检查失败候选不替换已有成功版本；B 不能读取 A 的源码或任意路径。"
+    ],
+    "cases": [
+      [
+        "E07/E08/E09/E11",
+        "在A项目追加两个既定修改；每版本通过UI输入三条记录，再切筛选、搜索、统计、预览和代码；重新登录。",
+        "v1/v2/v3 对应独立保存结果；筛选已确认=田禾1条，林+已确认=0，全部+林=1；总数3/确认1；版本内容可恢复。"
+      ],
+      [
+        "I05/I06/I09 + E25 源码子集",
+        "记录旧版本 hash，产生新候选并延迟旧结果；尝试越权/路径逃逸读取。",
+        "旧源码不变，marker/hash 不错配；未授权读取拒绝；candidate 不污染 current。"
+      ],
+      [
+        "E26 双层窄屏",
+        "分别验证390px工作台和390px生成应用容器。",
+        "工作台聊天/结果切换保留草稿；应用关键表单和筛选可用，两个检查分别留证。"
+      ]
+    ],
+    "exclusions": "不做完整历史管理页、代码编辑、ZIP导出、回滚UI或跨版本业务数据库迁移。",
+    "body_file": "/Users/heng/Desktop/nano-Atoms/docs/tickets/real-development-v1/dev-07-revisions-iteration.md"
+  },
+  {
+    "key": "DEV-08",
+    "slug": "cancellation",
+    "title": "停止真实模型、远端命令和候选资源",
+    "priority": "P0",
+    "deps": [
+      "DEV-06"
+    ],
+    "features": "F09/F10",
+    "delivery": "用户点击停止后能确认真实远端活动已结束，旧成功预览继续可用；清理未确认时明确等待并禁止启动同项目新任务。",
+    "decisions": [
+      "POST /runs/:id/cancel 幂等；cancel_requested 先持久化，再 session.abort、命令/Chrome终止与候选沙箱清理；不能把 Promise取消当远端结束。",
+      "所有工具调用前/返回后校验 run/role/attempt、取消信号和预算；取消之后拒绝写入、交接、检查结果和 promote。",
+      "取消与 finalizing 使用同一事务行锁；完成先提交则保持 completed，取消先提交则不产生新 current。",
+      "create句柄迟到立即登记销毁；失联保留cleanup pending并重查/生命周期兜底；确认前项目操作锁不释放，旧preview binding不误杀。"
+    ],
+    "criteria": [
+      "点击后立即“正在停止”，清理确认才“已停止”；刷新显示同状态；重复点击没有第二次副作用。",
+      "模型阶段、长命令/子进程阶段分别真实验证；注册的浏览器清理路径也可终止会话。",
+      "清理失败给出待确认原因并阻止下一次生成；恢复确认后可再次提交。",
+      "停止/完成竞争及迟到tool结果不发布被取消候选，不继续派工。"
+    ],
+    "cases": [
+      [
+        "E13/E14 + planning/review停止回归",
+        "先由真实三角色生成一个成功版本，再分别在模型调用、planning/review以及真实OpenSandbox长命令时停止；另测停止中刷新。",
+        "先stopping后cancelled；实际provider abort/远端进程结束证据齐全；旧预览仍可用。SLOW_MODEL只能证明受控adapter，需另做真实provider测试。"
+      ],
+      [
+        "I02/I03",
+        "取消与finalize前后并发、延迟tool返回、延迟sandbox创建、远端清理失败。",
+        "事务决定唯一终态；无取消后写入或promote；未确认不解锁；迟到沙箱无悬挂超出已记录lifetime。"
+      ],
+      [
+        "E26 增量",
+        "390px工作台通过键盘触发停止。",
+        "按钮状态和待确认提示可访问，不能只颜色变化。"
+      ]
+    ],
+    "exclusions": "不做暂停/继续模型栈、撤销已经保存结果、全局kill其他项目或宿主进程。",
+    "body_file": "/Users/heng/Desktop/nano-Atoms/docs/tickets/real-development-v1/dev-08-cancellation.md"
+  },
+  {
+    "key": "DEV-09",
+    "slug": "retry-restart",
+    "title": "失败后新建重试任务并恢复 API 重启中断状态",
+    "priority": "P0",
+    "deps": [
+      "DEV-08"
+    ],
+    "features": "F07/F10",
+    "delivery": "用户遇到模型、构建、保存失败或服务重启时看懂原因，并以新 run 重试；旧错误记录和上一成功版本保留，系统不会悄悄重放 shell。",
+    "decisions": [
+      "retryOfRunId只指向本项目适用失败终态，text与原请求一致；新run关联旧run，选用校验有效候选或原base；不得把旧终态重置为active。",
+      "启动扫描遗留accepted/active/operation，标interrupted并确认远端清理；accepted已落库但未启动也不得无限等待。",
+      "模型鉴权、构建、预览、检查基础设施、保存、budget与restart错误分类；用户卡片简短原因+下一步，详情有run ID且脱敏。",
+      "故障通过隔离adapter profile定向注入，生产拒绝profile，普通用户prompt和query不能启用。"
+    ],
+    "criteria": [
+      "模型失败显示明确错误；重试新run ID、只新增一条合理关联记录，失败历史仍可读。",
+      "非零构建不标完成；Storage失败不丢原current；重试后的保存才出现新成功结果。",
+      "强制API退出并重启，遗留任务interrupted；服务端已接受需求仍在，无自动重复模型/shell调用。",
+      "cleanup未确认时重试被拒绝且草稿/失败需求保留；外部错误不泄露密钥。"
+    ],
+    "cases": [
+      [
+        "E15/E18",
+        "MODEL_ERROR_ONCE→UI点击重试；另在accepted后、build中分别重启API→重开项目→重试。",
+        "新run关联旧run；已存消息/current不丢；日志无透明重放；成功路径恢复。"
+      ],
+      [
+        "E16 基础失败/E27 + I07",
+        "注入非零build、Storage写失败；查询DB和UI结果，再进行允许的重试。",
+        "失败不promote；清理与恢复状态一致；本票不冒充自动修复已实现。"
+      ],
+      [
+        "I01 重试子集",
+        "重复点击/同key请求重试，修改text或越权retryOfRunId。",
+        "只一个新run；非法引用和内容拒绝，无他人数据泄漏。"
+      ]
+    ],
+    "exclusions": "不做持久工作流引擎、断点自动续跑或无限provider重试。",
+    "body_file": "/Users/heng/Desktop/nano-Atoms/docs/tickets/real-development-v1/dev-09-retry-restart.md"
+  },
+  {
+    "key": "DEV-10",
+    "slug": "preview-restore",
+    "title": "沙箱过期后从已保存版本恢复预览",
+    "priority": "P0",
+    "deps": [
+      "DEV-08"
+    ],
+    "features": "F05/F07/F11",
+    "delivery": "用户打开失效预览时看到“源码已保存，需要重新启动”，点击后得到相同源码的新预览；构建可用的失败候选也可明确选择后恢复，不能当作成功版本。",
+    "decisions": [
+      "POST project preview/restore与GET preview状态；按revisionId授权，恢复和生成共用项目operation互斥；Idempotency-Key贯穿创建和已完成结果。",
+      "读私有快照校验→新OpenSandbox→锁定安装→可信构建→marker/健康检查→保存binding；不调用生成模型、不创建源码revision。",
+      "GET项目只探活/返回过期，不自动创建沙箱。旧restore幂等结果过期则提示用户新key发起，不静默重复花费。",
+      "保留失败候选的snapshot/check；可销毁未promote沙箱。查看构建通过候选时优先有效binding，否则按本流程恢复，并持续显示检查失败/受阻；build失败候选只显示源码与错误。"
+    ],
+    "criteria": [
+      "强制过期后UI可恢复并重新操作应用；revisionId/sourceHash完全一致，model调用计数不增加。",
+      "重复恢复/并发生成最多接受一个项目operation；失败明确可重试，操作锁正确释放或等待cleanup。",
+      "恢复候选不改变current、不把failed/blocked检查改成passed；不承诺恢复浏览器表单和localStorage。",
+      "无权revision、跨项目revision、破损hash和无法构建的候选均不能返回错误预览。"
+    ],
+    "cases": [
+      [
+        "E17",
+        "从UI记录revision/hash→维护者精确销毁该测试sandbox→打开项目→点击恢复→操作应用。",
+        "URL/binding可变化，但源码hash、revision不变，无新增模型请求；能新增/筛选同一功能。"
+      ],
+      [
+        "I01/I05 恢复子集",
+        "重复key、key异revision、恢复与生成并发、snapshot hash不符。",
+        "幂等返回已有operation；冲突拒绝；未校验快照不运行。"
+      ],
+      [
+        "候选恢复专项；E24后复测",
+        "在隔离环境准备已保存、build通过但check失败的候选，销毁沙箱后UI查看并恢复。",
+        "警示仍在、current不变、无模型调用；构建失败候选无iframe。"
+      ]
+    ],
+    "exclusions": "不做生成应用永久部署、旧版本promote回滚UI或跨来源业务数据迁移。",
+    "body_file": "/Users/heng/Desktop/nano-Atoms/docs/tickets/real-development-v1/dev-10-preview-restore.md"
+  },
+  {
+    "key": "DEV-11",
+    "slug": "budgets-lifecycle",
+    "title": "容量、额度和超时约束下可控运行与资源回收",
+    "priority": "P0",
+    "deps": [
+      "DEV-09",
+      "DEV-10"
+    ],
+    "features": "F09/F10/F11/非功能资源约束",
+    "delivery": "用户遇到忙碌、额度不足或超时时得到明确状态，未被接受的需求不会消失；Chrome、候选和过期预览按真实生命周期回收，不持续产生无界成本。",
+    "decisions": [
+      "服务端集中预算：项目生成1、全局生成1、恢复1、sandbox上限须通过Supabase联合容量校准（覆盖旧预览+新候选共存，不沿用4）；initial run10min、模型90s、install120s/build90s、browser动作15s/review90s；工具80次、token60000、每账号日accepted20；均配置且G0校准。",
+      "未接受容量满503+Retry-After，额度429；只有accepted run计日额度，重试是新accepted run，幂等重放不二次计数；不建隐形队列。",
+      "统一跨角色预算守卫和deadline触发既有取消/清理路径；缺usage不能当0，token只做预留+实际计量约束，不宣称精确金额硬截断。",
+      "每分钟扫描已登记过期资源，服务端TTL兜底；不能驱逐活动检查候选或误杀current；快照5MiB/200文件、单文件512KiB，日志/工件有上限。",
+      "清理仅操作本服务manifest登记资源；失败候选数据保留以供诊断和按需恢复；记录无法在创建返回前登记的崩溃窗口。"
+    ],
+    "criteria": [
+      "多账号/项目并发全局限制成立，拒绝侧输入保留；同key重试不重复占槽或扣quota。",
+      "全局总sandbox数量受控，恢复与生成共同计容量；任务终态且清理确认后释放资源。",
+      "短deadline注入后停止派工，UI说明超时与cleanup pending，确认结束才解锁。",
+      "重启可重新扫描登记资源；超额文件/日志不静默丢弃后宣称完整，未知价格不报虚假成本。"
+    ],
+    "cases": [
+      [
+        "E28",
+        "同时从两个项目触发生成，使用受控额度耗尽测试账号再提交。",
+        "一个accepted，另一个503/429且草稿保留；没有隐藏run、重复额度与后台排队。"
+      ],
+      [
+        "E30/I02/I08",
+        "SHORT_DEADLINE_CLEANUP_DELAY缩短预算并延迟清理确认；真实OpenSandbox资源核对。",
+        "不再新调用；UI明确pending；不能立即新建；确认资源销毁后释放锁。"
+      ],
+      [
+        "生命周期集成 + E17回归",
+        "过期回收器处理空闲预览并保留活跃候选；用户回到被回收预览点击恢复。",
+        "计数/绑定一致；快照仍在且恢复不调用模型；没有误杀活动run。"
+      ]
+    ],
+    "exclusions": "不做计费平台、支付、跨实例队列或复杂资源调度集群。",
+    "body_file": "/Users/heng/Desktop/nano-Atoms/docs/tickets/real-development-v1/dev-11-budgets-lifecycle.md"
+  },
+  {
+    "key": "DEV-12",
+    "slug": "bounded-repair",
+    "title": "检查失败后最多两轮真实修复与复查",
+    "priority": "P1",
+    "deps": [
+      "DEV-11"
+    ],
+    "features": "F10/F14",
+    "delivery": "用户无需手动搬运错误：可修复构建/行为失败交回工程师，生成新候选并复查；最多两轮，仍失败则保留问题与候选、继续展示旧成功结果。",
+    "decisions": [
+      "attempt=0初次，1/2修复；修复与前序角色共用run的deadline/token/tool预算，不为修复重置预算。",
+      "只将具体failed行为和诊断交给Builder；每轮独立候选snapshot、browser session和带版本handoff，重新可信构建/检查。",
+      "达到上限needs_changes；check blocked是基础设施问题，不冒充行为错误无限修；用户显式重试另建run。",
+      "无current的首次失败可查看build通过且已保存候选；沙箱清理后按预览恢复票处理。build失败只展示源码和诊断；不清掉可诊断资产。"
+    ],
+    "criteria": [
+      "可复现坏筛选被真实Reviewer发现，再由真实Builder修复并实际复查通过。",
+      "持续坏筛选最多attempt0/1/2，绝无第3轮修复；终态needs_changes且旧current可操作。",
+      "构建错误也进入有界修复；预算/取消可提前终止并清理；迟到旧check不产生成功。",
+      "默认结果卡只显示改动/检查结论/问题/下一步；展开可读行为与必要证据；不得假造历史。"
+    ],
+    "cases": [
+      [
+        "E16/E22",
+        "隔离环境分别注入首次无效TS、首次可构建但坏筛选；后续修复使用真实模型，UI观察工程师→检查者再交接。",
+        "检查证据具体指出失败；新候选修复与复查通过；首版fixture与后续真实执行明确标注。"
+      ],
+      [
+        "E23 / I08",
+        "PERSISTENT_BROKEN_FILTER保持各次失败；读取角色/attempt及模型预算记录。",
+        "repair≤2；needs_changes；上一成功预览与源码不变；普通“模型说完成”不能结束run。"
+      ],
+      [
+        "E24/I06/候选恢复回归",
+        "修复中注入旧报告和浏览器受阻；首次无current失败后查看候选。",
+        "不误promote、不无穷修复；候选警示可见并可按需恢复，检查状态不被抹去。"
+      ]
+    ],
+    "exclusions": "不做无限自愈、跨天人工审批工作流、通用证据平台或每版本强制用户阅读验收报告。",
+    "body_file": "/Users/heng/Desktop/nano-Atoms/docs/tickets/real-development-v1/dev-12-bounded-repair.md"
+  },
+  {
+    "key": "DEV-13",
+    "slug": "release",
+    "title": "上线真实工作台并完成独立全链路验收",
+    "priority": "P0",
+    "deps": [
+      "DEV-04",
+      "DEV-07",
+      "DEV-12"
+    ],
+    "features": "F01–F15 / D01–D05",
+    "delivery": "评审在公网HTTPS入口登录，独立生成、操作、修改和重新打开项目；交付说明准确列出通过、未完成和限制，不依赖开发机或Mock。",
+    "decisions": [
+      "单Linux主机复用Caddy，Compose管理web、常驻api与裁剪Supabase；同源/api/v1和SSE保留路径且不缓存流。沙箱须G0锁定，用户模型通过设置页管理；禁止生产TEST_PROFILE和demo adapter。",
+      "CI跑共享contract、必要集成测试、typecheck/lint/build；Codex内置浏览器无已验证无头CI接口，UI E2E采用桌面实测门槛，不能造一个假自动Actions成绩。",
+      "公开部署、账号/云资源缺失记录具体前置；不新购服务、不公开secret。仓库现含私有研究记录，成果公开策略须排除敏感历史；本票不擅自切public或发送提交消息。",
+      "干净checkout运行说明、配置名称、迁移/模板、模板锁版本、备份/重启与回收步骤齐全；记录准确收题T与剩余B，不从本次issue时间重置48h。"
+    ],
+    "criteria": [
+      "最终UI关闭Mock入口/虚构日志，Reviewer gate强制；A初次+两次修改、B初次均真实模型运行且对应行为通过。",
+      "模块票逐一附当时E2E证据，最终只在这些基础上做跨模块与线上回归；严重S0/S1无未解决项。",
+      "所有适用E01–E31/I01–I12逐项PASS或清楚说明例外；BLOCKED/NOT_RUN不能当完成或作为关闭本票理由。",
+      "线上E01/E04/E05/E08/E11/E21/E31、390px工作台与生成应用、真实跨源预览及SSE均通过。",
+      "D01–D05逐项记录：入口、clean checkout、功能清单、权限/材料、实际截止；需用户最终发送/权限动作时标待执行，不冒充已提交。"
+    ],
+    "cases": [
+      [
+        "RC全量 E01–E31/I01–I12",
+        "在隔离staging执行适用正常与故障测试，复用已验证模块数据但记录本次build/config。",
+        "A3轮+B1轮是真实链路；fixture故障分开；所有S0/S1修复后相关模块立即复测，非相关测试无需盲目重跑。"
+      ],
+      [
+        "线上 E01/E04/E05/E08/E11/E21/E26/E31 + I11/I12",
+        "Codex内置浏览器从公网登录→生成→iframe操作→修改→重登录；检查代理、bundle与生产开关。",
+        "无需本机；静态资源与SSE正常；无跨owner信息、private keys或测试注入入口。"
+      ],
+      [
+        "D01–D05",
+        "在干净环境按交付说明运行，核对成果入口、仓库访问策略和真实提交期限。",
+        "功能完成清单与证据一致；敏感研究/凭据不公开；未授权的提交发送不执行。"
+      ]
+    ],
+    "exclusions": "不追加P2历史回滚/ZIP、多团队、可视化编辑、应用Cloud或永久发布；范围变更必须另行记录。",
+    "body_file": "/Users/heng/Desktop/nano-Atoms/docs/tickets/real-development-v1/dev-13-release.md",
+    "deployment_host_followup": "## 已授权部署主机补充（2026-09-22）\n\n只读检查：Ubuntu24.04 x86_64、2vCPU、约4GiB内存、剩余约25GiB磁盘；无/dev/kvm及vmx/svm标记。随后已部署并通过OpenSandbox/gVisor基础设施探针；当前磁盘约21GiB空余，完整负载容量待实测。\n\n- 复用现有Caddy，保留80/443原站点及127.0.0.1:3000既有应用；项目使用独立目录、服务名、网络和回环端口。代理先备份、validate、reload，再回归原站点。\n- Docker/Compose已运行，启动前确认原无既有容器；新增独立gVisor runtime，默认runtime不变。Supabase优先裁剪自托管并由代理生成配置，采用正式Docker部署方案；不增加MinIO。\n- 沙箱采用已实测OpenSandbox Docker + gVisor systrap。内部服务受systemd管理并仅绑定回环；文件/命令/Chrome/跨origin预览/取消/TTL/清理已通过。完整Pi、Auth/Storage、联合容量及公网预览验收仍待完成，不能将fixture或内部隧道结果当作产品上线。\n- 本地开发/E2E无需域名；公网发布阶段才配置DNS/HTTPS及预览入口。缺域名不能阻塞本地模块开发。\n- 普通用户模型Key由设置页录入、服务端加密存储；平台主密钥与服务配置由部署代理维护。不能把一个用户Key变成全站共享默认模型。\n- [ ] 公网HTTPS、同源API/SSE、独立预览origin以及新旧站点共存通过；资源有余量，新增服务可独立停止/回退。\n- [ ] 线上回归E31模型设置和实际选中模型生成；SSH/数据库/模型密钥不进入issue、Git、镜像或脱敏证据。\n"
+  }
+]

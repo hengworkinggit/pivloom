@@ -1,0 +1,17 @@
+{
+  "samples": 869,
+  "start": "2026-09-22T01:45:01.577203+00:00",
+  "end": "2026-09-22T01:59:54.828229+00:00",
+  "durationSeconds": 893.3,
+  "minAvailableMiB": 1392.0,
+  "maxSwapUsedMiB": 0.0,
+  "oldSiteProbes": 174,
+  "oldSiteFailures": 0,
+  "containerPeakMiB": {
+    "/pivloom-data-storage-1": 275.9,
+    "/pivloom-data-rest-1": 51.11,
+    "/pivloom-data-db-1": 103.72,
+    "/pivloom-data-auth-1": 19.11,
+    "/sandbox-5c6a7c27-f67a-4bf6-acb1-b65e9dfe4cf0": 678.58
+  }
+}

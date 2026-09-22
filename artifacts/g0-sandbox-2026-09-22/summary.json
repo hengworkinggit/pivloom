@@ -1,0 +1,26 @@
+{
+  "samples": 961,
+  "minimumHostAvailableMiB": 1442.3,
+  "maximumSwapUsedMiB": 0.0,
+  "runs": {
+    "runc": {
+      "sandboxId": "bd41a6d9-a0a5-4e49-9cf5-8460eb490df3",
+      "status": "INFRA_PROBE_COMPLETE",
+      "peakCgroupMemoryMiB": 764.88,
+      "startMs": 1182,
+      "buildMs": 3393
+    },
+    "gvisor": {
+      "sandboxId": "4aba45a7-5b58-4e6e-89a3-030499759f05",
+      "status": "INFRA_PROBE_COMPLETE",
+      "peakCgroupMemoryMiB": 746.4,
+      "startMs": 1697,
+      "buildMs": 4293
+    }
+  },
+  "oldSite": {
+    "samples": 193,
+    "errors": 0,
+    "maximumSeconds": 0.0522
+  }
+}

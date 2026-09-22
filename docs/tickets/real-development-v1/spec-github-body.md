@@ -1,0 +1,114 @@
+# Pivloom 正式开发 Spec v1.1
+
+日期：2026-09-22。状态：**待实现，真实产品验收 NOT_RUN**。
+
+范围依据：[PRD F01–F15](https://github.com/hengworkinggit/pivloom/blob/main/docs/PRD.md)、[TRD](https://github.com/hengworkinggit/pivloom/blob/main/docs/TRD.md)、[E2E](https://github.com/hengworkinggit/pivloom/blob/main/docs/E2E.md)。已有 Mock 前端可运行，其视觉与交互继续复用；Mock 验证不代表真实模型、服务端持久化或隔离沙箱链路通过。本 Spec 是正式开发与 GitHub 任务拆分的总契约。
+
+## Problem Statement
+
+用户已经可以体验 Pivloom 的界面，但当前生成、账号、项目保存与预览都来自本地模拟。正式产品需要把自然语言需求变成可操作的真实 Web 应用，支持同项目持续修改，并在刷新、服务重启和预览过期后保留已保存成果。
+
+用户关心生成结果能否使用、修改是否有效，不希望逐版本阅读长篇验收材料。因此检查证据服务于故障定位与开发验收；普通用户默认只看到改动、检查状态、问题和下一步。
+
+## Solution
+
+承接已有工作台，接入真实身份、常驻 API、Pi 执行器、OpenSandbox 与私有存储。固定协调者、工程师、检查者顺序协作：明确少量可观察目标，生成并构建应用，实际操作候选预览；有可修复问题时最多修复两轮。检查通过且源码可靠保存后才切换项目的当前成功版本。
+
+本轮落实已选 **P0 + 固定三角色 P1**。将开发拆为有依赖的可验证任务，每完成一个模块立即执行其相关 E2E 并记录结果，不能把测试全部推到上线前。题面 48 小时从实际收题计算，不从本 Spec 或下一次开发开始重新计时。
+
+## User Stories
+
+1. 作为评审，我希望用预建账号登录，以便在受限入口体验真实能力。
+2. 作为用户，我希望错误登录得到清楚反馈，以便修改凭据后重试。
+3. 作为用户，我希望退出后页面清除私有信息，以便安全结束体验。
+4. 作为用户，我希望创建并重新打开独立项目，以便继续自己的工作。
+5. 作为用户，我希望输入自然语言需求，以便得到符合要求的真实多文件应用。
+6. 作为用户，我希望无效或未接受的输入保留，以便修正后重新提交。
+7. 作为用户，我希望关键业务信息缺失时收到简短澄清，以便补充后继续。
+8. 作为用户，我希望范围外能力被明确说明，以免把演示误认为真实支付或云数据库。
+9. 作为用户，我希望看到真实执行阶段，以便判断当前进展。
+10. 作为用户，我希望断线重连后恢复任务状态，以免重复生成或丢失消息。
+11. 作为用户，我希望直接操作生成应用，以便验证表单、列表和筛选有效。
+12. 作为用户，我希望在新标签打开所选版本，以便获得更大的操作空间。
+13. 作为用户，我希望切换桌面与窄屏预览，以便检查布局。
+14. 作为用户，我希望同项目连续提出修改，以便保留原有功能并逐步完善。
+15. 作为用户，我希望生成期间继续编辑草稿，以便准备下一次需求。
+16. 作为用户，我希望重复或并发提交得到明确结果，以免产生重复任务或隐形队列。
+17. 作为用户，我希望修改失败时仍能使用上一成功版本，以便保留已有成果。
+18. 作为用户，我希望重新登录后找回聊天与源码，以免依赖当前浏览器缓存。
+19. 作为用户，我希望查看所选版本的真实源文件，以便理解实际实现。
+20. 作为用户，我希望停止模型和远端执行，以便控制等待与资源消耗。
+21. 作为用户，我希望清理未确认时看到准确状态，以免误以为后台已经停止。
+22. 作为用户，我希望失败后发起关联重试，以便继续尝试并保留原失败记录。
+23. 作为用户，我希望过期预览能从快照恢复，以免重新描述需求或再次调用模型。
+24. 作为用户，我希望首次生成有问题时仍可查看安全保存的候选源码，以便了解问题。
+25. 作为用户，我希望构建成功但检查失败的候选带警示预览，以便自行确认情况。
+26. 作为用户，我希望知道三个角色实际做了什么，以便理解协作价值。
+27. 作为用户，我希望检查者操作关键流程后再判断，以免构建成功被误认为功能正确。
+28. 作为用户，我希望失败检查触发有限修复，以便解决问题且避免无限消耗。
+29. 作为维护者，我希望每份检查绑定准确版本，以免旧报告覆盖新成果。
+30. 作为维护者，我希望账号和项目资源隔离，以免源码、事件或附件泄漏。
+31. 作为开发者，我希望模块完成后立即执行对应 E2E，以便在依赖扩散前发现断链。
+32. 作为评审，我希望通过公网入口独立完成体验，以便核验交付而无需启动开发环境。
+
+33. 作为用户，我希望在页面配置自己的模型服务、测试连接并管理密钥，以便无需接触部署环境文件。
+
+## Implementation Decisions
+
+- **技术边界**：保留 Next.js、React、TypeScript、Tailwind 与已有组件。新增常驻 Fastify、Supabase Auth/Postgres/私有 Storage、OpenSandbox 和 Pi coding-agent SDK。Pi 是唯一 coding loop；不叠加 Deep Agents、LangChain、LangGraph、Codex 或 DeepSeek Harness。使用一个 Vite/React/TypeScript 空模板，锁定依赖后实测兼容性。
+- **模块边界**：共享契约、身份与项目数据、Run 调度、Pi RoleRunner、WorkspacePort、快照、BrowserPort、事件流、工作台、恢复与部署。保持单实例常驻执行器，不引入通用编排平台；组件按真实调用边界实现。
+- **领域模型**：Project 归属 owner，保存当前成功 Revision 引用；Run 表示一次被接受的需求或重试；RoleRun 表示某角色在某 attempt 的独立执行；Revision 是不可变源码；Check 绑定具体 Revision；SandboxBinding 表示可失效的运行环境，不能代替源码存储。
+- **接受与互斥**：一个项目最多一个活动生成或恢复操作。请求携带幂等键与预期 current，同事务保存 Run、用户消息、accepted 事件和项目操作锁后确认接受。同 key 同内容返回原结果；冲突返回明确错误并保留草稿。重试新建 Run，澄清回复关联原 needs_input Run，终态不重置。
+- **角色权限**：协调者产生 1–5 项行为目标；工程师独占远端源码写权限；检查者只读源码并使用受控浏览器动作。每个 RoleRun 独立 Pi session，权限在服务端工具层执行。交接保存前驱、计划、输入版本、attempt 与产物，事务提交后再派工。
+- **版本与原子边界**：候选停止写入并等待命令结束后计算稳定 sourceHash。先上传并核验不可变源码对象，再在数据库创建 Revision；对象成功但事务失败仅产生待清理孤儿对象。最终事务同时更新 current、Run 终态、结果消息及事件；必须确认对象存在、构建和 required checks 通过、预览绑定一致、未取消及预期 current 未变。Storage 与数据库不是分布式事务，不承诺 exactly-once。
+- **正式成功门槛**：未检查或检查失败的 Revision 一律不得成为 current。早期 Builder-only 联调在检查组件未就绪时以 CHECK_BLOCKED 明确结束 Run，释放生成锁；仅保留撤销写权限、关闭 Chrome 后受短 TTL 管理的“尚未检查”候选预览，不由 finally 立即销毁。完整 E04/E12 在真实 Reviewer 接入后重跑；不绕过正式门槛，不称为团队完成。完整开发完成定义包含协调、检查及有限修复。
+- **预览与失败候选**：新候选和旧成功预览使用不同沙箱；每轮修复新建候选与浏览器 session。失败候选源码和 Check 持久保留，活沙箱可清理。查看指定候选时使用有效绑定，失效后从该 Revision 显式重建；不调用模型、不新建 Revision、不 promote。构建失败仅显示源码和问题，构建通过且预览有效才展示带警示 iframe。
+- **检查与修复**：BrowserPort基于OpenSandbox/gVisor沙箱内agent-browser CLI；动作和后续观察由工具保存，报告校验 run、roleRun、attempt、revision、hash、sandbox 与 browser session。required 行为均通过才通过；基础设施受阻记 blocked，不进入盲目代码修复。attempt 为 0/1/2，总预算优先；末次失败保留问题和旧 current。用户 iframe 与检查浏览器是不同会话。
+- **停止与恢复**：停止同时传播到 Pi、远端命令与浏览器；确认结束前为 cancel_requested/cleanup pending，阻止新生成。停止与最终提交通过同一锁确定先后，迟到结果不得推进。进程重启将遗留 Run 标 interrupted；用户重试，不自动重放 shell。
+- **API 概要**：统一鉴权 `/api/v1`，提供项目创建/读取、提交 Run、任务状态/取消/SSE、Revision 文件/Check/附件查询、预览状态与显式恢复。SSE 支持 cursor 重放和去重；断线不取消任务，状态查询兜底。所有资源逐项 owner 校验，文件读取限定在快照 manifest。
+- **界面接入**：以服务端真实状态替换 Mock adapter，正式模式不能自动退回假数据。默认结果卡只显示改动摘要、检查结论、问题与动作，细节可展开。会话、源码、版本和预览必须一致；生成应用 localStorage 不承诺跨来源迁移，预览不承诺永久托管。
+- **模型入口**：BYOK设置为明确P0要求（F15/DEV-14）。用户在页面填写Provider、Base URL、Key、模型，测试、保存、更新、默认切换和删除；配置及加密凭据按owner隔离。pi-ai负责通信。Run固定modelProfileId/configVersion，纳入幂等校验，密钥不进入Run、日志、前端持久缓存或OpenSandbox。
+- **基础设施修订**：Supabase优先在已授权服务器自托管，地址和服务密钥由代理生成与接入；本地开发不依赖域名。已选定并部署OpenSandbox Docker + gVisor systrap，沙箱基础设施探针通过；无需E2B账号或购买。完整Pi/Supabase联调及联合容量未完成，继续作为正式模块开发前置。
+
+## Testing Decisions
+
+- **最高入口**：用户流程从真实工作台 UI 验证，默认使用 Codex 内置浏览器，覆盖登录、发需求、iframe 操作、连续修改、重新打开和错误恢复。沿用已有 Mock 前端的交互检查经验，但重新执行真实链路；产品 Reviewer 的 passed、截图、HTTP 200 都不能代替独立 UI E2E。
+- **必要补证**：HTTP/Fastify 与真实隔离 Postgres 测试仅补 UI 难以严格证明的不变量：幂等互斥、取消竞争、远端 kill、SSE 交接窗口、快照提交、版本绑定、owner、启动恢复。测试外部行为与副作用，不为每个内部函数或文案建立镜像测试。
+- **准备责任**：代理负责在授权服务器部署自托管Supabase，并准备独立测试身份/资源；本地可用可丢弃实例或SSH隧道。迁移、私有 bucket、A/B 身份、seed、故障配置与精确清理由开发代理实现并验证。Supabase配置由部署产生；用户模型走设置页，沙箱云服务Key仅在选择托管时需要。用户不负责手工建立测试数据。模型选择另测 profile 权限、无配置/不兼容状态、切换后真正调用对应模型、同幂等键异 profile 冲突与运行中配置不变。
+- **逐模块关闭门槛**：每个开发 Issue 在开始时写明关联 F/T/E/I 编号、前置条件、正常和失败路径。实现完成后立即运行相应用例；涉及 UI 的增量还须执行 E26 相关桌面/窄屏/键盘检查。只有实际通过、问题修复并复测后才关闭；前置未就绪记 BLOCKED，保持 Issue 打开，不把验证债务移到最后一个任务。
+- **覆盖范围**：身份/项目覆盖 E01–E03/E25；生成与预览覆盖 E04–E07/E12；持续修改与持久化覆盖 E08–E11/E17/E27；停止、重试与事件覆盖 E13–E20/E28/E30；团队与修复覆盖 E21–E24/E29；模型设置覆盖E31；相应 I01–I12 独立记录。部署另执行 D01–D05 适用项。
+- **真实与 fixture**：至少活动报名初次生成及两次修改、另一个读书清单需求使用真实模型/OpenSandbox；缺陷和故障仅在隔离环境由受控 adapter profile 注入，记录替换边界。fixture 验证恢复与上限，不计作真实生成质量，生产禁止启用。新模块尚无可运行入口时只能记录探针/集成结果，不能冒称产品 E2E。
+- **执行证据**：每个模块报告环境/build、用例、预期/实际、run/revision/hash、必要截图、故障 profile 和资源清理。状态仅为 PASS、FAIL、BLOCKED、NOT_RUN 或有理由的 N/A；后两类未执行状态不算通过。当前正式链路均 NOT_RUN。S0/S1 修复复测前阻止对应能力完成；上线仍需跨模块回归和公网核验。
+
+## Out of Scope
+
+任意建队/多团队、多人协作、Race、视觉拖拽编辑、应用永久发布、生成应用通用后端/Cloud、注册找回密码、附件/语音、完整历史管理、多实例可靠队列和自动跨重启续跑。不会为本轮新增证据平台、通用浏览器平台或第二套 Agent loop。
+
+## Further Notes
+
+正式开发先验证真实 Pi 工具调用、OpenSandbox 构建/取消、Chrome、Auth/Storage 与公网 iframe，再沿可验证切片接入工作台。模型 profile、云资源、准确版本和实际截止时间必须记录真实值；缺少凭据或环境写 BLOCKED，不用 Mock 结果填补。
+
+GitHub 总 Spec 与子 Issue 的关闭依据是实际实现和关联测试结果。现有 Mock 可保留为明确标注的演示入口；本 Spec 发布、Issue 创建和测试计划编写均不代表正式开发已经完成，也不代表成果已提交给评审。
+
+## Delivery slices
+
+下表及原生blocked-by均为开发前置；各票完成后立即执行适用E2E，未通过不关闭。
+
+| 编号 | 交付行为 | 直接前置 |
+|---|---|---|
+| [DEV-01 · #2](https://github.com/hengworkinggit/pivloom/issues/2) | G0：打通 Pi → 隔离沙箱 → 可操作预览的真实垂直探针 | 无 |
+| [DEV-02 · #3](https://github.com/hengworkinggit/pivloom/issues/3) | 登录后创建、重开并隔离服务端项目 | 无 |
+| [DEV-14 · #15](https://github.com/hengworkinggit/pivloom/issues/15) | 在页面配置自己的模型服务并验证连接 | DEV-02 |
+| [DEV-03 · #4](https://github.com/hengworkinggit/pivloom/issues/4) | 从一个真实需求生成、保存并预览多文件应用 | DEV-01, DEV-02, DEV-14 |
+| [DEV-04 · #5](https://github.com/hengworkinggit/pivloom/issues/5) | 执行中刷新与 SSE 断线后恢复同一个任务 | DEV-03 |
+| [DEV-05 · #6](https://github.com/hengworkinggit/pivloom/issues/6) | 协调者澄清需求并向工程师交接可观察目标 | DEV-03 |
+| [DEV-06 · #7](https://github.com/hengworkinggit/pivloom/issues/7) | 检查者实际操作候选应用并绑定检查结果 | DEV-05 |
+| [DEV-07 · #8](https://github.com/hengworkinggit/pivloom/issues/8) | 同项目两轮真实修改与版本一致的源码查看 | DEV-06 |
+| [DEV-08 · #9](https://github.com/hengworkinggit/pivloom/issues/9) | 停止真实模型、远端命令和候选资源 | DEV-06 |
+| [DEV-09 · #10](https://github.com/hengworkinggit/pivloom/issues/10) | 失败后新建重试任务并恢复 API 重启中断状态 | DEV-08 |
+| [DEV-10 · #11](https://github.com/hengworkinggit/pivloom/issues/11) | 沙箱过期后从已保存版本恢复预览 | DEV-08 |
+| [DEV-11 · #12](https://github.com/hengworkinggit/pivloom/issues/12) | 容量、额度和超时约束下可控运行与资源回收 | DEV-09, DEV-10 |
+| [DEV-12 · #13](https://github.com/hengworkinggit/pivloom/issues/13) | 检查失败后最多两轮真实修复与复查 | DEV-11 |
+| [DEV-13 · #14](https://github.com/hengworkinggit/pivloom/issues/14) | 上线真实工作台并完成独立全链路验收 | DEV-04, DEV-07, DEV-12 |
+
+服务器沙箱基础设施探针已通过，选定OpenSandbox Docker + gVisor；DEV-01仍待真实Pi生成、Auth/Storage和Supabase联合容量通过，依赖它的正式模块继续等待该门槛。DEV-14在DEV-02后、DEV-03前执行。Supabase部署、服务配置和测试准备由代理负责；模型由用户在页面配置，本地开发不以域名为前置。fixture成绩不关闭DEV-01或替代正式产品E2E。

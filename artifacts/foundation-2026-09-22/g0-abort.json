@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "runId": "c1468bc0-9827-4714-89d9-ff678bb2a605",
+  "startedAt": "2026-09-22T02:44:39.048Z",
+  "finishedAt": "2026-09-22T02:45:22.854Z",
+  "versions": {
+    "hostNode": "v24.19.0",
+    "pi": "0.86.1",
+    "opensandboxSdk": "1.1.0",
+    "image": "pivloom-g0:20260922"
+  },
+  "modelAbort": {
+    "status": "PASS",
+    "provider": "pivloom-ark",
+    "modelId": "glm-5.3-flash",
+    "streamStartedAt": "2026-09-22T02:45:09.888Z",
+    "abortRequestedAt": "2026-09-22T02:45:09.888Z",
+    "abortAfterStream": true,
+    "resultCode": "CANCELLED",
+    "transport": {
+      "bytes": 265,
+      "abortObserved": true,
+      "responseStartedAt": "2026-09-22T02:45:09.886Z",
+      "streamClosedAt": "2026-09-22T02:45:09.890Z"
+    },
+    "noAdditionalBytesAfterSettlement": true,
+    "sdkAbortSettled": true,
+    "cleanup": {
+      "confirmed": true
+    },
+    "sandboxId": "e3cef411-fda3-4e86-aa2f-a787b3848aa0",
+    "events": [
+      {
+        "id": "82924587-7d38-4679-837c-278fec313662",
+        "at": "2026-09-22T02:45:09.887Z",
+        "type": "stage",
+        "stage": "generating",
+        "message": "模型第 1 轮响应 HTTP 200（4263ms）"
+      },
+      {
+        "id": "71da12cd-0e39-4dfa-95fc-175e10a3ae1b",
+        "at": "2026-09-22T02:45:09.888Z",
+        "type": "model.stream.started",
+        "stage": "generating",
+        "requestNumber": 1,
+        "message": "模型第 1 轮已收到实际流式内容"
+      },
+      {
+        "id": "40e32878-88aa-43c1-8b43-60f8dbdb9329",
+        "at": "2026-09-22T02:45:09.891Z",
+        "type": "model.stopped",
+        "requestNumber": 1,
+        "success": true,
+        "message": "Pi abort 已结束并确认会话停止"
+      }
+    ]
+  },
+  "longCommandCancel": {
+    "status": "PASS",
+    "sandboxId": "a03ef448-b775-4ca2-80f2-5cf7abf8ce10",
+    "commandId": "ee75a7ac6ddf46d09406f37c7cd3dabf",
+    "childPid": 37,
+    "cancelledAt": "2026-09-22T02:45:17.188Z",
+    "waitSettled": true,
+    "exitCode": null,
+    "termination": "entire sandbox removal, confirmed by control-plane absence",
+    "cleanup": {
+      "confirmed": true
+    },
+    "finalCleanup": {
+      "confirmed": true
+    }
+  },
+  "lateCreateCancel": {
+    "status": "PASS",
+    "startedAt": "2026-09-22T02:45:18.183Z",
+    "resultCode": "CANCELLED",
+    "resources": [
+      {
+        "sandboxId": "84bf921c-c61c-4fcb-a75e-ba4bca39eb61",
+        "state": "destroyed"
+      }
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "containers": [],
+  "ports": [
+    {
+      "port": 19133,
+      "connectCode": 111
+    },
+    {
+      "port": 19177,
+      "connectCode": 111
+    },
+    {
+      "port": 18473,
+      "connectCode": 111
+    },
+    {
+      "port": 18474,
+      "connectCode": 111
+    }
+  ],
+  "at": 1790038867.7916436
+}

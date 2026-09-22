@@ -1,0 +1,91 @@
+{
+  "variant": "runc",
+  "fixture": true,
+  "startedAt": "2026-09-22T00:48:10.464Z",
+  "checks": [
+    {
+      "name": "create",
+      "at": "2026-09-22T00:48:11.661Z",
+      "id": "bd41a6d9-a0a5-4e49-9cf5-8460eb490df3",
+      "durationMs": 1182
+    },
+    {
+      "name": "file-roundtrip-edit",
+      "at": "2026-09-22T00:48:11.684Z",
+      "passed": true
+    },
+    {
+      "name": "versions",
+      "at": "2026-09-22T00:48:14.453Z",
+      "output": "v24.13.0\nChromium 153.0.8010.52 built on Debian GNU/Linux 12 (bookworm)\nagent-browser 0.38.1"
+    },
+    {
+      "name": "host-file-boundary",
+      "at": "2026-09-22T00:48:15.462Z",
+      "output": "host-resources-unmounted"
+    },
+    {
+      "name": "typescript-react-vite-build",
+      "at": "2026-09-22T00:48:18.880Z",
+      "durationMs": 3393,
+      "output": "\n\n> workspace@1.0.0 build\n> tsc --noEmit && vite build\n\n\nvite v8.3.0 building client environment for production...\ntransforming...\n✓ 15 modules transformed.\nrendering chunks...\ncomputing gzip size...\ndist/index.html                  0.72 kB │ gzip:  0.47 kB\ndist/assets/index-CEbNi6YZ.js  192.16 kB │ gzip: 60.91 kB\n\n\n✓ built in 223ms"
+    },
+    {
+      "name": "nonzero-command",
+      "at": "2026-09-22T00:48:19.888Z",
+      "exitCode": 7,
+      "error": {
+        "name": "CommandExecError",
+        "value": "7",
+        "timestamp": 1790038098886,
+        "traceback": [
+          "exit status 7"
+        ]
+      }
+    },
+    {
+      "name": "preview-process",
+      "at": "2026-09-22T00:48:19.896Z",
+      "commandId": "4e1f63b9c8ca4577abe7b6b482e77cc9"
+    },
+    {
+      "name": "preview-endpoint",
+      "at": "2026-09-22T00:48:21.121Z",
+      "endpoint": "127.0.0.1:19177/proxy/4173",
+      "headersRequired": false
+    },
+    {
+      "name": "browser-ready",
+      "at": "2026-09-22T00:48:21.129Z",
+      "previewUrl": "http://127.0.0.1:45241/",
+      "iframeUrl": "http://127.0.0.1:45242/"
+    },
+    {
+      "name": "chrome-snapshot",
+      "at": "2026-09-22T00:48:26.021Z",
+      "output": "- generic \"G0 · Sandbox compatibility fixture沙箱任务板任务名称添加任务状态筛选全部已完成任务总数：0；已完成：0这是固定测试应用，用来验证构建、浏览器操作和预览；不是模型生成成\" [ref=e1] clickable [onclick]\n  - heading \"沙箱任务板\" [level=1, ref=e2]\n  - textbox \"任务名称\" [required, ref=e5]\n  - button \"添加任务\" [ref=e3]\n  - combobox \"状态筛选\" [expanded=false, ref=e4]: 全部\n    - option \"全部\" [selected, ref=e6]\n    - option \"已完成\" [ref=e7]"
+    },
+    {
+      "name": "command-interrupt",
+      "at": "2026-09-22T00:51:49.355Z",
+      "commandStatus": {
+        "id": "67274bdca7474435ac7686b65656a41a",
+        "content": "bash -c 'sleep 300 & echo $! >/workspace/child.pid; wait'",
+        "running": false,
+        "exitCode": -1,
+        "error": "signal: terminated",
+        "startedAt": "2026-09-22T00:51:47.284Z",
+        "finishedAt": "2026-09-22T00:51:47.791Z"
+      },
+      "childStatus": "stopped"
+    },
+    {
+      "name": "sandbox-kill",
+      "at": "2026-09-22T00:51:50.761Z",
+      "removed": true
+    }
+  ],
+  "status": "INFRA_PROBE_COMPLETE",
+  "sandboxId": "bd41a6d9-a0a5-4e49-9cf5-8460eb490df3",
+  "finishedAt": "2026-09-22T00:51:50.771Z"
+}

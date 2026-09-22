@@ -1,0 +1,120 @@
+{
+  "SPEC": {
+    "number": 1,
+    "id": 5533462843,
+    "url": "https://github.com/hengworkinggit/pivloom/issues/1",
+    "title": "[Spec] Pivloom 正式开发：真实生成、固定三角色与逐模块 E2E"
+  },
+  "DEV-01": {
+    "number": 2,
+    "id": 5533463239,
+    "url": "https://github.com/hengworkinggit/pivloom/issues/2",
+    "title": "[DEV-01] G0：打通 Pi → 隔离沙箱 → 可操作预览的真实垂直探针",
+    "parent_linked": true,
+    "dependencies_linked": true
+  },
+  "DEV-02": {
+    "number": 3,
+    "id": 5533463999,
+    "url": "https://github.com/hengworkinggit/pivloom/issues/3",
+    "title": "[DEV-02] 登录后创建、重开并隔离服务端项目",
+    "parent_linked": true,
+    "dependencies_linked": true
+  },
+  "DEV-03": {
+    "number": 4,
+    "id": 5533464619,
+    "url": "https://github.com/hengworkinggit/pivloom/issues/4",
+    "title": "[DEV-03] 从一个真实需求生成、保存并预览多文件应用",
+    "parent_linked": true,
+    "dependencies_linked": true
+  },
+  "DEV-04": {
+    "number": 5,
+    "id": 5533465612,
+    "url": "https://github.com/hengworkinggit/pivloom/issues/5",
+    "title": "[DEV-04] 执行中刷新与 SSE 断线后恢复同一个任务",
+    "parent_linked": true,
+    "dependencies_linked": true
+  },
+  "DEV-05": {
+    "number": 6,
+    "id": 5533466428,
+    "url": "https://github.com/hengworkinggit/pivloom/issues/6",
+    "title": "[DEV-05] 协调者澄清需求并向工程师交接可观察目标",
+    "parent_linked": true,
+    "dependencies_linked": true
+  },
+  "DEV-06": {
+    "number": 7,
+    "id": 5533467275,
+    "url": "https://github.com/hengworkinggit/pivloom/issues/7",
+    "title": "[DEV-06] 检查者实际操作候选应用并绑定检查结果",
+    "parent_linked": true,
+    "dependencies_linked": true
+  },
+  "DEV-07": {
+    "number": 8,
+    "id": 5533468084,
+    "url": "https://github.com/hengworkinggit/pivloom/issues/8",
+    "title": "[DEV-07] 同项目两轮真实修改与版本一致的源码查看",
+    "parent_linked": true,
+    "dependencies_linked": true
+  },
+  "DEV-08": {
+    "number": 9,
+    "id": 5533468986,
+    "url": "https://github.com/hengworkinggit/pivloom/issues/9",
+    "title": "[DEV-08] 停止真实模型、远端命令和候选资源",
+    "parent_linked": true,
+    "dependencies_linked": true
+  },
+  "DEV-09": {
+    "number": 10,
+    "id": 5533469865,
+    "url": "https://github.com/hengworkinggit/pivloom/issues/10",
+    "title": "[DEV-09] 失败后新建重试任务并恢复 API 重启中断状态",
+    "parent_linked": true,
+    "dependencies_linked": true
+  },
+  "DEV-10": {
+    "number": 11,
+    "id": 5533470625,
+    "url": "https://github.com/hengworkinggit/pivloom/issues/11",
+    "title": "[DEV-10] 沙箱过期后从已保存版本恢复预览",
+    "parent_linked": true,
+    "dependencies_linked": true
+  },
+  "DEV-11": {
+    "number": 12,
+    "id": 5533471393,
+    "url": "https://github.com/hengworkinggit/pivloom/issues/12",
+    "title": "[DEV-11] 容量、额度和超时约束下可控运行与资源回收",
+    "parent_linked": true,
+    "dependencies_linked": true
+  },
+  "DEV-12": {
+    "number": 13,
+    "id": 5533472332,
+    "url": "https://github.com/hengworkinggit/pivloom/issues/13",
+    "title": "[DEV-12] 检查失败后最多两轮真实修复与复查",
+    "parent_linked": true,
+    "dependencies_linked": true
+  },
+  "DEV-13": {
+    "number": 14,
+    "id": 5533473102,
+    "url": "https://github.com/hengworkinggit/pivloom/issues/14",
+    "title": "[DEV-13] 上线真实工作台并完成独立全链路验收",
+    "parent_linked": true,
+    "dependencies_linked": true
+  },
+  "DEV-14": {
+    "number": 15,
+    "id": 5533884522,
+    "url": "https://github.com/hengworkinggit/pivloom/issues/15",
+    "title": "[DEV-14] 在页面配置自己的模型服务并验证连接",
+    "parent_linked": true,
+    "dependencies_linked": true
+  }
+}

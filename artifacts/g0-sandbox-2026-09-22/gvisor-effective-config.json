@@ -1,0 +1,27 @@
+{
+  "id": "fbeb4cf151563c99d265a57c8f711c68040e7ee6c80fb2e439cdfc40e37bc7ae",
+  "name": "/sandbox-4aba45a7-5b58-4e6e-89a3-030499759f05",
+  "runtime": "pivloom-g0-runsc",
+  "memory": 1073741824,
+  "nanoCpus": 1000000000,
+  "pidsLimit": 512,
+  "portBindings": {
+    "44772/tcp": [
+      {
+        "HostIp": "127.0.0.1",
+        "HostPort": "19133"
+      }
+    ],
+    "8080/tcp": [
+      {
+        "HostIp": "127.0.0.1",
+        "HostPort": "19032"
+      }
+    ]
+  },
+  "privileged": false,
+  "securityOpt": [
+    "no-new-privileges=true"
+  ],
+  "mounts": []
+}
