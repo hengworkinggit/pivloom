@@ -34,7 +34,7 @@ export function GenerationActivity({ run, events, roles = [] }: { run: Run; even
     <div className="assistant-message-heading"><LoomMark /><strong>Pivloom</strong><span>{active ? "处理中" : "任务记录"}</span></div>
     <div className="assistant-message-body">
       <p className="run-label" role="status">{active && <LoaderCircle className="spin" size={13} />}{run.state === "accepted" ? "需求已接收" : active ? phaseLabels[run.phase] : "本次任务已结束"}</p>
-      <p className="generation-run-model">模型配置 v{run.modelConfigVersion} · 任务 {run.id.slice(0, 8)}</p>
+      <p className="generation-run-model">模型配置 v{run.modelConfigVersion}{run.modelId ? ` · ${run.modelId}` : ""} · 任务 {run.id.slice(0, 8)}</p>
       {roles.length > 0 && <ul className="generation-role-activity" data-testid="role-activity" aria-label="实际角色活动">{roles.filter((role) => role.runId === run.id).map((role) => <li key={role.id}>
         <strong>{roleLabels[role.role]}</strong><span>{roleStateLabels[role.state]}</span>
       </li>)}</ul>}

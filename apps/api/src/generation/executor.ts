@@ -84,7 +84,7 @@ export function createGenerationExecutor(options: {
         models.resolveLease(run.ownerId, run.credentialLeaseId),
         repository.getPlanningContext(run.ownerId, run.id),
       ]);
-      const modelConfig = { provider: "pivloom-byok", id: model.profile.modelId, api: model.profile.provider,
+      const modelConfig = { provider: "pivloom-byok", id: run.modelId ?? model.profile.modelId, api: model.profile.provider,
         baseUrl: model.profile.baseUrl, apiKey: model.apiKey, fetch: model.fetch, supportsImages: false };
       const safeMessage = (message: string) => message.replaceAll(model.apiKey, "[REDACTED]")
         .replaceAll(sandbox.apiKey, "[REDACTED]").replace(/Bearer\s+[^\s"']+/gi, "Bearer [REDACTED]").slice(0, 2000);

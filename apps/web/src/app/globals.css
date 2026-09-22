@@ -2633,6 +2633,31 @@ svg {
   text-overflow: ellipsis;
 }
 .generation-model-field select:focus-visible { outline: 2px solid #8c9e75; outline-offset: 2px; }
+.generation-model-field .generation-model-custom {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #dfe6d6;
+  border-radius: 7px;
+  padding: 8px 9px;
+  color: #58664a;
+  background: #fbfcf8;
+  font: inherit;
+  font-size: 11px;
+}
+.generation-model-custom-wrap { display: flex; flex: 1; min-width: 0; gap: 5px; }
+.generation-model-switch {
+  flex: 0 0 auto;
+  border: 1px solid #dfe6d6;
+  border-radius: 7px;
+  padding: 0 10px;
+  color: #58664a;
+  background: #fbfcf8;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.generation-model-switch:hover { background: #f2f5ec; }
+.generation-model-switch:disabled { opacity: 0.6; cursor: default; }
 .generation-model-help,
 .generation-connection,
 .generation-run-model { color: #849177; font-size: 11px; line-height: 1.6; margin: 5px 0 9px; overflow-wrap: anywhere; }
@@ -2725,3 +2750,4 @@ svg {
   .generation-result-shell .readonly-badge { font-size: 9px; }
   .generation-result-shell .previous-version-note { line-height: 1.6; overflow-wrap: anywhere; }
 }
+.generation-model-hint { display: block; margin-top: 4px; color: #849177; font-size: 10px; line-height: 1.5; }

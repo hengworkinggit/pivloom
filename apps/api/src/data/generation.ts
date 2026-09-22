@@ -116,6 +116,7 @@ function storedRun(row: Row): StoredRun {
   return { ...RunSchema.parse({
     id: row.id, projectId: row.project_id, state: row.state, phase: row.phase, attempt: row.attempt,
     requestText: row.request_text, modelProfileId: row.model_profile_id, modelConfigVersion: row.model_config_version,
+    modelId: row.model_id ?? null,
     baseRevisionId: row.base_revision_id, resultRevisionId: row.result_revision_id,
     createdAt: date(row.created_at).toISOString(), deadlineAt: date(row.deadline_at).toISOString(), finishedAt: row.finished_at ? date(row.finished_at).toISOString() : null,
     cleanupState: row.cleanup_state, summary: row.summary,
@@ -310,7 +311,7 @@ export function createGenerationRepository(
       const normalized = parsed.data;
       const requestHash = createHash("sha256").update(JSON.stringify([
         normalized.text, normalized.expectedCurrentRevisionId, normalized.retryOfRunId, normalized.parentRunId,
-        normalized.modelProfileId, normalized.modelConfigVersion,
+        normalized.modelProfileId, normalized.modelConfigVersion, normalized.modelId,
       ])).digest("hex");
       try {
         return await owned(ownerId, async (client) => {
@@ -346,10 +347,10 @@ export function createGenerationRepository(
           const lease = await models.freezeInTransaction(client, ownerId, normalized.modelProfileId, normalized.modelConfigVersion, id);
           const inserted = await client.query(`INSERT INTO nano.runs
             (id,owner_id,project_id,idempotency_key,request_hash,request_text,kind,expected_current_revision_id,base_revision_id,
-             model_profile_id,model_config_version,credential_lease_id,coordinator_role_run_id,state,phase,budget_json,deadline_at,executor_boot_id,planning_context_json,parent_run_id)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,$11,$12,'accepted','plan',$13,now()+make_interval(secs=>$17),$14,$15,$16) RETURNING *`,
+             model_profile_id,model_config_version,model_id,credential_lease_id,coordinator_role_run_id,state,phase,budget_json,deadline_at,executor_boot_id,planning_context_json,parent_run_id)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,$11,$12,$13,'accepted','plan',$14,now()+make_interval(secs=>$18),$15,$16,$17) RETURNING *`,
           [id, ownerId, projectId, idempotencyKey, requestHash, normalized.text, normalized.parentRunId ? "clarify" : parent.current_revision_id ? "modify" : "generate",
-            normalized.expectedCurrentRevisionId, normalized.modelProfileId, normalized.modelConfigVersion, lease.id, roleId,
+            normalized.expectedCurrentRevisionId, normalized.modelProfileId, normalized.modelConfigVersion, normalized.modelId ?? null, lease.id, roleId,
             { deadlineMs: RUN_DEADLINE_MS, modelTimeoutMs: MODEL_REQUEST_TIMEOUT_MS, maxToolCalls: RUN_TOOL_LIMIT },
             options.executorBootId, context, normalized.parentRunId, RUN_DEADLINE_MS / 1000]);
           await client.query(`INSERT INTO nano.role_runs (id,owner_id,project_id,run_id,role,attempt,session_id,state,input_json)
@@ -626,12 +627,17 @@ export function createGenerationRepository(
         }
         for (const item of result.items) {
           const behavior = byBehavior.get(item.behaviorId);
+          const itemObservations = item.observationEventIds.map((id) => observations.get(id));
+          const actionEvidence = itemObservations.some((observation) => observation?.behaviorId === item.behaviorId
+            && observation.action && observation.action !== "scroll"
+            && !(observation.action === "press" && observation.key === "Tab"));
+          // Static pages have no interactive element: a real check observation
+          // plus a captured screenshot is render/content verification, matching
+          // the Reviewer's own evidence rule.
+          const renderedEvidence = item.observationEventIds.length >= 1 && item.screenshotIds.length > 0;
           if (!behavior || item.expected !== behavior.expected || item.screenshotIds.some((id) => !artifactIds.has(id))
-            || item.observationEventIds.some((id) => observations.get(id)?.behaviorId !== item.behaviorId)
-            || item.verdict !== "blocked" && !item.observationEventIds.some((id) => {
-              const observation = observations.get(id);
-              return observation?.action && observation.action !== "scroll" && !(observation.action === "press" && observation.key === "Tab");
-            })) {
+            || item.observationEventIds.some((id) => !observations.has(id))
+            || item.verdict !== "blocked" && !actionEvidence && !renderedEvidence) {
             throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "检查结果缺少相同目标的实际动作及后续观察。");
           }
         }

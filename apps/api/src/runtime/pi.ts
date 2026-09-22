@@ -107,6 +107,56 @@ export async function listModelCatalog() {
   return { providers };
 }
 
+/**
+ * The model list for a saved credential's endpoint, mirroring how Pi itself
+ * offers provider → model choice. A built-in catalog provider returns Pi's own
+ * models; a custom endpoint returns its OpenAI-compatible `/models` listing so
+ * the workbench can render a real dropdown instead of a free-text box.
+ */
+export async function listModelsForEndpoint(input: { provider: string; baseUrl: string; apiKey: string; modelId: string }): Promise<{
+  source: "catalog" | "endpoint" | "none"; models: Array<{ id: string; name: string }>;
+}> {
+  const runtime = await ModelRuntime.create({ modelsPath: null, refreshOnCreate: false, allowModelNetwork: false });
+  const host = (value: string | undefined) => {
+    try { return new URL(value ?? "").host; } catch { return ""; }
+  };
+  const endpoint = host(input.baseUrl);
+  const matched = runtime.getProviders().find((provider) =>
+    Object.hasOwn(provider.auth ?? {}, "apiKey") && endpoint !== "" && host(provider.baseUrl) === endpoint);
+  const withConfiguredDefault = (models: Array<{ id: string; name: string }>) =>
+    models.some((model) => model.id === input.modelId)
+      ? models
+      : [{ id: input.modelId, name: input.modelId }, ...models];
+  if (matched) {
+    return {
+      source: "catalog",
+      models: withConfiguredDefault((runtime.getModels(matched.id) ?? [])
+        .filter((model) => SUPPORTED_MODEL_APIS.has(model.api))
+        .map((model) => ({ id: model.id, name: model.name }))),
+    };
+  }
+  try {
+    const url = `${input.baseUrl.replace(/\/+$/, "")}/models`;
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${input.apiKey}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) return { source: "endpoint", models: [] };
+    const body: unknown = await response.json();
+    const entries = body && typeof body === "object" && Array.isArray((body as { data?: unknown }).data)
+      ? (body as { data: Array<{ id?: unknown; name?: unknown }> }).data
+      : body && typeof body === "object" && Array.isArray((body as { models?: unknown }).models)
+        ? (body as { models: Array<{ id?: unknown; name?: unknown }> }).models
+        : [];
+    return {
+      source: "endpoint",
+      models: withConfiguredDefault(entries.map((model) => ({ id: String(model.id ?? ""), name: String(model.name ?? model.id ?? "") })).filter((model) => model.id)),
+    };
+  } catch {
+    return { source: "endpoint", models: withConfiguredDefault([]) };
+  }
+}
+
 export async function createServiceModel(
   config: ModelConfig,
   signal?: AbortSignal,

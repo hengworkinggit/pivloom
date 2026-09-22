@@ -349,3 +349,53 @@ test.each([
     }
   },
 );
+
+test("listSourceFiles excludes TypeScript incremental build info", async () => {
+  const requests = new Map<string, { op: string; path?: string }>();
+  const readPaths: string[] = [];
+  const connection: SandboxConnection = {
+    sandboxId: "build-artifact-filter",
+    kill: async () => {},
+    isRunning: async () => true,
+    renew: async () => {},
+    close: async () => {},
+    endpoint: async () => ({ url: "http://localhost:19001/preview", headers: {} }),
+    read: async () => new Uint8Array(),
+    write: async (path, data) => {
+      const request = JSON.parse(Buffer.from(data).toString()) as { op: string; path?: string };
+      requests.set(path, request);
+      if (request.op !== "list") readPaths.push(request.path ?? "");
+    },
+    run: async (command) => {
+      const path = command.match(/^node \/opt\/pivloom\/source-io\.mjs '([^']+)'$/)?.[1];
+      const request = path && requests.get(path);
+      if (!request) throw new Error("Unexpected source command");
+      return {
+        id: "source-command",
+        interrupt: async () => {},
+        wait: async () => ({
+          exitCode: 0,
+          stdoutTail: JSON.stringify(
+            request.op === "list"
+              ? { files: ["src/App.tsx", "tsconfig.tsbuildinfo"] }
+              : { data: Buffer.from("export const title = 1;").toString("base64") },
+          ),
+          stderrTail: "",
+        }),
+      };
+    },
+  };
+  const workspace = new OpenSandboxWorkspace(
+    { baseUrl: "http://localhost:18080", apiKey: "fixture", image: "fixture" },
+    { create: async () => { throw new Error("No sandbox may be created"); }, connect: async () => connection },
+  );
+  const handle = { sandboxId: "build-artifact-filter", expiresAt: "2030-01-01T00:00:00Z" };
+  await workspace.connect(handle);
+  try {
+    const files = await workspace.listSourceFiles(handle);
+    expect(files.map((file) => file.path)).toEqual(["src/App.tsx"]);
+    expect(readPaths).not.toContain("tsconfig.tsbuildinfo");
+  } finally {
+    await workspace.releaseClient(handle);
+  }
+});

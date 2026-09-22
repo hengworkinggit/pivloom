@@ -217,6 +217,16 @@ export function createModelProfileService(database: PivloomDatabase, vault: Cred
       });
       return result;
     },
+    async listEndpointModels(ownerId: string, id: string) {
+      return database.owned(ownerId, async (client) => {
+        const current = await find(client, ownerId, id);
+        return {
+          provider: current.provider, baseUrl: current.base_url, modelId: current.model_id,
+          configVersion: current.current_version,
+          apiKey: await credential(client, ownerId, id, current.current_version),
+        };
+      });
+    },
     freezeInTransaction,
     releaseInTransaction,
     async freezeForRun(ownerId: string, profileId: string, configVersion: number, referenceId: string) {

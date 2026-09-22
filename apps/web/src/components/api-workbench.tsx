@@ -6,7 +6,7 @@ import { ArrowUp, LoaderCircle, MessageSquare, Monitor, PanelLeftClose, PanelLef
 import { getApiWorkspace } from "@/lib/workspace";
 import { WorkspaceError } from "@/lib/api-workspace";
 import { usePrivateQuery, useWorkspaceAuth } from "@/lib/use-workspace";
-import { promptLimit, readDraft, saveDraft } from "@/lib/drafts";
+import { promptLimit, readDraft, saveDraft, readSessionModel, saveSessionModel } from "@/lib/drafts";
 import { createModelsApi } from "@/lib/models-api";
 import { clearPendingSubmission, readPendingSubmission, savePendingSubmission, type RunSubmission } from "@/lib/generation-api";
 import { cn, errorMessage } from "@/lib/utils";
@@ -32,7 +32,28 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const [selectedModelId, setSelectedModelId] = useState("");
   const selectedModel = modelQuery.data?.find((model) => model.id === selectedModelId)
     ?? modelQuery.data?.find((model) => model.isDefault) ?? modelQuery.data?.[0];
+  // Session-level model override: the catalog model the user picked under this
+  // provider credential, persisted for the current browser session. Omitted
+  // means "use the credential's default model", which is also frozen per run.
+  const [modelOverrideId, setModelOverrideId] = useState<string | null>(() => readSessionModel(ownerId, projectId)?.modelId ?? null);
+  const [customModelMode, setCustomModelMode] = useState(false);
   const modelReady = selectedModel?.capabilities.streaming === "verified" && selectedModel.capabilities.tools === "verified";
+  /** Models available on the selected credential's endpoint: Pi's catalog for
+   * built-in providers, the endpoint's own `/models` list for custom ones. */
+  const profileModelsLoader = useCallback(() => {
+    const profileId = selectedModel?.id;
+    if (!profileId) return Promise.resolve({ source: "none" as const, models: [] });
+    return models.forProfile(profileId);
+  }, [models, selectedModel?.id]);
+  const profileModelsQuery = usePrivateQuery(profileModelsLoader);
+  const credentialModels = useMemo(() => profileModelsQuery.data?.models ?? [], [profileModelsQuery.data]);
+  // The effective model for the next run: an explicit override wins, otherwise
+  // the credential's default model. Catalog ids and free-text (unlisted) ids
+  // are both frozen on the run.
+  const inCatalog = !!modelOverrideId && credentialModels.some((model) => model.id === modelOverrideId);
+  const effectiveModelId = modelOverrideId && (customModelMode || inCatalog) ? modelOverrideId : selectedModel?.modelId ?? null;
+  const showCatalogPicker = credentialModels.length > 0 && !customModelMode;
+  const showCustomPicker = !showCatalogPicker;
   const [draft, setDraft] = useState(() => readDraft(ownerId, projectId));
   const draftRef = useRef(draft);
   const [draftStored, setDraftStored] = useState(true);
@@ -69,10 +90,16 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   }
   async function send(replay?: RunSubmission) {
     if (sending.current || (!replay && (busy || unknownSubmission || !draft.trim() || tooLong || !modelReady || !selectedModel || !project))) return;
+    // The run freezes (profileId, configVersion, modelId). The model override is
+    // only serialized when it differs from the credential's default; otherwise
+    // the frozen version row already pins the default model.
+    const overrideModelId = effectiveModelId && selectedModel && effectiveModelId !== selectedModel.modelId ? effectiveModelId : null;
     const submission: RunSubmission = replay ?? {
       key: crypto.randomUUID(),
       body: { text: draft.trim(), expectedCurrentRevisionId: project!.project.currentRevisionId,
-        modelProfileId: selectedModel!.id, modelConfigVersion: selectedModel!.configVersion, retryOfRunId: null, parentRunId: clarification && run ? run.id : null },
+        modelProfileId: selectedModel!.id, modelConfigVersion: selectedModel!.configVersion,
+        ...(overrideModelId ? { modelId: overrideModelId } : {}),
+        retryOfRunId: null, parentRunId: clarification && run ? run.id : null },
     };
     sending.current = true; setPending(true); setSubmitError("");
     const persisted = savePendingSubmission(ownerId, projectId, submission);
@@ -114,12 +141,30 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
           {submitError && <p className="inline-error" role="alert">{submitError}</p>}
           {unknownSubmission && <div className="run-notice" role="status"><div><strong>上次提交的结果尚未确认</strong><p>确认会沿用原请求，不会把正在编辑的草稿重复发送。</p></div><button disabled={pending} onClick={() => void send(unknownSubmission)}>确认提交结果</button></div>}
           <div className="generation-model-field"><label htmlFor="generation-model">使用模型</label><div>
-            <select id="generation-model" value={state.active && run ? `run:${run.id}` : selectedModel?.id ?? ""} disabled={pending || state.active || !modelQuery.data?.length} onChange={(event) => setSelectedModelId(event.target.value)}>
-              {state.active && run && <option value={`run:${run.id}`}>{lockedProfile ? `${lockedProfile.name} · ${lockedProfile.modelId}` : "任务使用的已保存配置"} · v{run.modelConfigVersion}（本次已锁定）</option>}
+            <select id="generation-model" value={state.active && run ? `run:${run.id}` : selectedModel?.id ?? ""} disabled={pending || state.active || !modelQuery.data?.length} onChange={(event) => { setSelectedModelId(event.target.value); setModelOverrideId(null); saveSessionModel(ownerId, projectId, event.target.value, null); }}>
+              {state.active && run && <option value={`run:${run.id}`}>{lockedProfile ? `${lockedProfile.name} · ${run.modelId ?? lockedProfile.modelId}` : "任务使用的已保存配置"} · v{run.modelConfigVersion}（本次已锁定）</option>}
               {!modelQuery.data?.length && !state.active && <option value="">{modelQuery.data ? "尚未配置模型" : "正在读取模型…"}</option>}
               {modelQuery.data?.map((model) => <option key={model.id} value={model.id}>{model.name} · {model.modelId} · v{model.configVersion}{model.isDefault ? "（默认）" : ""}</option>)}
             </select><button className="icon-button" aria-label="刷新模型配置" disabled={pending || state.active} onClick={modelQuery.refresh}><RefreshCw size={14} /></button>
           </div></div>
+          {!state.active && selectedModel && <div className="generation-model-field"><label htmlFor="generation-model-id">模型</label>
+            <div>
+              {showCatalogPicker
+                ? <select id="generation-model-id" value={effectiveModelId ?? ""} disabled={pending} onChange={(event) => {
+                    if (event.target.value === "__custom__") { setCustomModelMode(true); return; }
+                    const modelId = event.target.value || null; setModelOverrideId(modelId); saveSessionModel(ownerId, projectId, selectedModel.id, modelId);
+                  }}>
+                    {selectedModel.modelId && !credentialModels.some((model) => model.id === selectedModel.modelId) && <option value={selectedModel.modelId}>{selectedModel.modelId}（当前配置）</option>}
+                    {credentialModels.map((model) => <option key={model.id} value={model.id}>{model.name} · {model.id}{model.id === selectedModel.modelId ? "（默认）" : ""}</option>)}
+                    <option value="__custom__">自定义模型 ID…</option>
+                  </select>
+                : <span className="generation-model-custom-wrap">
+                    <input id="generation-model-id" className="generation-model-custom" value={effectiveModelId ?? ""} placeholder="输入模型 ID（未收录端点）" maxLength={160} disabled={pending} onChange={(event) => { const modelId = event.target.value.trim(); setModelOverrideId(modelId); saveSessionModel(ownerId, projectId, selectedModel.id, modelId || null); }} />
+                    {credentialModels.length > 0 && <button type="button" className="generation-model-switch" disabled={pending} onClick={() => setCustomModelMode(false)}>从目录选择…</button>}
+                  </span>}
+            </div>
+            <small className="generation-model-hint">{credentialModels.length > 0 ? (customModelMode ? "正在使用自定义模型 ID；每次任务会锁定此模型。" : "在本会话中覆盖模型；每次任务会锁定此模型。") : "该服务商未收录，直接输入模型 ID；每次任务会锁定此模型。"}</small>
+          </div>}
           {!state.active && (modelQuery.error || modelQuery.data && !modelReady) && <p className="generation-model-help" role="status">{modelQuery.error || (selectedModel ? "此配置尚未通过流式和工具调用测试。" : "先连接并测试你要使用的模型。")}{" "}<Link href="/settings/models">前往模型设置</Link></p>}
           <form className={cn("chat-composer", state.active && "composer-running")} onSubmit={(event) => { event.preventDefault(); void send(); }}>
             <label className="sr-only" htmlFor="followup-prompt">{clarification ? "回答澄清问题" : "应用需求"}</label>

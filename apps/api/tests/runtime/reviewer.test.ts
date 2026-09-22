@@ -71,6 +71,23 @@ test('real Pi accepts only a report linked to an action and its subsequent obser
   expect(f.stats()).toEqual({calls:3,actions:1,closes:1});
 });
 
+test('a static render-only behavior passes with one observation and a screenshot',async()=>{
+  const ids:string[]=[];
+  let artifactId='';
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(m=>m.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2){ids.push(data.id);return {name:'browser_screenshot',args:{}};}
+    artifactId=data.id;
+    return {name:'record_behavior',args:{...report(ids).items[0],screenshotIds:[artifactId],reproSteps:['打开页面并观察渲染内容']}};
+  });
+  const result=await runReviewer(f.input);
+  expect(result.result.items[0].verdict).toBe('passed');
+  expect(f.stats()).toEqual({calls:3,actions:0,closes:1});
+  assertReviewerResult(result);
+});
+
 test('a transient provider failure is retried with bounded backoff and still reaches a real check',{timeout:90_000},async()=>{
   const f=setup((request,n)=>{
     const last=request.messages.filter(m=>m.role==='tool').at(-1);

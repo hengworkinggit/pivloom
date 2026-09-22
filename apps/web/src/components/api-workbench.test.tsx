@@ -31,7 +31,7 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
   const encode = (value: object) => btoa(JSON.stringify(value)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
   localStorage.setItem("pivloom.auth.v1", JSON.stringify({ access_token: `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ sub: ownerId, exp: expiresAt })}.fixture`, refresh_token: "fixture-refresh-token", token_type: "bearer", expires_in: 3600, expires_at: expiresAt, user }));
   saveDraft(ownerId, projectId, "创建中文读书清单");
-  const run: Run = { id: runId, projectId, state: "building", phase: "implement", attempt: 0, requestText: "创建中文读书清单", modelProfileId: profileId, modelConfigVersion: 3, baseRevisionId: null, resultRevisionId: null, createdAt: now, deadlineAt: "2026-09-22T00:10:00.000Z", finishedAt: null, cleanupState: "clear", error: null, summary: null };
+  const run: Run = { id: runId, projectId, state: "building", phase: "implement", attempt: 0, requestText: "创建中文读书清单", modelProfileId: profileId, modelConfigVersion: 3, modelId: null, baseRevisionId: null, resultRevisionId: null, createdAt: now, deadlineAt: "2026-09-22T00:10:00.000Z", finishedAt: null, cleanupState: "clear", error: null, summary: null };
   const candidate: Revision = { id: revisionId, projectId, runId, revisionNo: 1, attempt: 0, sourceHash: "a".repeat(64), templateVersion: "fixture-v1", buildStatus: "passed", status: "candidate", createdAt: now, manifest: [{ path: "src/App.tsx", bytes: 31, sha256: "b".repeat(64) }] };
   const project: ProjectDetailResponse = { project: { id: projectId, title: "读书清单", createdAt: now, updatedAt: now, currentRevisionId: null }, messages: [], currentRevision: null, activeRun: null, latestRun: null, latestCandidate: null, latestCheck: null, preview: null };
   const requests: { body: unknown; key: string | null }[] = [];
@@ -53,6 +53,7 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
     if (url === "https://identity.example.test/auth/v1/user") return Response.json(user);
     if (url === "/api/v1/me") return Response.json({ user: { id: ownerId, name: "Owner", email: user.email } });
     if (url === "/api/v1/model-profiles") return Response.json({ profiles: [{ id: profileId, name: "真实配置", provider: "openai-completions", baseUrl: "https://provider.example.test/v1", modelId: "fixture-model", configVersion: 3, keyMask: "••••0000", isDefault: true, capabilities: { streaming: "verified", tools: "verified", vision: "unknown" }, lastTest: null, createdAt: now, updatedAt: now }] });
+    if (url === `/api/v1/model-profiles/${profileId}/models`) return Response.json({ source: "none", models: [] });
     if (url === `/api/v1/projects/${projectId}`) {
       snapshotRequests += 1;
       if (holdLatestSnapshot) {

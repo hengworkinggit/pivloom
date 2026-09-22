@@ -40,7 +40,7 @@ async function openWorkbench(options: { needsInput?: boolean; proxyFailureOnce?:
   const encode = (value: object) => btoa(JSON.stringify(value)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
   localStorage.setItem("pivloom.auth.v1", JSON.stringify({ access_token: `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ sub: ownerId, exp: expiresAt })}.fixture`, refresh_token: "fixture-refresh-token", token_type: "bearer", expires_in: 3600, expires_at: expiresAt, user }));
   saveDraft(ownerId, projectId, "下一条中文需求");
-  const run: Run = { id: runId, projectId, state: "building", phase: "implement", attempt: 0, requestText: "创建活动报名演示", modelProfileId: profileId, modelConfigVersion: 3, baseRevisionId: null, resultRevisionId: null, createdAt: now, deadlineAt: "2026-09-22T00:10:00.000Z", finishedAt: null, cleanupState: "clear", error: null, summary: null, plan, clarification: null, parentRunId: null };
+  const run: Run = { id: runId, projectId, state: "building", phase: "implement", attempt: 0, requestText: "创建活动报名演示", modelProfileId: profileId, modelConfigVersion: 3, modelId: null, baseRevisionId: null, resultRevisionId: null, createdAt: now, deadlineAt: "2026-09-22T00:10:00.000Z", finishedAt: null, cleanupState: "clear", error: null, summary: null, plan, clarification: null, parentRunId: null };
   const coordinatorId = "8f867b3d-0da2-430d-b3e9-cbf72d51e615";
   const roles: RoleRun[] = [
     { id: coordinatorId, runId, role: "coordinator", attempt: 0, sessionId: "9e9ec313-c626-45b3-836e-d3dfb1c21459", state: "succeeded", predecessorId: null, startedAt: now, finishedAt: now },
@@ -64,6 +64,7 @@ async function openWorkbench(options: { needsInput?: boolean; proxyFailureOnce?:
     if (url === "https://identity.example.test/auth/v1/user") return Response.json(user);
     if (url === "/api/v1/me") return Response.json({ user: { id: ownerId, name: "Owner", email: user.email } });
     if (url === "/api/v1/model-profiles") return Response.json({ profiles: [{ id: profileId, name: "已验证模型", provider: "openai-completions", baseUrl: "https://provider.example.test/v1", modelId: "fixture-model", configVersion: 3, keyMask: "••••0000", isDefault: true, capabilities: { streaming: "verified", tools: "verified", vision: "unknown" }, lastTest: null, createdAt: now, updatedAt: now }] });
+    if (url === `/api/v1/model-profiles/${profileId}/models`) return Response.json({ source: "none", models: [] });
     if (url === `/api/v1/projects/${projectId}`) {
       const snapshot = Response.json(project);
       if (holdProject) {

@@ -22,6 +22,19 @@ export const ModelCatalogSchema = z.object({
 });
 export type ModelCatalog = z.infer<typeof ModelCatalogSchema>;
 
+/** Models available on a saved credential's endpoint, mirroring how Pi lets a
+ * user pick a provider and then one of that provider's models. Catalog
+ * providers return Pi's own list; custom endpoints return the endpoint's
+ * OpenAI-compatible `/models` listing (or none when it is unavailable). */
+export const ModelEndpointModelsSchema = z.object({
+  source: z.enum(["catalog", "endpoint", "none"]),
+  models: z.array(z.object({
+    id: z.string().min(1).max(160),
+    name: z.string().max(200),
+  })).max(500),
+});
+export type ModelEndpointModels = z.infer<typeof ModelEndpointModelsSchema>;
+
 export const ModelCapabilitiesSchema = z.object({
   streaming: z.enum(["verified", "unknown"]),
   tools: z.enum(["verified", "unknown"]),

@@ -17,6 +17,9 @@ export const CreateRunRequestSchema = z.strictObject({
   expectedCurrentRevisionId: z.uuid().nullable(),
   modelProfileId: z.uuid(),
   modelConfigVersion: z.number().int().positive(),
+  // A run may pin a different catalog model under the same provider credential
+  // than its default. Omitted/null means "use the profile's default model".
+  modelId: z.string().trim().min(1).max(160).nullish(),
   retryOfRunId: z.uuid().nullable().default(null),
   parentRunId: z.uuid().nullable().default(null),
 }).refine((value) => !(value.retryOfRunId && value.parentRunId), "重试与澄清不能同时提交。");
@@ -29,6 +32,8 @@ export const RunSchema = z.object({
   id: z.uuid(), projectId: z.uuid(), state: RunStateSchema, phase: RunPhaseSchema,
   attempt: z.number().int().min(0).max(2), requestText: z.string().max(8000),
   modelProfileId: z.uuid(), modelConfigVersion: z.number().int().positive(),
+  // The exact model this run used; null means the profile's default model.
+  modelId: z.string().max(160).nullable().default(null),
   baseRevisionId: z.uuid().nullable(), resultRevisionId: z.uuid().nullable(),
   createdAt: z.iso.datetime(), deadlineAt: z.iso.datetime(), finishedAt: z.iso.datetime().nullable(),
   cleanupState: z.enum(["clear", "pending", "confirmed"]),

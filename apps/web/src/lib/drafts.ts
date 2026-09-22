@@ -18,6 +18,30 @@ export function readDraft(ownerId: string, projectId: string) {
   try { return window.sessionStorage.getItem(draftKey(ownerId, projectId)) ?? ""; }
   catch { return ""; }
 }
+// A session-level model override: the chosen provider credential + catalog
+// model the user picked in this browser session, applied to every run until
+// changed. Runs still freeze (profileId, configVersion, modelId) on submit.
+const sessionModelPrefix = "pivloom.session-model.v1:";
+const sessionModelKey = (ownerId: string, projectId: string) => `${sessionModelPrefix}${encodeURIComponent(ownerId)}:${encodeURIComponent(projectId)}`;
+export function saveSessionModel(ownerId: string, projectId: string, profileId: string, modelId: string | null) {
+  if (typeof window === "undefined") return false;
+  try {
+    if (modelId) window.sessionStorage.setItem(sessionModelKey(ownerId, projectId), JSON.stringify({ profileId, modelId }));
+    else window.sessionStorage.removeItem(sessionModelKey(ownerId, projectId));
+    return true;
+  } catch { return false; }
+}
+export function readSessionModel(ownerId: string, projectId: string): { profileId: string; modelId: string } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = window.sessionStorage.getItem(sessionModelKey(ownerId, projectId));
+    if (!stored) return null;
+    const parsed: unknown = JSON.parse(stored);
+    if (!parsed || typeof parsed !== "object" || typeof (parsed as { profileId?: unknown }).profileId !== "string"
+      || typeof (parsed as { modelId?: unknown }).modelId !== "string") return null;
+    return { profileId: (parsed as { profileId: string }).profileId, modelId: (parsed as { modelId: string }).modelId };
+  } catch { return null; }
+}
 export function clearDrafts(ownerId: string) {
   if (typeof window === "undefined") return;
   try {

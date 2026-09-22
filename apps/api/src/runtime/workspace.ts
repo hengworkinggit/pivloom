@@ -374,6 +374,10 @@ export class OpenSandboxWorkspace implements WorkspacePort {
     for (const path of r.files) {
       if (typeof path !== "string")
         throw new RuntimeError("INVALID_FILE_RESPONSE", "源码路径格式错误");
+      // TypeScript incremental build info (tsconfig.tsbuildinfo) is a compiler
+      // artifact, not source; excluding it keeps the snapshot (and the trusted
+      // build hash) free of generated build state, like dist/ and node_modules/.
+      if (/\.tsbuildinfo$/.test(path)) continue;
       const content = await this.read(handle, path, options);
       options.signal?.throwIfAborted();
       files.push({
