@@ -80,6 +80,11 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
   let requestNumber = 0, receivedStream = false, invalidDecisions = 0;
   const calls: CoordinatorMetadata["toolCalls"] = [];
   const tokens = createRoleTokenTracker(input.tokenBudget);
+  /** Provider detail is redacted and clipped before it reaches any log or API reply. */
+  const safeDetail = (value: unknown) => String(value ?? "unknown")
+    .replaceAll(input.modelConfig.apiKey, "[REDACTED]")
+    .replace(/Bearer\s+[^\s"']+/gi, "Bearer [REDACTED]")
+    .slice(0, 400);
   const fail = (error: RuntimeError) => { fatal ??= error; failureAbort.abort(); return error; };
   const invalid = (reason?: string) => {
     invalidDecisions++;
@@ -239,7 +244,11 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
     const checkModelResult = () => {
       const last = [...session!.messages].reverse().find((message) => message.role === "assistant");
       if (last?.role === "assistant" && (last.stopReason === "error" || last.stopReason === "aborted"))
-        throw new RuntimeError(/timeout|timed out|abort/i.test(last.errorMessage ?? "") ? "MODEL_REQUEST_TIMEOUT" : "MODEL_FAILED", "协调者模型请求未完成，请检查配置或稍后重试");
+        throw new RuntimeError(/timeout|timed out|abort/i.test(last.errorMessage ?? "") ? "MODEL_REQUEST_TIMEOUT" : "MODEL_FAILED",
+          // The provider's own message is the only way to tell a rejected request
+          // from a transient outage; it is redacted and clipped like every other
+          // provider detail this role reports.
+          `协调者模型请求未完成，请检查配置或稍后重试；${safeDetail(last.errorMessage)}`);
     };
     checkModelResult();
     if (!decision && calls.length < maxToolCalls && invalidDecisions === 0) {

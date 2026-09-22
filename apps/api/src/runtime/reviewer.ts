@@ -195,9 +195,16 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     const target=handoff.plan.behaviors.find(b=>b.id===item.behaviorId);
     if(!target)return 'OBSERVATION_SCOPE';
     if(item.screenshotIds.some(id=>!artifacts.some(a=>a.id===id)))return 'ARTIFACT_SCOPE';
+    if(item.observationEventIds.length===0)return 'ACTION_EVIDENCE_REQUIRED';
     const observations=item.observationEventIds.map(id=>evidence.find(e=>e.id===id));
-    if(!observations.every(e=>e && e.behaviorId===item.behaviorId))return 'OBSERVATION_SCOPE';
-    if(item.verdict!=='blocked'&&!observations.some(e=>e?.action && e.action !== 'scroll' && !(e.action === 'press' && e.key === 'Tab')))
+    // Every reference must exist in this check's evidence, and the behavior's
+    // core evidence must carry its behaviorId. Contextual observations such as
+    // the initial open (behaviorId null) may be referenced alongside the core
+    // action evidence; only a complete absence of behavior-bound evidence is a
+    // scope violation.
+    if(!observations.every(e=>e))return 'OBSERVATION_SCOPE';
+    if(!observations.some(e=>e?.behaviorId===item.behaviorId))return 'OBSERVATION_SCOPE';
+    if(item.verdict!=='blocked'&&!observations.some(e=>e?.action && e.action !== 'scroll' && !(e.action === 'press' && e.key === 'Tab') && e.behaviorId===item.behaviorId))
       return 'ACTION_EVIDENCE_REQUIRED';
     if(fatalPageError&&item.verdict==='passed')return 'RUNTIME_ERROR';
   };

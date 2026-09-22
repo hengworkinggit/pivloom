@@ -57,8 +57,13 @@ export interface BuilderResult {
  * appears under several providers prefer the entry with the most specific
  * adaptation rather than an arbitrary one.
  */
-function catalogModelFor(runtime: ModelRuntime, modelId: string) {
-  const candidates = runtime.getModels().filter((candidate) => candidate.id === modelId);
+function catalogModelFor(runtime: ModelRuntime, modelId: string, baseUrl: string) {
+  const host = (value: string | undefined) => {
+    try { return new URL(value ?? "").host; } catch { return ""; }
+  };
+  const endpoint = host(baseUrl);
+  const candidates = runtime.getModels().filter((candidate) =>
+    candidate.id === modelId && endpoint !== "" && host(candidate.baseUrl) === endpoint);
   if (!candidates.length) return undefined;
   const specificity = (candidate: (typeof candidates)[number]) => Object.keys(candidate.compat ?? {}).length;
   return candidates.reduce((best, candidate) => specificity(candidate) > specificity(best) ? candidate : best);
@@ -117,7 +122,10 @@ export async function createServiceModel(
   });
   let model = runtime.getModel(config.provider, config.id);
   if (config.baseUrl) {
-    const catalog = catalogModelFor(runtime, config.id);
+    // A model id can exist under several providers with different adaptation; only
+    // an entry whose endpoint matches the configured one may contribute, exactly
+    // as Pi would when the user selects that provider.
+    const catalog = config.baseUrl ? catalogModelFor(runtime, config.id, config.baseUrl) : undefined;
     const api: Api =
       config.api ??
       catalog?.api ??

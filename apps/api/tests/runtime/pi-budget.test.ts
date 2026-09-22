@@ -162,8 +162,14 @@ test("a BYOK model that exists in Pi's catalog inherits Pi's own protocol adapta
   // carries thinking format, developer-role and store flags. A BYOK profile must
   // inherit exactly that instead of a bare entry with no compat at all.
   const known = await createServiceModel({ ...config, id: "glm-5.3-flash" });
-  expect(known.model.compat).toMatchObject({ thinkingFormat: "zai", supportsDeveloperRole: false, supportsStore: false });
-  expect(known.model.reasoning).toBe(true);
+  // The catalog entry for this id lives under another provider's endpoint, so it
+  // must NOT leak its adaptation onto this endpoint.
+  expect(Object.keys(known.model.compat ?? {})).toHaveLength(0);
+  // An entry whose endpoint matches the configured one is inherited as-is.
+  const sameEndpoint = await createServiceModel({ ...config, id: "kimi-k2.6",
+    baseUrl: "https://api.moonshot.cn/v1" });
+  expect(sameEndpoint.model.compat).toMatchObject({ thinkingFormat: "deepseek", supportsDeveloperRole: false });
+  expect(sameEndpoint.model.reasoning).toBe(true);
   // A model Pi does not know still works, just without inherited adaptation.
   const unknown = await createServiceModel({ ...config, id: "pivloom-unknown-model" });
   expect(Object.keys(unknown.model.compat ?? {})).toHaveLength(0);
