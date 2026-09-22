@@ -53,7 +53,6 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const inCatalog = !!modelOverrideId && credentialModels.some((model) => model.id === modelOverrideId);
   const effectiveModelId = modelOverrideId && (customModelMode || inCatalog) ? modelOverrideId : selectedModel?.modelId ?? null;
   const showCatalogPicker = credentialModels.length > 0 && !customModelMode;
-  const showCustomPicker = !showCatalogPicker;
   const [draft, setDraft] = useState(() => readDraft(ownerId, projectId));
   const draftRef = useRef(draft);
   const [draftStored, setDraftStored] = useState(true);
