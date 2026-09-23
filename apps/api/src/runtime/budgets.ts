@@ -62,11 +62,9 @@ export const RESTORE_TIMEOUT_MS = 300_000;
  */
 export const PROVIDER_RETRY_POLICY = {
   enabled: true,
-  // The Pi SDK keeps this counter for the whole role session (it is not reset
-  // per turn), so a multi-turn Builder or Reviewer consumes the budget across
-  // the run. A degraded provider window drops a stream every few turns, which
-  // exhausted 2 retries mid-role and failed an otherwise healthy run; the
-  // backoff is capped at 8 s, so a larger count costs seconds, not minutes.
+  // Pi 0.86.1 resets its retry attempt after a successful assistant response.
+  // This bounds one consecutive transient-error chain, not the whole role.
+  // The backoff is capped at 8 seconds per retry.
   maxRetries: 6,
   baseDelayMs: 1_000,
   maxAgentDelayMs: 8_000,

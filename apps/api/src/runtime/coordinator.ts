@@ -309,6 +309,7 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
   } finally {
     clearTimeout(timer); signal.removeEventListener("abort", abort);
     if (aborting) await aborting.catch(() => {});
+    await session?.waitForIdle();
     await eventTail;
     session?.dispose();
     if (isolated) await rm(isolated, { recursive: true, force: true });

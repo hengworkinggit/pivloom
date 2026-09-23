@@ -188,6 +188,20 @@ export function createGenerationExecutor(options: {
         toolCalls += result.usage?.toolCalls ?? result.toolCalls.length;
         activeUsage = result.usage ? storedUsage(result.usage) : undefined;
         if (result.status !== "candidate") {
+          // runCandidate reports a cancelled Builder as a result after it has
+          // attempted sandbox cleanup. Keep the user's stop as a cancellation;
+          // routing every non-candidate result through finishFailed changes the
+          // authoritative run state to failed.
+          if (task.controller.signal.reason === "CANCELLED") {
+            await repository.finishCancelled(run.ownerId, run.id, {
+              cleanupState: result.cleanup === "pending" ? "pending" : "confirmed",
+              summary: result.cleanup === "pending"
+                ? "任务已停止，远端资源回收尚未确认，已阻止新的任务。"
+                : "任务已停止，远端模型调用与沙箱已确认回收。",
+            });
+            return;
+          }
+          task.controller.signal.throwIfAborted();
           const diagnostic = result.diagnosticSnapshot && result.trustedBuild
             ? await save(result.diagnosticSnapshot, result.diagnosticBuildStatus ?? "failed", result.trustedBuild) : undefined;
           if (diagnostic?.buildStatus === "failed" && result.cleanup === "confirmed"

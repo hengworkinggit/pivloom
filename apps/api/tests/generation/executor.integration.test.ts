@@ -75,9 +75,11 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     await database?.close(); await admin?.end();
   }, 30_000);
 
-  async function fixture(mode: "normal" | "build-once" | "tool-budget" | "cleanup-fails" | "restore-cleanup-fails") {
+  async function fixture(mode: "normal" | "build-once" | "tool-budget" | "cleanup-fails" | "restore-cleanup-fails" | "cancel-builder") {
     const remotes = new Map<string, { files: Map<string, Buffer>; live: boolean; actions: number; url: string; index: number }>();
     let builderSessions = 0;
+    let signalBuilderStarted = () => {};
+    const builderStarted = new Promise<void>((resolve) => { signalBuilderStarted = resolve; });
     let cleanupUnavailable = mode === "cleanup-fails" || mode === "restore-cleanup-fails";
     let closeHook: (() => Promise<void>) | undefined;
     const builderPrompts: string[] = [];
@@ -146,6 +148,15 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       const messages: Array<{ role: string; content: string; tool_calls?: Array<{ function: { name: string } }> }> = request.messages;
       const responses = messages.filter((message) => message.role === "tool");
       const last = responses.at(-1);
+      if (mode === "cancel-builder" && tools.includes("write")) {
+        signalBuilderStarted();
+        return new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          const stopped = () => reject(new DOMException("Builder request stopped", "AbortError"));
+          if (signal?.aborted) stopped();
+          else signal?.addEventListener("abort", stopped, { once: true });
+        });
+      }
       let calls: Array<{ name: string; args: unknown }> = [];
       if (tools.includes("submit_plan")) calls = [{ name: "submit_plan", args: { plan } }];
       else if (tools.includes("write")) {
@@ -180,7 +191,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
         upload: async (key, bytes) => { objects.set(key, bytes); }, download: async (key) => objects.get(key)!,
       } }) }, { sandboxConnector: connector, modelFetch, ...(mode === "tool-budget" ? { maxToolCalls: 6 } : {}) });
     closers.push(async () => { await executor.close(); await previews.close(); });
-    return { executor, remotes, builderPrompts, allowCleanup() { cleanupUnavailable = false; }, onRelease(hook: () => Promise<void>) { closeHook = hook; } };
+    return { executor, remotes, builderPrompts, builderStarted, allowCleanup() { cleanupUnavailable = false; }, onRelease(hook: () => Promise<void>) { closeHook = hook; } };
   }
 
   async function run(f: Awaited<ReturnType<typeof fixture>>, projectId?: string) {
@@ -276,4 +287,35 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     await expect(repository.accept(owner, initial.projectId, { idempotencyKey: randomUUID(), text: "重新尝试", expectedCurrentRevisionId: initial.run.resultRevisionId,
       modelProfileId: model.id, modelConfigVersion: model.configVersion })).rejects.toMatchObject({ code: "PROJECT_BUSY" });
   }, 900_000);
+
+  test("stopping during Builder model streaming ends as cancelled after its candidate sandbox is destroyed", async () => {
+    const remote = await fixture("cancel-builder");
+    const project = await createProjectRepository(database).create(owner, prefix);
+    projects.push(project.id);
+    const accepted = await repository.accept(owner, project.id, {
+      idempotencyKey: randomUUID(), text: "初始0，点击加一显示1", expectedCurrentRevisionId: null,
+      modelProfileId: model.id, modelConfigVersion: model.configVersion,
+    });
+    leases.push(accepted.run.credentialLeaseId);
+    const finishedRun = new Promise<void>((resolve) => {
+      finished.set(accepted.run.id, () => { finished.delete(accepted.run.id); resolve(); });
+    });
+    remote.executor.start(accepted.run);
+    let startedTimer: ReturnType<typeof setTimeout> | undefined;
+    const reachedBuilder = await Promise.race([
+      remote.builderStarted.then(() => true),
+      finishedRun.then(() => false),
+      new Promise<boolean>((resolve) => { startedTimer = setTimeout(() => resolve(false), 120_000); }),
+    ]);
+    clearTimeout(startedTimer);
+    expect(reachedBuilder).toBe(true);
+    expect((await repository.cancel(owner, accepted.run.id)).state).toBe("cancel_requested");
+    expect(remote.executor.cancel(accepted.run.id)).toBe(true);
+    await finishedRun;
+    const snapshot = await repository.readRunSnapshot(owner, accepted.run.id);
+    expect(snapshot.run.state).toBe("cancelled");
+    expect(snapshot.run.cleanupState).toBe("confirmed");
+    expect([...remote.remotes.values()].map((sandbox) => sandbox.live)).toEqual([false]);
+    expect((await createProjectRepository(database).get(owner, project.id)).currentRevisionId).toBeNull();
+  }, 300_000);
 });

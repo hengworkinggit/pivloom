@@ -488,6 +488,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     clearTimeout(timer);
     signal.removeEventListener('abort',abort);
     if(aborting)await aborting.catch(()=>{});
+    await session?.waitForIdle();
     session?.dispose();
     if(isolated)await rm(isolated,{recursive:true,force:true});
     const closed=await input.browser.close().catch(()=>({confirmed:false}));

@@ -546,17 +546,10 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
     clearTimeout(timer);
     signal.removeEventListener("abort", abort);
     if (aborting) {
-      let stopTimer: ReturnType<typeof setTimeout> | undefined;
-      const stopped = await Promise.race([
-        aborting.then(
-          () => true,
-          () => false,
-        ),
-        new Promise<boolean>((resolve) => {
-          stopTimer = setTimeout(() => resolve(false), 5000);
-        }),
-      ]);
-      clearTimeout(stopTimer);
+      // Pi's abort() waits for the agent to become idle. A five-second race
+      // reported an unconfirmed stop and disposed the session while its model
+      // or remote tool could still be running.
+      const stopped = await aborting.then(() => true, () => false);
       if (!eventFailure) await emit({
         id: randomUUID(),
         at: new Date().toISOString(),
@@ -568,6 +561,7 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
           : "Pi abort 结束尚未确认",
       });
     }
+    await session?.waitForIdle();
     await eventTail;
     session?.dispose();
     await rm(isolated, { recursive: true, force: true });
