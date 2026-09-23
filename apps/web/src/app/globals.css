@@ -754,7 +754,7 @@ svg {
 .deployment-version button:disabled { opacity: .6; cursor: default; }
 .deployment-version-notice { color: #346444; }
 @media (max-width: 600px) {
-  .deployment-version { justify-content: flex-start; padding: 3px 12px; overflow-x: auto; white-space: nowrap; }
+  .deployment-version { justify-content: flex-start; padding: 3px 8px; overflow-x: auto; white-space: nowrap; }
 }
 .header-divider {
   width: 1px;
