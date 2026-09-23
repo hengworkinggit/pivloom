@@ -55,6 +55,10 @@ export interface ClarificationInput { roleRunId: string; attempt: number; questi
 export interface PlanSubmission { run: StoredRun; coordinator: StoredRoleRun; builder: StoredRoleRun; handoff: Handoff }
 export interface ReviewerExecution { role: StoredRoleRun; scope: ReviewBinding; handoff: Handoff }
 export interface ReviewCompletion { run: StoredRun; check: Check; revision: StoredRevision; repairNextAttempt: number | null }
+export interface BuildFailureInput {
+  revisionId: string; code: "TYPECHECK_FAILED" | "BUILD_FAILED"; message: string; usage?: RoleUsage;
+}
+export interface BuildFailureCompletion { run: StoredRun; revision: StoredRevision; repairNextAttempt: number | null }
 export interface StoredRestore {
   id: string; projectId: string; revisionId: string; sourceHash: string;
   status: "pending" | "ready" | "failed"; sandboxId: string | null;
@@ -91,6 +95,7 @@ export interface GenerationRepository {
   queueReviewer(ownerId: string, runId: string, input: { revisionId: string }): Promise<ReviewerExecution>;
   startReviewer(ownerId: string, runId: string): Promise<ReviewerExecution>;
   finishReview(ownerId: string, runId: string, input: { receipt: VerifiedReviewReceipt; usage?: RoleUsage }): Promise<ReviewCompletion>;
+  finishBuildFailure(ownerId: string, runId: string, input: BuildFailureInput): Promise<BuildFailureCompletion>;
   getCheck(ownerId: string, checkId: string): Promise<Check>;
   getRunCheck(ownerId: string, runId: string): Promise<Check | null>;
   getArtifact(ownerId: string, artifactId: string): Promise<StoredCheckArtifact>;
@@ -109,6 +114,8 @@ export interface GenerationRepository {
   quota(ownerId: string): Promise<{ dailyLimit: number; dailyAccepted: number }>;
   startRepairBuilder(ownerId: string, runId: string, input: { attempt: number; previousRevisionId: string; failedChecks: string[] }): Promise<StoredRoleRun>;
   beginRestore(ownerId: string, projectId: string, input: { revisionId: string; idempotencyKey: string }): Promise<{ restore: StoredRestore; revision: StoredRevision; replayed: boolean }>;
+  registerRestoreSandbox(ownerId: string, projectId: string, restoreId: string, input: { sandboxId: string; expiresAt: string }): Promise<StoredRestore>;
+  markRestoreSandboxDestroyed(ownerId: string, projectId: string, restoreId: string, sandboxId: string): Promise<void>;
   bindRestore(ownerId: string, projectId: string, restoreId: string, input: { sandboxId: string; expiresAt: string }): Promise<StoredRestore>;
   failRestore(ownerId: string, projectId: string, restoreId: string, input: { code: string; message: string }): Promise<StoredRestore | null>;
   getActiveRestore(ownerId: string, projectId: string, revisionId: string): Promise<StoredRestore | null>;
@@ -204,6 +211,7 @@ export function createGenerationRepository(
   models: ModelProfileService,
   options: {
     executorBootId: string; maxSandboxes?: number;
+    dailyLimitByOwner?: Readonly<Record<string, number>>;
     onCommittedEvent?: (ownerId: string, event: RunEvent) => void | Promise<void>;
   },
 ): GenerationRepository {
@@ -350,8 +358,9 @@ export function createGenerationRepository(
           }
           // Replays return above, so a retried idempotency key never consumes quota twice.
           const used = (await client.query("SELECT count(*)::int AS accepted FROM nano.runs WHERE owner_id=$1 AND created_at > now() - interval '24 hours'", [ownerId])).rows[0].accepted as number;
-          if (used >= DAILY_ACCEPTED_LIMIT)
-            throw new ApiFailure(429, "QUOTA_EXCEEDED", `今日任务额度已用完（${DAILY_ACCEPTED_LIMIT} 个），请稍后再试。`, false);
+          const dailyLimit = options.dailyLimitByOwner?.[ownerId] ?? DAILY_ACCEPTED_LIMIT;
+          if (used >= dailyLimit)
+            throw new ApiFailure(429, "QUOTA_EXCEEDED", `今日任务额度已用完（${dailyLimit} 个），请稍后再试。`, false);
           let requestText = normalized.text;
           let runKind: "generate" | "modify" | "retry" | "clarify" = normalized.parentRunId ? "clarify" : parent.current_revision_id ? "modify" : "generate";
           const baseRevisionId = normalized.expectedCurrentRevisionId;
@@ -866,9 +875,47 @@ export function createGenerationRepository(
       await event(client, changed, { type: "run.finished", payload: { state: "cancelled", cleanupState: input.cleanupState } });
       return storedRun(changed);
     }),
+    finishBuildFailure: (ownerId, runId, input) => owned(ownerId, async (client) => {
+      const { current, parent } = await lockedRun(client, ownerId, runId);
+      const role = await activeRole(client, current, { roleRunId: current.builder_role_run_id, attempt: current.attempt, role: "builder" });
+      if (parent.current_revision_id !== current.expected_current_revision_id)
+        throw new ApiFailure(409, "STALE_BASE", "当前成功版本已经变化，未提交此次构建失败。");
+      const saved = await revision(client, ownerId, input.revisionId);
+      if (saved.run_id !== runId || saved.project_id !== current.project_id || saved.attempt !== current.attempt
+        || current.result_revision_id !== saved.id || saved.status !== "candidate" || saved.build_status !== "failed")
+        throw new ApiFailure(409, "SNAPSHOT_CONFLICT", "构建诊断与当前尝试保存的候选不一致。");
+      const build = saved.build_json;
+      const failedCommand = input.code === "TYPECHECK_FAILED" ? build?.typecheck
+        : input.code === "BUILD_FAILED" && build?.typecheck?.exitCode === 0 ? build?.build : null;
+      if (build?.schemaVersion !== 1 || build.sourceHash !== saved.source_hash
+        || !Number.isInteger(failedCommand?.exitCode) || failedCommand.exitCode === 0)
+        throw new ApiFailure(409, "BUILD_NOT_VERIFIED", "候选缺少与源码匹配的可信构建失败记录。");
+      const repairNextAttempt = current.attempt < 2 ? current.attempt + 1 : null;
+      const state = repairNextAttempt ? "repairing" : "needs_changes";
+      const message = input.message.slice(0, 2000);
+      const summary = repairNextAttempt ? "候选构建未通过，正在修复。" : "已完成两轮修复，候选构建仍未通过。";
+      await client.query("UPDATE nano.role_runs SET state='failed',finished_at=now(),output_json=$3,usage_json=$4 WHERE owner_id=$1 AND id=$2",
+        [ownerId, role.id, { code: input.code, message }, roleUsage(input.usage)]);
+      const changedRevision = (await client.query("UPDATE nano.revisions SET status=$3 WHERE owner_id=$1 AND id=$2 RETURNING *",
+        [ownerId, saved.id, repairNextAttempt ? "candidate" : "rejected"])).rows[0];
+      const changed = (await client.query(`UPDATE nano.runs SET state=$3,phase=$4,summary=$5,error_code=$6,error_message=$7,
+        error_retryable=true,finished_at=CASE WHEN $8::boolean THEN NULL ELSE now() END
+        WHERE owner_id=$1 AND id=$2 RETURNING *`,
+      [ownerId, runId, state, repairNextAttempt ? "implement" : "persist", summary, input.code, message, repairNextAttempt !== null])).rows[0];
+      await event(client, changed, { type: "role.completed", roleRunId: role.id, payload: { role: "builder", state: "failed", summary: message } });
+      if (repairNextAttempt) {
+        await event(client, changed, { type: "run.phase", payload: { state, phase: "implement", reason: "build_failed", revisionId: saved.id } });
+      } else {
+        await client.query("INSERT INTO nano.messages(owner_id,project_id,run_id,kind,content) VALUES($1,$2,$3,'result',$4)", [ownerId, current.project_id, runId, summary]);
+        await models.releaseInTransaction(client, ownerId, current.credential_lease_id);
+        await client.query("UPDATE nano.projects SET operation_kind=NULL,operation_id=NULL,operation_started_at=NULL,updated_at=now() WHERE owner_id=$1 AND id=$2 AND operation_id=$3", [ownerId, current.project_id, runId]);
+        await event(client, changed, { type: "run.finished", payload: { state, revisionId: saved.id, error: { code: input.code, message, retryable: true } } });
+      }
+      return { run: storedRun(changed), revision: storedRevision(changedRevision), repairNextAttempt };
+    }),
     quota: (ownerId) => owned(ownerId, async (client) => {
       const row = (await client.query("SELECT count(*)::int AS accepted FROM nano.runs WHERE owner_id=$1 AND created_at > now() - interval '24 hours'", [ownerId])).rows[0];
-      return { dailyLimit: DAILY_ACCEPTED_LIMIT, dailyAccepted: row.accepted as number };
+      return { dailyLimit: options.dailyLimitByOwner?.[ownerId] ?? DAILY_ACCEPTED_LIMIT, dailyAccepted: row.accepted as number };
     }),
     // A repair stays inside the same run: same deadline, same shared token and
     // tool ledgers. Only the attempt number, the builder role and the handoff
@@ -884,17 +931,19 @@ export function createGenerationRepository(
         throw new ApiFailure(409, "SNAPSHOT_CONFLICT", "待修复候选与当前任务不匹配。");
       const plan = PlanSchema.parse(current.plan_json);
       const reviewer = await client.query("SELECT id FROM nano.role_runs WHERE owner_id=$1 AND run_id=$2 AND role='reviewer' AND attempt=$3", [ownerId, runId, current.attempt]);
+      const predecessorId = reviewer.rows[0]?.id ?? current.builder_role_run_id;
       const id = randomUUID();
-      const handoff = HandoffSchema.parse({ runId, fromRoleRunId: reviewer.rows[0]?.id ?? null, toRole: "builder",
+      const handoff = HandoffSchema.parse({ runId, fromRoleRunId: predecessorId, toRole: "builder",
         attempt: input.attempt, baseRevisionId: current.base_revision_id, expectedRevisionId: previous.id,
         sourceHash: previous.source_hash, plan,
-        task: "上一轮候选未通过独立检查。请只修复下列问题，并保持其它行为与原有实现不变：",
+        task: reviewer.rows[0] ? "上一轮候选未通过独立检查。请只修复下列问题，并保持其它行为与原有实现不变："
+          : "上一轮候选未通过可信构建。请修复下列构建错误，并保持其它行为与原有实现不变：",
         failedChecks: input.failedChecks.slice(0, 5).map((check) => check.slice(0, 1000)), artifactIds: [] });
       const inserted = await client.query(`INSERT INTO nano.role_runs(id,owner_id,project_id,run_id,predecessor_id,role,attempt,session_id,state,input_json)
         VALUES($1,$2,$3,$4,$5,'builder',$6,$7,'queued',$8) RETURNING *`,
-      [id, ownerId, current.project_id, runId, reviewer.rows[0]?.id ?? null, input.attempt, randomUUID(), handoff]);
+      [id, ownerId, current.project_id, runId, predecessorId, input.attempt, randomUUID(), handoff]);
       const changed = (await client.query(`UPDATE nano.runs SET attempt=$3,state='building',phase='implement',
-        builder_role_run_id=$4,reviewer_role_run_id=NULL,summary=NULL,error_code=NULL,error_message=NULL,error_retryable=NULL
+        builder_role_run_id=$4,reviewer_role_run_id=NULL,summary=NULL,error_code=NULL,error_message=NULL,error_retryable=NULL,finished_at=NULL
         WHERE owner_id=$1 AND id=$2 RETURNING *`, [ownerId, runId, input.attempt, id])).rows[0];
       await event(client, changed, { type: "run.phase", payload: { state: "building", phase: "implement", attempt: input.attempt, reason: "repair" } });
       return storedRole(inserted.rows[0]);
@@ -918,16 +967,55 @@ export function createGenerationRepository(
       await client.query("UPDATE nano.projects SET operation_kind='restore',operation_id=$3,operation_started_at=now(),updated_at=now() WHERE owner_id=$1 AND id=$2", [ownerId, projectId, id]);
       return { restore: storedRestore(inserted), revision: storedRevision(saved), replayed: false };
     }),
-    bindRestore: (ownerId, projectId, restoreId, input) => owned(ownerId, async (client) => {
+    registerRestoreSandbox: (ownerId, projectId, restoreId, input) => owned(ownerId, async (client) => {
+      const parent = await project(client, ownerId, projectId, true);
       const restore = (await client.query("SELECT * FROM nano.preview_restores WHERE owner_id=$1 AND project_id=$2 AND id=$3 FOR UPDATE", [ownerId, projectId, restoreId])).rows[0];
       if (!restore) throw notFound();
-      if (restore.status === "ready") return storedRestore(restore);
-      if (restore.status !== "pending") throw new ApiFailure(409, "RESTORE_NOT_ACTIVE", "本次预览恢复已经结束。");
+      if (restore.status !== "pending" || restore.error_code || parent.operation_id !== restoreId)
+        throw new ApiFailure(409, "RESTORE_NOT_ACTIVE", "本次预览恢复已经结束或正在等待清理。");
       if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}$/.test(input.sandboxId)) throw new ApiFailure(422, "INVALID_SANDBOX_BINDING", "沙箱标识无效。");
+      if (restore.sandbox_id) {
+        if (restore.sandbox_id !== input.sandboxId) throw new ApiFailure(409, "RESTORE_BINDING_MISMATCH", "恢复沙箱与已登记资源不一致。");
+        return storedRestore(restore);
+      }
       const saved = await revision(client, ownerId, restore.revision_id);
       await client.query(`INSERT INTO nano.sandboxes(owner_id,project_id,run_id,attempt,remote_id,revision_id,source_hash,purpose,state,expires_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7,'preview','active',$8)`,
+        VALUES($1,$2,$3,$4,$5,$6,$7,'preview','creating',$8)`,
       [ownerId, projectId, saved.run_id, saved.attempt, input.sandboxId, restore.revision_id, restore.source_hash, input.expiresAt]);
+      const changed = (await client.query("UPDATE nano.preview_restores SET sandbox_id=$4 WHERE owner_id=$1 AND project_id=$2 AND id=$3 RETURNING *",
+        [ownerId, projectId, restoreId, input.sandboxId])).rows[0];
+      return storedRestore(changed);
+    }),
+    markRestoreSandboxDestroyed: (ownerId, projectId, restoreId, sandboxId) => owned(ownerId, async (client) => {
+      await project(client, ownerId, projectId, true);
+      const restore = (await client.query("SELECT * FROM nano.preview_restores WHERE owner_id=$1 AND project_id=$2 AND id=$3 FOR UPDATE", [ownerId, projectId, restoreId])).rows[0];
+      if (!restore) throw notFound();
+      // Creation may fail before its registration commits; a confirmed remote
+      // deletion then has no durable binding to update.
+      if (!restore.sandbox_id) return;
+      if (restore.sandbox_id !== sandboxId) throw new ApiFailure(409, "RESTORE_BINDING_MISMATCH", "恢复沙箱与已登记资源不一致。");
+      await client.query(`UPDATE nano.sandboxes SET state='destroyed',last_checked_at=now()
+        WHERE owner_id=$1 AND project_id=$2 AND revision_id=$3 AND remote_id=$4 AND purpose='preview'`,
+      [ownerId, projectId, restore.revision_id, sandboxId]);
+      if (restore.status === "pending" && restore.error_code) {
+        await client.query("UPDATE nano.preview_restores SET status='failed',finished_at=now() WHERE owner_id=$1 AND id=$2", [ownerId, restoreId]);
+        await client.query("UPDATE nano.projects SET operation_kind=NULL,operation_id=NULL,operation_started_at=NULL,updated_at=now() WHERE owner_id=$1 AND id=$2 AND operation_id=$3", [ownerId, projectId, restoreId]);
+      }
+    }),
+    bindRestore: (ownerId, projectId, restoreId, input) => owned(ownerId, async (client) => {
+      const parent = await project(client, ownerId, projectId, true);
+      const restore = (await client.query("SELECT * FROM nano.preview_restores WHERE owner_id=$1 AND project_id=$2 AND id=$3 FOR UPDATE", [ownerId, projectId, restoreId])).rows[0];
+      if (!restore) throw notFound();
+      if (restore.sandbox_id !== input.sandboxId) throw new ApiFailure(409, "RESTORE_BINDING_MISMATCH", "恢复沙箱与已登记资源不一致。");
+      if (restore.status === "ready") return storedRestore(restore);
+      if (restore.status !== "pending" || restore.error_code || parent.operation_id !== restoreId)
+        throw new ApiFailure(409, "RESTORE_NOT_ACTIVE", "本次预览恢复已经结束或正在等待清理。");
+      const saved = await revision(client, ownerId, restore.revision_id);
+      const binding = await client.query(`UPDATE nano.sandboxes SET state='active',expires_at=$5,last_checked_at=now()
+        WHERE owner_id=$1 AND project_id=$2 AND revision_id=$3 AND remote_id=$4 AND source_hash=$6
+          AND purpose='preview' AND state='creating' RETURNING id`,
+      [ownerId, projectId, restore.revision_id, input.sandboxId, input.expiresAt, restore.source_hash]);
+      if (!binding.rows[0]) throw new ApiFailure(409, "RESTORE_BINDING_MISMATCH", "恢复沙箱已失效，未发布预览。");
       const updated = (await client.query(`UPDATE nano.preview_restores SET status='ready',sandbox_id=$4,finished_at=now()
         WHERE owner_id=$1 AND project_id=$2 AND id=$3 RETURNING *`, [ownerId, projectId, restoreId, input.sandboxId])).rows[0];
       await client.query("UPDATE nano.projects SET operation_kind=NULL,operation_id=NULL,operation_started_at=NULL,updated_at=now() WHERE owner_id=$1 AND id=$2 AND operation_id=$3", [ownerId, projectId, restoreId]);
@@ -937,10 +1025,18 @@ export function createGenerationRepository(
       return storedRestore(updated);
     }),
     failRestore: (ownerId, projectId, restoreId, input) => owned(ownerId, async (client) => {
-      const updated = (await client.query(`UPDATE nano.preview_restores SET status='failed',error_code=$4,error_message=$5,finished_at=now()
+      await project(client, ownerId, projectId, true);
+      const restore = (await client.query("SELECT * FROM nano.preview_restores WHERE owner_id=$1 AND project_id=$2 AND id=$3 FOR UPDATE", [ownerId, projectId, restoreId])).rows[0];
+      if (!restore || restore.status !== "pending") return null;
+      const sandbox = restore.sandbox_id ? (await client.query(`SELECT state FROM nano.sandboxes
+        WHERE owner_id=$1 AND project_id=$2 AND revision_id=$3 AND remote_id=$4 AND purpose='preview'`,
+      [ownerId, projectId, restore.revision_id, restore.sandbox_id])).rows[0] : null;
+      const pending = Boolean(restore.sandbox_id && (!sandbox || !["destroyed", "expired"].includes(sandbox.state)));
+      const updated = (await client.query(`UPDATE nano.preview_restores SET status=$6,error_code=$4,error_message=$5,
+        finished_at=CASE WHEN $7::boolean THEN NULL ELSE now() END
         WHERE owner_id=$1 AND project_id=$2 AND id=$3 AND status='pending' RETURNING *`,
-      [ownerId, projectId, restoreId, input.code.slice(0, 80), input.message.slice(0, 2000)])).rows[0];
-      if (updated)
+      [ownerId, projectId, restoreId, input.code.slice(0, 80), input.message.slice(0, 2000), pending ? "pending" : "failed", pending])).rows[0];
+      if (updated && !pending)
         await client.query("UPDATE nano.projects SET operation_kind=NULL,operation_id=NULL,operation_started_at=NULL,updated_at=now() WHERE owner_id=$1 AND id=$2 AND operation_id=$3", [ownerId, projectId, restoreId]);
       return updated ? storedRestore(updated) : null;
     }),

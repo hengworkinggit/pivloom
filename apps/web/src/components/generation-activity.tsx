@@ -59,6 +59,7 @@ export function GenerationOutcome({ run, candidateSaved, check }: { run: Run; ca
     <TriangleAlert size={16} /><div><strong>{heading}</strong><p id={run.state === "needs_input" && run.clarification ? "clarification-question" : undefined}>{run.state === "needs_input" && run.clarification ? run.clarification.question : check?.summary ?? run.error?.message ?? run.summary ?? "可以查看已保存的任务记录。"}</p>
       {run.state === "needs_input" && run.clarification && <p>本次任务已结束。填写回答后会接着原需求继续。</p>}
       {unchecked && candidateSaved && <p>构建与源码保存已完成，行为检查尚未完成。此候选尚未成为当前版本。</p>}
+      {run.state === "needs_changes" && run.attempt > 0 && <p>已尝试修复 {run.attempt} 轮{run.attempt >= 2 ? "，已达上限，停止自动修复。" : "。"}</p>}
       <details><summary>任务详情</summary><p className="generation-identifier">{run.id}</p>{run.error && <p>{run.error.code}</p>}</details>
     </div>
   </div>;

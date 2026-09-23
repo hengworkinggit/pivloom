@@ -173,6 +173,49 @@ const sandboxConfig = {
   image: "fixture",
 };
 
+test("repair Builder receives the failed behavior and compiler diagnostic from its persisted handoff", async () => {
+  const remote = await remoteFixture();
+  const model = modelFixture("export default function App(){return <h1>修复候选</h1>}");
+  const runId = randomUUID();
+  const failedChecks = ["B02：选择已读后仍显示未读记录；预期只显示已读记录", "TypeScript TS1005: expected closing bracket"];
+  const result = await runCandidate({
+    runId, revisionId: randomUUID(), prompt: "修复筛选", modelConfig: model.config, sandboxConfig,
+    signal: new AbortController().signal,
+    handoff: { runId, fromRoleRunId: randomUUID(), toRole: "builder", attempt: 1,
+      baseRevisionId: null, expectedRevisionId: randomUUID(), sourceHash: "a".repeat(64),
+      task: "仅修复上一轮明确发现的问题", failedChecks, artifactIds: [],
+      plan: { schemaVersion: 1, goal: "读书筛选", changeSummary: "修复筛选", assumptions: [], outOfScope: [],
+        behaviors: [{ id: "B02", title: "筛选已读", precondition: "已有已读和未读书籍", action: "点击已读", expected: "只显示已读", required: true }] } },
+  }, { sandboxConnector: remote.connector });
+  expect(result.status).toBe("candidate");
+  const request = JSON.stringify(model.requests[0].messages);
+  for (const diagnostic of failedChecks) expect(request).toContain(diagnostic);
+});
+
+test("an explicit test output adapter replaces source before trusted build and immutable snapshot", async () => {
+  const remote = await remoteFixture();
+  const model = modelFixture("export default function App(){return <h1>自然生成</h1>}");
+  const injected = "export default function App(){return <button>失效筛选夹具</button>}";
+  const runId = randomUUID();
+  let applied = 0;
+  const result = await runCandidate({ runId, revisionId: randomUUID(), prompt: "筛选应用",
+    modelConfig: model.config, sandboxConfig, signal: new AbortController().signal }, {
+    sandboxConnector: remote.connector,
+    async afterBuilderOutput(context) {
+      expect(context.runId).toBe(runId);
+      expect(context.attempt).toBe(0);
+      context.signal.throwIfAborted();
+      await context.workspace.write(context.handle, "src/App.tsx", Buffer.from(injected));
+      applied++;
+    },
+  });
+  expect(applied).toBe(1);
+  expect(result.status).toBe("candidate");
+  if (result.status !== "candidate") throw Error("Candidate missing");
+  expect(result.snapshot.bundle.files.find(file => file.path === "src/App.tsx")?.content).toBe(injected);
+  expect(result.trustedBuild.sourceHash).toBe(result.snapshot.sourceHash);
+});
+
 test("a shared run token budget prevents another provider call and still cleans the candidate sandbox", async () => {
   const remote = await remoteFixture();
   const model = modelFixture("export default function App(){return <h1>不应生成</h1>}");

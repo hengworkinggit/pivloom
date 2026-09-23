@@ -8,12 +8,10 @@ const app = createApp({ logger: false, previewListen: { host: process.env.PREVIE
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => { void app.close().then(() => process.exit(0)); });
 }
-await app.listen({ host: process.env.API_HOST ?? "127.0.0.1", port });
+await app.ready();
 // Reconcile before the first request can be served: any run a previous process
 // left active is marked interrupted and its remote resources are reclaimed.
-const recovered = await app.recoverStaleRuns().catch((error: unknown) => {
-  console.error("Stale run recovery failed", error instanceof Error ? error.name : "unknown");
-  return 0;
-});
+const recovered = await app.recoverStaleRuns();
+await app.listen({ host: process.env.API_HOST ?? "127.0.0.1", port });
 console.info(`Pivloom API listening on port ${port}`);
 if (recovered) console.info(`Recovered ${recovered} interrupted run(s)`);

@@ -1,0 +1,11 @@
+import { useState } from 'react';
+const books=[{title:'已读样例',read:true},{title:'未读样例',read:false}];
+export default function App(){
+  const [filter,setFilter]=useState('全部');
+  const visible=books;
+  return <main style={{maxWidth:600,margin:'24px auto',padding:16,fontFamily:'sans-serif'}}>
+    <h1>书籍状态筛选</h1>
+    <nav aria-label="阅读状态筛选">{['全部','未读','已读'].map(value=><button key={value} aria-pressed={filter===value} onClick={()=>setFilter(value)}>{value}</button>)}</nav>
+    <ul>{visible.map(book=><li key={book.title}>{book.title} · {book.read?'已读':'未读'}</li>)}</ul>
+  </main>;
+}

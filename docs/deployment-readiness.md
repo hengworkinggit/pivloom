@@ -1,6 +1,6 @@
 # 部署主机检查记录
 
-> 最新执行状态：基础联合验证与 #2/#3/#4/#5/#6/#15 已完成，正式工作台已接入协调者、澄清与真实候选生成。#6 提交为 `964abd5`，候选尚未经过产品 Reviewer，不晋升 current。API 已与 Supabase、OpenSandbox 共置于服务器，前端继续本地开发；公网完整产品尚未发布。详见[联合验收](foundation-validation-2026-09-22.md)与 [DEV-05](planning-validation-2026-09-22.md)。
+> 最新状态（2026-09-23）：Next.js 工作台与单实例 Fastify API 已在授权服务器共置，公网入口为 [Pivloom](https://pivloom-69-5-7-187.sslip.io)。免费 sslip.io 域名已获用户接受，不再等待购买域名或提供 DNS 权限。真实生成、版本迭代、停止/重试及预览恢复已有验收记录；#13 真实修复与 #14 最终全链路验收仍在收尾，不能据公网可访问将两票标为完成。可复用脚本与回滚步骤见 [infra/release](../infra/release/README.md)。下文前几节保留部署前和内部联调的历史快照，以最后一节的公网状态为准。
 
 日期：2026-09-22。先完成授权SSH只读检查，随后部署并实测OpenSandbox/gVisor。此记录不保存主机密码或私钥。
 
@@ -28,7 +28,7 @@
 - 单沙箱限制1核/1GiB，gVisor cgroup峰值746.40MiB；旧站点193次探测无错误，swap始终为0；磁盘剩余约21GiB。
 - Supabase尚未部署；该结果不证明Supabase与完整工作台/沙箱共同负载能容纳于4GiB。详见[实测记录](sandbox-g0-results.md)。
 
-## 当前内部部署
+## 内部部署阶段（历史快照）
 
 Supabase DB/Auth/REST/私有 Storage 四个服务已运行并验收。API 使用独立 `pivloom-api.service` 和专用非 root 账号，仅监听回环 18010/18011；本地前端经 SSH 转发访问，部署说明见 [infra/api](../infra/api/README.md)。模型凭据仍由页面管理并加密存储，不放入部署环境变量。TRD 12.1 记录此开发阶段 systemd 例外，最终部署必须保持唯一执行器。
 
@@ -38,11 +38,11 @@ Supabase DB/Auth/REST/私有 Storage 四个服务已运行并验收。API 使用
 
 本地 `PREVIEW_BASE_URL=http://localhost:45311` 派生 `http://<revisionId>.localhost:45311`，工作台 localhost 地址保持不变；cookie 为 host-only、HttpOnly、`SameSite=None; Secure`。独立 IAB 夹具已证实 localhost 页面内嵌两个 `.localhost` 来源时，该 cookie 能完成认证。这是当前 IAB 的受信回环验证，真实产品修复回归仍待完成，不作为公网通过记录。
 
-## 对本项目的落实
+## 部署约束与历史决策
 
 该主机作为单实例 Demo 的部署目标，实际内存与并发余量仍需上线前测量。Pivloom 使用独立目录、服务名、网络和未占用端口，不能抢占现有 3000 端口或覆盖现有应用。
 
-主机已有 Caddy，所以默认复用现有宿主 Caddy，为 Pivloom 增加独立域名站点并代理到独立 web/api 回环端口；不额外启动争抢 80/443 的第二个 Caddy。实施时先读取现有路由并备份，再 validate/reload，保留原站点可用。公网域名和 DNS 尚待配置，仅为上线前置；本地开发/E2E使用localhost或SSH隧道，不因域名未提供而阻塞。
+主机已有 Caddy，所以复用现有宿主 Caddy，为 Pivloom 增加独立域名站点并代理到独立 web/api 回环端口；不额外启动争抢 80/443 的第二个 Caddy。实施时先读取现有路由并备份，再 validate/reload，保留原站点可用。公网使用下节的免费 sslip.io 地址；本地开发/E2E 也可使用 localhost 或 SSH 隧道。
 
 公网预览另使用 `https://<revisionId>.<configured-preview-host>`，与工作台同 scheme、同 site（实际可注册域）但不同 origin，各 Revision 之间也不同 origin。保持 host-only、HttpOnly、`SameSite=Lax; Secure`，不设置 cookie Domain；同 Revision 恢复保持域名稳定。`PREVIEW_BASE_URL` 必须配置主机名，IPv4/IPv6 字面量不支持。上线前须实际验证子域 DNS、TLS 证书覆盖、Caddy 保留 Host、受限 CSP、iframe cookie 与静态资源，以及两个版本使用同名 localStorage key 时互不串用、各自刷新保留；不能要求用户清空浏览器数据来掩盖来源隔离问题。
 
@@ -50,7 +50,7 @@ Supabase DB/Auth/REST/私有 Storage 四个服务已运行并验收。API 使用
 
 沙箱采用已实测OpenSandbox Docker + gVisor systrap，无需KVM或E2B账号。E2B Embed可裁剪内存配置，但仍依赖本机未暴露的硬件虚拟化，故本轮不采用；推荐12GiB不是硬性最低值。方案比较见[轻量沙箱评估](sandbox-options.md)，E2B依据见[Embed](https://github.com/e2b-dev/runtime/blob/main/embed/compose/README.md)。
 
-真实 API、自托管服务、模型/沙箱连接、迁移与测试身份已完成基础验收。后续仍需完成 Reviewer、版本迭代等产品模块、最终部署配置及公网 E2E；当前本地前端与远端 API 的开发组合不能被描述为完整产品上线。
+真实 API、自托管服务、模型/沙箱连接、迁移与测试身份已完成基础验收。Reviewer、版本迭代等后续产品模块与公网执行结果见下节；基础联合验收本身不替代这些用例。
 
 ## 公网部署现状（2026-09-23，dev07-16 / web-20260922-dev07-02）
 
@@ -63,6 +63,7 @@ Supabase DB/Auth/REST/私有 Storage 四个服务已运行并验收。API 使用
 | 原站点（未改动） | https://beats-steps-69-5-7-187.sslip.io | 3000 |
 
 - Caddy 采用「命名站点各自管理证书 + 兜底 `:443` 站点按需签发」；按需签发前向 `GET /api/v1/preview/tls-check?domain=` 询问，只有真实存在的 revision 子域返回 200，其余 403，避免共享后缀被用来消耗证书签发配额。
-- 验收结果与逐项证据见 `artifacts/dev-07-2026-09-23/public-acceptance.md`；可复跑的探针为 `.cache/development/verify-public.sh <workbench-host> <preview-host> [revisionId]`。
-- 域名切换脚本：`.cache/development/switch-domain.sh <workbench-host> <preview-host>`（备份配置 → 改写来源 → 用新预览源重建前端 → 校验并 reload 代理 → 切换发布 → 自动回归）。
-- 仍待落实：正式公网域名与 DNS（工作台主机 + 预览主机，预览需 `<revisionId>.<preview-host>` 泛解析）。当前 sslip.io 派生名已完成全部功能验收，但正式域名切换后需按本文前述条目复验 DNS、TLS 覆盖、Caddy 保留 Host、CSP、iframe cookie 与跨版本 localStorage 隔离。
+- 已执行的验收结果与逐项证据见 [`artifacts/dev-07-2026-09-23/public-acceptance.md`](../artifacts/dev-07-2026-09-23/public-acceptance.md)。其中原“等待正式域名”项已由用户选择免费域名解决；#13 真实修复链及 #14 最终验收的未完成项仍需逐项验证。
+- 干净 checkout 可使用入库的 [`infra/release/package.py`](../infra/release/package.py)、[`deploy.sh`](../infra/release/deploy.sh) 与 [`verify-public.sh`](../infra/release/verify-public.sh)。发布不携带环境文件，先检查空闲，再切换独立服务；失败回滚，回归原站点。完整调用方式见 [发布指南](../infra/release/README.md)。
+- 默认日额度仍为每账号 20；仅 A/B 测试账号经 `DAILY_RUN_LIMIT_OVERRIDES` 提高到 100，避免验收被自身测试耗尽额度。配置格式、校验与生产测试开关限制见发布指南；不在文档保存账号密码或 provider key。
+- 当前免费地址已满足公网域名输入。未来如果用户另选域名，需同步 API 来源及 Web 构建配置，备份并验证 Caddy 后 reload，再复验 DNS、逐版本 TLS、保留 Host、CSP、iframe cookie 与跨版本 localStorage 隔离。当前不购买域名、不更换技术方案。

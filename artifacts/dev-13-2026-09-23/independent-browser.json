@@ -1,0 +1,63 @@
+[
+  {
+    "at": "2026-09-23T02:07:40.905095+00:00",
+    "case": "E22 before repair",
+    "runId": "66c86596-cd48-4e0b-8342-f3c2e4a95026",
+    "revisionPrefix": "d9ef425c",
+    "method": "Codex IAB tab 1, user iframe separate from Reviewer Chrome",
+    "steps": [
+      "Initial list empty",
+      "Added 海边的地图/作者甲 and 晨间笔记/作者乙",
+      "Marked 海边的地图 read",
+      "Clicked 已读 filter"
+    ],
+    "expected": "Only 海边的地图 is visible",
+    "actual": "Total 2 / read 1; both read and unread books remain visible",
+    "result": "Expected fixture defect reproduced",
+    "screenshot": "Native conversation image from 确认并记录首版筛选缺陷; no local file claimed"
+  },
+  {
+    "at": "2026-09-23T02:14:06.903680+00:00",
+    "case": "E22 after real Builder repair",
+    "runId": "66c86596-cd48-4e0b-8342-f3c2e4a95026",
+    "revisionId": "d1f853a2-c641-4141-b603-01482b2160fd",
+    "method": "Codex IAB tab1 independent user iframe",
+    "steps": [
+      "New version initial list empty",
+      "Added two books and marked 海边的地图 read",
+      "Clicked 已读 -> only 海边的地图",
+      "Clicked 未读 -> only 晨间笔记",
+      "Clicked 全部 -> both books"
+    ],
+    "expected": "Filters match read state; totals remain 2/1",
+    "actual": "All observed results match",
+    "result": "Independent repaired behavior PASS; product Reviewer still running",
+    "screenshot": "Native conversation image from 确认修复后的未读与全部筛选; no local file claimed"
+  },
+  {
+    "at": "2026-09-23T02:54:17.690456+00:00",
+    "case": "E23 terminal and preserved current",
+    "runId": "a60eaecf-4302-4850-903b-f17f61acbaf6",
+    "expected": "Only attempts0/1/2; failed candidate never replaces accepted version",
+    "actual": "DB needs_changes attempt2 with3 failed checks; UI selector v2 current and v5 unpassed candidate; expired v2 restored from source via UI and read filter still shows only 已读样例",
+    "currentRevisionId": "923d04b3-37e6-408e-b5c5-d1643a5e41e8",
+    "result": "Behavior and persistence PASS; adding explicit repair count copy",
+    "screenshot": "Native conversation image 记录三次检查失败且停止修复的结果"
+  },
+  {
+    "at": "2026-09-23T03:09:15.311981+00:00",
+    "case": "E16 real compile failure and repair",
+    "runId": "dc23760b-28a8-473b-b1e7-564d15723b52",
+    "revisionId": "a3c38ec7-cccb-4ec8-80ec-9116d2fe4097",
+    "method": "Codex IAB tab7 independent iframe",
+    "actual": "Counter initially 0; two real clicks 加一 yield1 then2. Timeline shows failed first Builder, successful repair Builder and Reviewer.",
+    "result": "PASS",
+    "screenshot": "Native image 核对最终计数器预览的实际画面 shows0; subsequent two clicks observed1 and2"
+  },
+  {
+    "at": "2026-09-23T03:09:15.312084+00:00",
+    "case": "E23 visible repair limit",
+    "actual": "Real IAB tab6 displays 已尝试修复 2 轮，已达上限，停止自动修复。",
+    "result": "PASS"
+  }
+]

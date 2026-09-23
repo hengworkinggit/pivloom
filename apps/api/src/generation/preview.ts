@@ -119,7 +119,10 @@ export function createPreviewGateway(options: { publicOrigin: string; appOrigin:
       const entry = entries.get(revisionId);
       return entry?.ownerId === ownerId ? view(entry) : null;
     },
-    revoke(revisionId: string) { const entry = entries.get(revisionId); if (entry) entry.revoked = true; },
+    revoke(revisionId: string, expectedSandboxId?: string) {
+      const entry = entries.get(revisionId);
+      if (entry && (expectedSandboxId === undefined || entry.sandboxId === expectedSandboxId)) entry.revoked = true;
+    },
     async listen(address: { host: string; port: number }) { await app.listen(address); },
     async close() { await app.close(); entries.clear(); },
   };

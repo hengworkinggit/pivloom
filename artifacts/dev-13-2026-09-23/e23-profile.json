@@ -1,0 +1,26 @@
+[
+  {
+    "id": "9d38aa72-5b9b-4cc4-a5d7-2785a352149f",
+    "ownerId": "5c28764a-4ab2-4c6c-9221-439a8b76dc34",
+    "projectId": "421f41c4-08e5-4f50-91cb-efe11b9d9ca3",
+    "scenario": "PERSISTENT_BROKEN_FILTER",
+    "expiresAt": "2026-09-23T03:35:06.036195Z",
+    "applied": [
+      {
+        "runId": "a60eaecf-4302-4850-903b-f17f61acbaf6",
+        "attempt": 0,
+        "at": "2026-09-23T02:37:31.418Z"
+      },
+      {
+        "runId": "a60eaecf-4302-4850-903b-f17f61acbaf6",
+        "attempt": 1,
+        "at": "2026-09-23T02:40:13.869Z"
+      },
+      {
+        "runId": "a60eaecf-4302-4850-903b-f17f61acbaf6",
+        "attempt": 2,
+        "at": "2026-09-23T02:44:20.542Z"
+      }
+    ]
+  }
+]

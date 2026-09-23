@@ -105,9 +105,18 @@ export type RunCandidateResult = CandidateResultBase &
   );
 
 /** Produces an unreviewed candidate; saving and any later promotion belong to the caller. */
+export interface CandidateBoundaries {
+  sandboxConnector?: SandboxConnector;
+  /** Isolated test startup only; production never supplies an output adapter. */
+  afterBuilderOutput?(context: {
+    runId: string; attempt: number; workspace: OpenSandboxWorkspace;
+    handle: WorkspaceHandle; signal: AbortSignal;
+  }): Promise<void>;
+}
+
 export async function runCandidate(
   input: RunCandidateInput,
-  boundaries: { sandboxConnector?: SandboxConnector } = {},
+  boundaries: CandidateBoundaries = {},
 ): Promise<RunCandidateResult> {
   const started = Date.now();
   const deadline = new AbortController();
@@ -235,7 +244,7 @@ export async function runCandidate(
     if (handoff && (handoff.runId !== input.runId || handoff.toRole !== "builder"))
       throw new RuntimeError("INVALID_HANDOFF", "交接目标与当前生成任务不一致");
     const builderPrompt = handoff
-      ? `${handoff.task}\n\n已保存的实现目标与行为约定：\n${JSON.stringify(handoff.plan)}`
+      ? `${handoff.task}\n\n已保存的实现目标与行为约定：\n${JSON.stringify(handoff.plan)}${handoff.failedChecks?.length ? `\n\n上一轮实际失败与诊断（逐项修复，不可忽略）：\n${JSON.stringify(handoff.failedChecks)}` : ""}`
       : input.prompt;
     signal.throwIfAborted();
     await emit({
@@ -282,6 +291,8 @@ export async function runCandidate(
     });
     usage = built.usage;
     await flush();
+    signal.throwIfAborted();
+    await boundaries.afterBuilderOutput?.({ runId: input.runId, attempt: handoff?.attempt ?? 0, workspace, handle, signal });
     signal.throwIfAborted();
     await emit({
       type: "stage",

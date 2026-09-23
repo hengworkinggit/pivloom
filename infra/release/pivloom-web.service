@@ -1,0 +1,28 @@
+[Unit]
+Description=Pivloom Web
+After=network-online.target pivloom-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pivloom-web
+Group=pivloom-web
+WorkingDirectory=/opt/pivloom/web-current/apps/web
+Environment=NODE_ENV=production
+Environment=HOSTNAME=127.0.0.1
+Environment=PORT=18012
+Environment=HOME=/var/lib/pivloom-web
+EnvironmentFile=/etc/pivloom/web.env
+ExecStart=/usr/local/bin/node server.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/pivloom-web
+
+[Install]
+WantedBy=multi-user.target

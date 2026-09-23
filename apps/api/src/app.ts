@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
+import { z } from "zod";
 import { readIdentityConfig } from "./config/identity.js";
 import { createIdentityVerifier } from "./auth/supabase.js";
 import { ApiFailure } from "./routes/errors.js";
@@ -27,10 +28,17 @@ export interface CreateAppOptions {
   logger?: boolean;
   previewListen?: { host: string; port: number };
   sourceObjects?: SourceObjectStore;
+  /** Programmatic adapter injection for the isolated test launcher, never HTTP input. */
+  generationBoundaries?: Parameters<typeof createGenerationService>[0]["generationBoundaries"];
 }
 
 export function createApp(options: CreateAppOptions = {}) {
   const env = options.env ?? process.env;
+  if ((options.generationBoundaries || env.TEST_PROFILE) && env.NODE_ENV !== "test")
+    throw new Error("Generation test adapters require an isolated test process");
+  const dailyLimitByOwner = env.DAILY_RUN_LIMIT_OVERRIDES
+    ? z.record(z.uuid(), z.number().int().min(1).max(1000)).parse(JSON.parse(env.DAILY_RUN_LIMIT_OVERRIDES))
+    : undefined;
   const configuration = readIdentityConfig(env);
   const bootId = randomUUID();
   const recovering: { run?: () => Promise<number> } = {};
@@ -101,7 +109,8 @@ export function createApp(options: CreateAppOptions = {}) {
           const maxSandboxes = Number(env.SANDBOX_MAX_ACTIVE ?? 2);
           if (!Number.isInteger(maxSandboxes) || maxSandboxes < 1 || maxSandboxes > 2) throw new Error("Invalid sandbox capacity");
           generation = createGenerationService({ database, models, identity: configuration.value, bootId,
-            previewOrigin: env.PREVIEW_BASE_URL, maxSandboxes, sourceObjects: options.sourceObjects,
+            previewOrigin: env.PREVIEW_BASE_URL, maxSandboxes, sourceObjects: options.sourceObjects, dailyLimitByOwner,
+            generationBoundaries: options.generationBoundaries,
             sandbox: { baseUrl: env.OPENSANDBOX_BASE_URL, apiKey: env.OPENSANDBOX_API_KEY, image: env.OPENSANDBOX_IMAGE, lifetimeMs: 900_000 },
           });
           // Nothing left behind by a previous process may keep a project locked

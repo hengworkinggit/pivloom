@@ -8,7 +8,7 @@ import { runReview } from "./review.js";
 import { RuntimeError, type ProbeEvent, type SandboxConfig, type SourceFile, type TrustedBuildRecord } from "../runtime/types.js";
 import { runCoordinator } from "../runtime/coordinator.js";
 import { createRunTokenBudget, type TokenUsage } from "../runtime/token-budget.js";
-import { RESTORE_TIMEOUT_MS, RUN_DEADLINE_MINUTES } from "../runtime/budgets.js";
+import { RESTORE_TIMEOUT_MS, RUN_DEADLINE_MINUTES, RUN_TOOL_LIMIT } from "../runtime/budgets.js";
 import { ApiFailure } from "../routes/errors.js";
 import { destroyCandidateSandbox, runCandidate, type CandidateSnapshot } from "./candidate.js";
 import { restorePreview } from "./restore.js";
@@ -16,6 +16,8 @@ import type { PreviewGateway } from "./preview.js";
 
 interface Resource {
   ownerId: string; runId: string; revisionId: string; sandboxId: string; expiresAt: string;
+  /** Restores own their cleanup lock independently of the source Run. */
+  restore?: { projectId: string; id: string };
 }
 interface Task { controller: AbortController; done: Promise<void>; sandboxId?: string }
 
@@ -31,7 +33,10 @@ function storedUsage(usage: TokenUsage): RoleUsage {
 export function createGenerationExecutor(options: {
   repository: GenerationRepository; models: ModelProfileService; sources: SourceStore; artifacts: ArtifactStore;
   previews: PreviewGateway; sandbox: SandboxConfig; maxSandboxes: number;
-}) {
+}, boundaries: NonNullable<Parameters<typeof runCandidate>[1]> & { modelFetch?: typeof fetch; maxToolCalls?: number } = {}) {
+  const toolLimit = boundaries.maxToolCalls ?? RUN_TOOL_LIMIT;
+  if (!Number.isInteger(toolLimit) || toolLimit < 1 || toolLimit > RUN_TOOL_LIMIT)
+    throw new Error("Tool limit must be between 1 and the run ceiling");
   const { repository, models, sources, artifacts, previews, sandbox } = options;
   const tasks = new Map<string, Task>();
   const resources = new Map<string, Resource>();
@@ -39,14 +44,18 @@ export function createGenerationExecutor(options: {
   let sweep: Promise<void> | undefined;
 
   async function destroy(resource: Resource) {
-    previews.revoke(resource.revisionId);
+    previews.revoke(resource.revisionId, resource.sandboxId);
     const result = await destroyCandidateSandbox({ sandboxConfig: sandbox, sandboxId: resource.sandboxId });
     if (result.confirmed) {
-      await repository.markDestroyed(resource.ownerId, resource.runId, resource.sandboxId);
-      const run = await repository.getRun(resource.ownerId, resource.runId);
-      if (run.cleanupState === "pending") await repository.confirmCleanup(resource.ownerId, resource.runId);
+      if (resource.restore) {
+        await repository.markRestoreSandboxDestroyed(resource.ownerId, resource.restore.projectId, resource.restore.id, resource.sandboxId);
+      } else {
+        await repository.markDestroyed(resource.ownerId, resource.runId, resource.sandboxId);
+        const run = await repository.getRun(resource.ownerId, resource.runId);
+        if (run.cleanupState === "pending") await repository.confirmCleanup(resource.ownerId, resource.runId);
+      }
       resources.delete(resource.sandboxId);
-    } else {
+    } else if (!resource.restore) {
       await repository.markCleanupPending(resource.ownerId, resource.runId, "沙箱清理尚未确认，正在等待回收。");
     }
     return result.confirmed;
@@ -91,7 +100,7 @@ export function createGenerationExecutor(options: {
         repository.getPlanningContext(run.ownerId, run.id),
       ]);
       const modelConfig = { provider: "pivloom-byok", id: run.modelId ?? model.profile.modelId, api: model.profile.provider,
-        baseUrl: model.profile.baseUrl, apiKey: model.apiKey, fetch: model.fetch, supportsImages: false };
+        baseUrl: model.profile.baseUrl, apiKey: model.apiKey, fetch: boundaries.modelFetch ?? model.fetch, supportsImages: false };
       const safeMessage = (message: string) => message.replaceAll(model.apiKey, "[REDACTED]")
         .replaceAll(sandbox.apiKey, "[REDACTED]").replace(/Bearer\s+[^\s"']+/gi, "Bearer [REDACTED]").slice(0, 2000);
       const recordEvent = (roleRunId: string) => async (event: ProbeEvent) => {
@@ -113,6 +122,7 @@ export function createGenerationExecutor(options: {
       const planning = await runCoordinator({
         runId: run.id, roleRunId: coordinator.id, sessionId: coordinator.sessionId,
         attempt: coordinator.attempt, baseRevisionId: run.baseRevisionId,
+        maxToolCalls: Math.min(12, toolLimit),
         modelConfig, context, tokenBudget, signal: task.controller.signal, onEvent: recordEvent(coordinator.id),
         assertActive: () => repository.assertRoleActive(run.ownerId, run.id, {
           roleRunId: coordinator.id, attempt: coordinator.attempt, role: "coordinator",
@@ -134,14 +144,19 @@ export function createGenerationExecutor(options: {
       // a candidate the Reviewer rejected; all attempts share this run's deadline
       // and its token and tool ledgers, and each owns an immutable revision.
       let attempt = run.attempt;
-      let seed: SourceFile[] | undefined;
+      let seed: SourceFile[] | undefined = run.baseRevisionId
+        ? sourceBundleFiles(await sources.load((await repository.getRevision(run.ownerId, run.baseRevisionId)).source)) : undefined;
       let failedChecks: string[] = [];
       let previousRevisionId: string | undefined;
-      let builderToolCalls = 0;
+      let toolCalls = planning.usage.toolCalls;
+      const remainingTools = () => {
+        if (toolCalls >= toolLimit) throw new RuntimeError("TOOL_BUDGET_EXCEEDED", "本次任务工具调用预算已耗尽");
+        return toolLimit - toolCalls;
+      };
       for (;;) {
-        const role = attempt === run.attempt
-          ? await repository.startBuilder(run.ownerId, run.id)
-          : await repository.startRepairBuilder(run.ownerId, run.id, { attempt, previousRevisionId: previousRevisionId!, failedChecks });
+        if (attempt !== run.attempt)
+          await repository.startRepairBuilder(run.ownerId, run.id, { attempt, previousRevisionId: previousRevisionId!, failedChecks });
+        const role = await repository.startBuilder(run.ownerId, run.id);
         activeRoleId = role.id;
         activeUsage = undefined;
         const handoff = role.input;
@@ -153,7 +168,7 @@ export function createGenerationExecutor(options: {
         const result = await runCandidate({
           runId: run.id, revisionId: attemptRevisionId, roleRunId: role.id, sessionId: role.sessionId,
           previewBasePath: `/p/${attemptRevisionId}/`, prompt: run.requestText, handoff, seed,
-          maxToolCalls: Math.max(1, 80 - planning.toolCalls.length - builderToolCalls),
+          maxToolCalls: remainingTools(),
           sandboxConfig: sandbox, modelConfig, tokenBudget,
           signal: task.controller.signal, onEvent: recordEvent(role.id),
           async onSandbox(registration) {
@@ -169,11 +184,26 @@ export function createGenerationExecutor(options: {
               await repository.markCleanupPending(run.ownerId, run.id, "候选沙箱清理尚未确认。");
             }
           },
-        });
-        builderToolCalls += result.toolCalls.length;
+        }, boundaries);
+        toolCalls += result.usage?.toolCalls ?? result.toolCalls.length;
         activeUsage = result.usage ? storedUsage(result.usage) : undefined;
         if (result.status !== "candidate") {
-          if (result.diagnosticSnapshot && result.trustedBuild) await save(result.diagnosticSnapshot, result.diagnosticBuildStatus ?? "failed", result.trustedBuild);
+          const diagnostic = result.diagnosticSnapshot && result.trustedBuild
+            ? await save(result.diagnosticSnapshot, result.diagnosticBuildStatus ?? "failed", result.trustedBuild) : undefined;
+          if (diagnostic?.buildStatus === "failed" && result.cleanup === "confirmed"
+            && (result.error.code === "TYPECHECK_FAILED" || result.error.code === "BUILD_FAILED")) {
+            const completion = await repository.finishBuildFailure(run.ownerId, run.id, {
+              revisionId: diagnostic.id, code: result.error.code, message: safeMessage(result.error.message), usage: activeUsage,
+            });
+            if (completion.repairNextAttempt === null) return;
+            const command = result.error.code === "TYPECHECK_FAILED" ? result.trustedBuild!.typecheck : result.trustedBuild!.build;
+            failedChecks = [safeMessage(`${result.error.code}: ${command?.stdoutTail ?? ""}\n${command?.stderrTail ?? ""}`)];
+            previousRevisionId = diagnostic.id;
+            seed = sourceBundleFiles(await sources.load(diagnostic.source));
+            resource = undefined;
+            attempt = completion.repairNextAttempt;
+            continue;
+          }
           await repository.finishFailed(run.ownerId, run.id, {
             ...result.error, retryable: true, resultRevisionId,
             cleanupState: result.cleanup === "pending" ? "pending" : "confirmed",
@@ -198,12 +228,13 @@ export function createGenerationExecutor(options: {
           expiresAt: result.preview.expiresAt,
           source: await sources.verify(candidateRevision.source), sources, artifacts,
           sandboxConfig: sandbox, modelConfig, tokenBudget, signal: task.controller.signal,
-          maxToolCalls: Math.max(1, 80 - planning.toolCalls.length - builderToolCalls),
+          maxToolCalls: remainingTools(),
           onEvent: recordEvent(reviewer.role.id),
           assertActive: () => repository.assertRoleActive(run.ownerId, run.id, {
             roleRunId: reviewer.role.id, attempt: reviewer.role.attempt, role: "reviewer",
           }),
-        });
+        }, boundaries);
+        toolCalls += checked.usage?.toolCalls ?? 0;
         activeUsage = checked.usage ? storedUsage(checked.usage) : undefined;
         const completion = await repository.finishReview(run.ownerId, run.id, { receipt: checked.receipt, usage: activeUsage });
         if (completion.repairNextAttempt === null) { retained = true; break; }
@@ -214,8 +245,14 @@ export function createGenerationExecutor(options: {
         previousRevisionId = completion.revision.id;
         seed = sourceBundleFiles(await sources.load(completion.revision.source));
         const rejected = currentResource();
+        if (rejected && resources.has(rejected.sandboxId) && !await destroy(rejected).catch(() => false)) {
+          await repository.finishFailed(run.ownerId, run.id, {
+            code: "SANDBOX_CLEANUP_PENDING", message: "上轮候选沙箱回收尚未确认，已停止修复，请等待资源回收后重试。",
+            retryable: true, resultRevisionId, cleanupState: "pending",
+          });
+          return;
+        }
         resource = undefined;
-        if (rejected && resources.has(rejected.sandboxId)) await destroy(rejected).catch(() => {});
         attempt = completion.repairNextAttempt;
       }
     } catch (error) {
@@ -293,10 +330,12 @@ export function createGenerationExecutor(options: {
           revisionId: revision.id, sourceHash: revision.sourceHash, files, sandboxConfig: sandbox,
           signal: controller.signal,
           async onSandbox(handle) {
-            tracked.current = { ownerId: revision.ownerId, runId: revision.runId, revisionId: revision.id, sandboxId: handle.sandboxId, expiresAt: handle.expiresAt };
+            tracked.current = { ownerId: revision.ownerId, runId: revision.runId, revisionId: revision.id, sandboxId: handle.sandboxId, expiresAt: handle.expiresAt,
+              restore: { projectId: revision.projectId, id: record.id } };
             resources.set(handle.sandboxId, tracked.current);
+            await repository.registerRestoreSandbox(revision.ownerId, revision.projectId, record.id, { sandboxId: handle.sandboxId, expiresAt: handle.expiresAt });
           },
-        });
+        }, boundaries);
         // Publish only after the rebuilt hash matched the saved snapshot.
         previews.register({ ownerId: revision.ownerId, projectId: revision.projectId, revisionId: revision.id,
           sandboxId: result.handle.sandboxId, sourceHash: revision.sourceHash, expiresAt: result.handle.expiresAt,
@@ -304,7 +343,7 @@ export function createGenerationExecutor(options: {
         await repository.bindRestore(revision.ownerId, revision.projectId, record.id,
           { sandboxId: result.handle.sandboxId, expiresAt: result.handle.expiresAt });
       } catch (error) {
-        if (tracked.current && resources.has(tracked.current.sandboxId)) { previews.revoke(revision.id); resources.delete(tracked.current.sandboxId); }
+        if (tracked.current && resources.has(tracked.current.sandboxId)) await destroy(tracked.current).catch(() => false);
         const code = error instanceof RuntimeError ? error.code : "RESTORE_FAILED";
         const raw = error instanceof Error ? error.message : "预览恢复未完成。";
         const message = raw.replaceAll(sandbox.apiKey, "[REDACTED]")

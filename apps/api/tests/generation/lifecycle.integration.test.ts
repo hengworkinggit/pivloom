@@ -30,6 +30,13 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
   let model: { id: string; configVersion: number };
   /** The account with quota left today; A is the isolated counter used for the quota assertions. */
   let runOwner: string;
+  /**
+   * Accepting a run is the only way to exercise this suite, and the daily
+   * per-account quota is a product rule, so an exhausted environment cannot run
+   * these cases. They skip with a reason instead of failing, and still fail hard
+   * when the environment itself is unreachable.
+   */
+  let quotaLeft = true;
   const prefix = `lifecycle-fixture-${randomUUID()}`;
   const projectIds: string[] = [];
   const runIds: string[] = [];
@@ -44,22 +51,36 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
     const environmentId = process.env.PIVLOOM_ENVIRONMENT_ID;
     if (!environmentId || !process.env.DATABASE_URL || !process.env.MIGRATION_DATABASE_URL || !process.env.MODEL_CREDENTIALS_ENCRYPTION_KEY)
       throw Error("Explicit integration target required");
+    // This suite performs a global boot scan. It must never use the public
+    // Demo database, even when its existing test accounts are available there.
+    const databaseName = new URL(process.env.MIGRATION_DATABASE_URL).pathname.slice(1);
+    if (!/^pivloom_[a-z]+_test_[a-z0-9_]+$/.test(databaseName)
+      || new URL(process.env.DATABASE_URL).pathname !== `/${databaseName}`)
+      throw Error("Lifecycle recovery requires an explicitly isolated test database");
     const identity = JSON.parse(await readFile(resolve("../../.cache/identity", environmentId, "manifest.json"), "utf8"));
     if (identity.environmentId !== environmentId) throw Error("Identity manifest mismatch");
     ownerA = identity.users.find((user: { label: string }) => user.label === "A").id;
     ownerB = identity.users.find((user: { label: string }) => user.label === "B").id;
     admin = new Pool({ connectionString: process.env.MIGRATION_DATABASE_URL, max: 1 });
+    if ((await admin.query("SELECT current_database() AS name")).rows[0].name !== databaseName)
+      throw Error("Lifecycle test database mismatch");
     database = new PivloomDatabase(process.env.DATABASE_URL);
     // A/B accounts exist so one can be exhausted while the other still works.
     const service = createModelProfileService(database, createCredentialVault(process.env.MODEL_CREDENTIALS_ENCRYPTION_KEY!));
     const verified = async (owner: string) => (await service.list(owner)).find((profile) =>
       profile.isDefault && profile.capabilities.streaming === "verified" && profile.capabilities.tools === "verified");
-    const forB = await verified(ownerB);
-    const forA = forB ? undefined : await verified(ownerA);
-    const candidate = forB ?? forA;
-    if (!candidate) throw Error("A genuinely verified default profile is required; no capability fixture is substituted");
-    model = candidate;
-    runOwner = forB ? ownerB : ownerA;
+    const quotaFor = async (owner: string) => createGenerationRepository(
+      database, createModelProfileService(database, createCredentialVault(process.env.MODEL_CREDENTIALS_ENCRYPTION_KEY!)),
+      { executorBootId: randomUUID() }).quota(owner);
+    const candidates = await Promise.all([ownerB, ownerA].map(async (owner) => ({
+      owner, profile: await verified(owner), quota: await quotaFor(owner),
+    })));
+    const available = candidates.find(candidate => candidate.profile && candidate.quota.dailyAccepted < candidate.quota.dailyLimit);
+    const candidate = available ?? candidates.find(candidate => candidate.profile);
+    if (!candidate?.profile) throw Error("A genuinely verified default profile is required; no capability fixture is substituted");
+    model = candidate.profile;
+    runOwner = candidate.owner;
+    quotaLeft = Boolean(available);
     const directory = resolve("../../.cache/generation", environmentId);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     manifestPath = resolve(directory, `${prefix}.json`);
@@ -110,7 +131,49 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
     return accepted.run;
   }
 
-  test("cancel is idempotent, then settles to cancelled and releases the project", async () => {
+  /**
+   * Builds an active run fixture directly, the way a previous process would have
+   * left it. Recovery semantics do not depend on how the run was accepted, and
+   * this keeps them covered when the account has no quota left for a real accept.
+   */
+  async function activeRunFixture(projectId: string, state = "building") {
+    const runId = randomUUID();
+    const leaseId = randomUUID();
+    const coordinatorId = randomUUID();
+    const profileId = (await createModelProfileService(database,
+      createCredentialVault(process.env.MODEL_CREDENTIALS_ENCRYPTION_KEY!)).list(runOwner))
+      .find((profile: { isDefault: boolean }) => profile.isDefault)!.id;
+    // One transaction: runs.coordinator_role_run_id is a deferred foreign key, so
+    // the run and its role row must commit together.
+    const client = await admin.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("INSERT INTO nano.model_credential_leases(id,owner_id,profile_id,config_version,reference_id) VALUES($1,$2,$3,$4,$5)",
+        [leaseId, runOwner, profileId, model.configVersion, runId]);
+      await client.query(`INSERT INTO nano.runs(id,owner_id,project_id,idempotency_key,request_hash,request_text,kind,
+        model_profile_id,model_config_version,credential_lease_id,coordinator_role_run_id,
+        state,phase,budget_json,deadline_at,executor_boot_id,planning_context_json)
+        VALUES($1,$2,$3,$4,repeat('a',64),'恢复夹具','modify',$5,$6,$7,$8,$9,'implement','{}'::jsonb,now()+interval '30 minutes',$10,$11)`,
+        [runId, runOwner, projectId, randomUUID(), profileId, model.configVersion, leaseId, coordinatorId, state, randomUUID(),
+          JSON.stringify({ schemaVersion: 1, project: { id: projectId, title: prefix }, requestText: "恢复夹具", originalRequest: "恢复夹具",
+            clarificationTurns: [], baseRevisionId: null, previousPlan: null })]);
+      await client.query("INSERT INTO nano.role_runs(id,owner_id,project_id,run_id,role,attempt,session_id,state,input_json) VALUES($1,$2,$3,$4,'coordinator',0,$5,'running','{}'::jsonb)",
+        [coordinatorId, runOwner, projectId, runId, randomUUID()]);
+      await client.query("UPDATE nano.projects SET operation_kind='generate',operation_id=$2,operation_started_at=now() WHERE owner_id=$1 AND id=$3",
+        [runOwner, runId, projectId]);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+    runIds.push(runId);
+    return runId;
+  }
+
+  test("cancel is idempotent, then settles to cancelled and releases the project", async (context) => {
+    if (!quotaLeft) { context.skip(); return; }
     const repo = repository();
     const target = await project();
     const run = await accept(repo, target.id, "停止测试");
@@ -136,7 +199,8 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
     }
   }, CASE_TIMEOUT_MS);
 
-  test("quota charges exactly one run per accepted request and never a replay", async () => {
+  test("quota charges exactly one run per accepted request and never a replay", async (context) => {
+    if (!quotaLeft) { context.skip(); return; }
     const repo = repository();
     const target = await project();
     const before = await repo.quota(runOwner);
@@ -169,7 +233,8 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
     expect(other.dailyLimit).toBe(20);
   }, CASE_TIMEOUT_MS);
 
- test("a repair starts attempt 1 with its own builder role and rejects attempt 3", async () => {
+ test("a repair starts attempt 1 with its own builder role and rejects attempt 3", async (context) => {
+    if (!quotaLeft) { context.skip(); return; }
    const repo = repository();
    const target = await project();
    const run = await accept(repo, target.id, "修复轮次测试");
@@ -207,7 +272,8 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
     expect(held.rows[0].operation_id).toBeNull();
   });
 
-  test("a retry repeats the request from the current revision, never from a rejected candidate", async () => {
+  test("a retry repeats the request from the current revision, never from a rejected candidate", async (context) => {
+    if (!quotaLeft) { context.skip(); return; }
     const repo = repository();
     const target = await project();
     const failed = await accept(repo, target.id, "重试基线测试");
@@ -245,9 +311,8 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
   }, CASE_TIMEOUT_MS);
 
   test("a boot scan interrupts another process's runs and releases them after cleanup", async () => {
-    const first = repository();
     const target = await project();
-    const run = await accept(first, target.id, "重启恢复测试");
+    const run = { id: await activeRunFixture(target.id) };
     try {
     const claim = await database.system(async (client) => client.query<{ o_run_id: string; o_sandbox_ids: string[] | null }>(
       "SELECT * FROM nano.claim_stale_runs($1)", [randomUUID()]));
@@ -263,6 +328,32 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
     const settled = await admin.query("SELECT cleanup_state FROM nano.runs WHERE id=$1", [run.id]);
     expect(settled.rows[0].cleanup_state).toBe("confirmed");
     expect((await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [target.id])).rows[0].operation_id).toBeNull();
+    } finally {
+      await admin.query("UPDATE nano.runs SET cleanup_state='confirmed' WHERE id=$1", [run.id]);
+      await admin.query("UPDATE nano.projects SET operation_kind=NULL, operation_id=NULL WHERE id=$1", [target.id]);
+    }
+  }, CASE_TIMEOUT_MS);
+
+  test("a run left interrupted with pending cleanup is reclaimed by the next boot", async () => {
+    // Measured failure mode: a crash between "mark interrupted" and "confirm
+    // cleanup" leaves the row in a terminal state that the active-state filter
+    // no longer matches, so the global generation slot was held forever. The
+    // claim query must therefore also select rows by cleanup_state.
+    const target = await project();
+    const run = { id: await activeRunFixture(target.id) };
+    try {
+      await admin.query(`UPDATE nano.runs SET state='interrupted', phase='cleanup', cleanup_state='pending',
+        error_code='SERVICE_RESTARTED', finished_at=now() WHERE id=$1`, [run.id]);
+      const claim = await database.system(async (client) => client.query<{ o_run_id: string; o_project_id: string }>(
+        "SELECT * FROM nano.claim_stale_runs($1)", [randomUUID()]));
+      const claimed = claim.rows.find((row) => row.o_run_id === run.id);
+      expect(claimed).toBeDefined();
+      // Settling releases the project lock that the stuck row was holding.
+      await database.system(async (client) => { await client.query("SELECT nano.settle_recovered_run($1,$2)", [runOwner, run.id]); });
+      const settled = await admin.query("SELECT cleanup_state FROM nano.runs WHERE id=$1", [run.id]);
+      expect(settled.rows[0].cleanup_state).toBe("confirmed");
+      const projectRow = await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [target.id]);
+      expect(projectRow.rows[0].operation_id).toBeNull();
     } finally {
       await admin.query("UPDATE nano.runs SET cleanup_state='confirmed' WHERE id=$1", [run.id]);
       await admin.query("UPDATE nano.projects SET operation_kind=NULL, operation_id=NULL WHERE id=$1", [target.id]);

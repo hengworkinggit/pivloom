@@ -124,3 +124,27 @@ test("a preview capability opens only its registered revision without forwarding
   expect((await gateway.app.inject({ method: "GET", url: `/p/${revisionId}/`, headers: { host: url.host, cookie } })).statusCode).toBe(410);
   expect(observed).toHaveLength(1);
 });
+
+test("cleanup of an older sandbox leaves the restored preview for the same revision usable", async () => {
+  const upstream = Fastify();
+  const observed: string[] = [];
+  upstream.get("/*", async (request) => { observed.push(request.url); return "restored preview"; });
+  const origin = await upstream.listen({ host: "127.0.0.1", port: 0 });
+  disposers.push(() => upstream.close());
+  const gateway = createPreviewGateway({ publicOrigin: "http://localhost:45311", appOrigin: "http://localhost:45231", sandboxOrigin: origin });
+  disposers.push(() => gateway.close());
+  const register = (id: string) => gateway.register({ ownerId, projectId: ownerId, revisionId, sandboxId: id,
+    sourceHash: "a".repeat(64), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    upstreamUrl: `${origin}/v1/sandboxes/${id}/proxy/4173`, headers: {} });
+  register(sandboxId);
+  const restored = new URL(register(ownerId).url!);
+  gateway.revoke(revisionId, sandboxId);
+  const opened = await gateway.app.inject({ method: "GET", url: restored.pathname, headers: { host: restored.host } });
+  expect(opened.statusCode).toBe(303);
+  const cookie = String(opened.headers["set-cookie"]).split(";")[0];
+  const request = { method: "GET" as const, url: `/p/${revisionId}/`, headers: { host: restored.host, cookie } };
+  expect((await gateway.app.inject(request)).body).toBe("restored preview");
+  expect(observed).toEqual([`/v1/sandboxes/${ownerId}/proxy/4173/p/${revisionId}/`]);
+  gateway.revoke(revisionId, ownerId);
+  expect((await gateway.app.inject(request)).statusCode).toBe(410);
+});

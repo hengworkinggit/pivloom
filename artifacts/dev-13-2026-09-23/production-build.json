@@ -1,0 +1,49 @@
+{
+  "directory": "/tmp/pivloom-final-build-8JoIBP",
+  "base": "ef590fa5e02b02429829836f379050e7dfe4ef65",
+  "snapshot": "ef590fa + current tracked production WIP",
+  "patchSha256": "67ddc84a48ff26ea36c5d8821f2cbcba22e676c3621e79359e1437a686881ebd",
+  "createdAt": "2026-09-23T02:34:19.025Z",
+  "productionPaths": [
+    "apps/api/src",
+    "apps/web",
+    "packages/contracts",
+    "package.json",
+    "package-lock.json"
+  ],
+  "node": "v24.19.0",
+  "startedAt": "2026-09-23T02:35:36.030Z",
+  "mode": "api",
+  "publicOrigin": "https://pivloom-69-5-7-187.sslip.io",
+  "previewOrigin": "https://preview-pivloom-69-5-7-187.sslip.io",
+  "privateEnvCopied": false,
+  "steps": [
+    {
+      "command": "npm ci --no-audit --no-fund",
+      "exitCode": 0,
+      "signal": null,
+      "durationMs": 8358
+    },
+    {
+      "command": "npm run build",
+      "exitCode": 0,
+      "signal": null,
+      "durationMs": 12667
+    }
+  ],
+  "buildId": "oDfz9vGxMaanEMOJ_k9gr",
+  "status": "PASS",
+  "finishedAt": "2026-09-23T02:35:57.055Z",
+  "webOverlay": {
+    "createdAt": "2026-09-23T02:56:39.120Z",
+    "reason": "E23 visible repair attempt count",
+    "files": {
+      "apps/web/src/components/generation-activity.tsx": "c9186a327478fb6ff82fc1aa65186ef5e5cc5146817342b86d8f8efca9d04097",
+      "apps/web/src/components/generation-review.test.tsx": "cd5626bd43c5bfad1d4fcfd4df68bb55e5a4e68d3a9e83dc210bda290ec1c61b"
+    },
+    "status": "PASS",
+    "durationMs": 3450,
+    "finishedAt": "2026-09-23T02:56:42.571Z",
+    "exitCode": 0
+  }
+}

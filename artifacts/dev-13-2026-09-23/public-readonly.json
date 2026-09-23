@@ -1,0 +1,208 @@
+{
+  "startedAt": "2026-09-23T02:31:08.754Z",
+  "origin": "https://pivloom-69-5-7-187.sslip.io",
+  "projectId": "aff32973-781f-4a2e-8723-7f3526a93518",
+  "scope": "Authenticated public HTTP readback only; no model, Run, restore, project or provider mutations.",
+  "releaseLabelProvidedByRoot": "20260922-dev07-16",
+  "ownerResolution": {
+    "owner": "B",
+    "otherOwner": "A",
+    "initialAProjectStatus": 404,
+    "BProjectStatus": 200,
+    "note": "The supplied existing project belongs to B. Checks below use B as owner and A as the cross-owner denial actor."
+  },
+  "ui": {
+    "status": "BLOCKED",
+    "reason": "CUA getState timed out; createBrowserTab(iab) returned Browser is not available; listBrowsers exposed only Chrome extension browser 1. No tabs created or changed.",
+    "checks": [
+      {
+        "name": "Codex IAB public login",
+        "status": "BLOCKED"
+      },
+      {
+        "name": "SourceViewer opens at least two files",
+        "status": "BLOCKED"
+      },
+      {
+        "name": "Browser logout/relogin persistence",
+        "status": "BLOCKED"
+      },
+      {
+        "name": "Other-owner cannot view project contents",
+        "status": "BLOCKED"
+      }
+    ]
+  },
+  "checks": [
+    {
+      "name": "A-HTTP-login",
+      "status": "PASS",
+      "ownerId": "82024654-478f-4c61-8960-8f2025b6eeb0",
+      "httpStatus": 200,
+      "method": "Supabase Auth over public same-origin HTTP; not UI login"
+    },
+    {
+      "name": "B-HTTP-login",
+      "status": "PASS",
+      "ownerId": "5c28764a-4ab2-4c6c-9221-439a8b76dc34",
+      "httpStatus": 200,
+      "method": "Supabase Auth over public same-origin HTTP; not UI login"
+    },
+    {
+      "name": "public-readiness",
+      "status": "PASS",
+      "bootId": "64985fae-b187-4596-ade3-d779ba313cad"
+    },
+    {
+      "name": "B-project-read",
+      "status": "PASS",
+      "currentRevisionId": "d2f412c2-5b18-47e5-b77f-0e82283c1419",
+      "latestRunId": "92e39e78-88b8-4715-8a77-318ce6121859",
+      "quota": {
+        "dailyLimit": 20,
+        "dailyAccepted": 20
+      }
+    },
+    {
+      "name": "B-source-manifest",
+      "status": "PASS",
+      "fileCount": 7,
+      "sourceHash": "8c8729039a47f5afe5a403846f892f416d375ecc640ed46d282a27f482813cae"
+    },
+    {
+      "name": "B-source-index.html",
+      "status": "PASS",
+      "path": "index.html",
+      "bytes": 263,
+      "sha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42",
+      "manifestMatches": true,
+      "method": "HTTP source read; not SourceViewer UI"
+    },
+    {
+      "name": "B-source-src/App.tsx",
+      "status": "PASS",
+      "path": "src/App.tsx",
+      "bytes": 6544,
+      "sha256": "89b4918a3aa518efb7e04bc15a7c2d223ba8eb1d9254f2d99e20a6e40ec443fd",
+      "manifestMatches": true,
+      "method": "HTTP source read; not SourceViewer UI"
+    },
+    {
+      "name": "B-saved-check",
+      "status": "PASS",
+      "checkId": "e060d819-a262-4860-8466-a65a2668b6e1",
+      "verdict": "passed",
+      "artifacts": 5
+    },
+    {
+      "name": "B-PNG-artifact",
+      "status": "PASS",
+      "artifactId": "8b273bf0-2db7-4e30-98e1-e92781d412c3",
+      "bytes": 33291,
+      "sha256": "a2d9da8f698642d193a9920b846a0a539dec62b2c2613ce85401bde293c11b25",
+      "cacheControl": "private, no-store",
+      "nosniff": "nosniff, nosniff"
+    },
+    {
+      "name": "A-project-denied",
+      "status": "PASS",
+      "httpStatus": 404
+    },
+    {
+      "name": "anonymous-project-denied",
+      "status": "PASS",
+      "httpStatus": 401
+    },
+    {
+      "name": "A-run-denied",
+      "status": "PASS",
+      "httpStatus": 404
+    },
+    {
+      "name": "anonymous-run-denied",
+      "status": "PASS",
+      "httpStatus": 401
+    },
+    {
+      "name": "A-source-denied",
+      "status": "PASS",
+      "httpStatus": 404
+    },
+    {
+      "name": "anonymous-source-denied",
+      "status": "PASS",
+      "httpStatus": 401
+    },
+    {
+      "name": "A-check-denied",
+      "status": "PASS",
+      "httpStatus": 404
+    },
+    {
+      "name": "anonymous-check-denied",
+      "status": "PASS",
+      "httpStatus": 401
+    },
+    {
+      "name": "A-SSE-denied",
+      "status": "PASS",
+      "httpStatus": 404
+    },
+    {
+      "name": "anonymous-SSE-denied",
+      "status": "PASS",
+      "httpStatus": 401
+    },
+    {
+      "name": "A-artifact-denied",
+      "status": "PASS",
+      "httpStatus": 404
+    },
+    {
+      "name": "anonymous-artifact-denied",
+      "status": "PASS",
+      "httpStatus": 401
+    },
+    {
+      "name": "B-authenticated-SSE-replay",
+      "status": "PASS",
+      "httpStatus": 200,
+      "contentType": "text/event-stream; charset=utf-8",
+      "accelBuffering": "no",
+      "firstEventId": "5164",
+      "closed": true
+    },
+    {
+      "name": "B-HTTP-local-signout-relogin-persistence",
+      "status": "PASS",
+      "currentRevisionId": "d2f412c2-5b18-47e5-b77f-0e82283c1419",
+      "sourceHash": "8c8729039a47f5afe5a403846f892f416d375ecc640ed46d282a27f482813cae",
+      "messagesUnchanged": true,
+      "method": "New authenticated HTTP session; not browser persistence verification"
+    }
+  ],
+  "cleanup": [
+    {
+      "label": "A",
+      "localSessionRevoked": true
+    },
+    {
+      "label": "B",
+      "localSessionRevoked": true
+    },
+    {
+      "label": "B-relogin",
+      "localSessionRevoked": true
+    }
+  ],
+  "status": "PASS_HTTP_ONLY",
+  "observedBootId": "64985fae-b187-4596-ade3-d779ba313cad",
+  "revision": {
+    "id": "d2f412c2-5b18-47e5-b77f-0e82283c1419",
+    "number": 14,
+    "sourceHash": "8c8729039a47f5afe5a403846f892f416d375ecc640ed46d282a27f482813cae",
+    "runId": "92e39e78-88b8-4715-8a77-318ce6121859"
+  },
+  "finishedAt": "2026-09-23T02:31:23.151Z",
+  "targetIsFinalNewRelease": false
+}

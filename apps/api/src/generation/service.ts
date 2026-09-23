@@ -22,6 +22,8 @@ import { createRunEventHub, openRunEventStream, type RunEventLimits } from "./ev
 export function createGenerationService(options: {
   database: PivloomDatabase; models: ModelProfileService; identity: IdentityConfig;
   sandbox: SandboxConfig; previewOrigin: string; bootId: string; maxSandboxes: number;
+  dailyLimitByOwner?: Readonly<Record<string, number>>;
+  generationBoundaries?: Parameters<typeof createGenerationExecutor>[1];
   sourceObjects?: SourceObjectStore;
   artifactObjects?: ArtifactObjects;
   eventLimits?: RunEventLimits;
@@ -30,12 +32,13 @@ export function createGenerationService(options: {
   const eventHub = createRunEventHub();
   const repository = createGenerationRepository(options.database, options.models, {
     executorBootId: options.bootId, maxSandboxes: options.maxSandboxes,
+    dailyLimitByOwner: options.dailyLimitByOwner,
     onCommittedEvent: eventHub.publish,
   });
   const sources = createSourceStore({ url: options.identity.supabaseUrl, secret: options.identity.supabaseSecretKey, objects: options.sourceObjects });
   const artifacts = createArtifactStore({ url: options.identity.supabaseUrl, secret: options.identity.supabaseSecretKey, objects: options.artifactObjects });
   const previews = createPreviewGateway({ publicOrigin: options.previewOrigin, appOrigin: options.identity.appOrigin, sandboxOrigin: options.sandbox.baseUrl });
-  const executor = createGenerationExecutor({ repository, models: options.models, sources, artifacts, previews, sandbox: options.sandbox, maxSandboxes: options.maxSandboxes });
+  const executor = createGenerationExecutor({ repository, models: options.models, sources, artifacts, previews, sandbox: options.sandbox, maxSandboxes: options.maxSandboxes }, options.generationBoundaries);
 
   function previewView(ownerId: string, revision: StoredRevision, binding: StoredSandboxBinding | null, restore: StoredRestore | null = null): Preview {
     const live = previews.get(ownerId, revision.id);
@@ -44,7 +47,8 @@ export function createGenerationService(options: {
     // is being rebuilt, and no model call is involved.
     if (restore?.status === "pending")
       return { state: "restoring", revisionId: revision.id, sourceHash: revision.sourceHash, url: null, expiresAt: null,
-        error: "正在从已保存的源码重建预览，不会调用模型。" };
+        error: restore.error ? "预览恢复未完成，远端清理待确认；源码仍已保存，确认回收后可以重试。"
+          : "正在从已保存的源码重建预览，不会调用模型。" };
     const expired = binding && (binding.state === "expired" || binding.state === "destroyed" || Date.parse(binding.expiresAt) <= Date.now());
     const failure = restore?.status === "failed" ? restore.error : null;
     return { state: expired ? "expired" : "unavailable", revisionId: revision.id, sourceHash: revision.sourceHash,
@@ -66,17 +70,27 @@ export function createGenerationService(options: {
   /** Boot-time reconciliation: no run from a previous process may stay "active". */
   async function recover() {
     const claim = await options.database.system(async (client) => client.query<{
-      run_id: string; owner_id: string; project_id: string; sandbox_ids: string[] | null;
+      o_run_id: string; o_owner_id: string; o_project_id: string; o_sandbox_ids: string[] | null;
     }>("SELECT * FROM nano.claim_stale_runs($1)", [options.bootId]));
     for (const row of claim.rows) {
       let confirmed = true;
-      for (const sandboxId of row.sandbox_ids ?? []) {
+      for (const sandboxId of row.o_sandbox_ids ?? []) {
         const destroyed = await destroyCandidateSandbox({ sandboxConfig: options.sandbox, sandboxId }).catch(() => ({ confirmed: false }));
         if (!destroyed.confirmed) confirmed = false;
       }
       if (confirmed)
-        await options.database.system(async (client) => { await client.query("SELECT nano.settle_recovered_run($1,$2)", [row.owner_id, row.run_id]); }).catch(() => undefined);
+        await options.database.system(async (client) => { await client.query("SELECT nano.settle_recovered_run($1,$2)", [row.o_owner_id, row.o_run_id]); }).catch(() => undefined);
     }
+    const restores = await options.database.system(async (client) => client.query<{
+      o_restore_id: string; o_owner_id: string; o_project_id: string; o_sandbox_id: string;
+    }>("SELECT * FROM nano.claim_stale_restores()"));
+    for (const row of restores.rows) {
+      const destroyed = await destroyCandidateSandbox({ sandboxConfig: options.sandbox, sandboxId: row.o_sandbox_id }).catch(() => ({ confirmed: false }));
+      if (destroyed.confirmed)
+        await repository.markRestoreSandboxDestroyed(row.o_owner_id, row.o_project_id, row.o_restore_id, row.o_sandbox_id);
+    }
+    // Restores interrupted before the remote ID was registered have no known
+    // sandbox to kill; the short remote creation TTL bounds that crash window.
     await options.database.system(async (client) => { await client.query("SELECT nano.recover_stale_restores()"); });
     return claim.rows.length;
   }

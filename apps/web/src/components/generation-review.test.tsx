@@ -24,7 +24,7 @@ const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAA
 
 // Real workbench, Supabase client and API adapters; only external HTTP, routing
 // and browser object URLs are fixtures. These tests are not browser/model E2E.
-async function openWorkbench(options: { verdict?: Check["verdict"]; unchecked?: boolean; mismatch?: boolean; screenshotDenied?: boolean; finalScreenshot?: boolean; reviewing?: boolean; previousCurrent?: boolean } = {}) {
+async function openWorkbench(options: { verdict?: Check["verdict"]; unchecked?: boolean; mismatch?: boolean; screenshotDenied?: boolean; finalScreenshot?: boolean; reviewing?: boolean; previousCurrent?: boolean; attempt?: number } = {}) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("crypto", webcrypto);
   const created = vi.fn(() => "blob:review-fixture"), revoked = vi.fn();
@@ -37,12 +37,12 @@ async function openWorkbench(options: { verdict?: Check["verdict"]; unchecked?: 
   const encode = (value: object) => btoa(JSON.stringify(value)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
   localStorage.setItem("pivloom.auth.v1", JSON.stringify({ access_token: `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ sub: ownerId, exp: expiresAt })}.fixture`, refresh_token: "fixture-refresh-token", token_type: "bearer", expires_in: 3600, expires_at: expiresAt, user }));
   const verdict = options.verdict ?? "passed";
-  const revision: Revision = { id: revisionId, projectId, runId, revisionNo: options.previousCurrent ? 2 : 1, attempt: 0, sourceHash: "a".repeat(64), templateVersion: "fixture-v1", buildStatus: "passed", status: options.unchecked || options.reviewing ? "candidate" : verdict === "passed" ? "accepted" : verdict === "failed" ? "rejected" : "candidate", createdAt: now, manifest: [] };
+  const revision: Revision = { id: revisionId, projectId, runId, revisionNo: options.previousCurrent ? 2 : 1, attempt: options.attempt ?? 0, sourceHash: "a".repeat(64), templateVersion: "fixture-v1", buildStatus: "passed", status: options.unchecked || options.reviewing ? "candidate" : verdict === "passed" ? "accepted" : verdict === "failed" ? "rejected" : "candidate", createdAt: now, manifest: [] };
   const currentRevision: Revision | null = options.previousCurrent
     ? { ...revision, id: "810a101e-e123-4dad-90a7-cbbfae291903", runId: "4190c6a4-14f8-48bd-a9b7-0fdad7b02372", revisionNo: 1, sourceHash: "c".repeat(64), status: "accepted" }
     : revision.status === "accepted" ? revision : null;
   const check: Check | null = options.unchecked ? null : {
-    id: "29b07531-d902-4fa0-b1b8-65d52c908cbb", runId, roleRunId: "e861ce71-b069-44df-b13b-7c462265d8ee", attempt: 0,
+    id: "29b07531-d902-4fa0-b1b8-65d52c908cbb", runId, roleRunId: "e861ce71-b069-44df-b13b-7c462265d8ee", attempt: options.attempt ?? 0,
     revisionId, sourceHash: options.mismatch ? "b".repeat(64) : revision.sourceHash,
     sandboxId: "fixture-sandbox", browserSessionId: "fixture-review-session", verdict,
     items: [{ behaviorId: "B01", verdict, expected: "报名记录出现在列表中", actual: verdict === "passed" ? "提交后列表出现了张小雨" : verdict === "failed" ? "提交后没有新增记录" : "浏览器无法连接到候选页面",
@@ -50,7 +50,7 @@ async function openWorkbench(options: { verdict?: Check["verdict"]; unchecked?: 
     summary: verdict === "passed" ? "报名提交符合已保存的行为目标。" : verdict === "failed" ? "报名提交尚未达到预期。" : "页面无法访问，暂不能判断行为。",
     artifacts: [{ id: artifactId, mimeType: "image/png", sha256: "101070e7bd1de3933a1fee8c8ecc791c7a58eacbae4d9d41ab8e1d7e17cd4326" }], createdAt: now,
   };
-  const run: Run = { id: runId, projectId, state: options.reviewing ? "verifying" : verdict === "passed" && !options.unchecked ? "completed" : verdict === "failed" ? "needs_changes" : "failed", phase: "review", attempt: 0, requestText: "创建报名页", modelProfileId: "438088cb-5fd0-4704-ad57-3b64ed47c55f", modelConfigVersion: 1, modelId: null, baseRevisionId: null, resultRevisionId: revisionId, createdAt: now, deadlineAt: now, finishedAt: options.reviewing ? null : now, cleanupState: "clear", error: options.unchecked || verdict === "blocked" ? { code: "CHECK_BLOCKED", message: "检查尚未完成", retryable: false } : null, summary: "已保存结果" };
+  const run: Run = { id: runId, projectId, state: options.reviewing ? "verifying" : verdict === "passed" && !options.unchecked ? "completed" : verdict === "failed" ? "needs_changes" : "failed", phase: "review", attempt: options.attempt ?? 0, requestText: "创建报名页", modelProfileId: "438088cb-5fd0-4704-ad57-3b64ed47c55f", modelConfigVersion: 1, modelId: null, baseRevisionId: null, resultRevisionId: revisionId, createdAt: now, deadlineAt: now, finishedAt: options.reviewing ? null : now, cleanupState: "clear", error: options.unchecked || verdict === "blocked" ? { code: "CHECK_BLOCKED", message: "检查尚未完成", retryable: false } : null, summary: "已保存结果" };
   const preview = { state: "expired", revisionId, sourceHash: revision.sourceHash, url: null, expiresAt: now, error: null };
   const project = { project: { id: projectId, title: "报名页", createdAt: now, updatedAt: now, currentRevisionId: currentRevision?.id ?? null }, messages: [], currentRevision, latestCandidate: revision.status !== "accepted" ? revision : null, activeRun: options.reviewing ? run : null, latestRun: run, latestCheck: options.reviewing ? null : check, preview };
   let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
@@ -139,6 +139,14 @@ it("labels a rejected candidate separately while the earlier accepted revision r
   await act(async () => { if (picker) { picker.value = revisionId; picker.dispatchEvent(new Event("change", { bubbles: true })); } });
   expect(view.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain("关键流程检查未通过");
   expect(view.container.querySelector('.generation-revision-picker option')?.textContent).toBe("v1 · 当前版本");
+});
+
+it("explains that two failed repairs reached the limit while the accepted revision stays current", async () => {
+  const view = await openWorkbench({ verdict: "failed", previousCurrent: true, attempt: 2 });
+  const outcome = view.container.querySelector('[data-testid="run-result"]');
+  expect(outcome?.textContent).toContain("已尝试修复 2 轮，已达上限，停止自动修复。");
+  expect(outcome?.textContent).toContain("报名提交尚未达到预期。");
+  expect(view.container.querySelector<HTMLSelectElement>(".generation-revision-picker select")?.selectedOptions[0].textContent).toBe("v1 · 当前版本");
 });
 
 it("rejects a check bound to a different source snapshot before showing its verdict or screenshots", async () => {

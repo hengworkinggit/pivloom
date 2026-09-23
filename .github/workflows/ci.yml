@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Typecheck, lint, unit tests and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      NEXT_PUBLIC_APP_MODE: api
+      NEXT_PUBLIC_SUPABASE_URL: https://ci.invalid
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-build-placeholder-not-a-deployment-key
+      PREVIEW_BASE_URL: https://preview.ci.invalid
+      API_INTERNAL_ORIGIN: http://127.0.0.1:18010
+      SUPABASE_INTERNAL_ORIGIN: http://127.0.0.1:54321
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  postgres:
+    name: Real PostgreSQL repair and recovery (external HTTP fixtures)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          # Disposable runner-only database password; never a deployment credential.
+          POSTGRES_PASSWORD: pivloom-ci-only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build:contracts
+      - name: Prepare two empty databases with the actual migrations
+        run: node apps/api/scripts/testing/prepare-ci-database.mjs
+        env:
+          PIVLOOM_CI_POSTGRES_URL: postgres://postgres:pivloom-ci-only@127.0.0.1:5432/postgres
+      - name: Run real PostgreSQL integration tests
+        run: >-
+          npm test --workspace @pivloom/api --
+          tests/generation/build-repair.integration.test.ts
+          tests/generation/recovery-service.integration.test.ts
+        env:
+          PIVLOOM_REPAIR_INTEGRATION: '1'
+      - name: State the verification boundary
+        if: always()
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
+          This job uses real PostgreSQL 17.6, all repository migrations, and two separate CI databases.
+          The minimal `auth.users` table is an FK fixture, not a running Supabase Auth service.
+          The repair suite supplies persistence fixtures; recovery uses an external sandbox HTTP fixture.
+          Test encryption keys are generated randomly inside each suite. No user, provider or SSH secrets are used.
+          Real model generation and Codex browser E2E remain separate release gates; this workflow does not deploy.
+          SUMMARY
