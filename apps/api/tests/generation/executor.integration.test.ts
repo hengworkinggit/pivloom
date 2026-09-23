@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -488,6 +488,79 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     expect([...remote.remotes.values()].map((sandbox) => sandbox.live)).toEqual([false]);
     expect((await admin.query("SELECT operation_id FROM nano.projects WHERE owner_id=$1 AND id=$2", [owner, project.id])).rows[0].operation_id).toBeNull();
   }, 180_000);
+
+  test("a short run deadline survives a terminal write outage and keeps the project locked until cleanup confirms", async () => {
+    const remote = await fixture("cancel-builder-cleanup-fails", {
+      failFailedWrites: 1, settlementRetryMs: 50, cleanupSweepMs: 50,
+    });
+    const project = await createProjectRepository(database).create(owner, prefix);
+    projects.push(project.id);
+    const accepted = await repository.accept(owner, project.id, {
+      idempotencyKey: randomUUID(), text: "初始0，点击加一显示1", expectedCurrentRevisionId: null,
+      modelProfileId: model.id, modelConfigVersion: model.configVersion,
+    });
+    leases.push(accepted.run.credentialLeaseId);
+    // This database is dedicated to the test. Shorten only the accepted test
+    // run's deadline before dispatch; production has no prompt-triggered fault.
+    const shortDeadline = new Date(Date.now() + 2_000).toISOString();
+    await admin.query("UPDATE nano.runs SET deadline_at=$2 WHERE owner_id=$1 AND id=$3", [owner, shortDeadline, accepted.run.id]);
+    remote.executor.start({ ...accepted.run, deadlineAt: shortDeadline });
+    await remote.builderStarted;
+
+    const pendingBy = Date.now() + 15_000;
+    let pending = await repository.getRun(owner, accepted.run.id);
+    while ((pending.state !== "failed" || pending.cleanupState !== "pending") && Date.now() < pendingBy) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      pending = await repository.getRun(owner, accepted.run.id);
+    }
+    expect(pending).toMatchObject({ state: "failed", phase: "cleanup", cleanupState: "pending",
+      error: { code: "RUN_TIMEOUT", retryable: true } });
+    expect(remote.failedWrites()).toBeGreaterThanOrEqual(2);
+    expect(remote.remotes.size).toBe(1);
+    expect([...remote.remotes.values()].map((sandbox) => sandbox.live)).toEqual([true]);
+    const providerCallsAtDeadline = remote.providerRequests();
+    const pendingLock = (await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [project.id])).rows[0].operation_id;
+    await expect(repository.accept(owner, project.id, {
+      idempotencyKey: randomUUID(), text: "retry", expectedCurrentRevisionId: null,
+      modelProfileId: model.id, modelConfigVersion: model.configVersion,
+    })).rejects.toMatchObject({ code: "PROJECT_BUSY" });
+    expect(pendingLock).toBe(accepted.run.id);
+
+    remote.allowCleanup();
+    const confirmedBy = Date.now() + 15_000;
+    let settled = await repository.getRun(owner, accepted.run.id);
+    while (settled.cleanupState !== "confirmed" && Date.now() < confirmedBy) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      settled = await repository.getRun(owner, accepted.run.id);
+    }
+    expect(settled).toMatchObject({ state: "failed", cleanupState: "confirmed", error: { code: "RUN_TIMEOUT" } });
+    expect([...remote.remotes.values()].map((sandbox) => sandbox.live)).toEqual([false]);
+    expect(remote.providerRequests()).toBe(providerCallsAtDeadline);
+    expect((await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [project.id])).rows[0].operation_id).toBeNull();
+    expect((await createProjectRepository(database).get(owner, project.id)).currentRevisionId).toBeNull();
+
+    const retried = await repository.accept(owner, project.id, {
+      idempotencyKey: randomUUID(), text: "retry", expectedCurrentRevisionId: null,
+      modelProfileId: model.id, modelConfigVersion: model.configVersion,
+      retryOfRunId: accepted.run.id,
+    });
+    leases.push(retried.run.credentialLeaseId);
+    expect(retried.run).toMatchObject({ state: "accepted", requestText: accepted.run.requestText });
+    if (process.env.PIVLOOM_RC03_EVIDENCE_FILE) await writeFile(process.env.PIVLOOM_RC03_EVIDENCE_FILE, JSON.stringify({
+      environmentId: process.env.PIVLOOM_ENVIRONMENT_ID, runId: accepted.run.id, projectId: project.id,
+      injectedDeadlineAt: shortDeadline, pending: { state: pending.state, phase: pending.phase,
+        cleanupState: pending.cleanupState, errorCode: pending.error?.code, projectLock: pendingLock },
+      terminalWriteAttempts: remote.failedWrites(), remoteLiveAtPending: true,
+      settled: { state: settled.state, cleanupState: settled.cleanupState, errorCode: settled.error?.code,
+        projectLock: null }, remoteLiveAfterRetry: false,
+      providerCallsAtDeadline, providerCallsAfterCleanup: remote.providerRequests(),
+      retry: { id: retried.run.id, state: retried.run.state, retryOfRunId: accepted.run.id,
+        sameRequestText: retried.run.requestText === accepted.run.requestText },
+    }, null, 2) + "\n", { mode: 0o600 });
+    await repository.cancel(owner, retried.run.id);
+    await repository.finishCancelled(owner, retried.run.id, { cleanupState: "confirmed", summary: "隔离夹具已结束。" });
+    await models.releaseForRun(owner, retried.run.credentialLeaseId);
+  }, 60_000);
 
   test("restore failure transaction is retried without rebuilding the Preview", async () => {
     const initial = await run(await fixture("normal"));
