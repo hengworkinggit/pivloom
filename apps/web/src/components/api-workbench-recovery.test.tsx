@@ -25,6 +25,7 @@ const sse = (events: RunEvent[]) => new Response(events.map((item) => `id: ${ite
 async function openWorkbench(stream: (after: string, signal: AbortSignal) => Response | Promise<Response>, options: {
   empty?: boolean;
   post?: (init: RequestInit, project: ProjectDetailResponse, run: Run) => Response | Promise<Response>;
+  cancel?: () => Response | Promise<Response>;
 } = {}) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubEnv("NEXT_PUBLIC_APP_MODE", "api");
@@ -48,6 +49,7 @@ async function openWorkbench(stream: (after: string, signal: AbortSignal) => Res
     if (url === `/api/v1/model-profiles/${profileId}/models`) return Response.json({ source: "none", models: [] });
     if (url === `/api/v1/projects/${projectId}`) return Response.json(project);
     if (url === `/api/v1/projects/${projectId}/runs` && options.post) return options.post(init!, project, run);
+    if (url === `/api/v1/runs/${runId}/cancel` && options.cancel) return options.cancel();
     if (url === `/api/v1/runs/${runId}`) return Response.json({ run, revision: null, events: [], preview: null });
     if (url.startsWith(`/api/v1/runs/${runId}/events`)) return stream(new URL(url, "https://app.example.test").searchParams.get("after") ?? "0", init!.signal!);
     throw new Error(`Unexpected fixture endpoint: ${url}`);
@@ -64,6 +66,36 @@ async function openWorkbench(stream: (after: string, signal: AbortSignal) => Res
     reads: () => requests.filter((request) => request.url === `/api/v1/runs/${runId}`),
   };
 }
+
+it("two rapid Stop clicks submit one cancellation and keep its pending state visible", async () => {
+  let resolveCancel!: (response: Response) => void;
+  const pendingCancel = new Promise<Response>((resolve) => { resolveCancel = resolve; });
+  let cancellations = 0;
+  const view = await openWorkbench(() => sse([]), { cancel: () => { cancellations++; return pendingCancel; } });
+  const stop = view.container.querySelector<HTMLButtonElement>('button[aria-label="停止任务"]');
+  expect(stop).not.toBeNull();
+  act(() => { stop!.click(); stop!.click(); });
+  await act(async () => { await Promise.resolve(); });
+  expect(cancellations).toBe(1);
+  expect(view.container.textContent).toContain("正在停止");
+  await act(async () => { resolveCancel(Response.json({ runId, state: "cancel_requested", phase: "implement", cleanupState: "pending" })); });
+});
+
+it("a rejected Stop request releases the latch so the user can retry", async () => {
+  let cancellations = 0;
+  const view = await openWorkbench(() => sse([]), { cancel: () => {
+    cancellations++;
+    return cancellations === 1
+      ? Response.json({ error: { code: "SERVICE_BUSY", message: "稍后重试" } }, { status: 503 })
+      : Response.json({ runId, state: "cancel_requested", phase: "implement", cleanupState: "pending" });
+  } });
+  const stop = () => view.container.querySelector<HTMLButtonElement>('button[aria-label="停止任务"]');
+  await act(async () => { stop()?.click(); });
+  expect(cancellations).toBe(1);
+  expect(stop()?.disabled).toBe(false);
+  await act(async () => { stop()?.click(); });
+  expect(cancellations).toBe(2);
+});
 
 it("stops reconnecting an inaccessible run and keeps the user's unsent draft", async () => {
   const view = await openWorkbench(() => Response.json({ error: { code: "NOT_FOUND", message: "任务不可访问", retryable: false, requestId: "fixture" } }, { status: 404 }));

@@ -19,6 +19,7 @@ import { GenerationActivity, GenerationOutcome } from "./generation-activity";
 import { GenerationResult } from "./generation-result";
 import { SessionModelPicker } from "./session-model-picker";
 import { useUiPreferences } from "@/lib/ui-preferences";
+import { useCancellationRequestLatch } from "@/lib/use-cancellation-request-latch";
 import { checkMatchesRevision } from "./generation-review";
 
 const rejectedSubmissions = new Set(["INVALID_INPUT", "PROJECT_BUSY", "CLEANUP_PENDING", "STALE_BASE", "IDEMPOTENCY_CONFLICT", "SERVICE_BUSY", "QUOTA_EXCEEDED", "NOT_FOUND", "UNAUTHENTICATED", "MODEL_PROFILE_NOT_FOUND", "MODEL_CONFIG_CHANGED", "MODEL_NOT_VERIFIED", "MODEL_CONFIGURATION_MISSING"]);
@@ -72,6 +73,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const [selectedRevisionId, setSelectedRevisionId] = useState("");
   const project = state.view?.project;
   const run = state.view?.run;
+  const cancellation = useCancellationRequestLatch({ runId: run?.id, isActive: state.active, isCancellationSettling: run?.state === "cancel_requested" });
   const clarification = run?.state === "needs_input" ? run.clarification : null;
   const lockedProfile = state.active && run ? modelQuery.data?.find((model) => model.id === run.modelProfileId && model.configVersion === run.modelConfigVersion) : null;
   const revisions = [project?.currentRevision, project?.latestCandidate].filter((revision) => !!revision);
@@ -128,12 +130,18 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   }
 
   const canStop = state.active && !!run && run.state !== "cancel_requested";
+  const composerStatus = cancellation.isCancellationRequested || stopping
+    ? "正在停止：等待远端模型与沙箱清理确认"
+    : run?.state === "repairing" ? `检查未通过，正在自动修复（第 ${run.attempt + 1} 轮）`
+      : state.active ? "正在执行，可以继续写草稿"
+        : run?.cleanupState === "pending" ? "正在清理执行资源"
+          : clarification ? "回答后继续原需求" : "准备好你的下一个想法";
   const quotaFull = !!project?.quota && project.quota.dailyAccepted >= project.quota.dailyLimit;
   async function stop() {
-    if (!run || stopping) return;
+    if (!run || !cancellation.requestCancellation()) return;
     setStopping(true); setActionError("");
     try { await state.generation.cancel(run.id); await state.refresh(); }
-    catch (reason) { setActionError(errorMessage(reason)); }
+    catch (reason) { cancellation.releaseRejectedRequest(); setActionError(errorMessage(reason)); }
     finally { setStopping(false); }
   }
   /** Retry creates a new run that links to the failed one; the old record stays. */
@@ -213,8 +221,8 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
             <textarea id="followup-prompt" value={draft} onChange={(event) => editDraft(event.target.value)} placeholder={busy ? ui.text("可以先写下一条需求，任务结束后再发送…", "Draft the next request while this run finishes…") : clarification ? ui.text("回答上面的问题，继续原需求…", "Answer the question to continue…") : ui.text("描述你想实现或修改的功能…", "Describe what you want to build or change…")} aria-invalid={tooLong} aria-describedby={[tooLong ? "draft-error" : "", clarification ? "clarification-question" : ""].filter(Boolean).join(" ") || undefined} onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); void send(); }
             }} />
-            <div className="chat-composer-controls"><span><span className="small-status-dot" />{run?.state === "repairing" ? `检查未通过，正在自动修复（第 ${run.attempt + 1} 轮）` : run?.state === "cancel_requested" || stopping ? "正在停止：等待远端模型与沙箱清理确认" : state.active ? "正在执行，可以继续写草稿" : run?.cleanupState === "pending" ? "正在清理执行资源" : clarification ? "回答后继续原需求" : "准备好你的下一个想法"}{project.quota && <span className="generation-quota">今日额度 {project.quota.dailyAccepted}/{project.quota.dailyLimit}</span>}</span>
-              <span className="composer-actions"><SessionModelPicker profiles={modelQuery.data} selectedProfileId={selectedModel?.id} catalog={credentialModels} effectiveModelId={effectiveModelId} lockedLabel={state.active && run ? `${lockedProfile?.name ?? "已保存配置"} · ${run.modelId ?? lockedProfile?.modelId ?? "模型"} · v${run.modelConfigVersion}` : undefined} disabled={pending || state.active} onProfile={(id) => { setSelectedModelId(id); setModelOverrideId(null); setCustomModelMode(false); saveSessionModel(ownerId, projectId, id, null); }} onModel={(id) => { if (!selectedModel) return; setCustomModelMode(false); setModelOverrideId(id); saveSessionModel(ownerId, projectId, selectedModel.id, id); }} onCustom={(id) => { if (!selectedModel) return; setCustomModelMode(true); setModelOverrideId(id); saveSessionModel(ownerId, projectId, selectedModel.id, id); }} onRefresh={modelQuery.refresh} />{canStop && <Button type="button" variant="outline" size="sm" disabled={stopping} onClick={() => void stop()} aria-label={ui.text("停止任务", "Stop run")}>{stopping ? <><LoaderCircle className="spin" size={14} />{ui.text("正在停止", "Stopping")}</> : ui.text("停止", "Stop")}</Button>}<Button type="submit" size="icon" disabled={busy || !!unknownSubmission || !draft.trim() || tooLong || !modelReady} aria-label={clarification ? ui.text("发送回答", "Send answer") : ui.text("发送需求", "Send request")}>{pending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</Button></span></div>
+            <div className="chat-composer-controls"><span><span className="small-status-dot" />{composerStatus}{project.quota && <span className="generation-quota">今日额度 {project.quota.dailyAccepted}/{project.quota.dailyLimit}</span>}</span>
+              <span className="composer-actions"><SessionModelPicker profiles={modelQuery.data} selectedProfileId={selectedModel?.id} catalog={credentialModels} effectiveModelId={effectiveModelId} lockedLabel={state.active && run ? `${lockedProfile?.name ?? "已保存配置"} · ${run.modelId ?? lockedProfile?.modelId ?? "模型"} · v${run.modelConfigVersion}` : undefined} disabled={pending || state.active} onProfile={(id) => { setSelectedModelId(id); setModelOverrideId(null); setCustomModelMode(false); saveSessionModel(ownerId, projectId, id, null); }} onModel={(id) => { if (!selectedModel) return; setCustomModelMode(false); setModelOverrideId(id); saveSessionModel(ownerId, projectId, selectedModel.id, id); }} onCustom={(id) => { if (!selectedModel) return; setCustomModelMode(true); setModelOverrideId(id); saveSessionModel(ownerId, projectId, selectedModel.id, id); }} onRefresh={modelQuery.refresh} />{canStop && <Button type="button" variant="outline" size="sm" disabled={stopping || cancellation.isCancellationRequested} onClick={() => void stop()} aria-label={ui.text("停止任务", "Stop run")}>{stopping || cancellation.isCancellationRequested ? <><LoaderCircle className="spin" size={14} />{ui.text("正在停止", "Stopping")}</> : ui.text("停止", "Stop")}</Button>}<Button type="submit" size="icon" disabled={busy || !!unknownSubmission || !draft.trim() || tooLong || !modelReady} aria-label={clarification ? ui.text("发送回答", "Send answer") : ui.text("发送需求", "Send request")}>{pending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</Button></span></div>
           </form>
           {quotaFull && <p className="generation-model-help" role="status">今日任务额度已用完（{project.quota!.dailyLimit} 个），请明日再试或联系维护者。</p>}
           {tooLong && <p id="draft-error" className="inline-error" role="alert">需求最多 {promptLimit.toLocaleString()} 个字符。</p>}
