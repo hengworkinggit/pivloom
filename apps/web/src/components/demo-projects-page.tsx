@@ -1,54 +1,39 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowRight,
   ArrowUpRight,
-  BookOpen,
-  CalendarDays,
   Check,
   ChevronRight,
   FolderOpen,
   Layers3,
   LoaderCircle,
-  Plus,
-  UserRound,
 } from "lucide-react";
 import { AppHeader } from "./app-header";
 import { AuthGate } from "./auth-gate";
 import { Button } from "./ui/button";
 import { ProjectThumbnail } from "./demo-preview";
+import { TemplateArtwork } from "./template-gallery";
+import { featuredTemplates, findTemplate } from "@/lib/templates";
+import { useUiPreferences } from "@/lib/ui-preferences";
 import { demoApi } from "@/lib/mock-api";
 import { useDemoQuery } from "@/lib/use-demo-query";
 import { errorMessage, relativeTime } from "@/lib/utils";
-import type { ProjectKind } from "@/lib/types";
-
-const starters = [
-  {
-    kind: "events" as ProjectKind,
-    title: "活动报名",
-    icon: CalendarDays,
-    prompt: "做一个活动报名管理页面，支持新增报名、搜索、状态筛选和人数统计。",
-  },
-  {
-    kind: "books" as ProjectKind,
-    title: "读书清单",
-    icon: BookOpen,
-    prompt: "做一个温暖简洁的读书清单，可以添加书籍、搜索和管理阅读状态。",
-  },
-  {
-    kind: "portfolio" as ProjectKind,
-    title: "个人作品集",
-    icon: UserRound,
-    prompt: "做一个极简的设计师个人作品集，展示项目、个人介绍和联系方式。",
-  },
-];
 
 function ProjectsContent() {
   const router = useRouter();
+  const ui = useUiPreferences();
   const [prompt, setPrompt] = useState("");
+  useEffect(() => {
+    const slug = new URLSearchParams(window.location.search).get("template");
+    const template = slug ? findTemplate(slug) : undefined;
+    if (!template) return;
+    queueMicrotask(() => { setPrompt(ui.locale === "en" ? template.promptEn : template.prompt); window.history.replaceState(window.history.state, "", "/projects"); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const input = useRef<HTMLTextAreaElement>(null);
@@ -127,24 +112,8 @@ function ProjectsContent() {
               {error}
             </p>
           )}
-          <div className="starter-list">
-            <span>从这里开始</span>
-            {starters.map(({ kind, title, icon: Icon, prompt: text }) => (
-              <button
-                key={kind}
-                className="starter-chip"
-                disabled={busy}
-                onClick={() => {
-                  setPrompt(text);
-                  input.current?.focus();
-                }}
-              >
-                <Icon size={14} />
-                {title}
-                <ArrowUpRight size={12} />
-              </button>
-            ))}
-          </div>
+          <div className="featured-templates-heading"><div><span className="section-eyebrow">START WITH A TEMPLATE</span><h2>{ui.text("先看示例，再开始创作", "Explore first. Then create.")}</h2></div><Link href="/templates">{ui.text("浏览全部模板", "Browse all templates")}<ArrowRight size={15} /></Link></div>
+          <div className="featured-template-grid">{featuredTemplates.map((template) => <Link className="featured-template" href={`/templates/${template.slug}`} key={template.slug}><TemplateArtwork template={template} /><span>{ui.text(template.title, template.titleEn)}<ArrowUpRight size={14} /></span></Link>)}</div>
         </section>
         <section className="projects-section" aria-labelledby="projects-title">
           <div className="section-heading">
@@ -156,18 +125,6 @@ function ProjectsContent() {
               </h2>
               <p>每一个想法，都值得接着往下做。</p>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setPrompt("");
-                input.current?.focus();
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-            >
-              <Plus size={15} />
-              新建项目
-            </Button>
           </div>
           {loadError ? (
             <div className="empty-projects" role="alert">

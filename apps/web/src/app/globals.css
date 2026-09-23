@@ -2871,3 +2871,16 @@ svg {
 @media(max-width:850px) { .template-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.featured-template-grid { gap:9px; }.template-header { padding:0 20px; gap:17px; }.account-layout { grid-template-columns:1fr; } }
 @media(max-width:600px) { .app-header { padding:0 12px; }.header-right { gap:5px; }.settings-header-link { font-size:0; padding:6px; }.settings-header-link svg { width:16px; }.header-control { min-height:30px; padding:0 6px; }.header-control span { display:none; }.template-header { gap:9px; }.template-header nav { gap:10px; }.template-header-actions { gap:4px; }.template-header-actions .header-control { display:none; }.templates-main,.template-detail-main { padding:35px 17px 60px; }.templates-intro h1,.template-detail-heading h1 { font-size:28px; }.templates-tools { flex-direction:column; align-items:stretch; }.template-search { width:100%; }.template-grid { grid-template-columns:1fr; gap:16px; }.featured-template-grid { grid-template-columns:1fr; }.featured-templates-heading { margin-top:32px; }.template-detail-heading,.template-detail-bottom { display:block; }.template-detail-heading .pv-button { margin-top:20px; }.template-detail-preview { padding:8px; }.account-main { width:calc(100% - 28px); }.account-panel { padding:18px; }.login-page { padding:22px; }.login-preferences { top:20px; right:17px; } }
 [data-theme=dark] .brand { color:var(--foreground); }
+@media(max-width:600px) {
+  .template-header nav { display:none; }
+  .template-header-actions { margin-left:auto; gap:4px; }
+  .template-header-actions .header-control { display:inline-flex; width:30px; padding:0; }
+  .template-header-actions .header-control span { display:none; }
+  .template-signin,.template-register { padding:7px 9px; font-size:11px; }
+}
+[data-theme=dark] .model-profile-card,[data-theme=dark] .model-form-panel,[data-theme=dark] .models-empty { background:var(--surface); border-color:var(--line); }
+[data-theme=dark] .model-field input,[data-theme=dark] .model-field select { background:var(--background); border-color:var(--line); color:var(--foreground); }
+[data-theme=dark] .model-profile-heading > div > span,[data-theme=dark] .model-profile-details dt,[data-theme=dark] .model-profile-details dd { color:var(--muted); }
+[data-theme=dark] .model-test-result.test-passed { background:#193829; color:#b9e2c9; }
+[data-theme=dark] .model-test-result.test-failed { background:#463328; color:#f3c9a4; }
+[data-theme=dark] .model-profile-card .model-card-actions { border-color:var(--line); }
