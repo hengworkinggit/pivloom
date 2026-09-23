@@ -1,0 +1,92 @@
+- region "应用结果" [ref=e10]
+  - tablist "结果视图"
+    - tab "预览" [selected, ref=e20]
+      - StaticText "预览"
+    - tab "代码" [ref=e21]
+      - StaticText "代码"
+  - StaticText "v"
+  - StaticText "11"
+  - generic "预览宽度"
+    - button "桌面预览" [ref=e22]
+    - button "窄屏预览" [ref=e23]
+  - button "刷新预览" [ref=e15]
+  - link "在新标签页打开预览" [ref=e16]
+  - StaticText "已保存版本"
+  - StaticText " · 新任务正在执行，当前显示此版本"
+  - region "版本检查结果" [ref=e17]
+    - status
+      - StaticText "关键流程检查通过"
+    - StaticText "v"
+    - StaticText "11"
+    - paragraph
+      - StaticText "已检查 5 项行为：5 项通过。"
+    - group
+      - DisclosureTriangle "查看 5 项检查与截图" [expanded=false]
+        - StaticText "查看 5 项检查与截图"
+  - tabpanel "预览"
+    - Iframe "应用预览" [ref=e24]
+      - main
+        - heading "活动报名管理" [level=1, ref=e27]
+        - generic
+          - heading "填写报名信息" [level=2, ref=e28]
+          - form
+            - LabelText
+              - StaticText "姓名 *"
+            - textbox "姓名 *" [ref=e31]: 邮箱校验
+              - StaticText "邮箱校验"
+            - LabelText
+              - StaticText "邮箱 *"
+            - textbox "邮箱 *" [ref=e32]: not-an-email
+              - StaticText "not-an-email"
+            - StaticText "邮箱格式不正确"
+            - LabelText
+              - StaticText "活动类别"
+            - combobox "活动类别" [expanded=false, ref=e33]: 设计
+              - MenuListPopup
+                - option "设计" [selected, ref=e38]
+                - option "开发" [ref=e39]
+            - button "提交报名" [ref=e34]
+        - generic
+          - heading "报名记录" [level=2, ref=e29]
+          - group "状态筛选"
+            - button "全部" [ref=e35]
+            - button "待确认" [ref=e36]
+            - button "已确认" [ref=e37]
+          - searchbox "按姓名或邮箱搜索…" [ref=e30]
+          - list
+            - listitem [level=1]
+              - StaticText "田禾"
+              - StaticText "tianhe@example.test"
+              - StaticText "开发"
+              - StaticText "已确认"
+            - listitem [level=1]
+              - StaticText "林舟"
+              - StaticText "linzhou@example.test"
+              - StaticText "设计"
+              - button "待确认" [ref=e40]
+  - sectionfooter
+    - StaticText "版本 11 · 5f4319fb"
+    - StaticText "独立应用预览"
+- tablist "结果视图"
+  - tab "预览" [selected, ref=e20]
+    - StaticText "预览"
+  - tab "代码" [ref=e21]
+    - StaticText "代码"
+- StaticText "v"
+- StaticText "11"
+- generic "预览宽度"
+  - button "桌面预览" [ref=e22]
+  - button "窄屏预览" [ref=e23]
+- button "刷新预览" [ref=e15]
+- link "在新标签页打开预览" [ref=e16]
+- StaticText "已保存版本"
+- StaticText " · 新任务正在执行，当前显示此版本"
+- status
+  - StaticText "关键流程检查通过"
+- StaticText "v"
+- StaticText "11"
+- Iframe "应用预览" [ref=e24]
+- StaticText "版本 11 · 5f4319fb"
+- StaticText "独立应用预览"
+- DisclosureTriangle "查看 5 项检查与截图" [expanded=false]
+  - StaticText "查看 5 项检查与截图"

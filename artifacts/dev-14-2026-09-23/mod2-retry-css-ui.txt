@@ -1,0 +1,24 @@
+预览
+代码
+v13 候选
+候选已保存 · 新任务正在执行，当前显示此版本
+正在检查关键流程
+v13
+
+检查者正在操作这个候选版本，结果保存后会更新。
+
+文件
+7
+index.html
+package-lock.json
+package.json
+src/App.tsx
+src/main.tsx
+src/style.css
+tsconfig.json
+src/style.css
+v13 · 只读
+1
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;background:#f6f7fb;color:#172033;line-height:1.5}main{max-width:960px;margin:32px auto;padding:24px}button,input,select,textarea{font:inherit}button{cursor:pointer}label{display:block}h1{font-size:1.75rem;margin:0 0 24px}h2{font-size:1.25rem;margin:0 0 16px}.card{background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 3px rgba(23,32,51,.08);margin-bottom:24px}.form-card form{display:grid;gap:16px}.field label{font-size:.875rem;font-weight:600;color:#4a5568;margin-bottom:6px}.field input,.field select{width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;background:#fff;color:#172033;outline:none;transition:border-color .15s}.field input:focus,.field select:focus{border-color:#3b82f6}.error{display:block;margin-top:6px;font-size:.875rem;color:#dc2626}.submit-btn{justify-self:start;padding:10px 20px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-weight:600;transition:background .15s}.submit-btn:hover{background:#1d4ed8}.stats-card{padding:16px 24px}.stats{display:flex;flex-wrap:wrap;gap:16px 32px}.stat{display:flex;align-items:baseline;gap:8px}.stat-value{font-size:1.75rem;font-weight:700;color:#2563eb;line-height:1}.stat-label{font-size:.875rem;color:#4b5563}.list-header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}.filters{display:flex;flex-wrap:wrap;gap:12px;align-items:center}.filter-group{display:flex;gap:0;border:1px solid #d1d5db;border-radius:8px;overflow:hidden;background:#fff}.filter-btn{padding:9px 14px;background:#fff;border:none;color:#4b5563;font-weight:600;font-size:.875rem;transition:background .15s,color .15s}.filter-btn+.filter-btn{border-left:1px solid #d1d5db}.filter-btn:hover{background:#f3f4f6}.filter-btn.active{background:#2563eb;color:#fff}.search-input{min-width:220px;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;background:#fff;outline:none}.search-input:focus{border-color:#3b82f6}.empty{text-align:center;color:#6b7280;padding:24px 0}.record-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}.record-item{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:14px 16px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px}.record-info{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;flex:1;min-width:0}.record-name{font-weight:700;color:#111827;word-break:break-word}.record-email{color:#4b5563;word-break:break-all}.record-category{display:inline-block;padding:2px 10px;background:#dbeafe;color:#1e40af;font-size:.875rem;font-weight:600;border-radius:999px}.status-btn{padding:6px 14px;border:1px solid #f59e0b;background:#fff7ed;color:#b45309;border-radius:8px;font-weight:600}.status-btn:hover{background:#ffedd5}.status-badge{display:inline-block;padding:6px 14px;background:#d1fae5;color:#065f46;border-radius:8px;font-weight:600}@media(max-width:420px){main{margin:0;padding:16px}.card{padding:16px}.stats{gap:12px 24px}.list-header{flex-direction:column;align-items:stretch;gap:12px}.filters{width:100%;flex-direction:column;align-items:stretch;gap:12px}.filter-group{width:100%;display:grid;grid-template-columns:repeat(3,1fr)}.filter-btn{width:100%}.search-input{width:100%;min-width:0}.record-info{flex-direction:column;align-items:flex-start;width:100%}.record-item{gap:12px}.record-name,.record-email{max-width:100%}}
+版本 13 · 11726043
+独立应用预览

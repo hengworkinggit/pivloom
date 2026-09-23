@@ -1,0 +1,28 @@
+活动报名管理
+填写报名信息
+姓名 *
+邮箱 *
+活动类别
+设计
+开发
+提交报名
+3
+总报名数
+1
+已确认数
+报名记录
+全部
+待确认
+已确认
+宋宁
+songning@example.test
+设计
+待确认
+田禾
+tianhe@example.test
+开发
+已确认
+林舟
+linzhou@example.test
+设计
+待确认

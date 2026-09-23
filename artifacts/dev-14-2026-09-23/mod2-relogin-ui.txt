@@ -1,0 +1,52 @@
+- region "应用结果" [ref=e11]
+  - tablist "结果视图"
+    - tab "预览" [selected, ref=e157]
+      - StaticText "预览"
+    - tab "代码" [ref=e158]
+      - StaticText "代码"
+  - StaticText "v"
+  - StaticText "12"
+  - StaticText " 候选"
+  - generic "预览宽度"
+    - button "桌面预览" [ref=e159]
+    - button "窄屏预览" [ref=e160]
+  - button "刷新预览" [disabled, ref=e16]
+  - StaticText "候选已保存"
+  - region "版本检查结果" [ref=e17]
+    - status
+      - StaticText "尚未检查"
+    - StaticText "v"
+    - StaticText "12"
+    - paragraph
+      - StaticText "候选源码已保存，暂没有此版本的检查结论。"
+  - tabpanel "预览"
+    - heading "预览已到期" [level=2, ref=e161]
+    - paragraph
+      - StaticText "源码快照已保存，可以在代码页查看；重新启动预览不会调用模型。"
+    - button "重新启动预览" [ref=e162]
+  - sectionfooter
+    - StaticText "版本 12 · 5709d359"
+    - StaticText "独立应用预览"
+- tablist "结果视图"
+  - tab "预览" [selected, ref=e157]
+    - StaticText "预览"
+  - tab "代码" [ref=e158]
+    - StaticText "代码"
+- StaticText "v"
+- StaticText "12"
+- StaticText " 候选"
+- generic "预览宽度"
+  - button "桌面预览" [ref=e159]
+  - button "窄屏预览" [ref=e160]
+- button "刷新预览" [disabled, ref=e16]
+- StaticText "候选已保存"
+- status
+  - StaticText "尚未检查"
+- StaticText "v"
+- StaticText "12"
+- heading "预览已到期" [level=2, ref=e161]
+- paragraph
+  - StaticText "源码快照已保存，可以在代码页查看；重新启动预览不会调用模型。"
+- button "重新启动预览" [ref=e162]
+- StaticText "版本 12 · 5709d359"
+- StaticText "独立应用预览"

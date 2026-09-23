@@ -1,0 +1,102 @@
+{
+  "releaseReportedByRoot": "dev14",
+  "commitReportedByRoot": "992b0d2",
+  "startedAt": "2026-09-23T04:29:16.326Z",
+  "origin": "https://pivloom-69-5-7-187.sslip.io",
+  "projectId": "3c866a6a-26e9-4af4-89d4-d84127b7d430",
+  "revisionId": "11726043-c884-4100-935f-9b7ddad574d5",
+  "runId": "1283e45e-3072-423e-9ed5-69d29692ab43",
+  "scope": "Only two source files/manifest hashes, authenticated SSE replay and cross-owner denial over public HTTP. Not browser or model E2E; no application mutation.",
+  "checks": [
+    {
+      "name": "candidate-run-binding",
+      "status": "PASS",
+      "runState": "failed",
+      "revisionId": "11726043-c884-4100-935f-9b7ddad574d5",
+      "sourceHash": "59110779f811cc8a0e6003008ca12c1700791ff2017d1b2b7d2909f258131d88"
+    },
+    {
+      "name": "source-manifest",
+      "status": "PASS",
+      "fileCount": 7,
+      "sourceHash": "59110779f811cc8a0e6003008ca12c1700791ff2017d1b2b7d2909f258131d88"
+    },
+    {
+      "name": "source-src/App.tsx",
+      "status": "PASS",
+      "path": "src/App.tsx",
+      "bytes": 7207,
+      "sha256": "970279d4e13bb5efb96c358ac0e69409e126c35a1a3fe0aa8ef385edf135987b",
+      "manifestMatches": true
+    },
+    {
+      "name": "source-src/style.css",
+      "status": "PASS",
+      "path": "src/style.css",
+      "bytes": 3546,
+      "sha256": "38be54a879c5d69368aa603580c2b007e2c1338a747c95e853026b6653b4e2ee",
+      "manifestMatches": true
+    },
+    {
+      "name": "A-SSE-history",
+      "status": "PASS",
+      "ids": [
+        "5567",
+        "5568"
+      ],
+      "elapsedMs": 1033,
+      "httpStatus": 200,
+      "contentType": "text/event-stream; charset=utf-8",
+      "accelBuffering": "no",
+      "cacheControl": "no-cache, no-transform",
+      "closed": true
+    },
+    {
+      "name": "A-SSE-cursor-replay",
+      "status": "PASS",
+      "after": "5567",
+      "ids": [
+        "5568"
+      ],
+      "elapsedMs": 936,
+      "httpStatus": 200,
+      "contentType": "text/event-stream; charset=utf-8",
+      "accelBuffering": "no",
+      "cacheControl": "no-cache, no-transform",
+      "closed": true
+    },
+    {
+      "name": "B-manifest-denied",
+      "status": "PASS",
+      "httpStatus": 404,
+      "responseClosed": true
+    },
+    {
+      "name": "B-source-denied",
+      "status": "PASS",
+      "httpStatus": 404,
+      "responseClosed": true
+    },
+    {
+      "name": "B-SSE-denied",
+      "status": "PASS",
+      "httpStatus": 404,
+      "responseClosed": true
+    }
+  ],
+  "cleanup": [
+    {
+      "label": "A",
+      "localSessionRevoked": true
+    },
+    {
+      "label": "B",
+      "localSessionRevoked": true
+    }
+  ],
+  "status": "PASS_HTTP_ONLY",
+  "observedBootId": "118efd8e-1d05-4c01-aace-8cbad8ab3ba0",
+  "observedRunState": "failed",
+  "sourceHash": "59110779f811cc8a0e6003008ca12c1700791ff2017d1b2b7d2909f258131d88",
+  "finishedAt": "2026-09-23T04:29:36.349Z"
+}

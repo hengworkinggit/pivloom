@@ -4,7 +4,7 @@
 
 本项目原工作名为 nano-Atoms。真实工作台已接通登录、项目与模型配置、Pi 三角色生成、沙箱构建与浏览器检查、版本迭代、停止/重试和预览恢复。公网入口为 **[Pivloom](https://pivloom-69-5-7-187.sslip.io)**，使用免费 sslip.io 域名及 HTTPS。
 
-当前继续收尾 #13 的真实修复验收和 #14 的最终全链路验收；公网可访问不代表全部验收已通过。已执行结果见[公网验收记录](artifacts/dev-07-2026-09-23/public-acceptance.md)，最新部署约束见[部署说明](docs/deployment-readiness.md)。
+[#13](https://github.com/hengworkinggit/pivloom/issues/13) 已关闭；[#14](https://github.com/hengworkinggit/pivloom/issues/14) 的公网真实生成、两轮报名应用修改和独立浏览器验收已通过。API 发布为 `dev14-20260923-mobile-review`，Web 为 `dev13-20260923-final`；API 提交 `03b6da8` 的 [CI 已通过](https://github.com/hengworkinggit/pivloom/actions/runs/35820485171)。生产 Run 不设累计 Token 上限，仍记录用量并保留时间与工具调用边界。实测、旧失败及交付材料状态见[收尾记录](docs/test-runs/2026-09-23-finalization.md)和[交付矩阵](docs/test-runs/2026-09-23-delivery-matrix.md)。
 
 ## 本地运行
 

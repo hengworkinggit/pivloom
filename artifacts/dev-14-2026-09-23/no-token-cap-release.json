@@ -1,0 +1,15 @@
+{
+  "commit": "33284414ed766703653c1d84ff87de89a1526927",
+  "release": "dev14-20260923-no-token-cap",
+  "apiBootId": "fd201555-3ec6-4a4c-b663-02afd1f280a6",
+  "ci": "https://github.com/hengworkinggit/pivloom/actions/runs/35819402989",
+  "ciStatus": "success",
+  "tests": "runtime token/wire/reviewer 71/71 PASS; API build and lint PASS",
+  "productionLedger": {
+    "limitTokens": null,
+    "accountedTokensAfter2mReservation": 2010000
+  },
+  "removedSandbox": "acee383a-f54d-4962-9c97-b22fe6845bc6",
+  "sandboxRemoteDeletionConfirmed": true,
+  "note": "Authorized exact failed candidate cleanup; successful current unaffected"
+}

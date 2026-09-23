@@ -1,0 +1,104 @@
+{
+  "releaseReportedByRoot": "mobile-review",
+  "commitReportedByRoot": "03b6da8",
+  "checkReportedByRoot": "4a2bb313-59e1-4010-adb7-1159eea7f78b",
+  "ciRunReportedByRoot": "35820485171",
+  "startedAt": "2026-09-23T05:08:45.072Z",
+  "origin": "https://pivloom-69-5-7-187.sslip.io",
+  "projectId": "3c866a6a-26e9-4af4-89d4-d84127b7d430",
+  "revisionId": "7f81b655-26bb-46ad-be31-c8510a4919a6",
+  "runId": "5c6cd082-a6e1-450d-ae5e-058dc0addb7c",
+  "scope": "Only two source files/manifest hashes, authenticated SSE replay and cross-owner denial over public HTTP. Not browser or model E2E; no application mutation.",
+  "checks": [
+    {
+      "name": "candidate-run-binding",
+      "status": "PASS",
+      "runState": "completed",
+      "revisionId": "7f81b655-26bb-46ad-be31-c8510a4919a6",
+      "sourceHash": "b32262c05a1b5cae13c1abd717509f73a75b88956adbf494d8af7bf62aa44a68"
+    },
+    {
+      "name": "source-manifest",
+      "status": "PASS",
+      "fileCount": 7,
+      "sourceHash": "b32262c05a1b5cae13c1abd717509f73a75b88956adbf494d8af7bf62aa44a68"
+    },
+    {
+      "name": "source-src/App.tsx",
+      "status": "PASS",
+      "path": "src/App.tsx",
+      "bytes": 7249,
+      "sha256": "fc94e19b74069063b0054b3561d183ade664f96fb6407c83c16d56f2a5a0bcf9",
+      "manifestMatches": true
+    },
+    {
+      "name": "source-src/style.css",
+      "status": "PASS",
+      "path": "src/style.css",
+      "bytes": 4956,
+      "sha256": "eb7652b0036caaf3b9e23d9a657ffcc3332b8a70edeffe85dee48e1da5cad78e",
+      "manifestMatches": true
+    },
+    {
+      "name": "A-SSE-history",
+      "status": "PASS",
+      "ids": [
+        "5871",
+        "5872"
+      ],
+      "elapsedMs": 462,
+      "httpStatus": 200,
+      "contentType": "text/event-stream; charset=utf-8",
+      "accelBuffering": "no",
+      "cacheControl": "no-cache, no-transform",
+      "closed": true
+    },
+    {
+      "name": "A-SSE-cursor-replay",
+      "status": "PASS",
+      "after": "5871",
+      "ids": [
+        "5872"
+      ],
+      "elapsedMs": 463,
+      "httpStatus": 200,
+      "contentType": "text/event-stream; charset=utf-8",
+      "accelBuffering": "no",
+      "cacheControl": "no-cache, no-transform",
+      "closed": true
+    },
+    {
+      "name": "B-manifest-denied",
+      "status": "PASS",
+      "httpStatus": 404,
+      "responseClosed": true
+    },
+    {
+      "name": "B-source-denied",
+      "status": "PASS",
+      "httpStatus": 404,
+      "responseClosed": true
+    },
+    {
+      "name": "B-SSE-denied",
+      "status": "PASS",
+      "httpStatus": 404,
+      "responseClosed": true
+    }
+  ],
+  "cleanup": [
+    {
+      "label": "A",
+      "localSessionRevoked": true
+    },
+    {
+      "label": "B",
+      "localSessionRevoked": true
+    }
+  ],
+  "status": "PASS_HTTP_ONLY",
+  "observedBootId": "678afcaf-464c-4c87-ba51-6e7ca867e56d",
+  "observedRunState": "completed",
+  "sourceHash": "b32262c05a1b5cae13c1abd717509f73a75b88956adbf494d8af7bf62aa44a68",
+  "finishedAt": "2026-09-23T05:08:55.620Z"
+}

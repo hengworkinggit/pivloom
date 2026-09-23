@@ -1,0 +1,16 @@
+{
+  "at": "2026-09-23T04:17:53Z",
+  "commit": "992b0d2d18c05b771ba01e9e06aed793261dad59",
+  "release": "dev14-20260923-reviewfix",
+  "apiBootId": "118efd8e-1d05-4c01-aace-8cbad8ab3ba0",
+  "builtReviewerSha256": "ae6cac619a39e4c2a9c3d1fc7fed47188cefdd987aeba7676e7914f82d13848f",
+  "remoteReviewerSha256": "ae6cac619a39e4c2a9c3d1fc7fed47188cefdd987aeba7676e7914f82d13848f",
+  "targetedReviewerTests": "56/56 PASS, including reproduction of prior cross-behavior rejection and unchanged consecutive invalid-evidence rejection",
+  "localChecks": "API typecheck, reviewer lint, production build, diff-check PASS",
+  "ci": "https://github.com/hengworkinggit/pivloom/actions/runs/35817640654",
+  "publicReady": "PASS",
+  "existingSite": "PASS HTTP 200",
+  "retryRunId": "ed3e3a7b-d3fc-4403-b22b-91ac6d768978",
+  "retryOf": "0ae1ee09-4965-46c9-b9f3-d2f3a4b15b08",
+  "retryStateAtCapture": "planning"
+}

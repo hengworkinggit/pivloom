@@ -1,0 +1,818 @@
+预览
+代码
+v12 候选
+候选已保存 · 新任务正在执行，当前显示此版本
+正在检查关键流程
+v12
+
+检查者正在操作这个候选版本，结果保存后会更新。
+
+文件
+7
+index.html
+package-lock.json
+package.json
+src/App.tsx
+src/main.tsx
+src/style.css
+tsconfig.json
+src/style.css
+v12 · 只读
+1
+* {
+2
+  box-sizing: border-box;
+3
+}
+4
+
+5
+body {
+6
+  margin: 0;
+7
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+8
+  background: #f6f7fb;
+9
+  color: #172033;
+10
+  line-height: 1.5;
+11
+  overflow-x: hidden;
+12
+}
+13
+
+14
+main {
+15
+  max-width: 960px;
+16
+  margin: 32px auto;
+17
+  padding: 24px;
+18
+}
+19
+
+20
+button,
+21
+input,
+22
+select,
+23
+textarea {
+24
+  font: inherit;
+25
+}
+26
+
+27
+button {
+28
+  cursor: pointer;
+29
+}
+30
+
+31
+label {
+32
+  display: block;
+33
+}
+34
+
+35
+h1 {
+36
+  font-size: 1.75rem;
+37
+  margin: 0 0 24px;
+38
+}
+39
+
+40
+h2 {
+41
+  font-size: 1.25rem;
+42
+  margin: 0 0 16px;
+43
+}
+44
+
+45
+.card {
+46
+  background: #fff;
+47
+  border-radius: 12px;
+48
+  padding: 24px;
+49
+  box-shadow: 0 1px 3px rgba(23, 32, 51, 0.08);
+50
+  margin-bottom: 24px;
+51
+}
+52
+
+53
+.form-card form {
+54
+  display: grid;
+55
+  gap: 16px;
+56
+}
+57
+
+58
+.field label {
+59
+  font-size: 0.875rem;
+60
+  font-weight: 600;
+61
+  color: #4a5568;
+62
+  margin-bottom: 6px;
+63
+}
+64
+
+65
+.field input,
+66
+.field select {
+67
+  width: 100%;
+68
+  padding: 10px 12px;
+69
+  border: 1px solid #d1d5db;
+70
+  border-radius: 8px;
+71
+  background: #fff;
+72
+  color: #172033;
+73
+  outline: none;
+74
+  transition: border-color 0.15s;
+75
+}
+76
+
+77
+.field input:focus,
+78
+.field select:focus {
+79
+  border-color: #3b82f6;
+80
+}
+81
+
+82
+.error {
+83
+  display: block;
+84
+  margin-top: 6px;
+85
+  font-size: 0.875rem;
+86
+  color: #dc2626;
+87
+}
+88
+
+89
+.submit-btn {
+90
+  justify-self: start;
+91
+  padding: 10px 20px;
+92
+  background: #2563eb;
+93
+  color: #fff;
+94
+  border: none;
+95
+  border-radius: 8px;
+96
+  font-weight: 600;
+97
+  transition: background 0.15s;
+98
+}
+99
+
+100
+.submit-btn:hover {
+101
+  background: #1d4ed8;
+102
+}
+103
+
+104
+.stats-card {
+105
+  padding: 18px 24px;
+106
+}
+107
+
+108
+.stats {
+109
+  display: flex;
+110
+  flex-wrap: wrap;
+111
+  gap: 16px 24px;
+112
+}
+113
+
+114
+.stat-item {
+115
+  display: flex;
+116
+  align-items: baseline;
+117
+  gap: 8px;
+118
+}
+119
+
+120
+.stat-value {
+121
+  font-size: 1.75rem;
+122
+  font-weight: 700;
+123
+  color: #111827;
+124
+  line-height: 1;
+125
+}
+126
+
+127
+.stat-label {
+128
+  font-size: 0.875rem;
+129
+  color: #4b5563;
+130
+  font-weight: 600;
+131
+}
+132
+
+133
+.list-header {
+134
+  display: flex;
+135
+  flex-wrap: wrap;
+136
+  gap: 12px;
+137
+  align-items: center;
+138
+  justify-content: space-between;
+139
+  margin-bottom: 16px;
+140
+}
+141
+
+142
+.filters {
+143
+  display: flex;
+144
+  flex-wrap: wrap;
+145
+  gap: 12px;
+146
+  align-items: center;
+147
+  flex: 1;
+148
+  justify-content: flex-end;
+149
+}
+150
+
+151
+.filter-group {
+152
+  display: flex;
+153
+  gap: 0;
+154
+  border: 1px solid #d1d5db;
+155
+  border-radius: 8px;
+156
+  overflow: hidden;
+157
+  background: #fff;
+158
+}
+159
+
+160
+.filter-btn {
+161
+  padding: 9px 14px;
+162
+  background: #fff;
+163
+  border: none;
+164
+  color: #4b5563;
+165
+  font-weight: 600;
+166
+  font-size: 0.875rem;
+167
+  transition: background 0.15s, color 0.15s;
+168
+  white-space: nowrap;
+169
+}
+170
+
+171
+.filter-btn + .filter-btn {
+172
+  border-left: 1px solid #d1d5db;
+173
+}
+174
+
+175
+.filter-btn:hover {
+176
+  background: #f3f4f6;
+177
+}
+178
+
+179
+.filter-btn.active {
+180
+  background: #2563eb;
+181
+  color: #fff;
+182
+}
+183
+
+184
+.search-input {
+185
+  min-width: 220px;
+186
+  max-width: 100%;
+187
+  padding: 10px 12px;
+188
+  border: 1px solid #d1d5db;
+189
+  border-radius: 8px;
+190
+  background: #fff;
+191
+  outline: none;
+192
+}
+193
+
+194
+.search-input:focus {
+195
+  border-color: #3b82f6;
+196
+}
+197
+
+198
+.empty {
+199
+  text-align: center;
+200
+  color: #6b7280;
+201
+  padding: 24px 0;
+202
+}
+203
+
+204
+.record-list {
+205
+  list-style: none;
+206
+  margin: 0;
+207
+  padding: 0;
+208
+  display: flex;
+209
+  flex-direction: column;
+210
+  gap: 12px;
+211
+}
+212
+
+213
+.record-item {
+214
+  display: flex;
+215
+  flex-wrap: wrap;
+216
+  gap: 12px;
+217
+  align-items: center;
+218
+  justify-content: space-between;
+219
+  padding: 14px 16px;
+220
+  background: #f9fafb;
+221
+  border: 1px solid #e5e7eb;
+222
+  border-radius: 10px;
+223
+}
+224
+
+225
+.record-info {
+226
+  display: flex;
+227
+  flex-wrap: wrap;
+228
+  gap: 8px 16px;
+229
+  align-items: center;
+230
+  flex: 1;
+231
+  min-width: 0;
+232
+}
+233
+
+234
+.record-name,
+235
+.record-email {
+236
+  min-width: 0;
+237
+  overflow: hidden;
+238
+  text-overflow: ellipsis;
+239
+  white-space: nowrap;
+240
+}
+241
+
+242
+.record-name {
+243
+  font-weight: 700;
+244
+  color: #111827;
+245
+}
+246
+
+247
+.record-email {
+248
+  color: #4b5563;
+249
+}
+250
+
+251
+.record-category {
+252
+  display: inline-block;
+253
+  padding: 2px 10px;
+254
+  background: #dbeafe;
+255
+  color: #1e40af;
+256
+  font-size: 0.875rem;
+257
+  font-weight: 600;
+258
+  border-radius: 999px;
+259
+  white-space: nowrap;
+260
+}
+261
+
+262
+.status-btn {
+263
+  padding: 6px 14px;
+264
+  border: 1px solid #f59e0b;
+265
+  background: #fff7ed;
+266
+  color: #b45309;
+267
+  border-radius: 8px;
+268
+  font-weight: 600;
+269
+  white-space: nowrap;
+270
+}
+271
+
+272
+.status-btn:hover {
+273
+  background: #ffedd5;
+274
+}
+275
+
+276
+.status-badge {
+277
+  display: inline-block;
+278
+  padding: 6px 14px;
+279
+  background: #d1fae5;
+280
+  color: #065f46;
+281
+  border-radius: 8px;
+282
+  font-weight: 600;
+283
+  white-space: nowrap;
+284
+}
+285
+
+286
+@media (max-width: 640px) {
+287
+  .filters {
+288
+    justify-content: flex-start;
+289
+    width: 100%;
+290
+  }
+291
+
+292
+  .search-input {
+293
+    flex: 1 1 100%;
+294
+    min-width: 0;
+295
+  }
+296
+}
+297
+
+298
+@media (max-width: 420px) {
+299
+  main {
+300
+    margin: 0;
+301
+    padding: 12px;
+302
+  }
+303
+
+304
+  h1 {
+305
+    font-size: 1.5rem;
+306
+    margin-bottom: 16px;
+307
+  }
+308
+
+309
+  .card {
+310
+    padding: 16px;
+311
+    border-radius: 10px;
+312
+    margin-bottom: 16px;
+313
+  }
+314
+
+315
+  .form-card form {
+316
+    gap: 12px;
+317
+  }
+318
+
+319
+  .submit-btn {
+320
+    justify-self: stretch;
+321
+    width: 100%;
+322
+  }
+323
+
+324
+  .stats-card {
+325
+    padding: 14px 16px;
+326
+  }
+327
+
+328
+  .stats {
+329
+    gap: 12px 20px;
+330
+  }
+331
+
+332
+  .stat-value {
+333
+    font-size: 1.5rem;
+334
+  }
+335
+
+336
+  .list-header {
+337
+    flex-direction: column;
+338
+    align-items: stretch;
+339
+    gap: 12px;
+340
+  }
+341
+
+342
+  .filters {
+343
+    flex-direction: column;
+344
+    align-items: stretch;
+345
+    gap: 10px;
+346
+  }
+347
+
+348
+  .filter-group {
+349
+    width: 100%;
+350
+    display: grid;
+351
+    grid-template-columns: repeat(3, 1fr);
+352
+  }
+353
+
+354
+  .filter-btn {
+355
+    padding: 10px 8px;
+356
+    text-align: center;
+357
+    width: 100%;
+358
+  }
+359
+
+360
+  .search-input {
+361
+    width: 100%;
+362
+    min-width: 0;
+363
+  }
+364
+
+365
+  .record-item {
+366
+    flex-direction: column;
+367
+    align-items: stretch;
+368
+    gap: 10px;
+369
+    padding: 12px;
+370
+  }
+371
+
+372
+  .record-info {
+373
+    flex-direction: column;
+374
+    align-items: flex-start;
+375
+    gap: 6px;
+376
+    width: 100%;
+377
+  }
+378
+
+379
+  .record-name,
+380
+  .record-email {
+381
+    white-space: normal;
+382
+    word-break: break-word;
+383
+    overflow: visible;
+384
+    text-overflow: clip;
+385
+  }
+386
+
+387
+  .record-actions {
+388
+    width: 100%;
+389
+  }
+390
+
+391
+  .status-btn,
+392
+  .status-badge {
+393
+    display: block;
+394
+    width: 100%;
+395
+    text-align: center;
+396
+  }
+397
+}
+398
+
+版本 12 · 5709d359
+窄屏布局 · 非移动设备模拟

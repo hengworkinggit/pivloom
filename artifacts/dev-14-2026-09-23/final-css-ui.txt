@@ -1,0 +1,722 @@
+预览
+代码
+v15 候选
+候选已保存 · 新任务正在执行，当前显示此版本
+正在检查关键流程
+v15
+
+检查者正在操作这个候选版本，结果保存后会更新。
+
+文件
+7
+index.html
+package-lock.json
+package.json
+src/App.tsx
+src/main.tsx
+src/style.css
+tsconfig.json
+src/style.css
+v15 · 只读
+1
+* {
+2
+  box-sizing: border-box;
+3
+}
+4
+
+5
+html,
+6
+body {
+7
+  margin: 0;
+8
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+9
+    "Helvetica Neue", Arial, sans-serif;
+10
+  background: #f6f7fb;
+11
+  color: #172033;
+12
+  line-height: 1.5;
+13
+}
+14
+
+15
+main {
+16
+  max-width: 960px;
+17
+  margin: 32px auto;
+18
+  padding: 24px;
+19
+}
+20
+
+21
+button,
+22
+input,
+23
+select,
+24
+textarea {
+25
+  font: inherit;
+26
+}
+27
+
+28
+button {
+29
+  cursor: pointer;
+30
+}
+31
+
+32
+label {
+33
+  display: block;
+34
+}
+35
+
+36
+h1 {
+37
+  font-size: 1.75rem;
+38
+  margin: 0 0 24px;
+39
+}
+40
+
+41
+h2 {
+42
+  font-size: 1.25rem;
+43
+  margin: 0 0 16px;
+44
+}
+45
+
+46
+.card {
+47
+  background: #fff;
+48
+  border-radius: 12px;
+49
+  padding: 24px;
+50
+  box-shadow: 0 1px 3px rgba(23, 32, 51, 0.08);
+51
+  margin-bottom: 24px;
+52
+}
+53
+
+54
+.form-card form {
+55
+  display: grid;
+56
+  gap: 16px;
+57
+}
+58
+
+59
+.field label {
+60
+  font-size: 0.875rem;
+61
+  font-weight: 600;
+62
+  color: #4a5568;
+63
+  margin-bottom: 6px;
+64
+}
+65
+
+66
+.field input,
+67
+.field select {
+68
+  width: 100%;
+69
+  padding: 10px 12px;
+70
+  border: 1px solid #d1d5db;
+71
+  border-radius: 8px;
+72
+  background: #fff;
+73
+  color: #172033;
+74
+  outline: none;
+75
+  transition: border-color 0.15s;
+76
+}
+77
+
+78
+.field input:focus,
+79
+.field select:focus {
+80
+  border-color: #3b82f6;
+81
+}
+82
+
+83
+.error {
+84
+  display: block;
+85
+  margin-top: 6px;
+86
+  font-size: 0.875rem;
+87
+  color: #dc2626;
+88
+}
+89
+
+90
+.submit-btn {
+91
+  justify-self: start;
+92
+  padding: 10px 20px;
+93
+  background: #2563eb;
+94
+  color: #fff;
+95
+  border: none;
+96
+  border-radius: 8px;
+97
+  font-weight: 600;
+98
+  transition: background 0.15s;
+99
+}
+100
+
+101
+.submit-btn:hover {
+102
+  background: #1d4ed8;
+103
+}
+104
+
+105
+.stats-grid {
+106
+  display: flex;
+107
+  flex-wrap: wrap;
+108
+  gap: 16px;
+109
+}
+110
+
+111
+.stat {
+112
+  flex: 1 1 140px;
+113
+  display: flex;
+114
+  flex-direction: column;
+115
+  gap: 6px;
+116
+  padding: 16px;
+117
+  background: #f9fafb;
+118
+  border: 1px solid #e5e7eb;
+119
+  border-radius: 10px;
+120
+  min-width: 0;
+121
+}
+122
+
+123
+.stat-label {
+124
+  font-size: 0.875rem;
+125
+  color: #4b5563;
+126
+}
+127
+
+128
+.stat-value {
+129
+  font-size: 1.75rem;
+130
+  font-weight: 700;
+131
+  color: #111827;
+132
+}
+133
+
+134
+.list-header {
+135
+  display: flex;
+136
+  flex-wrap: wrap;
+137
+  gap: 12px;
+138
+  align-items: center;
+139
+  justify-content: space-between;
+140
+  margin-bottom: 16px;
+141
+}
+142
+
+143
+.filters {
+144
+  display: flex;
+145
+  flex-wrap: wrap;
+146
+  gap: 12px;
+147
+  align-items: center;
+148
+  flex: 1 1 auto;
+149
+  min-width: 0;
+150
+}
+151
+
+152
+.filter-group {
+153
+  display: flex;
+154
+  gap: 0;
+155
+  border: 1px solid #d1d5db;
+156
+  border-radius: 8px;
+157
+  overflow: hidden;
+158
+  background: #fff;
+159
+  flex-shrink: 0;
+160
+}
+161
+
+162
+.filter-btn {
+163
+  padding: 9px 14px;
+164
+  background: #fff;
+165
+  border: none;
+166
+  color: #4b5563;
+167
+  font-weight: 600;
+168
+  font-size: 0.875rem;
+169
+  transition: background 0.15s, color 0.15s;
+170
+  white-space: nowrap;
+171
+}
+172
+
+173
+.filter-btn + .filter-btn {
+174
+  border-left: 1px solid #d1d5db;
+175
+}
+176
+
+177
+.filter-btn:hover {
+178
+  background: #f3f4f6;
+179
+}
+180
+
+181
+.filter-btn.active {
+182
+  background: #2563eb;
+183
+  color: #fff;
+184
+}
+185
+
+186
+.search-input {
+187
+  min-width: 220px;
+188
+  max-width: 100%;
+189
+  padding: 10px 12px;
+190
+  border: 1px solid #d1d5db;
+191
+  border-radius: 8px;
+192
+  background: #fff;
+193
+  outline: none;
+194
+}
+195
+
+196
+.search-input:focus {
+197
+  border-color: #3b82f6;
+198
+}
+199
+
+200
+.empty {
+201
+  text-align: center;
+202
+  color: #6b7280;
+203
+  padding: 24px 0;
+204
+}
+205
+
+206
+.record-list {
+207
+  list-style: none;
+208
+  margin: 0;
+209
+  padding: 0;
+210
+  display: flex;
+211
+  flex-direction: column;
+212
+  gap: 12px;
+213
+}
+214
+
+215
+.record-item {
+216
+  display: flex;
+217
+  flex-wrap: wrap;
+218
+  gap: 12px;
+219
+  align-items: center;
+220
+  justify-content: space-between;
+221
+  padding: 14px 16px;
+222
+  background: #f9fafb;
+223
+  border: 1px solid #e5e7eb;
+224
+  border-radius: 10px;
+225
+  min-width: 0;
+226
+}
+227
+
+228
+.record-info {
+229
+  display: flex;
+230
+  flex-wrap: wrap;
+231
+  gap: 8px 16px;
+232
+  align-items: center;
+233
+  flex: 1 1 auto;
+234
+  min-width: 0;
+235
+  overflow-wrap: anywhere;
+236
+}
+237
+
+238
+.record-name {
+239
+  font-weight: 700;
+240
+  color: #111827;
+241
+  word-break: break-word;
+242
+}
+243
+
+244
+.record-email {
+245
+  color: #4b5563;
+246
+  word-break: break-all;
+247
+}
+248
+
+249
+.record-category {
+250
+  display: inline-block;
+251
+  padding: 2px 10px;
+252
+  background: #dbeafe;
+253
+  color: #1e40af;
+254
+  font-size: 0.875rem;
+255
+  font-weight: 600;
+256
+  border-radius: 999px;
+257
+  white-space: nowrap;
+258
+}
+259
+
+260
+.record-actions {
+261
+  flex-shrink: 0;
+262
+}
+263
+
+264
+.status-btn {
+265
+  padding: 6px 14px;
+266
+  border: 1px solid #f59e0b;
+267
+  background: #fff7ed;
+268
+  color: #b45309;
+269
+  border-radius: 8px;
+270
+  font-weight: 600;
+271
+}
+272
+
+273
+.status-btn:hover {
+274
+  background: #ffedd5;
+275
+}
+276
+
+277
+.status-badge {
+278
+  display: inline-block;
+279
+  padding: 6px 14px;
+280
+  background: #d1fae5;
+281
+  color: #065f46;
+282
+  border-radius: 8px;
+283
+  font-weight: 600;
+284
+}
+285
+
+286
+@media (max-width: 420px) {
+287
+  main {
+288
+    margin: 0;
+289
+    padding: 16px;
+290
+  }
+291
+
+292
+  h1 {
+293
+    font-size: 1.5rem;
+294
+  }
+295
+
+296
+  .card {
+297
+    padding: 16px;
+298
+  }
+299
+
+300
+  .stats-grid {
+301
+    flex-direction: column;
+302
+  }
+303
+
+304
+  .list-header {
+305
+    flex-direction: column;
+306
+    align-items: stretch;
+307
+  }
+308
+
+309
+  .filters {
+310
+    flex-direction: column;
+311
+    align-items: stretch;
+312
+    width: 100%;
+313
+  }
+314
+
+315
+  .filter-group {
+316
+    width: 100%;
+317
+  }
+318
+
+319
+  .filter-btn {
+320
+    flex: 1 1 0;
+321
+    padding: 10px 8px;
+322
+  }
+323
+
+324
+  .search-input {
+325
+    width: 100%;
+326
+    min-width: 0;
+327
+  }
+328
+
+329
+  .record-item {
+330
+    flex-direction: column;
+331
+    align-items: stretch;
+332
+  }
+333
+
+334
+  .record-info {
+335
+    flex-direction: column;
+336
+    align-items: flex-start;
+337
+    gap: 6px;
+338
+  }
+339
+
+340
+  .record-actions {
+341
+    width: 100%;
+342
+  }
+343
+
+344
+  .status-btn,
+345
+  .status-badge {
+346
+    width: 100%;
+347
+    text-align: center;
+348
+  }
+349
+}
+350
+
+版本 15 · 7f81b655
+独立应用预览

@@ -1,0 +1,22 @@
+{
+  "at": "2026-09-23T03:24:00.165Z",
+  "origin": "https://pivloom-69-5-7-187.sslip.io",
+  "accounts": [
+    {
+      "label": "A",
+      "status": 200,
+      "quota": {
+        "dailyLimit": 100,
+        "dailyAccepted": 53
+      }
+    },
+    {
+      "label": "B",
+      "status": 200,
+      "quota": {
+        "dailyLimit": 100,
+        "dailyAccepted": 20
+      }
+    }
+  ]
+}

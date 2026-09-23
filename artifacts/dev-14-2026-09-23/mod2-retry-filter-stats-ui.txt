@@ -1,0 +1,89 @@
+- region "应用结果" [ref=e10]
+  - tablist "结果视图"
+    - tab "预览" [selected, ref=e21]
+      - StaticText "预览"
+    - tab "代码" [ref=e22]
+      - StaticText "代码"
+  - StaticText "v"
+  - StaticText "13"
+  - StaticText " 候选"
+  - generic "预览宽度"
+    - button "桌面预览" [ref=e23]
+    - button "窄屏预览" [ref=e24]
+  - button "刷新预览" [ref=e15]
+  - link "在新标签页打开预览" [ref=e16]
+  - StaticText "候选已保存"
+  - StaticText " · 新任务正在执行，当前显示此版本"
+  - region "版本检查结果" [ref=e17]
+    - status
+      - StaticText "正在检查关键流程"
+    - StaticText "v"
+    - StaticText "13"
+    - paragraph
+      - StaticText "检查者正在操作这个候选版本，结果保存后会更新。"
+  - tabpanel "预览"
+    - Iframe "应用预览" [ref=e25]
+      - main
+        - heading "活动报名管理" [level=1, ref=e29]
+        - region "报名统计" [ref=e30]
+          - StaticText "2"
+          - StaticText "总报名数"
+          - StaticText "1"
+          - StaticText "已确认数"
+        - generic
+          - heading "填写报名信息" [level=2, ref=e31]
+          - form
+            - LabelText
+              - StaticText "姓名 *"
+            - textbox "姓名 *" [ref=e34]: 宋宁
+              - StaticText "宋宁"
+            - LabelText
+              - StaticText "邮箱 *"
+            - textbox "邮箱 *" [ref=e35]: songning@example.test
+              - StaticText "songning@example.test"
+            - LabelText
+              - StaticText "活动类别"
+            - combobox "活动类别" [expanded=false, ref=e36]: 设计
+              - MenuListPopup
+                - option "设计" [selected, ref=e41]
+                - option "开发" [ref=e42]
+            - button "提交报名" [ref=e37]
+        - generic
+          - heading "报名记录" [level=2, ref=e32]
+          - group "状态筛选"
+            - button "全部" [ref=e38]
+            - button "待确认" [ref=e39]
+            - button "已确认" [ref=e40]
+          - searchbox "按姓名或邮箱搜索…" [ref=e33]: 林
+            - StaticText "林"
+          - list
+            - listitem [level=1]
+              - StaticText "林舟"
+              - StaticText "linzhou@example.test"
+              - StaticText "设计"
+              - button "待确认" [ref=e43]
+  - sectionfooter
+    - StaticText "版本 13 · 11726043"
+    - StaticText "独立应用预览"
+- tablist "结果视图"
+  - tab "预览" [selected, ref=e21]
+    - StaticText "预览"
+  - tab "代码" [ref=e22]
+    - StaticText "代码"
+- StaticText "v"
+- StaticText "13"
+- StaticText " 候选"
+- generic "预览宽度"
+  - button "桌面预览" [ref=e23]
+  - button "窄屏预览" [ref=e24]
+- button "刷新预览" [ref=e15]
+- link "在新标签页打开预览" [ref=e16]
+- StaticText "候选已保存"
+- StaticText " · 新任务正在执行，当前显示此版本"
+- status
+  - StaticText "正在检查关键流程"
+- StaticText "v"
+- StaticText "13"
+- Iframe "应用预览" [ref=e25]
+- StaticText "版本 13 · 11726043"
+- StaticText "独立应用预览"

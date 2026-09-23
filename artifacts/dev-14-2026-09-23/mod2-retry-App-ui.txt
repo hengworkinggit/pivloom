@@ -1,0 +1,498 @@
+预览
+代码
+v13 候选
+候选已保存 · 新任务正在执行，当前显示此版本
+正在检查关键流程
+v13
+
+检查者正在操作这个候选版本，结果保存后会更新。
+
+文件
+7
+index.html
+package-lock.json
+package.json
+src/App.tsx
+src/main.tsx
+src/style.css
+tsconfig.json
+src/App.tsx
+v13 · 只读
+1
+import { useEffect, useMemo, useState } from 'react';
+2
+
+3
+const STORAGE_KEY = 'activity-registrations-v1';
+4
+
+5
+type RegistrationStatus = 'pending' | 'confirmed';
+6
+
+7
+interface Registration {
+8
+  id: number;
+9
+  name: string;
+10
+  email: string;
+11
+  category: '设计' | '开发';
+12
+  status: RegistrationStatus;
+13
+  createdAt: number;
+14
+}
+15
+
+16
+interface FormErrors {
+17
+  name?: string;
+18
+  email?: string;
+19
+}
+20
+
+21
+function loadRegistrations(): Registration[] {
+22
+  try {
+23
+    const raw = localStorage.getItem(STORAGE_KEY);
+24
+    if (!raw) return [];
+25
+    const parsed = JSON.parse(raw);
+26
+    return Array.isArray(parsed) ? parsed : [];
+27
+  } catch {
+28
+    return [];
+29
+  }
+30
+}
+31
+
+32
+function saveRegistrations(records: Registration[]) {
+33
+  try {
+34
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+35
+  } catch {
+36
+    // ignore storage errors
+37
+  }
+38
+}
+39
+
+40
+function isValidEmail(value: string) {
+41
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+42
+}
+43
+
+44
+export default function App() {
+45
+  const [name, setName] = useState('');
+46
+  const [email, setEmail] = useState('');
+47
+  const [category, setCategory] = useState<'设计' | '开发'>('设计');
+48
+  const [errors, setErrors] = useState<FormErrors>({});
+49
+  const [records, setRecords] = useState<Registration[]>(() => loadRegistrations());
+50
+  const [search, setSearch] = useState('');
+51
+  const [statusFilter, setStatusFilter] = useState<RegistrationStatus | 'all'>('all');
+52
+
+53
+  const confirmedCount = useMemo(
+54
+    () => records.filter((r) => r.status === 'confirmed').length,
+55
+    [records]
+56
+  );
+57
+
+58
+  useEffect(() => {
+59
+    saveRegistrations(records);
+60
+  }, [records]);
+61
+
+62
+  const filteredRecords = useMemo(() => {
+63
+    const keyword = search.trim().toLowerCase();
+64
+    return records.filter((r) => {
+65
+      const matchesStatus = statusFilter === 'all' || r.status === statusFilter;
+66
+      const matchesSearch =
+67
+        !keyword ||
+68
+        r.name.toLowerCase().includes(keyword) ||
+69
+        r.email.toLowerCase().includes(keyword);
+70
+      return matchesStatus && matchesSearch;
+71
+    });
+72
+  }, [records, search, statusFilter]);
+73
+
+74
+  function validate(): boolean {
+75
+    const next: FormErrors = {};
+76
+    if (!name.trim()) {
+77
+      next.name = '请输入姓名';
+78
+    }
+79
+    if (!email.trim()) {
+80
+      next.email = '请输入邮箱';
+81
+    } else if (!isValidEmail(email)) {
+82
+      next.email = '邮箱格式不正确';
+83
+    }
+84
+    setErrors(next);
+85
+    return Object.keys(next).length === 0;
+86
+  }
+87
+
+88
+  function handleSubmit(e: React.FormEvent) {
+89
+    e.preventDefault();
+90
+    if (!validate()) return;
+91
+
+92
+    const newRecord: Registration = {
+93
+      id: Date.now(),
+94
+      name: name.trim(),
+95
+      email: email.trim(),
+96
+      category,
+97
+      status: 'pending',
+98
+      createdAt: Date.now(),
+99
+    };
+100
+
+101
+    setRecords((prev) => [newRecord, ...prev]);
+102
+    setName('');
+103
+    setEmail('');
+104
+    setCategory('设计');
+105
+    setErrors({});
+106
+  }
+107
+
+108
+  function confirmRecord(id: number) {
+109
+    setRecords((prev) =>
+110
+      prev.map((r) => (r.id === id ? { ...r, status: 'confirmed' as const } : r))
+111
+    );
+112
+  }
+113
+
+114
+  return (
+115
+    <main>
+116
+      <h1>活动报名管理</h1>
+117
+
+118
+      <section className="card stats-card" aria-label="报名统计">
+119
+        <div className="stats">
+120
+          <div className="stat">
+121
+            <span className="stat-value">{records.length}</span>
+122
+            <span className="stat-label">总报名数</span>
+123
+          </div>
+124
+          <div className="stat">
+125
+            <span className="stat-value">{confirmedCount}</span>
+126
+            <span className="stat-label">已确认数</span>
+127
+          </div>
+128
+        </div>
+129
+      </section>
+130
+
+131
+      <section className="card form-card">
+132
+        <h2>填写报名信息</h2>
+133
+        <form onSubmit={handleSubmit} noValidate>
+134
+          <div className="field">
+135
+            <label htmlFor="name">姓名 *</label>
+136
+            <input
+137
+              id="name"
+138
+              type="text"
+139
+              value={name}
+140
+              onChange={(e) => setName(e.target.value)}
+141
+              placeholder="请输入姓名"
+142
+            />
+143
+            {errors.name && <span className="error">{errors.name}</span>}
+144
+          </div>
+145
+
+146
+          <div className="field">
+147
+            <label htmlFor="email">邮箱 *</label>
+148
+            <input
+149
+              id="email"
+150
+              type="email"
+151
+              value={email}
+152
+              onChange={(e) => setEmail(e.target.value)}
+153
+              placeholder="example@domain.com"
+154
+            />
+155
+            {errors.email && <span className="error">{errors.email}</span>}
+156
+          </div>
+157
+
+158
+          <div className="field">
+159
+            <label htmlFor="category">活动类别</label>
+160
+            <select
+161
+              id="category"
+162
+              value={category}
+163
+              onChange={(e) => setCategory(e.target.value as '设计' | '开发')}
+164
+            >
+165
+              <option value="设计">设计</option>
+166
+              <option value="开发">开发</option>
+167
+            </select>
+168
+          </div>
+169
+
+170
+          <button type="submit" className="submit-btn">
+171
+            提交报名
+172
+          </button>
+173
+        </form>
+174
+      </section>
+175
+
+176
+      <section className="card list-card">
+177
+        <div className="list-header">
+178
+          <h2>报名记录</h2>
+179
+          <div className="filters">
+180
+            <div className="filter-group" role="group" aria-label="状态筛选">
+181
+              {[
+182
+                { value: 'all', label: '全部' },
+183
+                { value: 'pending', label: '待确认' },
+184
+                { value: 'confirmed', label: '已确认' },
+185
+              ].map((option) => (
+186
+                <button
+187
+                  key={option.value}
+188
+                  type="button"
+189
+                  className={`filter-btn ${statusFilter === option.value ? 'active' : ''}`}
+190
+                  onClick={() => setStatusFilter(option.value as RegistrationStatus | 'all')}
+191
+                  aria-pressed={statusFilter === option.value}
+192
+                >
+193
+                  {option.label}
+194
+                </button>
+195
+              ))}
+196
+            </div>
+197
+            <input
+198
+              type="search"
+199
+              value={search}
+200
+              onChange={(e) => setSearch(e.target.value)}
+201
+              placeholder="按姓名或邮箱搜索…"
+202
+              className="search-input"
+203
+            />
+204
+          </div>
+205
+        </div>
+206
+
+207
+        {filteredRecords.length === 0 ? (
+208
+          <p className="empty">暂无报名记录</p>
+209
+        ) : (
+210
+          <ul className="record-list">
+211
+            {filteredRecords.map((r) => (
+212
+              <li key={r.id} className="record-item">
+213
+                <div className="record-info">
+214
+                  <span className="record-name">{r.name}</span>
+215
+                  <span className="record-email">{r.email}</span>
+216
+                  <span className="record-category">{r.category}</span>
+217
+                </div>
+218
+                <div className="record-actions">
+219
+                  {r.status === 'pending' ? (
+220
+                    <button
+221
+                      className="status-btn pending"
+222
+                      onClick={() => confirmRecord(r.id)}
+223
+                    >
+224
+                      待确认
+225
+                    </button>
+226
+                  ) : (
+227
+                    <span className="status-badge confirmed">已确认</span>
+228
+                  )}
+229
+                </div>
+230
+              </li>
+231
+            ))}
+232
+          </ul>
+233
+        )}
+234
+      </section>
+235
+    </main>
+236
+  );
+237
+}
+238
+
+版本 13 · 11726043
+独立应用预览

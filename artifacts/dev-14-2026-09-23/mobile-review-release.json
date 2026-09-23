@@ -1,0 +1,15 @@
+{
+  "commit": "03b6da8d4deb9b22184b1f0ee34fd823d3b9110b",
+  "release": "dev14-20260923-mobile-review",
+  "apiBootId": "678afcaf-464c-4c87-ba51-6e7ca867e56d",
+  "ci": "https://github.com/hengworkinggit/pivloom/actions/runs/35820485171",
+  "ciStatusAtRecord": "in_progress",
+  "tests": "Browser + Reviewer 80/80 PASS, API typecheck/lint/build PASS",
+  "productionLedgerLimitTokens": null,
+  "newRunId": "5c6cd082-a6e1-450d-ae5e-058dc0addb7c",
+  "newRunStateAtRecord": "planning",
+  "ciStatusFinal": "SUCCESS",
+  "finalRunId": "5c6cd082-a6e1-450d-ae5e-058dc0addb7c",
+  "finalRunState": "completed",
+  "finalCheckVerdict": "passed"
+}

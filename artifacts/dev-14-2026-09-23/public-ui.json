@@ -1,0 +1,90 @@
+{
+  "environment": "https://pivloom-69-5-7-187.sslip.io",
+  "projectId": "3c866a6a-26e9-4af4-89d4-d84127b7d430",
+  "browser": "Local independent Chromium, agent-browser session pivloom-final; user explicitly authorized any browser. Separate from sandbox Reviewer.",
+  "codeCommit": "dbb22ac194a6be3a52c4fad9efff9f1bce75263a",
+  "apiBootId": "a9d9de46-7be7-4aea-942e-04d5c5d4988c",
+  "modification1": {
+    "runId": "e1e1d3a9-9b5b-4c7b-94ae-cb3084bbf142",
+    "revisionId": "5f4319fb-8d2c-48a3-8185-2a635f58e0f6",
+    "reviewer": "passed 5/5, attempt0",
+    "independentObservations": [
+      "Created 林舟 / linzhou@example.test / 设计 and 田禾 / tianhe@example.test / 开发 through iframe form.",
+      "Confirmed 田禾; 已确认 filter showed only 田禾.",
+      "Search 林 with 已确认 showed 暂无报名记录; changing to 全部 showed only 林舟.",
+      "Empty submit showed 请输入姓名 and 请输入邮箱.",
+      "邮箱校验 + not-an-email showed 邮箱格式不正确 and added no record.",
+      "Workbench refresh during next run restored v11, both registrations and confirmed status.",
+      "Read src/App.tsx and src/style.css via Code tab; body text saved separately."
+    ],
+    "status": "PASS"
+  },
+  "workbench390": {
+    "innerWidth": 390,
+    "clientWidth": 390,
+    "scrollWidth": 390,
+    "status": "PASS"
+  },
+  "modification2": {
+    "runId": "0ae1ee09-4965-46c9-b9f3-d2f3a4b15b08",
+    "submittedAt": "2026-09-23T03:56:27.197Z",
+    "status": "FAILED_AGENT_OUTPUT_INVALID",
+    "revisionId": "5709d359-1feb-4edc-94a4-a5a29be15d71",
+    "independentObservations": [
+      "Empty form submit showed 请输入姓名 and 请输入邮箱; total remained 0.",
+      "林舟 + not-an-email showed 邮箱格式不正确; total remained 0.",
+      "Created 林舟/linzhou@example.test/设计, 田禾/tianhe@example.test/开发 and 宋宁/songning@example.test/设计. Confirmed 田禾.",
+      "Stats showed 3 total and 1 confirmed with all records, 已确认 filter (only 田禾), 已确认 + search 林 (empty), and 全部 + search 林 (only 林舟).",
+      "Opened preview via the workbench link in a separate tab. At 390px, innerWidth/clientWidth/scrollWidth were all 390, stats remained 3/1.",
+      "Reloaded preview; all three registrations and confirmed status remained.",
+      "Opened src/App.tsx and src/style.css from v12 Code tab; read-only source bodies persisted as UI text artifacts.",
+      "Logged out through account menu and logged in again through public login form; project reopened with same active run and existing current/candidate versions."
+    ],
+    "independentBusinessStatus": "PASS",
+    "preview390": {
+      "width": 390,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "stats": "3总报名数1已确认数"
+    },
+    "error": "Reviewer failed after corrected OBSERVATION_SCOPE on one behavior; no Check persisted, candidate not accepted",
+    "currentRevisionAfterFailure": "5f4319fb-8d2c-48a3-8185-2a635f58e0f6"
+  },
+  "deadline": "2026-09-23T04:00:00Z missed; issue14 remains open pending required acceptance",
+  "reviewerFix": {
+    "commit": "992b0d2d18c05b771ba01e9e06aed793261dad59",
+    "release": "dev14-20260923-reviewfix",
+    "ciRun": "35817640654",
+    "ci": "SUCCESS",
+    "targetedReviewerTests": "56/56 PASS"
+  },
+  "subsequentRuns": [
+    {
+      "runId": "ed3e3a7b-d3fc-4403-b22b-91ac6d768978",
+      "state": "failed",
+      "errorCode": "AGENT_OUTPUT_INVALID",
+      "phase": "planner"
+    },
+    {
+      "runId": "1283e45e-3072-423e-9ed5-69d29692ab43",
+      "state": "failed",
+      "errorCode": "TOKEN_BUDGET_EXCEEDED",
+      "candidateRevisionId": "11726043-c884-4100-935f-9b7ddad574d5",
+      "independentUi": "PASS statistics 3/1, filters, form validation, 390px, refresh"
+    },
+    {
+      "runId": "d198943f-f025-44d5-98bd-d1756528f605",
+      "state": "planning at submission",
+      "prompt": "Shortened equivalent modification request"
+    }
+  ],
+  "finalRun": {
+    "runId": "5c6cd082-a6e1-450d-ae5e-058dc0addb7c",
+    "state": "completed",
+    "revisionId": "7f81b655-26bb-46ad-be31-c8510a4919a6",
+    "checkId": "4a2bb313-59e1-4010-adb7-1159eea7f78b",
+    "reviewer": "passed 5/5; browser_resize succeeded twice; B07 observed 390x844 and scrollWidth=390",
+    "independentBrowser": "PASS empty/invalid email, create 林舟 and 田禾, confirm 田禾, combined filter/search, counts2/1, 390px no overflow, refresh persistence, two source files read in workbench",
+    "currentRevisionMatches": true
+  }
+}
