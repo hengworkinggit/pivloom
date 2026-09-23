@@ -1,0 +1,55 @@
+{
+  "files": [
+    {
+      "bytes": 263,
+      "downloadSha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42",
+      "manifestSha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42",
+      "match": true,
+      "path": "index.html"
+    },
+    {
+      "bytes": 26874,
+      "downloadSha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6",
+      "manifestSha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6",
+      "match": true,
+      "path": "package-lock.json"
+    },
+    {
+      "bytes": 517,
+      "downloadSha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65",
+      "manifestSha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65",
+      "match": true,
+      "path": "package.json"
+    },
+    {
+      "bytes": 11654,
+      "downloadSha256": "4bb11fe937d1b3db491aeb14d8121f6c40721b07114fbf2beb9acb804dbbdc42",
+      "manifestSha256": "4bb11fe937d1b3db491aeb14d8121f6c40721b07114fbf2beb9acb804dbbdc42",
+      "match": true,
+      "path": "src/App.tsx"
+    },
+    {
+      "bytes": 153,
+      "downloadSha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c",
+      "manifestSha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c",
+      "match": true,
+      "path": "src/main.tsx"
+    },
+    {
+      "bytes": 2052,
+      "downloadSha256": "596f646afd2d3be6ad1acc28a80b2166b1ccd9e904c2f80337158ae4a445eb27",
+      "manifestSha256": "596f646afd2d3be6ad1acc28a80b2166b1ccd9e904c2f80337158ae4a445eb27",
+      "match": true,
+      "path": "src/style.css"
+    },
+    {
+      "bytes": 331,
+      "downloadSha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837",
+      "manifestSha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837",
+      "match": true,
+      "path": "tsconfig.json"
+    }
+  ],
+  "revisionId": "d2f95b5e-b5ac-4721-9bf6-219ae27f7fb1",
+  "sourceHash": "e735cb73c72ebf38208e96a135d0005950a10bf772e8e402f9a06f650bfc0c77"
+}

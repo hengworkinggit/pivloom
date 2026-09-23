@@ -1,0 +1,229 @@
+{
+  "capturedAt": "2026-09-23T23:32:01.981Z",
+  "environment": {
+    "apiSha": "1a5a1beffd0852c3e46aa1cdb282cafc44466696",
+    "qaBrowser": "agent-browser 0.36.0",
+    "webSha": "1a5a1beffd0852c3e46aa1cdb282cafc44466696"
+  },
+  "lastEvents": [
+    {
+      "at": "2026-09-23T23:29:10.051Z",
+      "message": "",
+      "success": null,
+      "tool": null,
+      "type": "run.phase"
+    },
+    {
+      "at": "2026-09-23T23:29:10.061Z",
+      "message": "",
+      "success": null,
+      "tool": null,
+      "type": "role.started"
+    },
+    {
+      "at": "2026-09-23T23:29:16.349Z",
+      "message": "检查者执行 browser_open",
+      "success": null,
+      "tool": "browser_open",
+      "type": "tool.started"
+    },
+    {
+      "at": "2026-09-23T23:29:26.185Z",
+      "message": "检查工具已完成",
+      "success": true,
+      "tool": "browser_open",
+      "type": "tool.completed"
+    },
+    {
+      "at": "2026-09-23T23:29:29.052Z",
+      "message": "检查者执行 browser_screenshot",
+      "success": null,
+      "tool": "browser_screenshot",
+      "type": "tool.started"
+    },
+    {
+      "at": "2026-09-23T23:29:30.079Z",
+      "message": "检查工具已完成",
+      "success": true,
+      "tool": "browser_screenshot",
+      "type": "tool.completed"
+    },
+    {
+      "at": "2026-09-23T23:29:34.305Z",
+      "message": "检查者执行 source_read",
+      "success": null,
+      "tool": "source_read",
+      "type": "tool.started"
+    },
+    {
+      "at": "2026-09-23T23:29:34.321Z",
+      "message": "检查工具已完成",
+      "success": true,
+      "tool": "source_read",
+      "type": "tool.completed"
+    },
+    {
+      "at": "2026-09-23T23:29:34.330Z",
+      "message": "检查者执行 source_read",
+      "success": null,
+      "tool": "source_read",
+      "type": "tool.started"
+    },
+    {
+      "at": "2026-09-23T23:29:34.337Z",
+      "message": "检查工具已完成",
+      "success": true,
+      "tool": "source_read",
+      "type": "tool.completed"
+    },
+    {
+      "at": "2026-09-23T23:29:40.692Z",
+      "message": "检查者执行 record_behavior",
+      "success": null,
+      "tool": "record_behavior",
+      "type": "tool.started"
+    },
+    {
+      "at": "2026-09-23T23:29:40.696Z",
+      "message": "检查工具未完成（OBSERVATION_SCOPE）",
+      "success": false,
+      "tool": "record_behavior",
+      "type": "tool.completed"
+    },
+    {
+      "at": "2026-09-23T23:29:45.467Z",
+      "message": "检查者执行 record_behavior",
+      "success": null,
+      "tool": "record_behavior",
+      "type": "tool.started"
+    },
+    {
+      "at": "2026-09-23T23:29:46.599Z",
+      "message": "",
+      "success": null,
+      "tool": null,
+      "type": "run.finished"
+    }
+  ],
+  "project": {
+    "currentRevisionId": null,
+    "id": "bfbbe5cc-4207-4d3e-9620-84df5035e1bc",
+    "latestCheck": null,
+    "preview": {
+      "expiresAt": "2026-09-23T23:50:48.902Z",
+      "revisionId": "d2f95b5e-b5ac-4721-9bf6-219ae27f7fb1",
+      "sourceHash": "e735cb73c72ebf38208e96a135d0005950a10bf772e8e402f9a06f650bfc0c77",
+      "state": "expired"
+    }
+  },
+  "revision": {
+    "buildStatus": "passed",
+    "id": "d2f95b5e-b5ac-4721-9bf6-219ae27f7fb1",
+    "manifest": [
+      {
+        "bytes": 263,
+        "path": "index.html",
+        "sha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42"
+      },
+      {
+        "bytes": 26874,
+        "path": "package-lock.json",
+        "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6"
+      },
+      {
+        "bytes": 517,
+        "path": "package.json",
+        "sha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65"
+      },
+      {
+        "bytes": 11654,
+        "path": "src/App.tsx",
+        "sha256": "4bb11fe937d1b3db491aeb14d8121f6c40721b07114fbf2beb9acb804dbbdc42"
+      },
+      {
+        "bytes": 153,
+        "path": "src/main.tsx",
+        "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c"
+      },
+      {
+        "bytes": 2052,
+        "path": "src/style.css",
+        "sha256": "596f646afd2d3be6ad1acc28a80b2166b1ccd9e904c2f80337158ae4a445eb27"
+      },
+      {
+        "bytes": 331,
+        "path": "tsconfig.json",
+        "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837"
+      }
+    ],
+    "revisionNo": 4,
+    "sourceHash": "e735cb73c72ebf38208e96a135d0005950a10bf772e8e402f9a06f650bfc0c77",
+    "status": "candidate"
+  },
+  "roles": {
+    "builder": {
+      "failedToolEvents": [],
+      "finishedAt": "2026-09-23T23:29:09.985Z",
+      "id": "02e82f2a-1d66-4561-9e46-6aa89bf4839f",
+      "startedAt": "2026-09-23T23:20:47.894Z",
+      "state": "succeeded",
+      "toolStarts": {
+        "bash": 4,
+        "edit": 1,
+        "read": 7,
+        "write": 2
+      }
+    },
+    "coordinator": {
+      "failedToolEvents": [],
+      "finishedAt": "2026-09-23T23:20:47.873Z",
+      "id": "cdf8926f-7f11-4e05-9669-db0624c68613",
+      "startedAt": "2026-09-23T23:18:58.711Z",
+      "state": "succeeded",
+      "toolStarts": {
+        "project_summary": 1,
+        "submit_plan": 1
+      }
+    },
+    "reviewer": {
+      "failedToolEvents": [
+        {
+          "at": "2026-09-23T23:29:40.696Z",
+          "message": "检查工具未完成（OBSERVATION_SCOPE）",
+          "tool": "record_behavior"
+        }
+      ],
+      "finishedAt": "2026-09-23T23:29:46.599Z",
+      "id": "3961464d-8331-495e-8e8b-df15cd91f155",
+      "startedAt": "2026-09-23T23:29:10.061Z",
+      "state": "failed",
+      "toolStarts": {
+        "browser_open": 1,
+        "browser_screenshot": 1,
+        "record_behavior": 2,
+        "source_read": 2
+      }
+    }
+  },
+  "run": {
+    "attempt": 0,
+    "baseRevisionId": null,
+    "cleanupState": "confirmed",
+    "createdAt": "2026-09-23T23:18:58.665Z",
+    "deadlineAt": "2026-09-23T23:48:58.665Z",
+    "error": {
+      "code": "AGENT_OUTPUT_INVALID",
+      "message": "检查结果未通过格式或证据校验，请稍后重试。",
+      "retryable": true
+    },
+    "finishedAt": "2026-09-23T23:29:46.599Z",
+    "id": "b5d1f724-82b8-4844-85d0-1afa140235de",
+    "modelConfigVersion": 2,
+    "modelId": null,
+    "modelProfileId": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+    "phase": "cleanup",
+    "resultRevisionId": "d2f95b5e-b5ac-4721-9bf6-219ae27f7fb1",
+    "state": "failed",
+    "summary": "检查结果未通过格式或证据校验，请稍后重试。"
+  }
+}
