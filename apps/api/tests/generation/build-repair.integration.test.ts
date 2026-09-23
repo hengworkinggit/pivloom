@@ -18,8 +18,21 @@ describe.skipIf(process.env.PIVLOOM_REPAIR_INTEGRATION !== "1")("build failure r
   let database: PivloomDatabase;
   let repo: ReturnType<typeof createGenerationRepository>;
   let models: ReturnType<typeof createModelProfileService>;
-  const plan: Plan = { schemaVersion: 1, goal: "生成计数器", changeSummary: "增加计数按钮", assumptions: [], outOfScope: [],
-    behaviors: [{ id: "B01", title: "增加计数", precondition: "初始为0", action: "点击加一", expected: "显示1", required: true }] };
+  const plan: Plan = { schemaVersion: 2, goal: "生成计数器", changeSummary: "增加计数按钮", assumptions: [], outOfScope: [],
+    behaviors: [
+      { id: "B01", title: "增加计数", precondition: "初始为0", action: "点击加一", expected: "显示1", required: true },
+      { id: "B02", title: "连续计数", precondition: "显示1", action: "再次点击加一", expected: "显示2", required: true },
+      { id: "B03", title: "重置计数", precondition: "显示2", action: "点击重置", expected: "显示0", required: true },
+      { id: "B04", title: "刷新保留", precondition: "显示2", action: "刷新页面", expected: "计数仍为2", required: true },
+      { id: "B05", title: "窄屏点击", precondition: "视口宽390像素", action: "点击加一", expected: "按钮可用且无横向溢出", required: true },
+    ],
+    groups: [
+      { id: "G1", title: "基本运算", behaviorIds: ["B01"] },
+      { id: "G2", title: "连续输入", behaviorIds: ["B02"] },
+      { id: "G3", title: "错误恢复", behaviorIds: ["B03"] },
+      { id: "G4", title: "状态保留", behaviorIds: ["B04"] },
+      { id: "G5", title: "视觉布局", behaviorIds: ["B05"] },
+    ], replacements: [] };
 
   beforeAll(async () => {
     if (!process.env.DATABASE_URL || !process.env.MIGRATION_DATABASE_URL) throw Error("Explicit isolated database required");
@@ -66,9 +79,17 @@ describe.skipIf(process.env.PIVLOOM_REPAIR_INTEGRATION !== "1")("build failure r
     const { run } = await repo.accept(owner, project.id, { text: "生成计数器", expectedCurrentRevisionId: null,
       modelProfileId: profile, modelConfigVersion: 1, idempotencyKey: randomUUID() });
     const coordinator = await repo.startCoordinator(owner, run.id);
-    await repo.submitPlan(owner, run.id, { roleRunId: coordinator.id, attempt: 0, plan });
-    const builder = await repo.startBuilder(owner, run.id);
-    return { project, run, builder };
+    try {
+      await repo.submitPlan(owner, run.id, { roleRunId: coordinator.id, attempt: 0, plan });
+      const builder = await repo.startBuilder(owner, run.id);
+      return { project, run, builder };
+    } catch (error) {
+      // A failed fixture setup must release the global generation slot before
+      // the next test, otherwise its failure masquerades as SERVICE_BUSY.
+      await repo.finishFailed(owner, run.id, { code: "FIXTURE_SETUP_FAILED", message: "Fixture setup failed", retryable: false,
+        cleanupState: "confirmed" }).catch(() => undefined);
+      throw error;
+    }
   }
 
   async function failedCandidate(projectId: string, runId: string, attempt: number) {

@@ -414,6 +414,23 @@ test("a modification that drops one previous required behavior gets one correcti
   expect(model.requests).toHaveLength(2);
 });
 
+test("a new grouped plan can increment an accepted historical flat plan without losing its required behavior", async () => {
+  const baseRevisionId = randomUUID();
+  const legacyBase: Plan = { schemaVersion: 1, goal: "旧版书单", changeSummary: "仅有添加书名", assumptions: [], outOfScope: [],
+    behaviors: [plan.behaviors[0]] };
+  const model = provider([[{ name: "submit_plan", args: { plan } }]]);
+  const result = await runCoordinator({
+    runId: randomUUID(), roleRunId: randomUUID(), sessionId: randomUUID(), attempt: 0, baseRevisionId,
+    modelConfig: model.modelConfig, signal: new AbortController().signal,
+    context: { ...context(), baseRevisionId, previousPlan: legacyBase },
+    assertActive: async () => {}, onDecision: async () => {},
+  });
+  expect(result.decision).toEqual({ kind: "plan", plan });
+  expect(result.toolCalls.map((call) => call.success)).toEqual([true]);
+  expect(model.requests).toHaveLength(1);
+  expect(preservesPreviousBehavior(plan, legacyBase)).toBe(true);
+});
+
 test("concurrent Coordinator sessions keep their contexts, histories and credentials isolated", async () => {
   const ids = [randomUUID(), randomUUID()];
   const models = [provider([[{ name: "project_summary", args: {} }], [{ name: "submit_plan", args: { plan } }]], "coordinator-fixture-key-A"),
