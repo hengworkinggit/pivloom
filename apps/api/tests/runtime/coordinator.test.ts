@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "vitest";
 import { normalizePlanArguments, runCoordinator } from "../../src/runtime/coordinator.js";
-import { preservesPreviousBehavior, type Plan } from "@pivloom/contracts";
+import { preservesPreviousBehavior, type GroupedPlan, type Plan } from "@pivloom/contracts";
 import { createRunTokenBudget } from "../../src/runtime/token-budget.js";
 import type { ProbeEvent } from "../../src/runtime/types.js";
 
@@ -15,19 +15,19 @@ const key = "coordinator-private-fixture-key";
 // Providers disagreed about the shape of the same decision; every variant below
 // was observed or is the natural flattened form of one.
 test.each([
-  ["nested plan object", { plan: { goal: "g", behaviors: [] } }, { plan: { goal: "g", behaviors: [], schemaVersion: 1 } }],
-  ["plan as a JSON string", { plan: '{"goal":"g","behaviors":[]}' }, { plan: { goal: "g", behaviors: [], schemaVersion: 1 } }],
+  ["nested plan object", { plan: { goal: "g", behaviors: [] } }, { plan: { goal: "g", behaviors: [], schemaVersion: 2 } }],
+  ["plan as a JSON string", { plan: '{"goal":"g","behaviors":[]}' }, { plan: { goal: "g", behaviors: [], schemaVersion: 2 } }],
   ["plan flattened to the top level", { goal: "g", changeSummary: "c", behaviors: [{ id: "B01" }] },
-    { plan: { goal: "g", changeSummary: "c", behaviors: [{ id: "B01" }], schemaVersion: 1 } }],
-  ["wrapped in an arguments object", { arguments: { goal: "g", behaviors: [] } }, { plan: { goal: "g", behaviors: [], schemaVersion: 1 } }],
-  ["wrapped in an input object", { input: { plan: { goal: "g", behaviors: [] } } }, { plan: { goal: "g", behaviors: [], schemaVersion: 1 } }],
+    { plan: { goal: "g", changeSummary: "c", behaviors: [{ id: "B01" }], schemaVersion: 2 } }],
+  ["wrapped in an arguments object", { arguments: { goal: "g", behaviors: [] } }, { plan: { goal: "g", behaviors: [], schemaVersion: 2 } }],
+  ["wrapped in an input object", { input: { plan: { goal: "g", behaviors: [] } } }, { plan: { goal: "g", behaviors: [], schemaVersion: 2 } }],
 ])("normalizes a %s into one canonical plan decision", (_label, input, expected) => {
   expect(normalizePlanArguments(input)).toEqual(expected);
 });
 
 test("a model-supplied schemaVersion never overrides the service literal", () => {
-  expect(normalizePlanArguments({ plan: { schemaVersion: 99, goal: "g" } })).toEqual({ plan: { schemaVersion: 1, goal: "g" } });
-  expect(normalizePlanArguments({ goal: "g", schemaVersion: 2 })).toEqual({ plan: { goal: "g", schemaVersion: 1 } });
+  expect(normalizePlanArguments({ plan: { schemaVersion: 99, goal: "g" } })).toEqual({ plan: { schemaVersion: 2, goal: "g" } });
+  expect(normalizePlanArguments({ goal: "g", schemaVersion: 1 })).toEqual({ plan: { goal: "g", schemaVersion: 2 } });
 });
 
 test("an unusable plan argument still reaches the guarded validation path", () => {
@@ -55,13 +55,26 @@ test("a preserved behavior tolerates cosmetic differences only", () => {
   expect(preservesPreviousBehavior(weakened, base)).toBe(false);
 });
 
-const plan = {
-  schemaVersion: 1 as const,
+const plan: GroupedPlan = {
+  schemaVersion: 2 as const,
   goal: "记录读书进度",
   changeSummary: "提供新增书籍和标记已读的前端页面",
   assumptions: ["演示数据保存在当前浏览器"],
   outOfScope: ["不提供跨用户后端同步"],
-  behaviors: [{ id: "B01", title: "添加一本书", precondition: "书单页面已打开", action: "输入书名并点击添加", expected: "列表中出现输入的书名", required: true }],
+  behaviors: [
+    { id: "B01", title: "添加一本书", precondition: "书单页面已打开", action: "输入书名并点击添加", expected: "列表中出现输入的书名", required: true },
+    { id: "B02", title: "标记已读", precondition: "书单中已有一本书", action: "点击已读", expected: "显示已读状态", required: true },
+    { id: "B03", title: "删除一本书", precondition: "书单中已有一本书", action: "点击删除", expected: "该书不再出现", required: true },
+    { id: "B04", title: "刷新保留", precondition: "书单中已有一本书", action: "刷新页面", expected: "这本书仍在列表", required: true },
+    { id: "B05", title: "窄屏布局", precondition: "页面宽度为390像素", action: "检查并点击新增", expected: "内容没有横向溢出且新增可用", required: true },
+  ],
+  groups: [
+    { id: "G1", title: "添加与编辑", behaviorIds: ["B01"] },
+    { id: "G2", title: "状态管理", behaviorIds: ["B02"] },
+    { id: "G3", title: "错误恢复", behaviorIds: ["B03"] },
+    { id: "G4", title: "持久化", behaviorIds: ["B04"] },
+    { id: "G5", title: "视觉布局", behaviorIds: ["B05"] },
+  ], replacements: [],
 };
 const context = () => ({
   schemaVersion: 1 as const, project: { id: randomUUID(), title: "读书清单" },
@@ -102,8 +115,9 @@ test("the actual provider request declares concrete required question and plan f
   expect(declared.request_clarification).toMatchObject({ type: "object", required: ["question"], additionalProperties: false,
     properties: { question: { type: "string", minLength: 1, maxLength: 300 } } });
   expect(declared.submit_plan).toMatchObject({ type: "object", required: ["plan"], additionalProperties: false,
-    properties: { plan: { type: "object", required: ["schemaVersion", "goal", "changeSummary", "assumptions", "outOfScope", "behaviors"],
-      properties: { behaviors: { type: "array", minItems: 1, maxItems: 5, items: { type: "object", required: ["id", "title", "precondition", "action", "expected", "required"] } } } } } });
+    properties: { plan: { type: "object", required: ["schemaVersion", "goal", "changeSummary", "assumptions", "outOfScope", "behaviors", "groups", "replacements"],
+      properties: { behaviors: { type: "array", minItems: 5, maxItems: 80, items: { type: "object", required: ["id", "title", "precondition", "action", "expected", "required"] } },
+        groups: { type: "array", minItems: 5, maxItems: 5 } } } } });
 });
 
 test("the real four-part clarification is rejected and receives one correction to a single essential question", async () => {
@@ -275,6 +289,20 @@ test("a plan whose schemaVersion is wrong or missing is accepted without spendin
   expect(model.requests).toHaveLength(1);
 });
 
+test("a legacy flat plan is readable history but cannot become a new Coordinator handoff", async () => {
+  const legacy = { schemaVersion: 1, goal: "旧格式", changeSummary: "只含一项", assumptions: [], outOfScope: [],
+    behaviors: [plan.behaviors[0]] };
+  const model = provider([[{ name: "submit_plan", args: { plan: legacy } }], [{ name: "submit_plan", args: { plan } }]]);
+  const accepted: unknown[] = [];
+  const result = await runCoordinator({
+    runId: randomUUID(), roleRunId: randomUUID(), sessionId: randomUUID(), attempt: 0, baseRevisionId: null,
+    modelConfig: model.modelConfig, signal: new AbortController().signal, context: context(),
+    assertActive: async () => {}, onDecision: async (decision) => { accepted.push(decision); },
+  });
+  expect(result.toolCalls.map((call) => call.success)).toEqual([false, true]);
+  expect(accepted).toEqual([{ kind: "plan", plan }]);
+});
+
 test("one invalid structured submission can be corrected before the only handoff transaction", async () => {
   const model = provider([
     [{ name: "submit_plan", args: { plan: { ...plan, behaviors: [] } } }],
@@ -366,10 +394,13 @@ test("the tool budget stops repeated summary calls without invoking a successor 
   expect(model.requests).toHaveLength(1);
 });
 
-test("a modification that drops all previous behavior gets one correction before persistence", async () => {
+test("a modification that drops one previous required behavior gets one correction before persistence", async () => {
   const baseRevisionId = randomUUID();
-  const modified = { ...plan, behaviors: [{ ...plan.behaviors[0], id: "B02", action: "点击移除按钮", expected: "该书从列表移除" }] };
-  const corrected = { ...modified, behaviors: [{ ...plan.behaviors[0], title: "录入书籍" }, ...modified.behaviors] };
+  const extra = { ...plan.behaviors[0], id: "B06", title: "移除按钮", action: "点击移除按钮", expected: "该书从列表移除" };
+  const modified = { ...plan, behaviors: [...plan.behaviors.slice(1), extra],
+    groups: plan.groups.map((group) => group.id === "G1" ? { ...group, behaviorIds: ["B06"] } : group) };
+  const corrected = { ...modified, behaviors: [{ ...plan.behaviors[0], title: "录入书籍" }, ...modified.behaviors],
+    groups: modified.groups.map((group) => group.id === "G1" ? { ...group, behaviorIds: ["B01", "B06"] } : group) };
   const model = provider([[{ name: "submit_plan", args: { plan: modified } }], [{ name: "submit_plan", args: { plan: corrected } }]]);
   const accepted: unknown[] = [];
   const result = await runCoordinator({

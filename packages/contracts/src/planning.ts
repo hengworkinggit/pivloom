@@ -21,13 +21,61 @@ export const BehaviorTargetSchema = z.strictObject({
   title: nonempty(120), precondition: nonempty(500), action: nonempty(500), expected: nonempty(500), required: z.boolean(),
 });
 export type BehaviorTarget = z.infer<typeof BehaviorTargetSchema>;
-export const PlanSchema = z.strictObject({
+export const LegacyPlanSchema = z.strictObject({
   schemaVersion: z.literal(1), goal: nonempty(1000), changeSummary: nonempty(1000),
   assumptions: z.array(nonempty(300)).max(5), outOfScope: z.array(nonempty(300)).max(5),
   behaviors: z.array(BehaviorTargetSchema).min(1).max(5),
 }).refine((plan) => new Set(plan.behaviors.map((behavior) => behavior.id)).size === plan.behaviors.length, "行为 ID 必须唯一。")
   .refine(boundedJson(16 * 1024), "计划不得超过 16 KiB。");
+export const GroupIdSchema = z.enum(["G1", "G2", "G3", "G4", "G5"]);
+export const BehaviorGroupSchema = z.strictObject({
+  id: GroupIdSchema, title: nonempty(120),
+  behaviorIds: z.array(BehaviorTargetSchema.shape.id).min(1).max(80),
+});
+export const GroupedPlanSchema = z.strictObject({
+  schemaVersion: z.literal(2), goal: nonempty(1000), changeSummary: nonempty(1000),
+  assumptions: z.array(nonempty(300)).max(5), outOfScope: z.array(nonempty(300)).max(5),
+  behaviors: z.array(BehaviorTargetSchema).min(5).max(80),
+  groups: z.array(BehaviorGroupSchema).length(5),
+  replacements: z.array(z.strictObject({ oldBehaviorId: BehaviorTargetSchema.shape.id,
+    newBehaviorId: BehaviorTargetSchema.shape.id, userRequestQuote: nonempty(500), reason: nonempty(500) })).max(80).default([]),
+}).superRefine((plan, context) => {
+  const behaviorIds = new Set(plan.behaviors.map((behavior) => behavior.id));
+  if (behaviorIds.size !== plan.behaviors.length)
+    context.addIssue({ code: "custom", message: "行为 ID 必须唯一。", path: ["behaviors"] });
+  const assigned = new Set<string>();
+  const orderedIds = GroupIdSchema.options;
+  for (const [index, group] of plan.groups.entries()) {
+    if (group.id !== orderedIds[index])
+      context.addIssue({ code: "custom", message: "五个组必须按稳定 ID 排列。", path: ["groups", index, "id"] });
+    for (const id of group.behaviorIds) {
+      if (!behaviorIds.has(id) || assigned.has(id))
+        context.addIssue({ code: "custom", message: "每个子检查必须且只能归属一个组。", path: ["groups", index, "behaviorIds"] });
+      assigned.add(id);
+    }
+    if (!group.behaviorIds.some((id) => plan.behaviors.some((behavior) => behavior.id === id && behavior.required)))
+      context.addIssue({ code: "custom", message: "每组至少包含一个必需子检查。", path: ["groups", index] });
+  }
+  if (assigned.size !== behaviorIds.size)
+    context.addIssue({ code: "custom", message: "所有子检查都必须归组。", path: ["groups"] });
+  const replaced = new Set<string>(), incoming = new Set<string>();
+  const replacementByOld = new Map(plan.replacements.map((item) => [item.oldBehaviorId, item]));
+  const reachesCurrent = (id: string, seen = new Set<string>()): boolean => {
+    if (behaviorIds.has(id)) return true;
+    if (seen.has(id)) return false;
+    const next = replacementByOld.get(id);
+    return next ? reachesCurrent(next.newBehaviorId, new Set([...seen, id])) : false;
+  };
+  for (const [index, item] of plan.replacements.entries()) {
+    if (replaced.has(item.oldBehaviorId) || incoming.has(item.newBehaviorId) || item.oldBehaviorId === item.newBehaviorId
+      || behaviorIds.has(item.oldBehaviorId) || !reachesCurrent(item.newBehaviorId))
+      context.addIssue({ code: "custom", message: "替代关系必须由旧 ID 指向一个新的子检查 ID。", path: ["replacements", index] });
+    replaced.add(item.oldBehaviorId); incoming.add(item.newBehaviorId);
+  }
+}).refine(boundedJson(64 * 1024), "五组计划不得超过 64 KiB。");
+export const PlanSchema = z.discriminatedUnion("schemaVersion", [LegacyPlanSchema, GroupedPlanSchema]);
 export type Plan = z.infer<typeof PlanSchema>;
+export type GroupedPlan = z.infer<typeof GroupedPlanSchema>;
 /**
  * The observable contract of a preserved behavior, compared without cosmetic
  * differences. Models reliably re-wrap lines and swap punctuation, which says
@@ -43,9 +91,41 @@ export function sameObservableBehavior(left: BehaviorTarget, right: BehaviorTarg
     && observable(left.action) === observable(right.action)
     && observable(left.expected) === observable(right.expected);
 }
-/** A cosmetic title change is allowed; the original observable contract remains intact. */
-export function preservesPreviousBehavior(plan: Plan, previousPlan: Plan | null) {
-  return !previousPlan || plan.behaviors.some((candidate) => previousPlan.behaviors.some((previous) => sameObservableBehavior(candidate, previous)));
+/** A cosmetic title change is allowed; every old required observable contract remains intact. */
+export function preservesPreviousBehavior(plan: Plan, previousPlan: Plan | null, userRequest = "") {
+  if (!previousPlan) return plan.schemaVersion !== 2 || plan.replacements.length === 0;
+  if (previousPlan.schemaVersion === 2 && plan.schemaVersion !== 2) return false;
+  if (previousPlan.schemaVersion === 2 && plan.schemaVersion === 2
+    && previousPlan.groups.some((group) => observable(group.title) !== observable(plan.groups.find((item) => item.id === group.id)?.title ?? ""))) return false;
+  const previousIds = new Set(previousPlan.behaviors.map((behavior) => behavior.id));
+  const groupOf = (value: GroupedPlan, id: string) => value.groups.find((group) => group.behaviorIds.includes(id))?.id;
+  const inherited = previousPlan.schemaVersion === 2 ? previousPlan.replacements : [];
+  if (plan.schemaVersion === 2) for (const prior of inherited) {
+    const current = plan.replacements.find((item) => item.oldBehaviorId === prior.oldBehaviorId);
+    if (!current || JSON.stringify(current) !== JSON.stringify(prior)) return false;
+  }
+  if (plan.schemaVersion === 2) for (const replacement of plan.replacements) {
+    if (inherited.some((prior) => prior.oldBehaviorId === replacement.oldBehaviorId)) continue;
+    const previous = previousPlan.behaviors.find((behavior) => behavior.id === replacement.oldBehaviorId);
+    const incoming = plan.behaviors.find((behavior) => behavior.id === replacement.newBehaviorId);
+    const quote = replacement.userRequestQuote.replace(/\s+/gu, " ").trim();
+    if (!previous || !incoming || previousIds.has(incoming.id) || incoming.required !== previous.required || quote.length < 4
+      || !userRequest.replace(/\s+/gu, " ").toLowerCase().includes(quote.toLowerCase())
+      || !/(改为|改成|改用|修改|替换|取消|删除|不要|instead|replace|remove|drop)/iu.test(quote)
+      || previousPlan.schemaVersion === 2 && groupOf(plan, incoming.id) !== groupOf(previousPlan, previous.id)) return false;
+  }
+  for (const previous of previousPlan.behaviors) {
+    const candidate = plan.behaviors.find((behavior) => behavior.id === previous.id);
+    if (candidate) {
+      if (!sameObservableBehavior(candidate, previous)) return false;
+      if (previousPlan.schemaVersion === 2 && plan.schemaVersion === 2
+        && groupOf(plan, candidate.id) !== groupOf(previousPlan, previous.id)) return false;
+      continue;
+    }
+    if (!previous.required) continue;
+    if (plan.schemaVersion !== 2 || !plan.replacements.some((item) => item.oldBehaviorId === previous.id)) return false;
+  }
+  return true;
 }
 export const ClarificationQuestionSchema = nonempty(1000);
 const newClarificationQuestion = nonempty(300)
@@ -62,14 +142,14 @@ export const PlanningContextSchema = z.strictObject({
   requestText, originalRequest: requestText,
   clarificationTurns: z.array(z.strictObject({ parentRunId: z.uuid(), question: ClarificationQuestionSchema, answer: requestText })).max(8),
   baseRevisionId: z.uuid().nullable(), previousPlan: PlanSchema.nullable(),
-}).refine(boundedJson(64 * 1024), "需求上下文不得超过 64 KiB。");
+}).refine(boundedJson(128 * 1024), "需求上下文不得超过 128 KiB。");
 export type PlanningContext = z.infer<typeof PlanningContextSchema>;
 export const HandoffSchema = z.strictObject({
   runId: z.uuid(), fromRoleRunId: z.uuid().nullable(), toRole: RoleSchema,
   attempt: z.number().int().min(0).max(2), baseRevisionId: z.uuid().nullable(), expectedRevisionId: z.uuid().nullable(),
   sourceHash: z.string().regex(/^[a-f0-9]{64}$/).nullable(), plan: PlanSchema, task: nonempty(64_000),
-  failedChecks: z.array(nonempty(1000)).max(5).optional(), artifactIds: z.array(z.uuid()).max(20),
-}).refine(boundedJson(96 * 1024), "交接内容不得超过 96 KiB。");
+  failedChecks: z.array(nonempty(1000)).max(80).optional(), artifactIds: z.array(z.uuid()).max(20),
+}).refine(boundedJson(160 * 1024), "交接内容不得超过 160 KiB。");
 export type Handoff = z.infer<typeof HandoffSchema>;
 export const RoleRunSchema = z.object({
   id: z.uuid(), runId: z.uuid(), role: RoleSchema, attempt: z.number().int().min(0).max(2), sessionId: z.uuid(),

@@ -64,8 +64,11 @@ test("Builder does not turn an exhausted run tool budget into one more permitted
 
 test("Coordinator and Builder charge the same lower run budget, including cached prompt tokens", async () => {
   const budget = createRunTokenBudget(60_000);
-  const plan = { schemaVersion: 1, goal: "记录书名", changeSummary: "增加书单", assumptions: [], outOfScope: [],
-    behaviors: [{ id: "B01", title: "添加书名", precondition: "页面已打开", action: "输入书名并添加", expected: "出现书名", required: true }] };
+  const plan = { schemaVersion: 2, goal: "记录书名", changeSummary: "增加书单", assumptions: [], outOfScope: [],
+    behaviors: ["B01", "B02", "B03", "B04", "B05"].map((id) => ({ id, title: `书单检查 ${id}`,
+      precondition: "页面已打开", action: `执行 ${id}`, expected: `出现 ${id} 结果`, required: true })),
+    groups: ["G1", "G2", "G3", "G4", "G5"].map((id, index) => ({ id, title: `验收组 ${index + 1}`, behaviorIds: [`B0${index + 1}`] })),
+    replacements: [] };
   const coordinator = await runCoordinator({
     runId: randomUUID(), roleRunId: randomUUID(), sessionId: randomUUID(), attempt: 0, baseRevisionId: null,
     tokenBudget: budget, signal: new AbortController().signal,

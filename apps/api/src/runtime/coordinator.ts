@@ -9,7 +9,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import {
-  PlanSchema, PlanningContextSchema, ClarificationRequestSchema, preservesPreviousBehavior,
+  GroupedPlanSchema, PlanningContextSchema, ClarificationRequestSchema, preservesPreviousBehavior,
   type Plan, type PlanningContext,
 } from "@pivloom/contracts";
 import { createServiceModel } from "./pi.js";
@@ -41,14 +41,14 @@ export interface CoordinatorInput {
 }
 
 const names = ["project_summary", "submit_plan", "request_clarification"] as const;
-const planInput = z.strictObject({ plan: PlanSchema });
+const planInput = z.strictObject({ plan: GroupedPlanSchema });
 const questionInput = ClarificationRequestSchema;
 const providerSchemas = new Map<string, TSchema>([
   ["project_summary", z.toJSONSchema(z.strictObject({})) as TSchema],
   ["submit_plan", z.toJSONSchema(planInput) as TSchema],
   ["request_clarification", z.toJSONSchema(questionInput) as TSchema],
 ]);
-const schemaFields = new Set(["plan", "question", "schemaVersion", "goal", "changeSummary", "assumptions", "outOfScope", "behaviors", "id", "title", "precondition", "action", "expected", "required"]);
+const schemaFields = new Set(["plan", "question", "schemaVersion", "goal", "changeSummary", "assumptions", "outOfScope", "behaviors", "groups", "behaviorIds", "replacements", "oldBehaviorId", "newBehaviorId", "userRequestQuote", "reason", "id", "title", "precondition", "action", "expected", "required"]);
 function schemaIssues(issues: readonly { path: readonly PropertyKey[]; code: string }[]) {
   return issues.slice(0, 4).map((issue) => {
     const path = issue.path.slice(0, 5).map((part) => typeof part === "number" ? "[]" : typeof part === "string" && schemaFields.has(part) ? part : "[field]").join(".") || "input";
@@ -84,11 +84,11 @@ export function normalizePlanArguments(params: unknown): unknown {
   const candidate = record as Record<string, unknown>;
   const plan = parsedJson(candidate.plan);
   if (plan !== null && typeof plan === "object" && !Array.isArray(plan))
-    return { ...candidate, plan: { ...(plan as Record<string, unknown>), schemaVersion: 1 } };
+    return { ...candidate, plan: { ...(plan as Record<string, unknown>), schemaVersion: 2 } };
   // No usable `plan` key: the model flattened the plan into the tool arguments,
   // so the whole object is the plan (plus a service-owned schemaVersion).
   if (!("plan" in candidate) || candidate.plan === null || candidate.plan === undefined)
-    return { plan: { ...candidate, schemaVersion: 1 } };
+    return { plan: { ...candidate, schemaVersion: 2 } };
   return { ...candidate, plan };
 }
 
@@ -114,6 +114,8 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
   let decision: CoordinatorDecision | undefined;
   let requestNumber = 0, receivedStream = false, invalidDecisions = 0;
   const calls: CoordinatorMetadata["toolCalls"] = [];
+  const executedCalls = new Set<string>();
+  const callArguments = new Map<string, unknown>();
   const tokens = createRoleTokenTracker(input.tokenBudget);
   /** Provider detail is redacted and clipped before it reaches any log or API reply. */
   const safeDetail = (value: unknown) => String(value ?? "unknown")
@@ -144,10 +146,11 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
   };
   const publicId = (id: string) => /^[\w.:-]{1,128}$/.test(id) && !id.includes(input.modelConfig.apiKey)
     ? id : `tool-${createHash("sha256").update(id).digest("hex").slice(0, 32)}`;
-  const emit = (event: Omit<ProbeEvent, "id" | "at" | "roleRunId" | "sessionId">) => {
+  const emit = (event: Omit<ProbeEvent, "id" | "at" | "roleRunId" | "sessionId"> | Array<Omit<ProbeEvent, "id" | "at" | "roleRunId" | "sessionId">>, afterFatal = false) => {
     const operation = eventTail.then(async () => {
-      if (fatal) throw fatal;
-      try { await input.onEvent?.({ ...event, id: randomUUID(), at: new Date().toISOString(), roleRunId: input.roleRunId, sessionId: input.sessionId }); }
+      if (fatal && !afterFatal) throw fatal;
+      try { for (const item of Array.isArray(event) ? event : [event])
+        await input.onEvent?.({ ...item, id: randomUUID(), at: new Date().toISOString(), roleRunId: input.roleRunId, sessionId: input.sessionId }); }
       catch { throw fail(new RuntimeError("EVENT_APPEND_FAILED", "协调者事件保存失败，已停止执行")); }
     });
     eventTail = operation.catch(() => {});
@@ -169,9 +172,10 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
       noPromptTemplates: true, noThemes: true, noContextFiles: true,
       systemPrompt: [
         "You are the Coordinator for a frontend React application builder. You only have project_summary, submit_plan and request_clarification. You cannot read host files, execute commands, write source, create sandboxes, delegate roles or change service state.",
-        "Use the supplied project summary to preserve the original request and clarification answers. Produce 1–5 observable behavior targets with concrete preconditions, actions and expected results. For an existing revision preserve at least one previous behavior with the same id, precondition, action, expected and required fields.",
+        "Use the supplied project summary to preserve the original request and clarification answers. Submit schemaVersion 2 with exactly five stable groups G1–G5, each named for this app and containing at least one required atomic behavior. Every child behavior must belong to exactly one group; five groups do not mean only five requirements.",
+        "On an increment preserve EVERY previous required behavior's ID, precondition, action, expected result and required flag, in the same group. Keep all five group names and IDs stable. Carry all prior replacement records unchanged so retired IDs stay retired. Add new behaviors with new IDs. Never reuse an old ID for a changed meaning. Only when the user's current request explicitly changes an old behavior may you record a replacement: oldBehaviorId, newBehaviorId, a verbatim userRequestQuote expressing the change, and reason; keep the replacement in the old group. Do not silently omit a prior requirement.",
         "Reviewer starts in a fresh isolated browser and can navigate/reload the bound app, fill/select/click/press controls and inspect DOM/source. Write acceptance steps using those capabilities: verify initial empty state before adding records, and persistence by reloading. Do not require developer tools, manually clearing storage, editing DOM or backend access as test steps. Use the smallest dataset that distinguishes the requested behavior; do not invent extra business requirements.",
-        "Each behavior target must include a meaningful interaction from the requested workflow and an observed result. Combine static initial-state assertions with the first actual business flow, such as requested form validation, instead of a standalone open-and-look target. Preserve every explicit requirement, including the initial empty state; do not add arbitrary clicks or new functionality just to produce action evidence. The exact previous-behavior preservation rule above still applies.",
+        "Each behavior target must include a meaningful interaction from the requested workflow and an observed result. Combine static initial-state assertions with the first actual business flow, such as requested form validation, instead of a standalone open-and-look target. Preserve every explicit requirement, including the initial empty state; do not add arbitrary clicks or new functionality just to produce action evidence.",
         "Every explicitly requested observable behavior MUST have required: true. Use required: false only for unrequested refinements. Never downgrade explicitly requested persistence or saving results to an optional behavior.",
         "Use reasonable defaults for reversible choices such as colors and layout. Ask one concise, essential business question only when implementation would otherwise guess important meaning. Do not ask again about information already supplied.",
         "Ask ONLY ONE essential question that blocks the core behavior. Use a single line of at most 300 characters with at most one question mark, only at the end. No checklist, numbered list, compound questions, or options about optional history, export, rounding or layout. Use reasonable defaults for such secondary details. Never assume a missing business formula: ask only for that formula when it is the blocker.",
@@ -183,14 +187,13 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
     const tools: ToolDefinition[] = names.map((name) => ({
       name, label: name, executionMode: "sequential",
       description: name === "project_summary" ? "Read the service-supplied project request, clarification history and previous plan."
-        : name === "submit_plan" ? "Submit one plan with 1–5 observable behaviors for service validation; preserve at least one previous behavior when modifying an existing revision."
+        : name === "submit_plan" ? "Submit one schemaVersion 2 plan with five groups and every atomic behavior; preserve every previous required ID and meaning, or record an explicit user-requested replacement."
           : "Submit {question: string}: exactly ONE essential blocking question, one line, at most 300 characters. No checklist or questions about optional features; at most one question mark at the end.",
-      // This local execution boundary stays permissive so every invalid decision
-      // reaches our guarded Zod validation and one-correction budget. The model
-      // receives the full canonical schema via its transcript declarations below.
-      parameters: { type: "object", properties: {}, additionalProperties: true } as TSchema,
-      prepareArguments: (params) => params !== null && typeof params === "object" && !Array.isArray(params) ? params : { invalidInput: true },
+      parameters: providerSchemas.get(name)!,
+      prepareArguments: (params) => name === "submit_plan" ? normalizePlanArguments(params)
+        : params !== null && typeof params === "object" && !Array.isArray(params) ? params : { invalidInput: true },
       execute: async (id, params) => {
+        executedCalls.add(publicId(id));
         if (decision) throw new RuntimeError("HANDOFF_ALREADY_SUBMITTED", "本轮已接收一个方案，不能重复提交或继续调用工具");
         await active();
         await emit({ type: "tool.start", toolName: name, toolCallId: publicId(id), message: `协调者执行 ${name}` });
@@ -210,12 +213,9 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
             const parsed = name === "submit_plan" ? planInput.safeParse(normalized) : questionInput.safeParse(params);
             if (!parsed.success) throw await reject(schemaIssues(parsed.error.issues));
             if (JSON.stringify(parsed.data).includes(input.modelConfig.apiKey)) throw await reject("input:protected_value");
-            if ("plan" in parsed.data && !preservesPreviousBehavior(parsed.data.plan, context.data.previousPlan)) {
-              // A bare code makes the model guess what to change and burn its one
-              // correction turn. The previous behavior is quoted verbatim so it
-              // can be copied, and a genuine reword is still refused.
-              const required = context.data.previousPlan?.behaviors.find((behavior) => behavior.required) ?? context.data.previousPlan?.behaviors[0];
-              throw await reject(`plan.behaviors:previous_behavior_required——必须原样保留其中一个已有行为（字段逐字相同，只允许空白与句末标点不同）：${JSON.stringify(required ?? null)}`);
+            if ("plan" in parsed.data && !preservesPreviousBehavior(parsed.data.plan, context.data.previousPlan, context.data.requestText)) {
+              const requiredIds = context.data.previousPlan?.behaviors.filter((behavior) => behavior.required).map((behavior) => behavior.id) ?? [];
+              throw await reject(`plan.behaviors:previous_behavior_required——必须保留全部旧必需 ID 与可观察语义，或引用用户本轮明确变更作新 ID 替代。旧必需 ID：${requiredIds.join(",").slice(0, 180)}`);
             }
             decision = "plan" in parsed.data ? { kind: "plan", plan: parsed.data.plan } : { kind: "clarification", question: parsed.data.question };
             result = toolResult("方案已接收，等待服务端确认；尚未持久化或交接。");
@@ -237,18 +237,8 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
     session.agent.streamFunction = (selected, messageContext, options) => {
       checkSignal(); requestNumber++; receivedStream = false;
       const maxTokens = Math.min(input.modelConfig.maxTokens ?? 4096, 4096);
-      // Pi uses the same parameters for local argument validation and provider
-      // declarations. Separate the outbound declaration without changing its
-      // local tools, so SDK rejection cannot bypass the domain correction budget.
-      const providerContext = { ...messageContext, messages: messageContext.messages.map((message) => {
-        if (message.role !== "system" || !message.toolsAdded) return message;
-        return { ...message, toolsAdded: message.toolsAdded.map((tool) => {
-          const parameters = providerSchemas.get(tool.name);
-          return parameters ? { ...tool, parameters } : tool;
-        }) };
-      }) };
       try {
-        return tokens.stream(maxTokens, input.modelConfig.fetch, (modelFetch) => runtime.streamSimple(selected, providerContext, { ...options, fetch: modelFetch, transport: "sse",
+        return tokens.stream(maxTokens, input.modelConfig.fetch, (modelFetch) => runtime.streamSimple(selected, messageContext, { ...options, fetch: modelFetch, transport: "sse",
           timeoutMs: Math.max(1, Math.min(MODEL_REQUEST_TIMEOUT_MS, expiresAt - Date.now())), maxRetries: 0, maxTokens }));
       } catch (error) {
         if (error instanceof RuntimeError) throw fail(error);
@@ -261,9 +251,29 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
         if (calls.length >= maxToolCalls) { fail(new RuntimeError("TOOL_BUDGET_EXCEEDED", "协调者工具调用预算耗尽")); return; }
         const name = [...names, "read", "write", "edit", "bash"].includes(event.toolName) ? event.toolName : "unauthorized_tool";
         calls.push({ id: publicId(event.toolCallId), name, success: false });
+        callArguments.set(publicId(event.toolCallId), event.args);
       } else if (event.type === "tool_execution_end") {
         const call = [...calls].reverse().find((item) => item.id === publicId(event.toolCallId));
         if (call) call.success = !event.isError;
+        // Pi validates the single ToolDefinition before execute. Count those
+        // immediate errors in the same one-correction budget as domain errors;
+        // otherwise a model can submit malformed calls indefinitely.
+        const callId = publicId(event.toolCallId);
+        if (event.isError && call && !executedCalls.has(callId) && names.includes(call.name as typeof names[number])) {
+          const argument = callArguments.get(callId);
+          const parsed = call.name === "submit_plan" ? planInput.safeParse(normalizePlanArguments(argument))
+            : call.name === "request_clarification" ? questionInput.safeParse(argument)
+              : z.strictObject({}).safeParse(argument);
+          const reason = parsed.success ? "input:invalid_arguments" : schemaIssues(parsed.error.issues);
+          void emit([
+            { type: "tool.start", toolName: call.name, toolCallId: callId, message: `协调者执行 ${call.name}` },
+            { type: "tool.output", toolName: call.name, toolCallId: callId,
+              message: `参数校验未通过（第 ${invalidDecisions + 1} 次）：${reason}` },
+          ], true).catch(() => {});
+          invalid(reason);
+        }
+        executedCalls.delete(callId);
+        callArguments.delete(callId);
       } else if (event.type === "message_update" && "delta" in event.assistantMessageEvent && typeof event.assistantMessageEvent.delta === "string" && event.assistantMessageEvent.delta && !receivedStream) {
         receivedStream = true;
         void emit({ type: "model.stream.started", requestNumber, message: "协调者已收到实际模型响应" }).catch(() => {});

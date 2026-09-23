@@ -2,8 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient, QueryResultRow } from "pg";
 import {
   CreateRunRequestSchema, ProjectMessageSchema, ProjectSummarySchema, RevisionSchema, RunEventSchema, RunSchema,
-  HandoffSchema, PlanSchema, PlanningContextSchema, RoleRunSchema, RoleUsageSchema, ClarificationRequestSchema, preservesPreviousBehavior,
-  ReviewBindingSchema, CheckSchema, ReviewArtifactSchema, ReviewResultSchema, type ReviewBinding, type Check,
+  HandoffSchema, PlanSchema, GroupedPlanSchema, PlanningContextSchema, RoleRunSchema, RoleUsageSchema, ClarificationRequestSchema, preservesPreviousBehavior,
+  ReviewBindingSchema, CheckSchema, ReviewArtifactSchema, ReviewResultSchema, aggregateCheckGroups, type ReviewBinding, type Check,
   TerminalRunStates, type CreateRunRequest, type ProjectMessage, type ProjectSummary, type Revision,
   type Run, type RunEvent, type RunEventType, type RunPhase, type RunState, type RoleRun, type RoleUsage, type Role, type Plan, type PlanningContext, type Handoff,
 } from "@pivloom/contracts";
@@ -202,6 +202,7 @@ function storedCheck(row: Row): Check {
   return CheckSchema.parse({ id: row.id, runId: row.run_id, roleRunId: row.role_run_id, attempt: row.attempt,
     revisionId: row.revision_id, sourceHash: row.source_hash, sandboxId: row.sandbox_id, browserSessionId: row.browser_session_id,
     verdict: row.verdict, items: row.items_json, summary: row.summary,
+    groups: row.group_results_json ?? undefined,
     artifacts: z.array(storedArtifactSchema).parse(row.artifacts_json).map(({ id, mimeType, sha256 }) => ({ id, mimeType, sha256 })),
     createdAt: date(row.created_at).toISOString() });
 }
@@ -453,14 +454,14 @@ export function createGenerationRepository(
       assertRole(current, current.role_json, input);
     }),
     submitPlan: async (ownerId, runId, input) => {
-      const parsed = PlanSchema.safeParse(input.plan);
+      const parsed = GroupedPlanSchema.safeParse(input.plan);
       if (!parsed.success) throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "协调计划格式无效，请重新整理目标。");
       return owned(ownerId, async (client) => {
         const { current } = await lockedRun(client, ownerId, runId);
         const coordinator = await activeRole(client, current, { ...input, role: "coordinator" });
         const context = planningContext(current);
-        if (!preservesPreviousBehavior(parsed.data, context.previousPlan)) {
-          throw new ApiFailure(422, "PLAN_PREVIOUS_BEHAVIOR_REQUIRED", "修改计划至少保留一个原有行为及其可观察结果。");
+        if (!preservesPreviousBehavior(parsed.data, context.previousPlan, context.requestText)) {
+          throw new ApiFailure(422, "PLAN_PREVIOUS_BEHAVIOR_REQUIRED", "修改计划必须保留全部旧必需行为及原有可观察结果；明确替代须记录用户本轮变更与新 ID。");
         }
         const base = current.base_revision_id ? await revision(client, ownerId, current.base_revision_id) : null;
         const task = ["原始需求：", context.originalRequest,
@@ -703,16 +704,23 @@ export function createGenerationRepository(
             throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "检查结果缺少相同目标的实际动作及后续观察。");
           }
         }
-        const verdict = !receipt.markerVerified || result.items.some((item) => item.verdict === "blocked") ? "blocked"
-          : result.items.some((item) => item.verdict === "failed") ? "failed" : "passed";
+        let groups: ReturnType<typeof aggregateCheckGroups> | undefined;
+        if (plan.schemaVersion === 2) {
+          try { groups = aggregateCheckGroups(plan, result.items); }
+          catch { throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "检查结果未覆盖五组全部子检查及原始证据。"); }
+        }
+        const verdict = !receipt.markerVerified || groups?.some((group) => group.verdict === "blocked")
+          || result.items.some((item) => item.verdict === "blocked") ? "blocked"
+          : groups?.some((group) => group.verdict === "failed") || result.items.some((item) => item.verdict === "failed") ? "failed" : "passed";
         const repairNextAttempt = verdict === "failed" && current.attempt < 2 ? current.attempt + 1 : null;
         if (verdict === "passed" && plan.behaviors.some((behavior) => behavior.required && !result.items.some((item) => item.behaviorId === behavior.id && item.verdict === "passed"))) {
           throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "仍有必需行为未完成检查。");
         }
-        const check = (await client.query(`INSERT INTO nano.checks(id,owner_id,project_id,run_id,role_run_id,attempt,revision_id,source_hash,sandbox_id,browser_session_id,verdict,items_json,artifacts_json,evidence_json,summary)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+        const check = (await client.query(`INSERT INTO nano.checks(id,owner_id,project_id,run_id,role_run_id,attempt,revision_id,source_hash,sandbox_id,browser_session_id,verdict,items_json,artifacts_json,evidence_json,summary,group_results_json)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
         [randomUUID(), ownerId, current.project_id, runId, role.id, binding.attempt, saved.id, binding.sourceHash, binding.sandboxId,
-          binding.browserSessionId, verdict, JSON.stringify(result.items), JSON.stringify(artifacts), JSON.stringify(evidence), result.summary])).rows[0];
+          binding.browserSessionId, verdict, JSON.stringify(result.items), JSON.stringify(artifacts), JSON.stringify(evidence), result.summary,
+          groups ? JSON.stringify(groups) : null])).rows[0];
         const publicCheck = storedCheck(check);
         await client.query("UPDATE nano.role_runs SET state=$3,finished_at=now(),output_json=$4,usage_json=$5 WHERE owner_id=$1 AND id=$2",
           [ownerId, role.id, verdict === "blocked" ? "failed" : "succeeded", result, roleUsage(input.usage)]);
@@ -731,7 +739,8 @@ export function createGenerationRepository(
           await client.query("UPDATE nano.projects SET operation_kind=NULL,operation_id=NULL,operation_started_at=NULL,updated_at=now() WHERE owner_id=$1 AND id=$2 AND operation_id=$3", [ownerId, current.project_id, runId]);
         }
         await event(client, changed, { type: "role.completed", roleRunId: role.id, payload: { role: "reviewer", state: verdict === "blocked" ? "failed" : "succeeded", summary: result.summary } });
-        await event(client, changed, { type: "check.completed", roleRunId: role.id, payload: { checkId: check.id, revisionId: saved.id, sourceHash: saved.source_hash, verdict, summary: result.summary } });
+        await event(client, changed, { type: "check.completed", roleRunId: role.id, payload: { checkId: check.id, revisionId: saved.id, sourceHash: saved.source_hash, verdict, summary: result.summary,
+          ...(groups ? { passedGroups: groups.filter((group) => group.verdict === "passed").length, totalGroups: 5 } : {}) } });
         if (!repairNextAttempt) {
           await event(client, changed, { type: "run.finished", payload: { state, revisionId: saved.id, checkId: check.id } });
         }

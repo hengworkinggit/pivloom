@@ -114,7 +114,7 @@ it("shows persisted coordinator goals, observable behaviors and actual roles wit
   expect(view.container.querySelector('[aria-label="已保存目标"]')?.textContent).toContain(plan.goal);
   const behaviors = view.container.querySelector<HTMLDetailsElement>(".generation-plan-behaviors");
   expect(behaviors?.open).toBe(false);
-  expect(behaviors?.querySelector("summary")?.textContent).toContain("2 个行为目标");
+  expect(behaviors?.querySelector("summary")?.textContent).toContain("历史平铺目标 · 2 项");
   await act(async () => behaviors?.querySelector("summary")?.click());
   expect(behaviors?.open).toBe(true);
   expect(behaviors?.textContent).toContain("输入中文姓名并提交");

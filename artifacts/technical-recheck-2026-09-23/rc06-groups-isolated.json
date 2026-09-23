@@ -1,0 +1,203 @@
+{
+  "environmentId": "pivloom-dev-e6d33625ef2b",
+  "at": "2026-09-23T20:32:13.806Z",
+  "fixture": "isolated PostgreSQL + private Storage; model/build/browser/sandbox responses were explicit fixtures",
+  "projectId": "6401752e-552f-4c00-9339-c2a253d756e7",
+  "runId": "c1156e6b-5265-4030-bd07-f48f59e901e2",
+  "revisionId": "71d52fc0-9081-402a-b8fd-24fdbb415efe",
+  "sourceHash": "911639879e07d1f310cfded107dbde3985a315317854c66bc4c5296785c69654",
+  "modelCalls": 0,
+  "realSandboxCreated": false,
+  "currentRevisionId": null,
+  "check": {
+    "runId": "c1156e6b-5265-4030-bd07-f48f59e901e2",
+    "roleRunId": "5705b6b8-a361-4c84-b608-722de1e8380c",
+    "attempt": 0,
+    "revisionId": "71d52fc0-9081-402a-b8fd-24fdbb415efe",
+    "sourceHash": "911639879e07d1f310cfded107dbde3985a315317854c66bc4c5296785c69654",
+    "sandboxId": "rc06-fixture-15d4cee9-94e0-4c9a-be2b-524f958e254a",
+    "browserSessionId": "pivloom-14515409-dd6b-4cf1-a7a0-dad71b4fb510",
+    "id": "6c22b7c5-350b-4a7f-8be0-b47723edbc7b",
+    "verdict": "blocked",
+    "items": [
+      {
+        "behaviorId": "B01",
+        "verdict": "blocked",
+        "expected": "观察 B01",
+        "actual": "候选源码或预览版本不一致，未接受检查结果。",
+        "observationEventIds": [],
+        "screenshotIds": [],
+        "reproSteps": []
+      },
+      {
+        "behaviorId": "B02",
+        "verdict": "blocked",
+        "expected": "观察 B02",
+        "actual": "候选源码或预览版本不一致，未接受检查结果。",
+        "observationEventIds": [],
+        "screenshotIds": [],
+        "reproSteps": []
+      },
+      {
+        "behaviorId": "B03",
+        "verdict": "blocked",
+        "expected": "观察 B03",
+        "actual": "候选源码或预览版本不一致，未接受检查结果。",
+        "observationEventIds": [],
+        "screenshotIds": [],
+        "reproSteps": []
+      },
+      {
+        "behaviorId": "B04",
+        "verdict": "blocked",
+        "expected": "观察 B04",
+        "actual": "候选源码或预览版本不一致，未接受检查结果。",
+        "observationEventIds": [],
+        "screenshotIds": [],
+        "reproSteps": []
+      },
+      {
+        "behaviorId": "B05",
+        "verdict": "blocked",
+        "expected": "观察 B05",
+        "actual": "候选源码或预览版本不一致，未接受检查结果。",
+        "observationEventIds": [],
+        "screenshotIds": [],
+        "reproSteps": []
+      }
+    ],
+    "summary": "候选源码或预览版本不一致，未接受检查结果。",
+    "artifacts": [],
+    "createdAt": "2026-09-23T20:31:59.214Z",
+    "groups": [
+      {
+        "id": "G1",
+        "title": "验收组 1",
+        "behaviorIds": [
+          "B01"
+        ],
+        "verdict": "blocked",
+        "requiredCount": 1,
+        "passedCount": 0,
+        "failedCount": 0,
+        "blockedCount": 1
+      },
+      {
+        "id": "G2",
+        "title": "验收组 2",
+        "behaviorIds": [
+          "B02"
+        ],
+        "verdict": "blocked",
+        "requiredCount": 1,
+        "passedCount": 0,
+        "failedCount": 0,
+        "blockedCount": 1
+      },
+      {
+        "id": "G3",
+        "title": "验收组 3",
+        "behaviorIds": [
+          "B03"
+        ],
+        "verdict": "blocked",
+        "requiredCount": 1,
+        "passedCount": 0,
+        "failedCount": 0,
+        "blockedCount": 1
+      },
+      {
+        "id": "G4",
+        "title": "验收组 4",
+        "behaviorIds": [
+          "B04"
+        ],
+        "verdict": "blocked",
+        "requiredCount": 1,
+        "passedCount": 0,
+        "failedCount": 0,
+        "blockedCount": 1
+      },
+      {
+        "id": "G5",
+        "title": "验收组 5",
+        "behaviorIds": [
+          "B05"
+        ],
+        "verdict": "blocked",
+        "requiredCount": 1,
+        "passedCount": 0,
+        "failedCount": 0,
+        "blockedCount": 1
+      }
+    ]
+  },
+  "databaseGroups": [
+    {
+      "id": "G1",
+      "title": "验收组 1",
+      "verdict": "blocked",
+      "behaviorIds": [
+        "B01"
+      ],
+      "failedCount": 0,
+      "passedCount": 0,
+      "blockedCount": 1,
+      "requiredCount": 1
+    },
+    {
+      "id": "G2",
+      "title": "验收组 2",
+      "verdict": "blocked",
+      "behaviorIds": [
+        "B02"
+      ],
+      "failedCount": 0,
+      "passedCount": 0,
+      "blockedCount": 1,
+      "requiredCount": 1
+    },
+    {
+      "id": "G3",
+      "title": "验收组 3",
+      "verdict": "blocked",
+      "behaviorIds": [
+        "B03"
+      ],
+      "failedCount": 0,
+      "passedCount": 0,
+      "blockedCount": 1,
+      "requiredCount": 1
+    },
+    {
+      "id": "G4",
+      "title": "验收组 4",
+      "verdict": "blocked",
+      "behaviorIds": [
+        "B04"
+      ],
+      "failedCount": 0,
+      "passedCount": 0,
+      "blockedCount": 1,
+      "requiredCount": 1
+    },
+    {
+      "id": "G5",
+      "title": "验收组 5",
+      "verdict": "blocked",
+      "behaviorIds": [
+        "B05"
+      ],
+      "failedCount": 0,
+      "passedCount": 0,
+      "blockedCount": 1,
+      "requiredCount": 1
+    }
+  ],
+  "cleanup": {
+    "projects": 0,
+    "runs": 0,
+    "leases": 0,
+    "sourceObjects": 0
+  }
+}

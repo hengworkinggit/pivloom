@@ -2946,6 +2946,19 @@ svg {
 .publication-bar span { flex: 1 1 210px; color: var(--muted-foreground); }
 .publication-bar a { color: var(--primary); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 
+/* Five complete acceptance groups; historical flat records keep their own label. */
+.generation-plan-group { margin-top: 11px; padding-top: 8px; border-top: 1px solid var(--line); }
+.generation-plan-group h4,.generation-plan-replacements h4 { margin: 0; font-size: 11px; color: var(--foreground); }
+.generation-plan-group h4 span { margin-left: 7px; color: var(--muted); font-weight: 400; }
+.generation-plan-group ol { margin-top: 5px; }
+.generation-plan-replacements { margin-top: 12px; padding: 8px; border-radius: 7px; background: var(--subtle); }
+.generation-plan-replacements ul { margin: 6px 0 0; padding-left: 17px; }
+.generation-review-group { margin-top: 9px; padding: 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+.generation-review-group h4 { display: flex; gap: 7px; align-items: center; margin: 0; color: var(--foreground); font-size: 11px; }
+.generation-review-group h4 .review-verdict { margin-left: auto; }
+.generation-review-group > p { margin: 3px 0 7px; color: var(--muted); }
+.generation-review-group .generation-review-item { padding: 8px 0; border-top: 1px solid var(--line); }
+
 .version-history { flex: none; max-height: min(42vh, 420px); overflow: auto; padding: 9px 14px; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--foreground); font-size: 11px; }
 .version-history-picker { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .version-history-picker label,.version-history-current { color: var(--muted); white-space: nowrap; }

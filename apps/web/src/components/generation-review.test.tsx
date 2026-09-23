@@ -24,7 +24,7 @@ const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAA
 
 // Real workbench, Supabase client and API adapters; only external HTTP, routing
 // and browser object URLs are fixtures. These tests are not browser/model E2E.
-async function openWorkbench(options: { verdict?: Check["verdict"]; unchecked?: boolean; mismatch?: boolean; screenshotDenied?: boolean; finalScreenshot?: boolean; reviewing?: boolean; previousCurrent?: boolean; attempt?: number } = {}) {
+async function openWorkbench(options: { verdict?: Check["verdict"]; unchecked?: boolean; mismatch?: boolean; screenshotDenied?: boolean; finalScreenshot?: boolean; reviewing?: boolean; previousCurrent?: boolean; attempt?: number; grouped?: boolean } = {}) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("crypto", webcrypto);
   const created = vi.fn(() => "blob:review-fixture"), revoked = vi.fn();
@@ -50,6 +50,20 @@ async function openWorkbench(options: { verdict?: Check["verdict"]; unchecked?: 
     summary: verdict === "passed" ? "报名提交符合已保存的行为目标。" : verdict === "failed" ? "报名提交尚未达到预期。" : "页面无法访问，暂不能判断行为。",
     artifacts: [{ id: artifactId, mimeType: "image/png", sha256: "101070e7bd1de3933a1fee8c8ecc791c7a58eacbae4d9d41ab8e1d7e17cd4326" }], createdAt: now,
   };
+  if (options.grouped && check) {
+    check.items = ["B01", "B02", "B03", "B04", "B05", "B06"].map((behaviorId) => ({
+      behaviorId, verdict: behaviorId === "B04" ? "failed" : "passed",
+      expected: `完成 ${behaviorId}`, actual: behaviorId === "B04" ? "实际失败" : `实际完成 ${behaviorId}`,
+      observationEventIds: ["17a2b292-e2a0-4296-a841-f6a2d036e94a"], screenshotIds: [], reproSteps: ["打开并操作页面"],
+    }));
+    check.groups = [
+      { id: "G1", title: "数值运算", behaviorIds: ["B01", "B02"], verdict: "passed", requiredCount: 2, passedCount: 2, failedCount: 0, blockedCount: 0 },
+      { id: "G2", title: "输入键盘", behaviorIds: ["B03"], verdict: "passed", requiredCount: 1, passedCount: 1, failedCount: 0, blockedCount: 0 },
+      { id: "G3", title: "错误恢复", behaviorIds: ["B04"], verdict: "failed", requiredCount: 1, passedCount: 0, failedCount: 1, blockedCount: 0 },
+      { id: "G4", title: "结果历史", behaviorIds: ["B05"], verdict: "passed", requiredCount: 1, passedCount: 1, failedCount: 0, blockedCount: 0 },
+      { id: "G5", title: "视觉布局", behaviorIds: ["B06"], verdict: "passed", requiredCount: 1, passedCount: 1, failedCount: 0, blockedCount: 0 },
+    ];
+  }
   const run: Run = { id: runId, projectId, state: options.reviewing ? "verifying" : verdict === "passed" && !options.unchecked ? "completed" : verdict === "failed" ? "needs_changes" : "failed", phase: "review", attempt: options.attempt ?? 0, requestText: "创建报名页", modelProfileId: "438088cb-5fd0-4704-ad57-3b64ed47c55f", modelConfigVersion: 1, modelId: null, baseRevisionId: null, resultRevisionId: revisionId, createdAt: now, deadlineAt: now, finishedAt: options.reviewing ? null : now, cleanupState: "clear", error: options.unchecked || verdict === "blocked" ? { code: "CHECK_BLOCKED", message: "检查尚未完成", retryable: false } : null, summary: "已保存结果" };
   const preview = { state: "expired", revisionId, sourceHash: revision.sourceHash, url: null, expiresAt: now, error: null };
   const project = { project: { id: projectId, title: "报名页", createdAt: now, updatedAt: now, currentRevisionId: currentRevision?.id ?? null }, messages: [], currentRevision, latestCandidate: revision.status !== "accepted" ? revision : null, activeRun: options.reviewing ? run : null, latestRun: run, latestCheck: options.reviewing ? null : check, preview };
@@ -132,6 +146,25 @@ it("does not label an unchecked candidate as a passed check", async () => {
   expect(view.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain("尚未检查");
   expect(view.container.textContent).not.toContain("关键流程检查通过");
   expect(view.container.querySelector('[aria-label="版本检查结果"] details')).toBeNull();
+});
+
+it("shows all five server-derived groups and their six actual child results without turning one failure into 5/5", async () => {
+  const view = await openWorkbench({ verdict: "failed", grouped: true });
+  const card = view.container.querySelector<HTMLElement>('[aria-label="版本检查结果"]')!;
+  expect(card.textContent).toContain("4/5 组通过");
+  expect(card.textContent).toContain("6 项完整子检查");
+  for (const name of ["数值运算", "输入键盘", "错误恢复", "结果历史", "视觉布局"])
+    expect(card.textContent).toContain(name);
+  for (const id of ["B01", "B02", "B03", "B04", "B05", "B06"])
+    expect(card.querySelector(`[aria-label="行为 ${id}"]`)).toBeTruthy();
+  expect(card.querySelector('[aria-label="G3 错误恢复"]')?.textContent).toContain("未通过");
+});
+
+it("keeps an old flat Check labeled with its original count rather than inferring five groups", async () => {
+  const legacy = await openWorkbench();
+  expect(legacy.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain("历史平铺");
+  expect(legacy.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain("1/1");
+  expect(legacy.container.querySelector('[aria-label="版本检查结果"]')?.textContent).not.toContain("5/5");
 });
 
 it("labels a rejected candidate separately while the earlier accepted revision remains current", async () => {
