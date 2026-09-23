@@ -1,0 +1,79 @@
+{
+  "environment": "isolated pivloom_e2e_test_20260923; real Pi/PostgreSQL/OpenSandbox/browser; Provider HTTP fixture",
+  "projectId": "e1f19e78-39b4-4aa2-b863-1ae37fd1cc10",
+  "currentRevisionId": "6eeb7e9f-12fa-4934-9059-111c209c0784",
+  "runs": [
+    {
+      "id": "9eba0baa-4cad-4123-9672-1eb5cffad38d",
+      "state": "failed",
+      "kind": "generate",
+      "retry_of": null,
+      "cleanup_state": "confirmed",
+      "error_code": "MODEL_FAILED",
+      "result_revision_id": null
+    },
+    {
+      "id": "7f9df52b-3208-4533-ad9a-ca974a949a3c",
+      "state": "completed",
+      "kind": "retry",
+      "retry_of": "9eba0baa-4cad-4123-9672-1eb5cffad38d",
+      "cleanup_state": "clear",
+      "error_code": null,
+      "result_revision_id": "6eeb7e9f-12fa-4934-9059-111c209c0784"
+    }
+  ],
+  "revisions": [
+    {
+      "id": "6eeb7e9f-12fa-4934-9059-111c209c0784",
+      "source_hash": "3ba0ac647d8f2ea566c786e03dfcc0d51458921c05e50696c022f9d7e09b5e9c",
+      "build_status": "passed",
+      "status": "accepted"
+    }
+  ],
+  "checks": [
+    {
+      "revision_id": "6eeb7e9f-12fa-4934-9059-111c209c0784",
+      "verdict": "passed",
+      "items": 1
+    }
+  ],
+  "roles": [
+    {
+      "run_id": "9eba0baa-4cad-4123-9672-1eb5cffad38d",
+      "role": "coordinator",
+      "model_calls": 1
+    },
+    {
+      "run_id": "7f9df52b-3208-4533-ad9a-ca974a949a3c",
+      "role": "coordinator",
+      "model_calls": 1
+    },
+    {
+      "run_id": "7f9df52b-3208-4533-ad9a-ca974a949a3c",
+      "role": "builder",
+      "model_calls": 2
+    },
+    {
+      "run_id": "7f9df52b-3208-4533-ad9a-ca974a949a3c",
+      "role": "reviewer",
+      "model_calls": 3
+    }
+  ],
+  "events": [
+    {
+      "run_id": "7f9df52b-3208-4533-ad9a-ca974a949a3c",
+      "count": 31,
+      "unique_ids": 31,
+      "first": "1236",
+      "last": "1266"
+    },
+    {
+      "run_id": "9eba0baa-4cad-4123-9672-1eb5cffad38d",
+      "count": 4,
+      "unique_ids": 4,
+      "first": "1232",
+      "last": "1235"
+    }
+  ],
+  "sse": "one browser route abort followed by unroute; same retry Run completed; no new Run; see rc03-e20-network.txt"
+}

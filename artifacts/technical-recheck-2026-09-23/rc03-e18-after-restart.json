@@ -1,0 +1,25 @@
+{
+  "projectId": "e1f19e78-39b4-4aa2-b863-1ae37fd1cc10",
+  "project": {
+    "current_revision_id": "6eeb7e9f-12fa-4934-9059-111c209c0784",
+    "operation_id": null
+  },
+  "run": {
+    "id": "7ab4685f-1fc8-4fad-8d1f-7ac160118e7f",
+    "state": "interrupted",
+    "phase": "cleanup",
+    "executor_boot_id": "c9a2afc8-7a8e-4937-a8bf-1ae66d74f8b7",
+    "cleanup_state": "confirmed",
+    "error_code": "SERVICE_RESTARTED",
+    "error_message": "服务重启中断了本次执行，已保存的内容保留，可以重新提交。",
+    "base_revision_id": "6eeb7e9f-12fa-4934-9059-111c209c0784"
+  },
+  "sandboxes": [
+    {
+      "remote_id": "22e5244b-cb0f-4f6c-87b8-55d9d5eb3557",
+      "state": "destroyed",
+      "purpose": "candidate"
+    }
+  ],
+  "oldRevisionUnchanged": true
+}

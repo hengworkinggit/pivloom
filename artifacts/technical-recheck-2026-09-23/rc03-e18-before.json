@@ -1,0 +1,33 @@
+{
+  "projectId": "e1f19e78-39b4-4aa2-b863-1ae37fd1cc10",
+  "project": {
+    "current_revision_id": "6eeb7e9f-12fa-4934-9059-111c209c0784",
+    "operation_id": "7ab4685f-1fc8-4fad-8d1f-7ac160118e7f"
+  },
+  "run": {
+    "id": "7ab4685f-1fc8-4fad-8d1f-7ac160118e7f",
+    "state": "building",
+    "phase": "implement",
+    "executor_boot_id": "c9a2afc8-7a8e-4937-a8bf-1ae66d74f8b7",
+    "base_revision_id": "6eeb7e9f-12fa-4934-9059-111c209c0784"
+  },
+  "oldRevision": {
+    "id": "6eeb7e9f-12fa-4934-9059-111c209c0784",
+    "source_hash": "3ba0ac647d8f2ea566c786e03dfcc0d51458921c05e50696c022f9d7e09b5e9c",
+    "status": "accepted"
+  },
+  "sandboxes": [
+    {
+      "remote_id": "75e34e1f-a37c-47ab-aa06-f3434801d9e3",
+      "state": "active",
+      "purpose": "preview",
+      "run_id": "7f9df52b-3208-4533-ad9a-ca974a949a3c"
+    },
+    {
+      "remote_id": "22e5244b-cb0f-4f6c-87b8-55d9d5eb3557",
+      "state": "active",
+      "purpose": "candidate",
+      "run_id": "7ab4685f-1fc8-4fad-8d1f-7ac160118e7f"
+    }
+  ]
+}

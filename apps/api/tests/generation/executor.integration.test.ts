@@ -75,8 +75,8 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     await database?.close(); await admin?.end();
   }, 30_000);
 
-  async function fixture(mode: "normal" | "build-once" | "tool-budget" | "cleanup-fails" | "restore-cleanup-fails" | "restore-build-fails" | "cancel-builder" | "cancel-builder-cleanup-fails",
-    options: { failCancelledWrites?: number; failRestoreWrites?: number; settlementRetryMs?: number; cleanupSweepMs?: number } = {}) {
+  async function fixture(mode: "normal" | "build-once" | "tool-budget" | "cleanup-fails" | "restore-cleanup-fails" | "restore-build-fails" | "cancel-builder" | "cancel-builder-cleanup-fails" | "model-fails",
+    options: { failCancelledWrites?: number; failFailedWrites?: number; failRestoreWrites?: number; settlementRetryMs?: number; cleanupSweepMs?: number } = {}) {
     const remotes = new Map<string, { files: Map<string, Buffer>; live: boolean; actions: number; url: string; index: number }>();
     let builderSessions = 0;
     let signalBuilderStarted = () => {};
@@ -146,7 +146,11 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
         connections.set(id, connection); return connection;
       },
     };
+    let providerRequests = 0;
     const modelFetch: typeof fetch = async (_url, init) => {
+      providerRequests++;
+      if (mode === "model-fails") return new Response(JSON.stringify({ error: { message: "Fixture invalid credential", type: "invalid_api_key" } }),
+        { status: 401, headers: { "content-type": "application/json" } });
       const request = JSON.parse(String(init?.body));
       const tools: string[] = request.tools.map((tool: { function: { name: string } }) => tool.function.name);
       const messages: Array<{ role: string; content: string; tool_calls?: Array<{ function: { name: string } }> }> = request.messages;
@@ -189,15 +193,22 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       const chunk = { id: randomUUID(), object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta, finish_reason: null }] };
       return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({ ...chunk, choices: [{ index: 0, delta: {}, finish_reason: calls.length ? "tool_calls" : "stop" }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } })}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
     };
-    const previews = createPreviewGateway({ publicOrigin: "http://localhost:45311", appOrigin: "http://localhost:45231", sandboxOrigin: origin });
+    const previews = createPreviewGateway({ publicOrigin: "http://localhost:45311", appOrigin: "http://localhost:45231", sandboxOrigin: origin,
+      isSessionActive: async () => true });
     let cancelledWrites = 0;
+    let failedWrites = 0;
     let restoreWrites = 0;
-    const executionRepository = options.failCancelledWrites || options.failRestoreWrites ? {
+    const executionRepository = options.failCancelledWrites || options.failFailedWrites || options.failRestoreWrites ? {
       ...repository,
       async finishCancelled(...args: Parameters<typeof repository.finishCancelled>) {
         cancelledWrites++;
         if (cancelledWrites <= (options.failCancelledWrites ?? 0)) throw new Error("Synthetic terminal transaction outage");
         return repository.finishCancelled(...args);
+      },
+      async finishFailed(...args: Parameters<typeof repository.finishFailed>) {
+        failedWrites++;
+        if (failedWrites <= (options.failFailedWrites ?? 0)) throw new Error("Synthetic failure transaction outage");
+        return repository.finishFailed(...args);
       },
       async failRestore(...args: Parameters<typeof repository.failRestore>) {
         restoreWrites++;
@@ -212,7 +223,8 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
         ...(options.settlementRetryMs ? { settlementRetryMs: options.settlementRetryMs } : {}),
         ...(options.cleanupSweepMs ? { cleanupSweepMs: options.cleanupSweepMs } : {}) });
     closers.push(async () => { await executor.close(); await previews.close(); });
-    return { executor, remotes, builderPrompts, builderStarted, cancelledWrites: () => cancelledWrites, restoreWrites: () => restoreWrites,
+    return { executor, remotes, builderPrompts, builderStarted, cancelledWrites: () => cancelledWrites,
+      failedWrites: () => failedWrites, restoreWrites: () => restoreWrites, providerRequests: () => providerRequests,
       allowCleanup() { cleanupUnavailable = false; }, onRelease(hook: () => Promise<void>) { closeHook = hook; } };
   }
 
@@ -366,6 +378,29 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     expect([...remote.remotes.values()].map((sandbox) => sandbox.live)).toEqual([false]);
     expect((await admin.query("SELECT operation_id FROM nano.projects WHERE owner_id=$1 AND id=$2", [owner, project.id])).rows[0].operation_id).toBeNull();
   }, 180_000);
+
+  test("a failed Provider run persists its original error after transient terminal DB failures without model replay", async () => {
+    const remote = await fixture("model-fails", { failFailedWrites: 3, settlementRetryMs: 50 });
+    const project = await createProjectRepository(database).create(owner, prefix);
+    projects.push(project.id);
+    const accepted = await repository.accept(owner, project.id, {
+      idempotencyKey: randomUUID(), text: "初始0，点击加一显示1", expectedCurrentRevisionId: null,
+      modelProfileId: model.id, modelConfigVersion: model.configVersion,
+    });
+    leases.push(accepted.run.credentialLeaseId);
+    remote.executor.start(accepted.run);
+    const deadline = Date.now() + 45_000;
+    let settled = await repository.getRun(owner, accepted.run.id);
+    while (settled.state !== "failed" && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      settled = await repository.getRun(owner, accepted.run.id);
+    }
+    expect(settled).toMatchObject({ state: "failed", cleanupState: "confirmed", error: { code: "MODEL_FAILED", retryable: true } });
+    expect(remote.failedWrites()).toBeGreaterThanOrEqual(4);
+    expect(remote.providerRequests()).toBe(1);
+    expect(remote.remotes.size).toBe(0);
+    expect((await admin.query("SELECT operation_id FROM nano.projects WHERE owner_id=$1 AND id=$2", [owner, project.id])).rows[0].operation_id).toBeNull();
+  }, 120_000);
 
   test("a failed first sandbox destroy is retried before its Preview TTL and only then unlocks the project", async () => {
     const remote = await fixture("cancel-builder-cleanup-fails", { cleanupSweepMs: 50 });

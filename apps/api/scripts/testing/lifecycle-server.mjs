@@ -14,13 +14,15 @@ if (!process.env.LIFECYCLE_PROFILE || !process.env.LIFECYCLE_GATE)
 const profileSchema = z.strictObject({
   ownerId: z.uuid(), projectId: z.uuid(), createdAfter: z.iso.datetime(),
   expiresAt: z.iso.datetime(),
-  scenario: z.enum(['SLOW_COORDINATOR', 'SLOW_BUILDER', 'SLOW_REVIEWER', 'LONG_REMOTE_COMMAND', 'BASELINE_ACCEPT']),
+  scenario: z.enum(['SLOW_COORDINATOR', 'SLOW_BUILDER', 'SLOW_REVIEWER', 'LONG_REMOTE_COMMAND', 'BASELINE_ACCEPT', 'MODEL_ERROR_ONCE']),
 });
 const pool = new Pool({ connectionString: process.env.MIGRATION_DATABASE_URL, max: 2 });
 const environment = await pool.query('SELECT environment_id FROM nano.environment_identity WHERE id=true');
 if (environment.rows[0]?.environment_id !== process.env.PIVLOOM_ENVIRONMENT_ID)
   throw Error('Isolated database identity mismatch');
 let lockedRunId;
+let failedRunId;
+let retryRunId;
 let builderTurns = 0;
 const plan = {
   schemaVersion: 1, goal: '可操作的中文计数器', changeSummary: '初始为零，点击加一显示一',
@@ -52,11 +54,22 @@ async function stalled(signal, role, runId) {
 const modelFetch = async (_url, init) => {
   const profile = profileSchema.parse(JSON.parse(await readFile(process.env.LIFECYCLE_PROFILE, 'utf8')));
   if (Date.parse(profile.expiresAt) <= Date.now()) throw Error('Lifecycle profile expired');
-  const rows = await pool.query(`SELECT id FROM nano.runs WHERE owner_id=$1 AND project_id=$2
+  const rows = await pool.query(`SELECT id,retry_of FROM nano.runs WHERE owner_id=$1 AND project_id=$2
     AND created_at >= $3 ORDER BY created_at DESC LIMIT 1`, [profile.ownerId, profile.projectId, profile.createdAfter]);
   const runId = rows.rows[0]?.id;
-  if (!runId || lockedRunId && lockedRunId !== runId) throw Error('Lifecycle fixture run scope mismatch');
-  lockedRunId = runId;
+  if (!runId) throw Error('Lifecycle fixture run scope mismatch');
+  if (profile.scenario === 'MODEL_ERROR_ONCE') {
+    if (!failedRunId) failedRunId = runId;
+    else if (runId !== failedRunId && !retryRunId) {
+      if (rows.rows[0].retry_of !== failedRunId) throw Error('Lifecycle fixture requires a linked retry');
+      retryRunId = runId;
+    } else if (runId !== failedRunId && runId !== retryRunId) throw Error('Lifecycle fixture accepts only one linked retry');
+    if (runId === failedRunId) return new Response(JSON.stringify({ error: { message: 'Fixture invalid credential', type: 'invalid_api_key' } }),
+      { status: 401, headers: { 'content-type': 'application/json' } });
+  } else {
+    if (lockedRunId && lockedRunId !== runId) throw Error('Lifecycle fixture run scope mismatch');
+    lockedRunId = runId;
+  }
   const request = JSON.parse(String(init?.body));
   const names = (request.tools ?? []).map((tool) => tool.function?.name);
   if (names.includes('submit_plan')) {
@@ -74,7 +87,7 @@ const modelFetch = async (_url, init) => {
   }
   if (names.includes('browser_open')) {
     if (profile.scenario === 'SLOW_REVIEWER') return stalled(init?.signal, 'reviewer', runId);
-    if (profile.scenario !== 'BASELINE_ACCEPT') throw Error('Reviewer fixture is outside its scenario');
+    if (profile.scenario !== 'BASELINE_ACCEPT' && profile.scenario !== 'MODEL_ERROR_ONCE') throw Error('Reviewer fixture is outside its scenario');
     const calls = request.messages.flatMap((message) => message.tool_calls ?? []).map((call) => call.function.name);
     const last = request.messages.filter((message) => message.role === 'tool').at(-1);
     const observed = last ? JSON.parse(last.content) : null;
