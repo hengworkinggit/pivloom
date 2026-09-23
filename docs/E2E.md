@@ -10,12 +10,12 @@
 
 ## 1. 测试策略
 
-独立QA浏览器与产品Reviewer必须是不同会话。Codex内置浏览器可用时可以使用；也可使用固定版本的原版agent-browser独立会话。新标签不等于新登录会话，产品自身Check不等于独立QA。
+开发与正式UI验收优先使用Codex内置浏览器（iab），在旁边实际操作登录、工作台、Preview、小游戏和回滚。产品内部Reviewer是在服务器OpenSandbox中用Chrome/agent-browser自动检查，两者必须是不同会话。仅在IAB故障或用例需要其当前不提供的独立会话能力时，使用固定版本agent-browser作为独立QA补充，并记录原因；不把新标签当新会话，不把产品自身Check当独立QA。Canvas指生成应用的HTML画布，不是一种浏览器。
 
 | 层次 | 采用的成熟能力 | 证明范围 |
 |---|---|---|
 | 上游兼容探针 | Pi官方离线测试/SDK示例；agent-browser原生press、wait、batch、screenshot | 版本与接口可用，不证明真实Provider/业务通过 |
-| 独立UI E2E | 独立浏览器从登录开始，真实按钮、键盘、Canvas截图及刷新 | 用户主流程；禁止注入分数、坐标、源码或测试数据绕过页面 |
+| 独立UI E2E | 优先Codex内置浏览器，从登录开始，真实按钮、键盘、Canvas截图及刷新 | 用户主流程；禁止注入分数、坐标、源码或测试数据绕过页面 |
 | 产品Reviewer | OpenSandbox内agent-browser + Pi ImageContent + 实测有图像能力的Provider | 同一候选的DOM、截图、动作和检查；图片只存档不算模型看过 |
 | 服务集成 | 现有Vitest/PostgreSQL；关键取消/销毁接真实OpenSandbox | 事务、幂等、取消竞争、事件顺序、会话撤销与清理确认 |
 | 静态与产物 | 类型、lint、构建、冻结SHA/manifest | 来源和兼容性，不能替代UI或真实生成 |

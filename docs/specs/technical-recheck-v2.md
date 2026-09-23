@@ -62,6 +62,8 @@
 
 ### 2.2 贪吃蛇复用成熟浏览器与真实图像反馈
 
+这里的Canvas是网页中的HTML画布。**开发与正式UI E2E优先用Codex内置浏览器（iab）；产品内部Reviewer使用服务器沙箱中的Chrome/agent-browser。** 前者由开发任务控制，后者在产品运行时自动执行，不能混成同一份验收证据。IAB故障或独立会话能力缺口时才记录原因并采用独立QA补充。官方Browser说明见[OpenAI Docs](https://learn.chatgpt.com/docs/browser)。
+
 原版agent-browser已经支持四向键、Space、等待、batch和截图，当前Pivloom外层白名单/工具接入没有完整暴露。直接复用其固定版本的命令/schema语义，平台只绑定session、origin、revision、取消信号和现有时限。批量动作使用官方JSON argv数组，短序列结束重新观察，不再开发自定义按键队列。
 
 截图按Pi官方screenshotTool样例返回text元信息与真实ImageContent；模型input需要包含image，并通过当前实际Provider的图像探针。OpenManus的工具图像转发与历史develop-web-game的短动作→截图→判断方法提供参考，具体传输使用Pi已有归一化，保留真实MIME。

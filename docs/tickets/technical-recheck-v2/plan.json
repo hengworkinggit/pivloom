@@ -171,8 +171,8 @@
     {
       "code": "RC-05",
       "slug": "canvas-browser-actions",
-      "title": "[RC-05] 复用原生批量动作完成 Canvas 游戏观察闭环",
-      "what": "Reviewer能够在当前候选中发送正常四向键、空格和短动作序列，等待后重新观察Canvas与HUD；输入失败、空白画布或运行错误不能获得通过结论。",
+      "title": "[RC-05] 产品检查者在沙箱浏览器中验证 Canvas 小游戏",
+      "what": "Canvas是生成应用的HTML画布，不是浏览器类型。本票实现Pivloom内部Reviewer在服务器沙箱浏览器中发送四向键、空格和短动作序列，观察画布与HUD，拒绝把输入失败、空白画布或运行错误判为通过。开发者的独立UI验收优先使用Codex内置浏览器（iab），不与产品内部检查混用。",
       "blockers": [
         "RC-04"
       ],

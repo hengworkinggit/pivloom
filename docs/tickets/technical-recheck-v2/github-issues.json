@@ -56,7 +56,7 @@
       "number": 21,
       "id": 5553211632,
       "url": "https://github.com/hengworkinggit/pivloom/issues/21",
-      "title": "[RC-05] 复用原生批量动作完成 Canvas 游戏观察闭环",
+      "title": "[RC-05] 产品检查者在沙箱浏览器中验证 Canvas 小游戏",
       "code": "RC-05",
       "blockedByCodes": [
         "RC-04"

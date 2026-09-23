@@ -10,7 +10,7 @@
 | RC-02 | [#18 复用 Pi 原生生命周期并可靠停止三个角色](https://github.com/hengworkinggit/pivloom/issues/18) | 无 | E13, E14, E41 |
 | RC-03 | [#19 失败终态可靠落库并完成资源清理与重试](https://github.com/hengworkinggit/pivloom/issues/19) | [#18](https://github.com/hengworkinggit/pivloom/issues/18) | E15, E18, E20, E30, E40 |
 | RC-04 | [#20 让 Reviewer 真正读取截图并验证模型图像能力](https://github.com/hengworkinggit/pivloom/issues/20) | [#18](https://github.com/hengworkinggit/pivloom/issues/18) | E31, E33 |
-| RC-05 | [#21 复用原生批量动作完成 Canvas 游戏观察闭环](https://github.com/hengworkinggit/pivloom/issues/21) | [#20](https://github.com/hengworkinggit/pivloom/issues/20) | E34, E42 |
+| RC-05 | [#21 产品检查者在沙箱浏览器中验证 Canvas 小游戏](https://github.com/hengworkinggit/pivloom/issues/21) | [#20](https://github.com/hengworkinggit/pivloom/issues/20) | E34, E42 |
 | RC-06 | [#22 固定五组验收并完整保留增量子检查](https://github.com/hengworkinggit/pivloom/issues/22) | 无 | E39 |
 | RC-07 | [#23 退出与切账号后撤销私有 Preview 访问](https://github.com/hengworkinggit/pivloom/issues/23) | 无 | E11, E25, E37 |
 | RC-08 | [#24 浏览完整历史版本及真实源码差异](https://github.com/hengworkinggit/pivloom/issues/24) | 无 | E07, E11, E38 |
