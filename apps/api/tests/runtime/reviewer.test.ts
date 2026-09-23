@@ -1,4 +1,5 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
 import { runReviewer, assertReviewerResult, deliveredScreenshotIdsFromRequest, type ReviewBrowser } from '../../src/runtime/reviewer.js';
 import type { ModelConfig } from '../../src/runtime/types.js';
@@ -113,6 +114,38 @@ test('a static render-only behavior passes with one observation and a screenshot
   expect(result.result.items[0].verdict).toBe('passed');
   expect(f.stats()).toEqual({calls:3,actions:0,closes:1});
   assertReviewerResult(result);
+});
+
+test.each(['blank','menu'])('negative fixture: %s Canvas cannot pass an interactive behavior without a key',async mode=>{
+  let firstObservationEventId='',screenshotId='',imageReachedProvider=false;
+  const screenshot=readFileSync(new URL(`../fixtures/canvas-negative/images/${mode}-page-initial.png`,import.meta.url));
+  const screenshotSha256=createHash('sha256').update(screenshot).digest('hex');
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2){firstObservationEventId=data.id;return {name:'browser_screenshot',args:{}};}
+    screenshotId=data.artifactId??screenshotId;
+    const imageMessage=request.messages.filter(message=>message.role==='user' && Array.isArray(message.content as unknown)).at(-1);
+    imageReachedProvider=Boolean((imageMessage?.content as unknown as Array<{type:string;image_url?:{url:string}}> | undefined)
+      ?.some(part=>part.type==='image_url' && part.image_url?.url?.startsWith('data:image/png;base64,')));
+    return {name:'record_behavior',args:{...report([firstObservationEventId]).items[0],screenshotIds:[screenshotId],
+      actual:'仅显示开始菜单，未发送方向键',reproSteps:['打开页面','截取初始画面']}};
+  });
+  f.input.handoff.plan.behaviors[0].title='方向控制';
+  f.input.handoff.plan.behaviors[0].action='发送 ArrowRight 并观察 Canvas 上的蛇改变方向';
+  f.input.handoff.plan.behaviors[0].expected='蛇根据 ArrowRight 改变方向';
+  f.input.browser.open=async()=>({id:randomUUID(),sessionId:f.input.browser.sessionId,
+    url:'http://127.0.0.1:4173/',tree:'button 开始 [ref=e1]; canvas',text:`贪吃蛇 · ${mode} · 状态 menu`,
+    refs:{e1:{role:'button',name:'开始'}},truncated:false});
+  f.input.browser.screenshot=async()=>({base64:screenshot.toString('base64'),sha256:screenshotSha256,mimeType:'image/png'});
+  f.input.saveScreenshot=async()=>({id:randomUUID(),mimeType:'image/png',sha256:screenshotSha256});
+  let accepted:Awaited<ReturnType<typeof runReviewer>>|undefined;
+  try { accepted=await runReviewer({...f.input,requireVisionEvidence:true}); }
+  catch(error) { expect(error).toMatchObject({code:'AGENT_OUTPUT_INVALID'}); }
+  expect(imageReachedProvider).toBe(true);
+  expect(f.stats().actions).toBe(0);
+  expect(accepted?.result.items[0].verdict).not.toBe('passed');
 });
 
 test('Pi receives actual screenshot bytes with PNG MIME and can reread the same bound image',async()=>{

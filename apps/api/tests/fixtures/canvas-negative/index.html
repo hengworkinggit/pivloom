@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>Canvas negative fixture</title>
+<style>
+  body { margin: 0; background: #16202b; color: white; font: 16px system-ui; }
+  main { width: 300px; margin: 24px auto; }
+  canvas { display: block; width: 240px; height: 240px; background: #f3f7f3; border: 2px solid #8b9b89; }
+  button { margin: 12px 0; padding: 8px 16px; }
+  #hud { display: block; line-height: 1.7; }
+</style>
+<main>
+  <h1>贪吃蛇隔离负例</h1>
+  <canvas id="board" width="240" height="240" aria-label="游戏棋盘"></canvas>
+  <button id="start">开始</button>
+  <output id="hud" aria-live="polite"></output>
+  <p>方向键控制，空格暂停。</p>
+</main>
+<script>
+  const mode = new URLSearchParams(location.search).get('mode') || 'normal';
+  const canvas = document.getElementById('board');
+  const ctx = canvas.getContext('2d');
+  const hud = document.getElementById('hud');
+  const snake = [{x:5,y:5},{x:4,y:5},{x:3,y:5}];
+  const food = {x:8,y:5};
+  let status='menu', score=0, moves=0, lastKey='无', direction='ArrowRight';
+  function draw() {
+    ctx.fillStyle='#f3f7f3'; ctx.fillRect(0,0,240,240);
+    if(mode==='blank') return;
+    if(status==='menu') {
+      ctx.fillStyle='#34435a'; ctx.font='22px system-ui';
+      ctx.fillText('按开始进入游戏', 25, 125); return;
+    }
+    ctx.strokeStyle='#d8e5d7';
+    for(let i=0;i<=12;i++){ctx.beginPath();ctx.moveTo(i*20,0);ctx.lineTo(i*20,240);ctx.stroke();ctx.beginPath();ctx.moveTo(0,i*20);ctx.lineTo(240,i*20);ctx.stroke();}
+    ctx.fillStyle='#f0a442';ctx.fillRect(food.x*20+2,food.y*20+2,16,16);
+    ctx.fillStyle='#397a46';for(const part of snake)ctx.fillRect(part.x*20+2,part.y*20+2,16,16);
+  }
+  function update() {
+    hud.textContent=`状态: ${status} | 分数: ${score} | 长度: ${snake.length} | 步数: ${moves} | 最近按键: ${lastKey}`;
+    draw();
+  }
+  document.getElementById('start').addEventListener('click',()=>{
+    if(mode==='menu') return;
+    status='playing';update();
+  });
+  addEventListener('keydown',event=>{
+    if(!['ArrowUp','ArrowRight','ArrowDown','ArrowLeft','Space'].includes(event.code))return;
+    event.preventDefault();
+    if(mode==='disconnected'||mode==='menu'||status==='menu')return;
+    lastKey=event.code;
+    if(event.code==='Space'){status=status==='paused'?'playing':'paused';update();return;}
+    if(status!=='playing')return;
+    direction=event.code;
+    if(mode==='fake-score'){score++;moves++;update();return;}
+    const delta={ArrowUp:[0,-1],ArrowRight:[1,0],ArrowDown:[0,1],ArrowLeft:[-1,0]}[direction];
+    const next={x:snake[0].x+delta[0],y:snake[0].y+delta[1]};
+    if(mode==='no-collision'){next.x=(next.x+12)%12;next.y=(next.y+12)%12;}
+    else if(next.x<0||next.y<0||next.x>=12||next.y>=12){status='gameover';update();return;}
+    snake.unshift(next);snake.pop();moves++;update();
+  });
+  update();
+</script>
+</html>

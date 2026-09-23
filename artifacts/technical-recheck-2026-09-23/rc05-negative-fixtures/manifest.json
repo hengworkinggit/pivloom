@@ -1,0 +1,1692 @@
+{
+  "source": "isolated static Canvas fixture",
+  "browserVersion": "agent-browser 0.38.1",
+  "capturedAt": "2026-09-23T22:55:58.077Z",
+  "cases": [
+    {
+      "mode": "blank",
+      "session": "pivloom-neg-19061-blank",
+      "version": "agent-browser 0.38.1",
+      "keys": [
+        "ArrowRight",
+        "ArrowDown",
+        "Space"
+      ],
+      "snapshot": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "origin": "http://127.0.0.1:54252/?mode=blank",
+          "refs": {
+            "e1": {
+              "name": "贪吃蛇隔离负例",
+              "role": "heading"
+            },
+            "e2": {
+              "name": "开始",
+              "role": "button"
+            }
+          },
+          "removedRefs": [],
+          "snapshot": "- heading \"贪吃蛇隔离负例\" [level=1, ref=e1]\n- button \"开始\" [ref=e2]"
+        },
+        "error": null
+      },
+      "click": {
+        "success": true,
+        "data": {
+          "clicked": "@e2",
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          }
+        },
+        "error": null
+      },
+      "batch": [
+        {
+          "command": [
+            "press",
+            "ArrowRight"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "ArrowRight"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "press",
+            "ArrowDown"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "ArrowDown"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "press",
+            "Space"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "Space"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        }
+      ],
+      "beforeHud": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "origin": "http://127.0.0.1:54252/?mode=blank",
+          "text": "状态: playing | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无"
+        },
+        "error": null
+      },
+      "afterHud": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "origin": "http://127.0.0.1:54252/?mode=blank",
+          "text": "状态: paused | 分数: 0 | 长度: 3 | 步数: 2 | 最近按键: Space"
+        },
+        "error": null
+      },
+      "canvasBeforeSha256": "92a221bcde34c283eecc22683f04d6324ea8cf8302061a664a5cec2ccefabc52",
+      "canvasAfterSha256": "92a221bcde34c283eecc22683f04d6324ea8cf8302061a664a5cec2ccefabc52",
+      "pageInitialSha256": "235c6c9b34c01f9e92e9bf1fce831701837a4b0dbf0d9b28527a9d0e2b1c748f",
+      "pageAfterSha256": "e91c3b83fdf3fafa61b5a30e5adb0da952db8293cd9f7f12e1461286fac7b659",
+      "console": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "messages": []
+        },
+        "error": null
+      },
+      "pageErrors": {
+        "success": true,
+        "data": {
+          "errors": [],
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          }
+        },
+        "error": null
+      }
+    },
+    {
+      "mode": "menu",
+      "session": "pivloom-neg-19061-menu",
+      "version": "agent-browser 0.38.1",
+      "keys": [
+        "ArrowRight",
+        "ArrowDown",
+        "Space"
+      ],
+      "snapshot": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "origin": "http://127.0.0.1:54252/?mode=menu",
+          "refs": {
+            "e1": {
+              "name": "贪吃蛇隔离负例",
+              "role": "heading"
+            },
+            "e2": {
+              "name": "开始",
+              "role": "button"
+            }
+          },
+          "removedRefs": [],
+          "snapshot": "- heading \"贪吃蛇隔离负例\" [level=1, ref=e1]\n- button \"开始\" [ref=e2]"
+        },
+        "error": null
+      },
+      "click": {
+        "success": true,
+        "data": {
+          "clicked": "@e2",
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          }
+        },
+        "error": null
+      },
+      "batch": [
+        {
+          "command": [
+            "press",
+            "ArrowRight"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "ArrowRight"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "press",
+            "ArrowDown"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "ArrowDown"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "press",
+            "Space"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "Space"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        }
+      ],
+      "beforeHud": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "origin": "http://127.0.0.1:54252/?mode=menu",
+          "text": "状态: menu | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无"
+        },
+        "error": null
+      },
+      "afterHud": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "origin": "http://127.0.0.1:54252/?mode=menu",
+          "text": "状态: menu | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无"
+        },
+        "error": null
+      },
+      "canvasBeforeSha256": "f179142957ffb3206631cb9a61d94aaf896fea19804827960a536a8140a01756",
+      "canvasAfterSha256": "f179142957ffb3206631cb9a61d94aaf896fea19804827960a536a8140a01756",
+      "pageInitialSha256": "e39323612cd8f6e936dfe1ee4a6eaf4cfe21f5c9d087d7df01fdced8f35cfff0",
+      "pageAfterSha256": "2023cf6c053e037ce4c1a44863950f29aaf3c3f8472ad400ebb9bf80b52c2f6c",
+      "console": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "messages": []
+        },
+        "error": null
+      },
+      "pageErrors": {
+        "success": true,
+        "data": {
+          "errors": [],
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          }
+        },
+        "error": null
+      }
+    },
+    {
+      "mode": "disconnected",
+      "session": "pivloom-neg-19061-disconnected",
+      "version": "agent-browser 0.38.1",
+      "keys": [
+        "ArrowRight",
+        "ArrowDown",
+        "Space"
+      ],
+      "snapshot": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "origin": "http://127.0.0.1:54252/?mode=disconnected",
+          "refs": {
+            "e1": {
+              "name": "贪吃蛇隔离负例",
+              "role": "heading"
+            },
+            "e2": {
+              "name": "开始",
+              "role": "button"
+            }
+          },
+          "removedRefs": [],
+          "snapshot": "- heading \"贪吃蛇隔离负例\" [level=1, ref=e1]\n- button \"开始\" [ref=e2]"
+        },
+        "error": null
+      },
+      "click": {
+        "success": true,
+        "data": {
+          "clicked": "@e2",
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          }
+        },
+        "error": null
+      },
+      "batch": [
+        {
+          "command": [
+            "press",
+            "ArrowRight"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "ArrowRight"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "press",
+            "ArrowDown"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "ArrowDown"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "press",
+            "Space"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "Space"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        }
+      ],
+      "beforeHud": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "origin": "http://127.0.0.1:54252/?mode=disconnected",
+          "text": "状态: playing | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无"
+        },
+        "error": null
+      },
+      "afterHud": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "origin": "http://127.0.0.1:54252/?mode=disconnected",
+          "text": "状态: playing | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无"
+        },
+        "error": null
+      },
+      "canvasBeforeSha256": "6914dee0a40456e6386db64fea01bd870c89adb41f50ff290803bef3e0c5b763",
+      "canvasAfterSha256": "6914dee0a40456e6386db64fea01bd870c89adb41f50ff290803bef3e0c5b763",
+      "pageInitialSha256": "e39323612cd8f6e936dfe1ee4a6eaf4cfe21f5c9d087d7df01fdced8f35cfff0",
+      "pageAfterSha256": "4779e2ca231d85c9f6b93ba7f44753151cd6d00957d0cb7b33862a2282ce8ea4",
+      "console": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "messages": []
+        },
+        "error": null
+      },
+      "pageErrors": {
+        "success": true,
+        "data": {
+          "errors": [],
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          }
+        },
+        "error": null
+      }
+    },
+    {
+      "mode": "fake-score",
+      "session": "pivloom-neg-19061-fake-score",
+      "version": "agent-browser 0.38.1",
+      "keys": [
+        "ArrowRight",
+        "ArrowDown"
+      ],
+      "snapshot": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "origin": "http://127.0.0.1:54252/?mode=fake-score",
+          "refs": {
+            "e1": {
+              "name": "贪吃蛇隔离负例",
+              "role": "heading"
+            },
+            "e2": {
+              "name": "开始",
+              "role": "button"
+            }
+          },
+          "removedRefs": [],
+          "snapshot": "- heading \"贪吃蛇隔离负例\" [level=1, ref=e1]\n- button \"开始\" [ref=e2]"
+        },
+        "error": null
+      },
+      "click": {
+        "success": true,
+        "data": {
+          "clicked": "@e2",
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          }
+        },
+        "error": null
+      },
+      "batch": [
+        {
+          "command": [
+            "press",
+            "ArrowRight"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "ArrowRight"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "press",
+            "ArrowDown"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "ArrowDown"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        }
+      ],
+      "beforeHud": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "origin": "http://127.0.0.1:54252/?mode=fake-score",
+          "text": "状态: playing | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无"
+        },
+        "error": null
+      },
+      "afterHud": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "origin": "http://127.0.0.1:54252/?mode=fake-score",
+          "text": "状态: playing | 分数: 2 | 长度: 3 | 步数: 2 | 最近按键: ArrowDown"
+        },
+        "error": null
+      },
+      "canvasBeforeSha256": "6914dee0a40456e6386db64fea01bd870c89adb41f50ff290803bef3e0c5b763",
+      "canvasAfterSha256": "6914dee0a40456e6386db64fea01bd870c89adb41f50ff290803bef3e0c5b763",
+      "pageInitialSha256": "e39323612cd8f6e936dfe1ee4a6eaf4cfe21f5c9d087d7df01fdced8f35cfff0",
+      "pageAfterSha256": "7360ee108e6026e2e828c0efe521aadff4f8adc6ced205514ecf0fbbd10157f8",
+      "console": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "messages": []
+        },
+        "error": null
+      },
+      "pageErrors": {
+        "success": true,
+        "data": {
+          "errors": [],
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          }
+        },
+        "error": null
+      }
+    },
+    {
+      "mode": "no-collision",
+      "session": "pivloom-neg-19061-no-collision",
+      "version": "agent-browser 0.38.1",
+      "keys": [
+        "ArrowRight",
+        "ArrowRight",
+        "ArrowRight",
+        "ArrowRight",
+        "ArrowRight",
+        "ArrowRight",
+        "ArrowRight",
+        "ArrowRight"
+      ],
+      "snapshot": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "origin": "http://127.0.0.1:54252/?mode=no-collision",
+          "refs": {
+            "e1": {
+              "name": "贪吃蛇隔离负例",
+              "role": "heading"
+            },
+            "e2": {
+              "name": "开始",
+              "role": "button"
+            }
+          },
+          "removedRefs": [],
+          "snapshot": "- heading \"贪吃蛇隔离负例\" [level=1, ref=e1]\n- button \"开始\" [ref=e2]"
+        },
+        "error": null
+      },
+      "click": {
+        "success": true,
+        "data": {
+          "clicked": "@e2",
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          }
+        },
+        "error": null
+      },
+      "batch": [
+        {
+          "command": [
+            "press",
+            "ArrowRight"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "ArrowRight"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "press",
+            "ArrowRight"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "ArrowRight"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "press",
+            "ArrowRight"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "ArrowRight"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "press",
+            "ArrowRight"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "ArrowRight"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "press",
+            "ArrowRight"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "ArrowRight"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "press",
+            "ArrowRight"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "ArrowRight"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "press",
+            "ArrowRight"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "ArrowRight"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "press",
+            "ArrowRight"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "pressed": "ArrowRight"
+          },
+          "success": true
+        },
+        {
+          "command": [
+            "wait",
+            "100"
+          ],
+          "error": null,
+          "result": {
+            "lifecycle": {
+              "effectiveLaunch": {
+                "browserLaunched": true,
+                "engine": "chrome",
+                "launchHash": 11677035664275012000
+              },
+              "launched": false,
+              "relaunchedBrowser": false,
+              "restartedBackground": false,
+              "restoreStatus": "not_configured",
+              "reused": true,
+              "saveStatus": "not_attempted"
+            },
+            "ms": 100,
+            "waited": "timeout"
+          },
+          "success": true
+        }
+      ],
+      "beforeHud": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "origin": "http://127.0.0.1:54252/?mode=no-collision",
+          "text": "状态: playing | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无"
+        },
+        "error": null
+      },
+      "afterHud": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "origin": "http://127.0.0.1:54252/?mode=no-collision",
+          "text": "状态: playing | 分数: 0 | 长度: 3 | 步数: 8 | 最近按键: ArrowRight"
+        },
+        "error": null
+      },
+      "canvasBeforeSha256": "6914dee0a40456e6386db64fea01bd870c89adb41f50ff290803bef3e0c5b763",
+      "canvasAfterSha256": "b76bc4ee911274620aa8b70fc8f2886f8394ac7e952072afb69bfa1525e41cd6",
+      "pageInitialSha256": "e39323612cd8f6e936dfe1ee4a6eaf4cfe21f5c9d087d7df01fdced8f35cfff0",
+      "pageAfterSha256": "b7544606707e084925cf7659e1a8ac45be44facf5d9aaa34f1b4dd43a105b812",
+      "console": {
+        "success": true,
+        "data": {
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          },
+          "messages": []
+        },
+        "error": null
+      },
+      "pageErrors": {
+        "success": true,
+        "data": {
+          "errors": [],
+          "lifecycle": {
+            "effectiveLaunch": {
+              "browserLaunched": true,
+              "engine": "chrome",
+              "launchHash": 11677035664275012000
+            },
+            "launched": false,
+            "relaunchedBrowser": false,
+            "restartedBackground": false,
+            "restoreStatus": "not_configured",
+            "reused": true,
+            "saveStatus": "not_attempted"
+          }
+        },
+        "error": null
+      }
+    }
+  ]
+}
