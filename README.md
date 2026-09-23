@@ -2,9 +2,9 @@
 
 把想法织成可运行的应用。Pivloom 是基于 Pi SDK 的 AI Web 应用构建工作台，固定角色协作完成规划、编码、浏览器检查和有限修复。
 
-本项目原工作名为 nano-Atoms。真实工作台已接通登录、项目与模型配置、Pi 三角色生成、沙箱构建与浏览器检查、版本迭代、停止/重试和预览恢复。公网入口为 **[Pivloom](https://pivloom-69-5-7-187.sslip.io)**，使用免费 sslip.io 域名及 HTTPS。
+本项目原工作名为 nano-Atoms。真实工作台已接通登录、项目与模型配置、Pi 三角色生成、沙箱构建与浏览器检查、版本迭代、停止/重试和预览恢复。公网入口为 **[Pivloom](https://pivloom-69-5-7-187.sslip.io)**，使用免费 sslip.io 域名及 HTTPS。用户可选“永久发布”：只有主动发布的已验收版本才获得独立 HTTPS 地址；未发布作品仍仅有会到期、可重建的沙箱预览。[已发布的示例作品](https://3c866a6a-26e9-4af4-89d4-d84127b7d430.app-69-5-7-187.sslip.io/)可直接访问。
 
-[#13](https://github.com/hengworkinggit/pivloom/issues/13) 与 [#14](https://github.com/hengworkinggit/pivloom/issues/14) 已关闭。公网工作台现有自助注册、个人资料与额度、六个可预览模板、中英与明暗切换，以及会话模型菜单。API 发布 `dev15-20260923-account-quota`、Web 发布 `dev15-20260923-account-feedback`；提交 `625a69d` 的 [CI 已通过](https://github.com/hengworkinggit/pivloom/actions/runs/35831001601)。生产 Run 不设累计 Token 上限，仍记录用量并保留时间与工具调用边界。原工作台验收见[收尾记录](docs/test-runs/2026-09-23-finalization.md)，本次前端改版见[前端验收](docs/test-runs/2026-09-23-frontend-refresh.md)。
+[#13](https://github.com/hengworkinggit/pivloom/issues/13) 与 [#14](https://github.com/hengworkinggit/pivloom/issues/14) 已关闭。公网工作台现有自助注册、个人资料与额度、六个可预览模板、中英与明暗切换，以及会话模型菜单。生产 Run 不设累计 Token 上限，仍记录用量并保留时间与工具调用边界。原工作台验收见[收尾记录](docs/test-runs/2026-09-23-finalization.md)，本次前端改版见[前端验收](docs/test-runs/2026-09-23-frontend-refresh.md)。
 
 ## 本地运行
 
@@ -68,4 +68,4 @@ research/              历史研究记录
 
 `apps/web` 为 Next.js 前端，`apps/api` 为常驻 Fastify API 与隔离运行时，`packages/contracts` 为共享 schema；`migrations` 与 `infra` 提供数据库和自托管配置。历史研究保留原工作名，不作为另一套产品范围。
 
-PRD/TRD/E2E 描述真实产品的目标；各模块以独立浏览器与真实集成验收为准，Mock、故障 fixture 和真实模型运行分别记录。公开源码交付前应排除私有题面研究记录及任何凭据。
+PRD/TRD/E2E 描述真实产品的目标；各模块以独立浏览器与真实集成验收为准，Mock、故障 fixture 和真实模型运行分别记录。仓库已公开；服务端凭据及测试账号密码保留在忽略文件和服务器私有配置中。
