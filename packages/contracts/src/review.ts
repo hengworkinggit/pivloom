@@ -5,6 +5,8 @@ const text = (max: number) => z.string().trim().min(1).max(max);
 const sourceHash = z.string().regex(/^[a-f0-9]{64}$/);
 export const CheckVerdictSchema = z.enum(["passed", "failed", "blocked"]);
 export type CheckVerdict = z.infer<typeof CheckVerdictSchema>;
+/** A grouped plan can contain 80 distinct targets, each needing its own post-action image. */
+export const MAX_CHECK_ARTIFACTS = 80;
 
 /** Scope is supplied by the service, never by a model's submitted result. */
 export const ReviewBindingSchema = z.strictObject({
@@ -74,7 +76,7 @@ export type CheckArtifact = ReviewArtifact;
 
 export const CheckSchema = ReviewBindingSchema.extend({
   id: z.uuid(), verdict: CheckVerdictSchema, items: reviewItems, summary: text(4000),
-  artifacts: z.array(ReviewArtifactSchema).max(6), createdAt: z.iso.datetime(),
+  artifacts: z.array(ReviewArtifactSchema).max(MAX_CHECK_ARTIFACTS), createdAt: z.iso.datetime(),
   // Absent on historical flat checks. New grouped checks are derived and saved by the service.
   groups: z.array(CheckGroupSchema).length(5).optional(),
 }).superRefine((check, context) => {

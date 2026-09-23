@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from 'vitest';
-import { runReviewer, assertReviewerResult, type ReviewBrowser } from '../../src/runtime/reviewer.js';
+import { runReviewer, assertReviewerResult, deliveredScreenshotIdsFromRequest, type ReviewBrowser } from '../../src/runtime/reviewer.js';
 import type { ModelConfig } from '../../src/runtime/types.js';
 import { classifyReviewerModelFailure } from '../../src/runtime/reviewer.js';
 import { MODEL_REQUEST_TIMEOUT_MS, PROVIDER_RETRY_POLICY, REVIEW_ATTEMPT_TIMEOUT_MS, RUN_DEADLINE_MS } from '../../src/runtime/budgets.js';
@@ -672,21 +672,140 @@ test('validated behavior progress remains available and completes without replay
   assertReviewerResult(result);
 });
 
+test('a 21-target grouped check records an action and delivered post-action image for every item', { timeout: 120_000 }, async()=>{
+  const targets=Array.from({length:21},(_,index)=>({
+    id:`B${String(index+1).padStart(2,'0')}`,title:`目标 ${index+1}`,precondition:'页面已打开',
+    action:'点击添加',expected:`目标 ${index+1} 已响应`,required:true,
+  }));
+  const groupedPlan={schemaVersion:2 as const,goal:'检查完整应用',changeSummary:'检查五组目标',assumptions:[],outOfScope:[],
+    behaviors:targets,groups:Array.from({length:5},(_,index)=>({
+      id:`G${index+1}` as 'G1'|'G2'|'G3'|'G4'|'G5',title:`第 ${index+1} 组`,
+      behaviorIds:targets.slice(index===0?0:5+(index-1)*4,index===0?5:5+index*4).map(target=>target.id),
+    })),replacements:[]};
+  let nextObservationId='',currentActionId='';
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)return {name:'browser_open',args:{}};
+    const index=Math.floor((n-2)/3),phase=(n-2)%3,target=targets[index];
+    if(phase===0)return {name:'browser_click',args:{behaviorId:target.id,
+      observationId:nextObservationId||data.observationId,ref:'e1'}};
+    if(phase===1){currentActionId=data.id;nextObservationId=data.observationId;return {name:'browser_screenshot',args:{}};}
+    const imageMessages=request.messages.filter(message=>message.role==='user'&&Array.isArray(message.content));
+    expect(imageMessages.some(message=>(message.content as unknown as Array<{type:string}>).some(part=>part.type==='image_url'))).toBe(true);
+    expect(data.recordBehaviorNext).toBe(target.id);
+    return {name:'record_behavior',args:{behaviorId:target.id,verdict:'passed',expected:target.expected,
+      actual:`${target.title} 已在点击后响应`,observationEventIds:[currentActionId],
+      screenshotIds:[data.artifactId],reproSteps:['点击添加并核对画面']}};
+  });
+  const result=await runReviewer({...f.input,handoff:{...f.input.handoff,plan:groupedPlan},requireVisionEvidence:true,maxToolCalls:100});
+  expect(result.result.items.map(item=>item.behaviorId)).toEqual(targets.map(target=>target.id));
+  expect(result.result.items.every(item=>item.verdict==='passed'&&item.screenshotIds.length===1)).toBe(true);
+  expect(result.artifacts).toHaveLength(21);
+  expect(f.stats()).toEqual({calls:64,actions:21,closes:1});
+});
+
+test('an older identical PNG cannot prove delivery of a later behavior screenshot',async()=>{
+  const first=randomUUID(),second=randomUUID(),data='aW1hZ2UtYnl0ZXM=';
+  const captures=new Map([first,second].map(id=>[id,{image:{type:'image' as const,data,mimeType:'image/png'}}]));
+  const tool=(artifactId:string)=>({role:'tool',content:JSON.stringify({artifactId})});
+  const image={role:'user',content:[{type:'text',text:'Captured screenshot'},
+    {type:'image_url',image_url:{url:`data:image/png;base64,${data}`}}]};
+  const body=JSON.stringify({messages:[tool(first),image,tool(second),
+    {role:'user',content:[{type:'text',text:'Image omitted before Provider request'}]}]});
+  expect(deliveredScreenshotIdsFromRequest(body,captures)).toEqual(new Set([first]));
+  expect(deliveredScreenshotIdsFromRequest(JSON.stringify({messages:[tool(first),image,tool(second),image]}),captures))
+    .toEqual(new Set([first,second]));
+  const anthropicResult=(artifactId:string,includeImage:boolean)=>({type:'tool_result',tool_use_id:randomUUID(),
+    content:[{type:'text',text:JSON.stringify({artifactId})},
+      ...(includeImage?[{type:'image',source:{type:'base64',media_type:'image/png',data}}]:[])]});
+  expect(deliveredScreenshotIdsFromRequest(JSON.stringify({messages:[{role:'user',content:[
+    anthropicResult(first,true),anthropicResult(second,false)]}]}),captures)).toEqual(new Set([first]));
+  expect(deliveredScreenshotIdsFromRequest(JSON.stringify({messages:[{role:'user',content:[
+    anthropicResult(first,true),anthropicResult(second,true)]}]}),captures)).toEqual(new Set([first,second]));
+});
+
+test('Reviewer requires recording before switching behaviors and stops repeated unrecorded actions',async()=>{
+  const second={...plan.behaviors[0],id:'B02',title:'第二项检查',expected:'第二项结果可见'};
+  let firstEventId='',firstObservationId='',rejection='';
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    let data:Record<string,unknown>|null=null;
+    try{data=last?JSON.parse(last.content) as Record<string,unknown>:null;}
+    catch{rejection=String(last?.content??'');}
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_click',args:{behaviorId:'B01',observationId:data?.observationId,ref:'e1'}};
+    if(n===3){firstEventId=String(data?.id);firstObservationId=String(data?.observationId);
+      return {name:'browser_click',args:{behaviorId:'B02',observationId:firstObservationId,ref:'e1'}};}
+    if(n===4)return {name:'record_behavior',args:report([firstEventId]).items[0]};
+    if(n===5)return {name:'browser_click',args:{behaviorId:'B02',observationId:firstObservationId,ref:'e1'}};
+    return {name:'record_behavior',args:{...report([String(data?.id)]).items[0],behaviorId:'B02',expected:second.expected}};
+  });
+  const result=await runReviewer({...f.input,handoff:{...f.input.handoff,plan:{...plan,behaviors:[...plan.behaviors,second]}}});
+  expect(rejection).toContain('RECORD_BEHAVIOR_REQUIRED');
+  expect(result.result.items.map(item=>item.behaviorId)).toEqual(['B01','B02']);
+  expect(f.stats()).toEqual({calls:6,actions:2,closes:1});
+
+  const spam=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    let data:Record<string,unknown>|null=null;
+    try{data=last?JSON.parse(last.content) as Record<string,unknown>:null;}catch{ /* protocol rejection */ }
+    if(n===1)return {name:'browser_open',args:{}};
+    if(data?.observationId)firstObservationId=String(data.observationId);
+    return {name:'browser_click',args:{behaviorId:'B01',observationId:firstObservationId,ref:'e1'}};
+  });
+  await expect(runReviewer({...spam.input,maxToolCalls:30})).rejects.toMatchObject({
+    code:'AGENT_OUTPUT_INVALID',message:expect.stringContaining('RECORD_BEHAVIOR_REQUIRED'),
+  });
+  expect(spam.stats().actions).toBe(8);
+  expect(spam.stats().calls).toBe(11);
+});
+
+test('a later failed input cannot pass after an earlier behavior was recorded',async()=>{
+  const second={...plan.behaviors[0],id:'B02',title:'键盘输入',expected:'方向键全部完成'};
+  let firstObservationId='',batchEventId='',rejection='',batchCalls=0;
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    let data:Record<string,unknown>|null=null;
+    try{data=last?JSON.parse(last.content) as Record<string,unknown>:null;}
+    catch{rejection=String(last?.content??'');}
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_click',args:{behaviorId:'B01',observationId:data?.observationId,ref:'e1'}};
+    if(n===3){firstObservationId=String(data?.observationId);
+      return {name:'record_behavior',args:report([String(data?.id)]).items[0]};}
+    if(n===4)return {name:'browser_key_batch',args:{behaviorId:'B02',observationId:firstObservationId,
+      steps:[{key:'ArrowUp',waitMs:100},{key:'ArrowRight',waitMs:100}]}};
+    if(n===5){batchEventId=String(data?.id);return {name:'record_behavior',args:{...report([batchEventId]).items[0],
+      behaviorId:'B02',expected:second.expected}};}
+    return {name:'record_behavior',args:{...report([batchEventId]).items[0],
+      behaviorId:'B02',expected:second.expected,verdict:'blocked',actual:'第二个方向键未执行'}};
+  });
+  f.input.browser.keyBatch=async({steps})=>{
+    batchCalls++;
+    return {observation:await f.input.browser.observe(),startedAt:'2026-09-23T18:00:00.000Z',
+      finishedAt:'2026-09-23T18:00:00.200Z',steps:steps.map((step,index)=>({index,...step,success:index===0}))};
+  };
+  const result=await runReviewer({...f.input,handoff:{...f.input.handoff,plan:{...plan,behaviors:[...plan.behaviors,second]}}});
+  expect(rejection).toContain('INPUT_FAILED');
+  expect(result.result.items.map(item=>item.verdict)).toEqual(['passed','blocked']);
+  expect(batchCalls).toBe(1);
+});
+
 test('exhausting the screenshot quota is recoverable and cannot fail an otherwise valid check',async()=>{
   let actionId='';
   const f=setup((request,n)=>{
-    if(n<=7)return {name:'browser_screenshot',args:{}};
+    if(n<=81)return {name:'browser_screenshot',args:{}};
     const parse=()=>{const last=request.messages.filter(m=>m.role==='tool').at(-1);const raw=last?last.content:'';try{return JSON.parse(raw);}catch{return null;}};
-    if(n===8)return {name:'browser_open',args:{path:'/'}};
-    if(n===9)return {name:'browser_click',args:{behaviorId:'B01',observationId:parse().observationId,ref:'e1'}};
+    if(n===82)return {name:'browser_open',args:{path:'/'}};
+    if(n===83)return {name:'browser_click',args:{behaviorId:'B01',observationId:parse().observationId,ref:'e1'}};
     actionId=parse().id;
     return {name:'record_behavior',args:report([actionId]).items[0]};
   });
-  const result=await runReviewer(f.input);
+  const result=await runReviewer({...f.input,maxToolCalls:90});
   expect(result.result.items[0].verdict).toBe('passed');
-  // One screenshot over the six-artifact ceiling is refused, then the check
+  // One screenshot over the eighty-artifact ceiling is refused, then the check
   // continues: the quota is a per-attempt ceiling, not a browser failure.
-  expect(result.artifacts).toHaveLength(6);
+  expect(result.artifacts).toHaveLength(80);
   expect(f.stats().actions).toBe(1);
 });
 

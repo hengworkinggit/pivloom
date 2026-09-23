@@ -5,11 +5,11 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import type { ImageContent, TSchema } from '@earendil-works/pi-ai';
 import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, type ToolDefinition } from '@earendil-works/pi-coding-agent';
-import { HandoffSchema, ReviewResultSchema, ReviewItemSchema, type ReviewItem, type Handoff, type ReviewResult, type ReviewBinding, type CheckArtifact } from '@pivloom/contracts';
+import { HandoffSchema, ReviewResultSchema, ReviewItemSchema, MAX_CHECK_ARTIFACTS, type ReviewItem, type Handoff, type ReviewResult, type ReviewBinding, type CheckArtifact } from '@pivloom/contracts';
 import { createServiceModel } from './pi.js';
 import { RuntimeError, type ModelConfig, type ProbeEvent, type ProbeEventSink } from './types.js';
 import { createRoleTokenTracker, type RunTokenBudget, type TokenUsage } from './token-budget.js';
-import { MODEL_REQUEST_TIMEOUT_MS, REVIEW_ATTEMPT_TIMEOUT_MS, piCompactionSettings, providerRetrySettings } from './budgets.js';
+import { MODEL_REQUEST_TIMEOUT_MS, REVIEW_ATTEMPT_TIMEOUT_MS, REVIEW_TOOL_LIMIT, piCompactionSettings, providerRetrySettings } from './budgets.js';
 import { BrowserPressKeySchema, type BrowserAction, type BrowserKeyBatchResult, type BrowserObservation } from './browser.js';
 
 export { REVIEW_ATTEMPT_TIMEOUT_MS };
@@ -36,6 +36,36 @@ export function classifyReviewerModelFailure(state: {
     return new RuntimeError('REVIEW_TIMEOUT', '检查者已达到本次检查的时间上限');
   return new RuntimeError(/timeout|timed out|abort/i.test(state.errorMessage ?? '') ? 'MODEL_REQUEST_TIMEOUT' : 'MODEL_FAILED',
     '检查者模型请求未完成，请稍后重试');
+}
+/** Match a screenshot's own tool result to its image in either supported wire protocol. */
+export function deliveredScreenshotIdsFromRequest(body:string,captures:ReadonlyMap<string,{image:ImageContent}>):Set<string>{
+  const delivered=new Set<string>();
+  let messages:unknown;
+  try{messages=JSON.parse(body).messages;}catch{return delivered;}
+  if(!Array.isArray(messages))return delivered;
+  for(let index=0;index<messages.length-1;index++){
+    const item=messages[index],next=messages[index+1];
+    if(item?.role!=='tool'||typeof item.content!=='string'||next?.role!=='user'||!Array.isArray(next.content))continue;
+    let artifactId:string|undefined;
+    try{artifactId=JSON.parse(item.content).artifactId;}catch{continue;}
+    const saved=artifactId?captures.get(artifactId):undefined;
+    if(saved&&next.content.some((part:{type?:string;image_url?:{url?:string}})=>part.type==='image_url'
+      &&part.image_url?.url===`data:${saved.image.mimeType};base64,${saved.image.data}`))delivered.add(artifactId!);
+  }
+  for(const message of messages){
+    if(message?.role!=='user'||!Array.isArray(message.content))continue;
+    for(const result of message.content){
+      if(result?.type!=='tool_result'||!Array.isArray(result.content))continue;
+      const text=result.content.find((part:{type?:string})=>part.type==='text')?.text;
+      let artifactId:string|undefined;
+      try{artifactId=JSON.parse(text).artifactId;}catch{continue;}
+      const saved=artifactId?captures.get(artifactId):undefined;
+      if(saved&&result.content.some((part:{type?:string;source?:{type?:string;media_type?:string;data?:string}})=>
+        part.type==='image'&&part.source?.type==='base64'&&part.source.media_type===saved.image.mimeType
+        &&part.source.data===saved.image.data))delivered.add(artifactId!);
+    }
+  }
+  return delivered;
 }
 
 /** Browser protocol is the external I/O seam. Reviewer never receives Workspace. */
@@ -115,6 +145,7 @@ const reportProblems = {
   RUNTIME_ERROR: '已观察到页面运行错误，不能记录为通过',
   ARTIFACT_SCOPE: '截图必须来自本次检查保存的工件',
   IMAGE_EVIDENCE_REQUIRED: '通过检查前须调用 browser_screenshot，并在下一轮模型请求中实际接收图片；仅有工件 ID 或截图文件不算视觉观察',
+  RECORD_BEHAVIOR_REQUIRED: '请先用 record_behavior 记录当前行为的真实结果，再检查下一项；同一项最多允许 8 次未记录的浏览器动作',
   INPUT_FAILED: '键盘动作未全部执行成功，不能判定游戏行为；请重新观察后完整重试同一序列，仍不可操作则标记 blocked',
   REPORT_SCOPE: '报告须匹配当前版本，并且恰好覆盖计划中的全部行为',
   SECRET_OUTPUT: '报告不得包含受保护的凭据',
@@ -161,7 +192,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   // A request whose own ceiling was clipped by the attempt deadline must be
   // reported as a review-deadline outcome, never as a provider failure.
   let grantedTimeoutClipped = false;
-  const maxTools = Math.min(80, input.maxToolCalls ?? 40);
+  const maxTools = Math.min(REVIEW_TOOL_LIMIT, input.maxToolCalls ?? REVIEW_TOOL_LIMIT);
   if (!Number.isInteger(maxTools) || maxTools < 1) throw new RuntimeError("TOOL_BUDGET_EXCEEDED", "检查工具预算已耗尽");
   const timer = setTimeout(() => deadline.abort("REVIEW_TIMEOUT"), Math.max(1, expiresAt-Date.now()));
   const evidence: ReviewObservationEvent[] = [], artifacts: CheckArtifact[] = [];
@@ -169,6 +200,8 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   const imageDelivered = new Set<string>();
   const completedBehaviors = new Map<string, ReviewItem>();
   const failedInputBehaviors = new Map<string, string>();
+  let pendingBehaviorId: string | undefined, unrecordedActions = 0;
+  const MAX_UNRECORDED_ACTIONS = 8;
   const redact = (text: string) => text.replaceAll(input.modelConfig.apiKey, '[REDACTED]').replace(/Bearer\s+[^\s"']+/gi,'Bearer [REDACTED]');
   const fail = (error: RuntimeError) => { fatal ??= error; abortController.abort(); return error; };
   const check = () => {
@@ -215,6 +248,14 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     const scope = path ? `:${path}` : '';
     const error = new RuntimeError('AGENT_OUTPUT_INVALID', `检查报告校验失败 [${reason}${scope}]：${reportProblems[reason]}；仅允许纠正一次`);
     return ++invalidReports >= 2 ? fail(error) : error;
+  };
+  const requireRecordBeforeAction = (behaviorId: string, actionCount = 1) => {
+    if (pendingBehaviorId && (pendingBehaviorId !== behaviorId || unrecordedActions + actionCount > MAX_UNRECORDED_ACTIONS))
+      throw invalid('RECORD_BEHAVIOR_REQUIRED', pendingBehaviorId);
+  };
+  const noteBehaviorAction = (behaviorId: string, actionCount = 1) => {
+    pendingBehaviorId = behaviorId;
+    unrecordedActions += actionCount;
   };
   // The expectation is part of the sealed handoff plan, never something the
   // Reviewer may restate. Binding it here removes a brittle "echo this long
@@ -293,7 +334,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
         'Historical observations are compacted for context: their event IDs and short text remain, but only the latest observation carries actionable refs. Complete evidence is retained by the server. A truncated historical excerpt is not proof of absence; observe again when needed.',
         'Pi may summarize older turns when the context window fills. Complete evidence remains available through observation_read(id), screenshot_read(artifactId), and source_read. Reread the current revision’s screenshot after compaction instead of assuming the image survived the summary.',
         'Read relevant source to check unsupported capability promises, fake success, persistence and plan outOfScope. Mark failed if UI promises real email/payment/backend that source does not implement. Do not accept build success as behavioral correctness.',
-        'Work through plan behaviors in order. Immediately call record_behavior after verifying each behavior; retained completedBehaviors are your checklist, do not repeat them without contradictory evidence. Recording the final behavior validates and submits the whole report automatically. You may instead submit_review once for all behaviors.',
+        'Work through plan behaviors in order. Immediately call record_behavior after verifying each behavior; retained completedBehaviors are your checklist. You must record the current behavior before acting on a different behaviorId. At most eight browser actions may remain unrecorded for one behavior; use a blocked or failed verdict if observation cannot establish success. Recording the final behavior validates and submits the whole report automatically. You may instead submit_review once for all behaviors only when no behavior switch is needed.',
         'Submit one report matching all plan behaviors exactly. Three different ids exist and are not interchangeable: every browser result returns both `id` (the observation event id, the only value allowed in observationEventIds) and `observationId` (used to chain the next browser call); screenshot results return `artifactId` (the only value allowed in screenshotIds). Include concise actual evidence and reproSteps. The expected field is bound to the sealed plan by the service, so put what you actually saw in actual instead of restating the plan. blocked means infrastructure prevents observation, failed means observed incorrect behavior.',
         'Take a screenshot after the relevant action and inspect its actual image pixels alongside the text metadata. The screenshot tool sends a real PNG image to you; artifactId, path, hash and DOM text alone do not prove visual behavior. A passing report is accepted only after a later model request actually receives that image. browser_logs shows runtime exceptions; these prevent passing.',
         'Use short reports, at most 3 small independent tool calls per turn, await dependent results. A report does not itself publish the application.',
@@ -334,6 +375,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             const problem=itemProblem(item);if(problem)throw invalid(problem);
             if(JSON.stringify(item).includes(input.modelConfig.apiKey))throw invalid('SECRET_OUTPUT');
             completedBehaviors.set(item.behaviorId,bindExpected(item));
+            if(pendingBehaviorId===item.behaviorId){pendingBehaviorId=undefined;unrecordedActions=0;}
             if(completedBehaviors.size===handoff.plan.behaviors.length){
               const logs=await input.browser.logs();
               fatalPageError ||= Array.isArray(logs.errors)&&logs.errors.length>0;
@@ -369,6 +411,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
               throw new RuntimeError('STALE_BROWSER_REF','先打开候选页面并使用最新观察执行按键');
             if(!handoff.plan.behaviors.some(b=>b.id===batch.behaviorId))
               throw new RuntimeError('INVALID_BEHAVIOR','行为不属于本计划');
+            requireRecordBeforeAction(batch.behaviorId);
             if(!input.browser.keyBatch)throw new RuntimeError('BROWSER_BLOCKED','当前浏览器未提供批量按键能力');
             lastAction=undefined;latestObservationId=undefined;
             const result=await input.browser.keyBatch({observationId:batch.observationId,steps:batch.steps});
@@ -377,6 +420,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             if(result.steps.some(step=>!step.success))failedInputBehaviors.set(batch.behaviorId,sequence);
             else if(failedInputBehaviors.get(batch.behaviorId)===sequence)failedInputBehaviors.delete(batch.behaviorId);
             lastAction={behaviorId:batch.behaviorId,action:'key_batch'};
+            noteBehaviorAction(batch.behaviorId);
             const batchEvidence={startedAt:result.startedAt,finishedAt:result.finishedAt,steps:result.steps};
             value={...observe(result.observation,batchEvidence),batch:batchEvidence,revisionId:binding.revisionId,
               sourceHash:binding.sourceHash,browserSessionId:binding.browserSessionId};
@@ -386,6 +430,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             if(!handoff.plan.behaviors.some(b=>b.id===form.behaviorId))throw new RuntimeError('INVALID_BEHAVIOR','行为不属于本计划');
             if(!latestRefsComplete)throw new RuntimeError('FORM_TARGET_CHANGED','观察不完整，不能批量定位表单');
             const steps=[...form.fields,...(form.submitRef?[{type:'click' as const,ref:form.submitRef}]:[])];
+            requireRecordBeforeAction(form.behaviorId,steps.length);
             if(toolCount+steps.length-1>maxTools)throw fail(new RuntimeError('TOOL_BUDGET_EXCEEDED','检查工具预算耗尽'));
             const targets=steps.map(step=>{
               const target=latestRefs[step.ref];
@@ -407,6 +452,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
               const observation=await input.browser.act({...step,ref:matches[0][0],observationId});
               await active();
               lastAction={behaviorId:form.behaviorId,action:step.type};
+              noteBehaviorAction(form.behaviorId);
               finalObservation=observe(observation);stepObservationEventIds.push(finalObservation.id);
             }
             value={...finalObservation,stepObservationEventIds};
@@ -420,11 +466,13 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
               throw new RuntimeError('STALE_BROWSER_REF','先打开页面并观察，再使用最新观察刷新');
             if(!handoff.plan.behaviors.some(behavior=>behavior.id===reload.behaviorId))
               throw new RuntimeError('INVALID_BEHAVIOR','行为不属于本计划');
+            requireRecordBeforeAction(reload.behaviorId);
             const url=new URL(latestUrl);
             if(url.origin!=='http://127.0.0.1:4173')throw fail(new RuntimeError('CHECK_BLOCKED','只能刷新本次候选预览'));
             lastAction=undefined;latestObservationId=undefined;
             const observation=await input.browser.open(url.pathname+url.search+url.hash);
             await active();lastAction={behaviorId:reload.behaviorId,action:'reload'};
+            noteBehaviorAction(reload.behaviorId);
             value=observe(observation);
           } else if(name==='browser_resize'){
             if(!hasOpenedPage)throw new RuntimeError('STALE_BROWSER_REF','请先打开候选页面再调整视口');
@@ -434,7 +482,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             await active();value=observe(observation);
           } else if(name==='browser_observe') value=observe(await input.browser.observe());
           else if(name==='browser_screenshot'){
-            if(artifacts.length>=6)throw new RuntimeError('ARTIFACT_LIMIT','截图数量已达上限');
+            if(artifacts.length>=MAX_CHECK_ARTIFACTS)throw new RuntimeError('ARTIFACT_LIMIT','截图数量已达上限');
             const screenshot=await input.browser.screenshot();
             const artifact=await input.saveScreenshot(screenshot);artifacts.push(artifact);
             imageContent={type:'image',data:screenshot.base64,mimeType:screenshot.mimeType};
@@ -444,7 +492,8 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             // failed checks. `screenshotIds` takes artifactId values.
             value={artifactId:artifact.id,mimeType:artifact.mimeType,sha256:artifact.sha256,
               revisionId:binding.revisionId,sourceHash:binding.sourceHash,observationId:latestObservationId??null,
-              browserSessionId:binding.browserSessionId};
+              browserSessionId:binding.browserSessionId,
+              ...(pendingBehaviorId?{recordBehaviorNext:pendingBehaviorId}: {})};
           } else if(name==='browser_logs'){
             const logs=await input.browser.logs();
             fatalPageError ||= Array.isArray(logs.errors)&&logs.errors.length>0;
@@ -453,11 +502,13 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             const action=schemas[name].parse(params) as {observationId:string;behaviorId:string};
             if(action.observationId!==latestObservationId)throw new RuntimeError('STALE_BROWSER_REF','先重新观察，再使用最新引用');
             if(!handoff.plan.behaviors.some(b=>b.id===action.behaviorId))throw new RuntimeError('INVALID_BEHAVIOR','行为不属于本计划');
+            requireRecordBeforeAction(action.behaviorId);
             const type=name.slice('browser_'.length);
             const {behaviorId,...browserAction}=action;
             lastAction=undefined;latestObservationId=undefined;
             const observation=await input.browser.act({...browserAction,type} as BrowserAction);
             lastAction={behaviorId,action:type,...(name==='browser_press'?{key:schemas.browser_press.parse(params).key}:{})};
+            noteBehaviorAction(behaviorId);
             value=observe(observation);
           }
           await active();success=true;
@@ -500,8 +551,11 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
           const body=typeof init?.body==='string'?init.body:'';
           const response=await fetch(url,init);
           if(response.ok){
-            for(const [id,saved] of screenshots)
-              if(body.includes(saved.image.data)&&body.includes(saved.image.mimeType))imageDelivered.add(id);
+            // Pi binds each image to its screenshot tool result in both supported
+            // provider formats. Match that exact artifact/result pair: an
+            // older identical PNG elsewhere in context cannot prove delivery
+            // of a newly captured screenshot.
+            for(const id of deliveredScreenshotIdsFromRequest(body,screenshots))imageDelivered.add(id);
           }
           return response;
         },transport:'sse',timeoutMs:grantedTimeoutMs,maxRetries:0,maxTokens:4096}));

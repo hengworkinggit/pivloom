@@ -36,8 +36,13 @@ export const REVIEW_ATTEMPT_TIMEOUT_MS = 1_200_000;
  * usage is ~9.6k tokens per Reviewer turn at ~10k context resend, so a long
  * check plus a repair round lands well inside this ceiling.
  */
-/** Total tool calls per run, including failed and retried calls. */
-export const RUN_TOOL_LIMIT = 80;
+/**
+ * The Reviewer needs at least one action, image capture and recorded verdict per
+ * grouped target. Keep room for Builder and Coordinator even at the 80-target
+ * schema ceiling; wall-clock and per-item cadence still bound a runaway check.
+ */
+export const RUN_TOOL_LIMIT = 384;
+export const REVIEW_TOOL_LIMIT = 280;
 
 /**
  * Accepted runs per account in a rolling 24 hours. Only a run the service

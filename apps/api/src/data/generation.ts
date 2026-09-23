@@ -3,7 +3,7 @@ import type { PoolClient, QueryResultRow } from "pg";
 import {
   CreateRunRequestSchema, ProjectMessageSchema, ProjectSummarySchema, RevisionSchema, RunEventSchema, RunSchema,
   HandoffSchema, PlanSchema, GroupedPlanSchema, PlanningContextSchema, RoleRunSchema, RoleUsageSchema, ClarificationRequestSchema, preservesPreviousBehavior,
-  ReviewBindingSchema, CheckSchema, ReviewArtifactSchema, ReviewResultSchema, aggregateCheckGroups, type ReviewBinding, type Check,
+  ReviewBindingSchema, CheckSchema, ReviewArtifactSchema, ReviewResultSchema, MAX_CHECK_ARTIFACTS, aggregateCheckGroups, type ReviewBinding, type Check,
   TerminalRunStates, type CreateRunRequest, type ProjectMessage, type ProjectSummary, type Revision,
   type Run, type RunEvent, type RunEventType, type RunPhase, type RunState, type RoleRun, type RoleUsage, type Role, type Plan, type PlanningContext, type Handoff,
 } from "@pivloom/contracts";
@@ -199,7 +199,7 @@ const reviewEvidenceSchema = z.array(z.strictObject({
       key: z.enum(["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space"]),
       waitMs: z.number().int().min(0).max(1000), success: z.boolean() })).min(1).max(8) }).optional(),
   url: z.url().max(4000), tree: z.string().max(12000), text: z.string().max(12000), truncated: z.boolean(),
-})).max(80);
+})).max(256);
 function storedCheck(row: Row): Check {
   return CheckSchema.parse({ id: row.id, runId: row.run_id, roleRunId: row.role_run_id, attempt: row.attempt,
     revisionId: row.revision_id, sourceHash: row.source_hash, sandboxId: row.sandbox_id, browserSessionId: row.browser_session_id,
@@ -657,7 +657,7 @@ export function createGenerationRepository(
       if (receipt.source.ownerId !== ownerId) throw notFound();
       const binding = ReviewBindingSchema.parse(receipt.binding);
       const result = ReviewResultSchema.parse(receipt.result);
-      const artifacts = z.array(storedArtifactSchema).max(6).parse(receipt.artifacts);
+      const artifacts = z.array(storedArtifactSchema).max(MAX_CHECK_ARTIFACTS).parse(receipt.artifacts);
       const evidence = reviewEvidenceSchema.parse(receipt.evidence);
       boundedJson({ evidence }, 512 * 1024);
       if (receipt.chromeClosed !== true || binding.runId !== runId || result.revisionId !== binding.revisionId
