@@ -1,0 +1,143 @@
+{
+  "capturedAt": "2026-09-23T21:37:12.870Z",
+  "environment": {
+    "apiSha": "55845117176f706b14e1c3f9e23ec8f97e11905e",
+    "projectUrl": "https://pivloom-69-5-7-187.sslip.io/projects/bfbbe5cc-4207-4d3e-9620-84df5035e1bc",
+    "qaBrowser": "agent-browser 0.36.0",
+    "webSha": "55845117176f706b14e1c3f9e23ec8f97e11905e"
+  },
+  "eventCount": 200,
+  "previewAtTerminal": {
+    "revisionId": "610ad910-53dd-4fef-84fa-8606de06d6a7",
+    "sourceHash": "bc1523f49a59bcffc0ca4e6b8a4d0d51a86f023f0693b68044dce2806641ce18",
+    "state": "expired",
+    "url": null
+  },
+  "project": {
+    "currentRevisionId": null,
+    "id": "bfbbe5cc-4207-4d3e-9620-84df5035e1bc",
+    "latestCandidateId": "610ad910-53dd-4fef-84fa-8606de06d6a7",
+    "latestCheck": null,
+    "preview": {
+      "revisionId": "610ad910-53dd-4fef-84fa-8606de06d6a7",
+      "sourceHash": "bc1523f49a59bcffc0ca4e6b8a4d0d51a86f023f0693b68044dce2806641ce18",
+      "state": "expired",
+      "url": null
+    }
+  },
+  "revision": {
+    "attempt": 0,
+    "buildStatus": "passed",
+    "id": "610ad910-53dd-4fef-84fa-8606de06d6a7",
+    "manifest": [
+      {
+        "bytes": 263,
+        "path": "index.html",
+        "sha256": "386c55c246ac483ca244c4a3627d2f5bae416325a36577c86a6d7da8d2c4420c"
+      },
+      {
+        "bytes": 26874,
+        "path": "package-lock.json",
+        "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6"
+      },
+      {
+        "bytes": 517,
+        "path": "package.json",
+        "sha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65"
+      },
+      {
+        "bytes": 5095,
+        "path": "src/App.tsx",
+        "sha256": "9b0f01848f6edbbf3f0e5c839c82dd38456ef1bc986de31c90d3589a2d4a7db8"
+      },
+      {
+        "bytes": 4579,
+        "path": "src/calculate.ts",
+        "sha256": "85c220979945b1faed3ff6a3d29908ccd0c16a13aa9cfb29ecea5265de385455"
+      },
+      {
+        "bytes": 153,
+        "path": "src/main.tsx",
+        "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c"
+      },
+      {
+        "bytes": 2103,
+        "path": "src/style.css",
+        "sha256": "54f55e5012655fb9c5627a7b00c1601fba1b0891941407023dbba1edb56ed1cc"
+      },
+      {
+        "bytes": 331,
+        "path": "tsconfig.json",
+        "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837"
+      }
+    ],
+    "revisionNo": 1,
+    "sourceHash": "bc1523f49a59bcffc0ca4e6b8a4d0d51a86f023f0693b68044dce2806641ce18",
+    "status": "candidate"
+  },
+  "roles": {
+    "builder": {
+      "finishedAt": "2026-09-23T21:28:43.805Z",
+      "modelStreamEvidenceEvents": 14,
+      "roleRunId": "2809bb00-d2b1-4772-96be-61e4ef098d8e",
+      "startedAt": "2026-09-23T21:24:33.076Z",
+      "state": "succeeded",
+      "toolStarts": {
+        "bash": 2,
+        "edit": 2,
+        "read": 8,
+        "write": 3
+      }
+    },
+    "coordinator": {
+      "finishedAt": "2026-09-23T21:24:33.061Z",
+      "modelStreamEvidenceEvents": 0,
+      "roleRunId": "30cb378e-e054-49e1-9793-fa51786d3b24",
+      "startedAt": "2026-09-23T21:21:19.980Z",
+      "state": "succeeded",
+      "toolStarts": {}
+    },
+    "reviewer": {
+      "finishedAt": "2026-09-23T21:34:57.732Z",
+      "modelStreamEvidenceEvents": 0,
+      "roleRunId": "cc211a06-7303-4584-bd88-b3c3503eaf24",
+      "startedAt": "2026-09-23T21:28:43.950Z",
+      "state": "failed",
+      "toolStarts": {
+        "browser_click": 54,
+        "browser_open": 1,
+        "browser_press": 2,
+        "browser_resize": 1,
+        "browser_screenshot": 1,
+        "source_read": 4
+      }
+    }
+  },
+  "run": {
+    "attempt": 0,
+    "baseRevisionId": null,
+    "cleanupState": "confirmed",
+    "createdAt": "2026-09-23T21:21:19.959Z",
+    "deadlineAt": "2026-09-23T21:51:19.959Z",
+    "error": {
+      "code": "AGENT_OUTPUT_INVALID",
+      "message": "检查结果未通过格式或证据校验，请稍后重试。",
+      "retryable": true
+    },
+    "finishedAt": "2026-09-23T21:34:57.732Z",
+    "id": "ee9a158f-b06a-46b1-8416-ed6696ca731c",
+    "modelConfigVersion": 2,
+    "modelId": null,
+    "modelProfileId": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+    "phase": "cleanup",
+    "resultRevisionId": "610ad910-53dd-4fef-84fa-8606de06d6a7",
+    "state": "failed",
+    "summary": "检查结果未通过格式或证据校验，请稍后重试。"
+  },
+  "runFinishedEvents": [
+    {
+      "at": "2026-09-23T21:34:57.732Z",
+      "eventId": "6533"
+    }
+  ]
+}
