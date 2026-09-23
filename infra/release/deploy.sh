@@ -32,7 +32,8 @@ with open(sys.argv[1], "rb") as file:
 PY
 )
   ssh "${ssh_options[@]}" "$host" "mkdir -p '$root/incoming'"
-  scp "${ssh_options[@]}" "$archive" "$host:$root/incoming/$component-$release.tar.gz"
+  # Use the existing SSH stream; deployment does not require an SFTP subsystem.
+  ssh "${ssh_options[@]}" "$host" "cat > '$root/incoming/$component-$release.tar.gz'" < "$archive"
 fi
 remote_args=$(printf '%q ' "$component" "$release" "$root" "$mode" "$digest" "$public_url" "$existing_site" "$node" "$npm_cli" "$maintenance_env")
 ssh "${ssh_options[@]}" "$host" "bash -s -- $remote_args" <<'REMOTE'
