@@ -107,6 +107,8 @@ test('a static render-only behavior passes with one observation and a screenshot
     artifactId=data.artifactId;
     return {name:'record_behavior',args:{...report(ids).items[0],screenshotIds:[artifactId],reproSteps:['打开页面并观察渲染内容']}};
   });
+  f.input.handoff.plan = { ...f.input.handoff.plan,
+    behaviors: [{ ...f.input.handoff.plan.behaviors[0], action: '直接查看页面初始状态。' }] };
   const result=await runReviewer(f.input);
   expect(result.result.items[0].verdict).toBe('passed');
   expect(f.stats()).toEqual({calls:3,actions:0,closes:1});
@@ -132,6 +134,8 @@ test('Pi receives actual screenshot bytes with PNG MIME and can reread the same 
     expect(data).toMatchObject({artifactId,revisionId,sourceHash,browserSessionId:f.input.browser.sessionId,mimeType:'image/png'});
     return {name:'record_behavior',args:{...report([observationEventId]).items[0],screenshotIds:[artifactId],reproSteps:['观察当前画面颜色']}};
   });
+  f.input.handoff.plan = { ...f.input.handoff.plan,
+    behaviors: [{ ...f.input.handoff.plan.behaviors[0], action: '直接查看页面当前画面。' }] };
   const result=await runReviewer({...f.input,requireVisionEvidence:true});
   expect(firstImage).toBe(rereadImage);
   expect(result.artifacts.map(artifact=>artifact.id)).toContain(artifactId);
@@ -581,6 +585,8 @@ test('after Pi compaction the Reviewer can reread the actual current-revision PN
     expect(data).toMatchObject({artifactId,revisionId,sourceHash,mimeType:'image/png'});
     return {name:'record_behavior',args:{...report([observationEventId]).items[0],screenshotIds:[artifactId],reproSteps:['压缩后重新读取画面']}};
   },n=>n===5?{prompt_tokens:13_000,completion_tokens:5,total_tokens:13_005}:{prompt_tokens:10,completion_tokens:5,total_tokens:15});
+  f.input.handoff.plan = { ...f.input.handoff.plan,
+    behaviors: [{ ...f.input.handoff.plan.behaviors[0], action: '直接查看页面当前画面。' }] };
   f.input.modelConfig.contextWindow=16_000;
   const open=f.input.browser.open,observe=f.input.browser.observe;
   f.input.browser.open=async(path)=>({...await open(path),text:'initial image observation '.repeat(400)});
@@ -725,7 +731,7 @@ test('an older identical PNG cannot prove delivery of a later behavior screensho
     anthropicResult(first,true),anthropicResult(second,true)]}]}),captures)).toEqual(new Set([first,second]));
 });
 
-test('Reviewer requires recording before switching behaviors and stops repeated unrecorded actions',async()=>{
+test('Reviewer requires recording before switching behaviors and caps one behavior without spending report correction',async()=>{
   const second={...plan.behaviors[0],id:'B02',title:'第二项检查',expected:'第二项结果可见'};
   let firstEventId='',firstObservationId='',rejection='';
   const f=setup((request,n)=>{
@@ -746,19 +752,42 @@ test('Reviewer requires recording before switching behaviors and stops repeated 
   expect(result.result.items.map(item=>item.behaviorId)).toEqual(['B01','B02']);
   expect(f.stats()).toEqual({calls:6,actions:2,closes:1});
 
+  let capRejection='',lastEventId='';
   const spam=setup((request,n)=>{
     const last=request.messages.filter(message=>message.role==='tool').at(-1);
     let data:Record<string,unknown>|null=null;
-    try{data=last?JSON.parse(last.content) as Record<string,unknown>:null;}catch{ /* protocol rejection */ }
+    try{data=last?JSON.parse(last.content) as Record<string,unknown>:null;}catch{capRejection=String(last?.content??'');}
     if(n===1)return {name:'browser_open',args:{}};
     if(data?.observationId)firstObservationId=String(data.observationId);
-    return {name:'browser_click',args:{behaviorId:'B01',observationId:firstObservationId,ref:'e1'}};
+    if(data?.id)lastEventId=String(data.id);
+    if(n<=34)return {name:'browser_click',args:{behaviorId:'B01',observationId:firstObservationId,ref:'e1'}};
+    return {name:'record_behavior',args:report([lastEventId]).items[0]};
   });
-  await expect(runReviewer({...spam.input,maxToolCalls:30})).rejects.toMatchObject({
-    code:'AGENT_OUTPUT_INVALID',message:expect.stringContaining('RECORD_BEHAVIOR_REQUIRED'),
+  const capped=await runReviewer({...spam.input,maxToolCalls:40});
+  expect(capRejection).toContain('32 次浏览器动作');
+  expect(capRejection).toContain('record_behavior');
+  expect(capped.result.items[0].verdict).toBe('passed');
+  expect(spam.stats().actions).toBe(32);
+  expect(spam.stats().calls).toBe(35);
+});
+
+test('a calculator behavior can clear state and enter a complete parenthesized expression before recording',async()=>{
+  let observationId='',eventId='';
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content) as {observationId?:string;id?:string}:null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(data?.observationId)observationId=data.observationId;
+    if(data?.id)eventId=data.id;
+    if(n<=11)return {name:'browser_click',args:{behaviorId:'B01',observationId,ref:'e1'}};
+    return {name:'record_behavior',args:report([eventId]).items[0]};
   });
-  expect(spam.stats().actions).toBe(8);
-  expect(spam.stats().calls).toBe(11);
+  f.input.handoff.plan = { ...f.input.handoff.plan,
+    behaviors: [{ ...f.input.handoff.plan.behaviors[0],
+      action: '点击清空，然后依次点击 (、2、+、3、)、*、4、=。', expected: '结果为 20' }] };
+  const result=await runReviewer({...f.input,maxToolCalls:20});
+  expect(result.result.items[0].verdict).toBe('passed');
+  expect(f.stats()).toEqual({calls:12,actions:10,closes:1});
 });
 
 test('a later failed input cannot pass after an earlier behavior was recorded',async()=>{

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GroupIdSchema, type GroupedPlan } from "./planning.js";
+import { GroupIdSchema, type BehaviorTarget, type GroupedPlan } from "./planning.js";
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 const sourceHash = z.string().regex(/^[a-f0-9]{64}$/);
@@ -24,6 +24,13 @@ export const ReviewItemSchema = z.strictObject({
   screenshotIds: z.array(z.uuid()).max(6), reproSteps: z.array(text(500)).max(8),
 });
 export type ReviewItem = z.infer<typeof ReviewItemSchema>;
+/** A screenshot can substitute for an action only when the sealed target asks
+ * solely to inspect a rendered page. Ambiguous plans require interaction. */
+export function allowsRenderOnlyEvidence(target: Pick<BehaviorTarget, "action">) {
+  const action = target.action.trim();
+  return /^(?:直接)?(?:查看|观察|浏览|目视|阅读|打开页面|打开界面)|^(?:directly\s+)?(?:view|observe|inspect|look at|open\s+(?:the\s+)?(?:page|screen))/iu.test(action)
+    && !/(点击|按下|按键|按动|按住|按按钮|输入|填写|提交|选择|切换|拖拽|滚动|刷新|重载|重启|发送|移动|控制|开始游戏|click|press|type|fill|submit|select|toggle|drag|scroll|reload|restart|send|move|control|start\s+(?:the\s+)?game)/iu.test(action);
+}
 const reviewItems = z.array(ReviewItemSchema).max(80)
   .refine((items) => new TextEncoder().encode(JSON.stringify(items)).length <= 64 * 1024, "检查条目不得超过 64 KiB。");
 

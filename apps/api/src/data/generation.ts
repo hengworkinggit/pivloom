@@ -3,7 +3,7 @@ import type { PoolClient, QueryResultRow } from "pg";
 import {
   CreateRunRequestSchema, ProjectMessageSchema, ProjectSummarySchema, RevisionSchema, RunEventSchema, RunSchema,
   HandoffSchema, PlanSchema, GroupedPlanSchema, PlanningContextSchema, RoleRunSchema, RoleUsageSchema, ClarificationRequestSchema, preservesPreviousBehavior,
-  ReviewBindingSchema, CheckSchema, ReviewArtifactSchema, ReviewResultSchema, MAX_CHECK_ARTIFACTS, aggregateCheckGroups, type ReviewBinding, type Check,
+  ReviewBindingSchema, CheckSchema, ReviewArtifactSchema, ReviewResultSchema, MAX_CHECK_ARTIFACTS, aggregateCheckGroups, allowsRenderOnlyEvidence, type ReviewBinding, type Check,
   TerminalRunStates, type CreateRunRequest, type ProjectMessage, type ProjectSummary, type Revision,
   type Run, type RunEvent, type RunEventType, type RunPhase, type RunState, type RoleRun, type RoleUsage, type Role, type Plan, type PlanningContext, type Handoff,
 } from "@pivloom/contracts";
@@ -701,7 +701,8 @@ export function createGenerationRepository(
           // Static pages have no interactive element: a real check observation
           // plus a captured screenshot is render/content verification, matching
           // the Reviewer's own evidence rule.
-          const renderedEvidence = item.observationEventIds.length >= 1 && item.screenshotIds.length > 0;
+          const renderedEvidence = Boolean(behavior && allowsRenderOnlyEvidence(behavior))
+            && item.observationEventIds.length >= 1 && item.screenshotIds.length > 0;
           if (!behavior || item.expected !== behavior.expected || item.screenshotIds.some((id) => !artifactIds.has(id))
             || item.observationEventIds.some((id) => !observations.has(id))
             || item.verdict !== "blocked" && !actionEvidence && !renderedEvidence) {
