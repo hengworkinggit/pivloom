@@ -43,6 +43,7 @@ export interface ReviewBrowser {
   readonly sessionId: string;
   open(path?: string): Promise<BrowserObservation>;
   observe(): Promise<BrowserObservation>;
+  resize(width: number, height: number): Promise<BrowserObservation>;
   act(action: BrowserAction): Promise<BrowserObservation>;
   logs(): Promise<Record<string, unknown>>;
   screenshot(): Promise<{ base64: string; mimeType: 'image/png'; sha256: string }>;
@@ -81,6 +82,7 @@ const schemas = {
   browser_open: z.strictObject({ path: z.string().max(500).default('/') }),
   browser_reload: z.strictObject({ observationId: z.uuid(), behaviorId: ref.behaviorId }),
   browser_observe: z.strictObject({}),
+  browser_resize: z.strictObject({ width: z.number().int().min(320).max(2560), height: z.number().int().min(320).max(2000) }),
   browser_click: z.strictObject(ref),
   browser_fill: z.strictObject({ ...ref, text: z.string().max(2000) }),
   browser_select: z.strictObject({ ...ref, value: z.string().max(2000) }),
@@ -110,7 +112,7 @@ const reportProblems = {
 };
 type ReportProblem = keyof typeof reportProblems;
 const reportFields = new Set(['behaviorId','verdict','expected','actual','observationEventIds','screenshotIds','reproSteps','revisionId','sourceHash','items','summary']);
-const browserFields = new Set(['observationId','behaviorId','fields','type','ref','text','value','submitRef','path','key','direction']);
+const browserFields = new Set(['observationId','behaviorId','fields','type','ref','text','value','submitRef','path','key','direction','width','height']);
 const browserFailureDiagnostics = new Map([
   ['FORM_TARGET_CHANGED','FORM_TARGET_CHANGED'],
   ['INVALID_BROWSER_ACTION','INVALID_BROWSER_ACTION'],
@@ -249,6 +251,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
         'Test every plan behavior with real interactions followed by observation. Tag each action with its behaviorId. Use observationId and refs from the latest browser result. open/title/screenshot alone is not a behavior test.',
         'A pure render/content behavior (a static page with no interactive element) may pass with at least two observations of the rendered page and a screenshot; but if the behavior describes an interaction (click, input, submit, navigation, persistence), real behavior-bound action evidence is required.',
         'browser_open establishes the initial page without behavioral evidence. To test persistence after an interaction, use browser_reload with the latest observationId and behaviorId: it navigates to the currently observed path and query without clearing storage, and returns a behavior-bound reload observation. A fresh first open is not a reload test.',
+        'Use browser_resize after opening the page to set an exact CSS viewport (for example width 390, height 844). Its observation includes measured width, height and scrollWidth; scrollWidth greater than width means horizontal overflow. Resizing itself is not a business action: use fresh refs for the required interaction and take a screenshot for layout verification.',
         'Prefer browser_form for related fields and optional submit in one turn; give refs from the latest observation. The service executes and observes every step, rebinding only uniquely named controls. Never batch a destructive action or repeat submission without observing its result.',
         'Reuse observations returned by actions. If asynchronous content has not appeared, browser_observe again; do not repeat submission blindly. A stale ref requires a fresh observation.',
         'Historical observations are compacted for context: their event IDs and short text remain, but only the latest observation carries actionable refs. Complete evidence is retained by the server. A truncated historical excerpt is not proof of absence; observe again when needed.',
@@ -363,6 +366,12 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             const observation=await input.browser.open(url.pathname+url.search+url.hash);
             await active();lastAction={behaviorId:reload.behaviorId,action:'reload'};
             value=observe(observation);
+          } else if(name==='browser_resize'){
+            if(!hasOpenedPage)throw new RuntimeError('STALE_BROWSER_REF','请先打开候选页面再调整视口');
+            const size=schemas.browser_resize.parse(params);
+            lastAction=undefined;latestObservationId=undefined;
+            const observation=await input.browser.resize(size.width,size.height);
+            await active();value=observe(observation);
           } else if(name==='browser_observe') value=observe(await input.browser.observe());
           else if(name==='browser_screenshot'){
             if(artifacts.length>=6)throw new RuntimeError('ARTIFACT_LIMIT','截图数量已达上限');

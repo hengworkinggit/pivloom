@@ -96,6 +96,25 @@ export class RemoteBrowser {
   async observe(): Promise<BrowserObservation> {
     return this.exclusive(() => this.observePage());
   }
+  async resize(width: number, height: number): Promise<BrowserObservation> {
+    return this.exclusive(async () => {
+      if (!Number.isInteger(width) || width < 320 || width > 2560 || !Number.isInteger(height) || height < 320 || height > 2000)
+        throw new RuntimeError("INVALID_BROWSER_ACTION", "视口宽高超出受控范围");
+      if (!this.observation) throw new RuntimeError("STALE_BROWSER_REF", "请先打开并观察候选页面");
+      const beforeUrl = await this.checkOrigin();
+      this.observation = undefined;
+      await this.call(["set", "viewport", String(width), String(height)]);
+      await this.checkOrigin();
+      // Fixed, read-only layout measurements; the model cannot supply script.
+      const measured = await this.call(["eval", "({width:window.innerWidth,height:window.innerHeight,scrollWidth:Math.max(document.documentElement.scrollWidth,document.body?.scrollWidth??0)})"]);
+      const metrics = z.strictObject({ width: z.number().int().positive(), height: z.number().int().positive(), scrollWidth: z.number().int().nonnegative() }).safeParse(measured.result);
+      if (!metrics.success || metrics.data.width !== width || metrics.data.height !== height)
+        throw new RuntimeError("BROWSER_BLOCKED", "浏览器未确认请求的实际视口尺寸");
+      const observation = await this.observePage();
+      if (observation.url !== beforeUrl) throw new RuntimeError("BROWSER_OBSERVATION_CHANGED", "调整视口时页面发生导航，请重新观察");
+      return { ...observation, text: `[viewport] width=${metrics.data.width} height=${metrics.data.height} scrollWidth=${metrics.data.scrollWidth}\n${observation.text}` };
+    });
+  }
   private async observePage(): Promise<BrowserObservation> {
     this.observation = undefined;
     const beforeUrl = await this.checkOrigin();

@@ -36,6 +36,7 @@ function setup(turn: (request: { messages: Array<{ role: string; content: string
   let calls = 0, actions = 0, closes = 0;
   const observation = () => ({ id: randomUUID(), sessionId: 'pivloom-'+revisionId, url:'http://127.0.0.1:4173/', tree:'button 添加 [ref=e1]', text: actions ? '测试书名' : '空书单', refs:{ e1:{ role:'button', name:'添加' } }, truncated: false });
   const browser: ReviewBrowser = { sessionId:'pivloom-'+revisionId, open:async()=>observation(), observe:async()=>observation(),
+    resize:async(width,height)=>({...observation(),text:`[viewport] width=${width} height=${height} scrollWidth=${width}\n测试书名`}),
     act:async()=>{actions++; return observation();}, logs:async()=>({errors:[]}), close:async()=>{closes++; return {confirmed:true};},
     screenshot:async()=>({base64:'',sha256:'b'.repeat(64),mimeType:'image/png'}) };
   const fetch: typeof globalThis.fetch = async (_url, init) => {
@@ -69,6 +70,26 @@ test('real Pi accepts only a report linked to an action and its subsequent obser
   expect(result.result.items[0].verdict).toBe('passed');
   expect(result.evidence.at(-1)).toMatchObject({behaviorId:'B01',action:'click',text:'测试书名'});
   expect(f.stats()).toEqual({calls:3,actions:1,closes:1});
+});
+
+test('Reviewer resizes to 390 CSS pixels and receives layout evidence before a real behavior action',async()=>{
+  let measured='',resizeEvidenceId='';
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    let data=null;try{data=last?JSON.parse(last.content):null;}catch{ /* Unknown tools return an error before this capability exists. */ }
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_resize',args:{width:390,height:844}};
+    if(n===3&&data?.observationId){
+      measured=data.text;resizeEvidenceId=data.id;
+      return {name:'browser_click',args:{behaviorId:'B01',observationId:data.observationId,ref:'e1'}};
+    }
+    return {name:'record_behavior',args:report([data?.id??randomUUID()]).items[0]};
+  });
+  const result=await runReviewer({...f.input,maxToolCalls:4});
+  expect(measured).toContain('width=390 height=844 scrollWidth=390');
+  expect(result.evidence.find(event=>event.id===resizeEvidenceId)).toMatchObject({action:null,behaviorId:null});
+  expect(result.result.items[0]).toMatchObject({behaviorId:'B01',verdict:'passed'});
+  expect(f.stats()).toEqual({calls:4,actions:1,closes:1});
 });
 
 test('a static render-only behavior passes with one observation and a screenshot',async()=>{

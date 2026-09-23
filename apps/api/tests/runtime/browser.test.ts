@@ -24,6 +24,7 @@ async function fixture(sessionId?: string) {
       | undefined,
     png: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
     response: undefined as unknown,
+    viewport: { width: 1280, height: 720, scrollWidth: 1280 },
   };
   let live = true;
   const connection: SandboxConnection = {
@@ -48,6 +49,11 @@ async function fixture(sessionId?: string) {
         data = { text: state.text };
       else if (command.endsWith("'snapshot' '-i'"))
         data = { snapshot: state.tree, refs: state.refs };
+      else if (command.includes("'set' 'viewport'")) {
+        const size = command.match(/'viewport' '(\d+)' '(\d+)'$/)!;
+        state.viewport = { width: Number(size[1]), height: Number(size[2]), scrollWidth: Number(size[1]) };
+        data = { ...state.viewport };
+      } else if (command.includes("'eval'")) data = { result: state.viewport };
       const success =
         !state.failCommand || !command.includes(state.failCommand);
       state.afterCommand?.(command);
@@ -192,6 +198,20 @@ test("scroll and press use fresh observations and a fixed action timeout", async
   } finally {
     await f.cleanup();
   }
+});
+
+test("viewport resizing uses the real CLI boundary and returns measured width and overflow with fresh refs", async () => {
+  const f = await fixture();
+  try {
+    const before = await f.browser.open();
+    const resized = await f.browser.resize(390, 844);
+    expect(f.commands.some(({ command }) => command.endsWith("'set' 'viewport' '390' '844'"))).toBe(true);
+    expect(f.commands.some(({ command }) => command.includes("'eval'") && command.includes("document.documentElement.scrollWidth"))).toBe(true);
+    expect(resized.text).toContain('width=390 height=844 scrollWidth=390');
+    expect(resized.id).not.toBe(before.id);
+    await expect(f.browser.act({ type: "click", ref: "e1", observationId: before.id })).rejects.toMatchObject({ code: "STALE_BROWSER_REF" });
+    await f.browser.act({ type: "click", ref: "e1", observationId: resized.id });
+  } finally { await f.cleanup(); }
 });
 
 test("logs reject an escaped or malformed URL and close instead of reading external data", async () => {
