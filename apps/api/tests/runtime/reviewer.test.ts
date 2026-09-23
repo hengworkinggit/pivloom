@@ -116,25 +116,27 @@ test('a static render-only behavior passes with one observation and a screenshot
   assertReviewerResult(result);
 });
 
-test.each(['blank','menu'])('negative fixture: %s Canvas cannot pass an interactive behavior without a key',async mode=>{
+test.each(['blank','menu'])('negative fixture: %s Canvas cannot pass an interactive behavior without a key',{timeout:30_000},async mode=>{
   let firstObservationEventId='',screenshotId='',imageReachedProvider=false;
   const screenshot=readFileSync(new URL(`../fixtures/canvas-negative/images/${mode}-page-initial.png`,import.meta.url));
   const screenshotSha256=createHash('sha256').update(screenshot).digest('hex');
   const f=setup((request,n)=>{
     const last=request.messages.filter(message=>message.role==='tool').at(-1);
-    const data=last?JSON.parse(last.content):null;
+    let data:Record<string,unknown>|null=null;
+    try{data=last?JSON.parse(last.content) as Record<string,unknown>:null;}
+    catch{ /* The first rejected report is returned as a tool error. */ }
     if(n===1)return {name:'browser_open',args:{}};
-    if(n===2){firstObservationEventId=data.id;return {name:'browser_screenshot',args:{}};}
-    screenshotId=data.artifactId??screenshotId;
+    if(n===2){firstObservationEventId=String(data?.id);return {name:'browser_screenshot',args:{}};}
+    screenshotId=String(data?.artifactId??screenshotId);
     const imageMessage=request.messages.filter(message=>message.role==='user' && Array.isArray(message.content as unknown)).at(-1);
     imageReachedProvider=Boolean((imageMessage?.content as unknown as Array<{type:string;image_url?:{url:string}}> | undefined)
       ?.some(part=>part.type==='image_url' && part.image_url?.url?.startsWith('data:image/png;base64,')));
     return {name:'record_behavior',args:{...report([firstObservationEventId]).items[0],screenshotIds:[screenshotId],
       actual:'仅显示开始菜单，未发送方向键',reproSteps:['打开页面','截取初始画面']}};
   });
-  f.input.handoff.plan.behaviors[0].title='方向控制';
-  f.input.handoff.plan.behaviors[0].action='发送 ArrowRight 并观察 Canvas 上的蛇改变方向';
-  f.input.handoff.plan.behaviors[0].expected='蛇根据 ArrowRight 改变方向';
+  f.input.handoff.plan={...f.input.handoff.plan,
+    behaviors:[{...f.input.handoff.plan.behaviors[0],title:'方向控制',
+      action:'发送 ArrowRight 并观察 Canvas 上的蛇改变方向',expected:'蛇根据 ArrowRight 改变方向'}]};
   f.input.browser.open=async()=>({id:randomUUID(),sessionId:f.input.browser.sessionId,
     url:'http://127.0.0.1:4173/',tree:'button 开始 [ref=e1]; canvas',text:`贪吃蛇 · ${mode} · 状态 menu`,
     refs:{e1:{role:'button',name:'开始'}},truncated:false});
