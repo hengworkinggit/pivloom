@@ -91,7 +91,7 @@ export function createPublicationStore(options: { root: string; baseUrl: string;
       });
       if (listing.error || listing.exitCode !== 0)
         throw new ApiFailure(409, "PUBLICATION_BUILD_MISSING", "预览构建产物不可用，请重新启动预览。");
-      const paths = listing.logs.stdout.map((item) => item.text).join("").trim().split("\n");
+      const paths = listing.logs.stdout.flatMap((item) => item.text.split(/\r?\n/)).map((path) => path.trim()).filter(Boolean);
       if (paths.length < 2 || paths.length > 500 || !paths.includes("index.html") || !paths.includes("pivloom-revision.json"))
         throw new ApiFailure(409, "PUBLICATION_BUILD_MISSING", "预览构建产物不完整，请重新启动预览。");
       let total = 0;
