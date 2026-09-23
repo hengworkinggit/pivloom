@@ -14,6 +14,7 @@ import {
 export interface RestorePreviewInput {
   revisionId: string;
   sourceHash: string;
+  templateVersion: string;
   /** The immutable saved snapshot; the restored build must reproduce its hash. */
   files: SourceFile[];
   sandboxConfig: SandboxConfig;
@@ -62,6 +63,7 @@ export async function restorePreview(
       signal: input.signal,
       buildTimeoutMs: 90_000,
       previewBasePath: `/p/${input.revisionId}/`,
+      templateVersion: input.templateVersion,
     });
     if (built.sourceHash !== input.sourceHash)
       throw new RuntimeError(

@@ -120,6 +120,7 @@ export function createRollbackExecutor(options: {
         throw new RuntimeError("ROLLBACK_TARGET_MISMATCH", "回滚目标版本已失效。");
       const expected = sourceBundleFiles(await sources.load(revision.source));
       const result = await restorePreview({ revisionId: revision.id, sourceHash: record.sourceHash,
+        templateVersion: revision.source.templateVersion,
         files: expected, sandboxConfig: sandbox, signal: controller.signal,
         async onSandbox(handle) {
           createdSandboxId = handle.sandboxId;

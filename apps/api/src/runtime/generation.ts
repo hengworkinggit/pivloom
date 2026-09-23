@@ -1,4 +1,4 @@
-import { createSourceSnapshot } from "./snapshot.js";
+import { createSourceSnapshot, REACT_TEMPLATE_VERSION } from "./snapshot.js";
 import { OpenSandboxWorkspace, shellQuote } from "./workspace.js";
 import {
   REACT_TEMPLATE,
@@ -25,7 +25,7 @@ export async function initializeReactWorkspace(
     ? Object.fromEntries(seed.map((file) => [file.path, new TextDecoder("utf-8", { fatal: true }).decode(file.content)]))
     : REACT_TEMPLATE;
   await workspace.initialize(handle, files, SOURCE_IO_SCRIPT);
-  // Reuse the exact dependency graph actually baked into the verified image.
+  // Keep validating the verified image's lock even when restoring a snapshot.
   const pkg = await workspace.executeService(
     handle,
     'node -e \'process.stdout.write(require("fs").readFileSync("/workspace/package.json","utf8"))\'',
@@ -41,6 +41,9 @@ export async function initializeReactWorkspace(
       "TEMPLATE_INVALID",
       "沙箱镜像缺少锁定的 React 模板依赖",
     );
+  // A saved full tree is immutable. Only a brand-new project gets dependency
+  // files from the current image; replacing either file changes its identity.
+  if (seed) return;
   const manifest = JSON.parse(pkg.stdoutTail) as Record<string, unknown>;
   manifest.type = "module";
   manifest.scripts = {
@@ -59,8 +62,8 @@ export async function initializeReactWorkspace(
     Buffer.from(lock.stdoutTail),
   );
 }
-export function sourceHash(files: SourceFile[]): string {
-  return createSourceSnapshot(files).sourceHash;
+export function sourceHash(files: SourceFile[], templateVersion = REACT_TEMPLATE_VERSION): string {
+  return createSourceSnapshot(files, templateVersion).sourceHash;
 }
 export async function buildAndPreview(
   workspace: OpenSandboxWorkspace,
@@ -70,6 +73,7 @@ export async function buildAndPreview(
     signal?: AbortSignal;
     buildTimeoutMs?: number;
     previewBasePath?: string;
+    templateVersion?: string;
   } = {},
 ): Promise<{
   files: SourceFile[];
@@ -108,7 +112,7 @@ export async function buildAndPreview(
     options.signal?.throwIfAborted();
     await workspace.revokeWriters(handle);
     const files = await workspace.listSourceFiles(handle);
-    trustedBuild.sourceHash = sourceHash(files);
+    trustedBuild.sourceHash = sourceHash(files, options.templateVersion);
     const typescript = files
       .filter((f) => /\.[cm]?tsx?$/.test(f.path))
       .map((f) => shellQuote("/workspace/app/" + f.path));
@@ -141,8 +145,8 @@ export async function buildAndPreview(
       );
     await workspace.revokeWriters(handle);
     const finalFiles = await workspace.listSourceFiles(handle),
-      hash = sourceHash(finalFiles);
-    if (sourceHash(files) !== hash)
+      hash = sourceHash(finalFiles, options.templateVersion);
+    if (sourceHash(files, options.templateVersion) !== hash)
       throw new RuntimeError(
         "SOURCE_CHANGED_DURING_BUILD",
         "固定构建期间源码发生变化",

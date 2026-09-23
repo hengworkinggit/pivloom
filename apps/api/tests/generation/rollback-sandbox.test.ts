@@ -42,7 +42,7 @@ describe("rollback preview rebuild from an immutable full tree", () => {
     if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  function connector(injectExtraDuringBuild = false) {
+  function connector(injectExtraDuringBuild = false, imageLockMissing = false) {
     const files = new Map<string, Buffer>();
     const staging = new Map<string, Buffer>();
     let killed = false;
@@ -59,6 +59,7 @@ describe("rollback preview rebuild from an immutable full tree", () => {
       async read(path) { return staging.get(path) ?? Buffer.alloc(0); },
       async run(command) {
         let stdoutTail = "";
+        let exitCode = 0;
         if (command.startsWith("node /opt/pivloom/source-io.mjs ")) {
           const path = command.slice("node /opt/pivloom/source-io.mjs ".length).replace(/^'|'$/g, "");
           const body = JSON.parse(staging.get(path)!.toString("utf8")) as { op: string; path?: string; data?: string };
@@ -66,11 +67,14 @@ describe("rollback preview rebuild from an immutable full tree", () => {
           else if (body.op === "read") stdoutTail = JSON.stringify({ data: files.get(body.path!)?.toString("base64") ?? "" });
           else if (body.op === "list") stdoutTail = JSON.stringify({ files: [...files.keys()] });
         } else if (command.includes('readFileSync("/workspace/package.json"')) stdoutTail = JSON.stringify(basePackage);
-        else if (command.includes('readFileSync("/workspace/package-lock.json"')) stdoutTail = lock;
+        else if (command.includes('readFileSync("/workspace/package-lock.json"')) {
+          if (imageLockMissing) exitCode = 1;
+          else stdoutTail = lock;
+        }
         else if (command.includes("vite.js build") && injectExtraDuringBuild)
           files.set("src/residual.ts", Buffer.from("export const residual=true;\n"));
         else if (command.startsWith("cp /opt/pivloom/marker.json")) marker = staging.get("/opt/pivloom/marker.json")?.toString("utf8") ?? null;
-        return { id: randomUUID(), async wait() { return { exitCode: 0, stdoutTail, stderrTail: "" }; }, async interrupt() {} };
+        return { id: randomUUID(), async wait() { return { exitCode, stdoutTail, stderrTail: "" }; }, async interrupt() {} };
       },
     };
     const sandboxConnector: SandboxConnector = { async create() { createCount++; return connection; } };
@@ -82,6 +86,7 @@ describe("rollback preview rebuild from an immutable full tree", () => {
     const remote = connector();
     const revisionId = randomUUID();
     const result = await restorePreview({ revisionId, sourceHash: saved.sourceHash,
+      templateVersion: saved.bundle.templateVersion,
       files: sourceBundleFiles(saved.bundle), sandboxConfig: { baseUrl: origin, apiKey: "fixture", image: "fixture" },
       signal: new AbortController().signal,
     }, { sandboxConnector: remote.sandboxConnector });
@@ -96,10 +101,83 @@ describe("rollback preview rebuild from an immutable full tree", () => {
     expect(result.trustedBuild.build?.exitCode).toBe(0);
   });
 
+  test("preserves an accepted version's package and lock when the sandbox image differs", async () => {
+    marker = null;
+    const savedPackage = JSON.stringify({
+      ...basePackage,
+      name: "saved-calculator",
+      type: "module",
+      scripts: {
+        typecheck: "tsc --noEmit",
+        build: "vite build",
+        preview: "vite preview --host 0.0.0.0 --port 4173 --strictPort",
+      },
+    }, null, 2);
+    const savedLock = JSON.stringify({
+      name: "saved-calculator",
+      version: "1.0.0",
+      lockfileVersion: 3,
+      packages: { "": { name: "saved-calculator", version: "1.0.0" } },
+    });
+    const oldVersion = prepareSourceSnapshot(REACT_TEMPLATE_VERSION, [
+      { path: "src/App.tsx", content: "export default function App(){return <p>calculator</p>}\n" },
+      { path: "package.json", content: savedPackage },
+      { path: "package-lock.json", content: savedLock },
+    ]);
+    const remote = connector();
+    const revisionId = randomUUID();
+    const result = await restorePreview({ revisionId, sourceHash: oldVersion.sourceHash,
+      templateVersion: oldVersion.bundle.templateVersion,
+      files: sourceBundleFiles(oldVersion.bundle), sandboxConfig: { baseUrl: origin, apiKey: "fixture", image: "fixture" },
+      signal: new AbortController().signal,
+    }, { sandboxConnector: remote.sandboxConnector });
+
+    expect(result.sourceHash).toBe(oldVersion.sourceHash);
+    expect(result.trustedBuild.typecheck?.exitCode).toBe(0);
+    expect(result.trustedBuild.build?.exitCode).toBe(0);
+    expect(remote.files.get("package.json")?.toString("utf8")).toBe(savedPackage);
+    expect(remote.files.get("package-lock.json")?.toString("utf8")).toBe(savedLock);
+    expect(JSON.parse(marker!)).toEqual({ revisionId, sourceHash: oldVersion.sourceHash });
+    expect(remote.killed).toBe(false);
+  });
+
+  test("rebuilds a saved version with its original template version after an image upgrade", async () => {
+    marker = null;
+    const previous = prepareSourceSnapshot("react-vite-node24-20260921", [
+      { path: "src/App.tsx", content: "export default function App(){return <p>previous version</p>}\n" },
+      { path: "package.json", content: packageJson },
+      { path: "package-lock.json", content: lock },
+    ]);
+    const remote = connector();
+    const revisionId = randomUUID();
+    const result = await restorePreview({ revisionId, sourceHash: previous.sourceHash,
+      templateVersion: previous.bundle.templateVersion,
+      files: sourceBundleFiles(previous.bundle), sandboxConfig: { baseUrl: origin, apiKey: "fixture", image: "fixture" },
+      signal: new AbortController().signal,
+    }, { sandboxConnector: remote.sandboxConnector });
+
+    expect(result.sourceHash).toBe(previous.sourceHash);
+    expect(JSON.parse(marker!)).toEqual({ revisionId, sourceHash: previous.sourceHash });
+    expect(remote.killed).toBe(false);
+  });
+
+  test("rejects a sandbox image without its verified dependency lock", async () => {
+    marker = null;
+    const remote = connector(false, true);
+    await expect(restorePreview({ revisionId: randomUUID(), sourceHash: saved.sourceHash,
+      templateVersion: saved.bundle.templateVersion,
+      files: sourceBundleFiles(saved.bundle), sandboxConfig: { baseUrl: origin, apiKey: "fixture", image: "fixture" },
+      signal: new AbortController().signal,
+    }, { sandboxConnector: remote.sandboxConnector })).rejects.toMatchObject({ code: "TEMPLATE_INVALID" });
+    expect(remote.killed).toBe(true);
+    expect(marker).toBeNull();
+  });
+
   test("rejects a residual extra source file and destroys the candidate sandbox", async () => {
     marker = null;
     const remote = connector(true);
     await expect(restorePreview({ revisionId: randomUUID(), sourceHash: saved.sourceHash,
+      templateVersion: saved.bundle.templateVersion,
       files: sourceBundleFiles(saved.bundle), sandboxConfig: { baseUrl: origin, apiKey: "fixture", image: "fixture" },
       signal: new AbortController().signal,
     }, { sandboxConnector: remote.sandboxConnector })).rejects.toMatchObject({ code: "SOURCE_CHANGED_DURING_BUILD" });

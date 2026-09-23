@@ -451,7 +451,8 @@ export function createGenerationExecutor(options: {
       try {
         const files = sourceBundleFiles(await sources.load(revision.source));
         const result = await restorePreview({
-          revisionId: revision.id, sourceHash: revision.sourceHash, files, sandboxConfig: sandbox,
+          revisionId: revision.id, sourceHash: revision.sourceHash, templateVersion: revision.source.templateVersion,
+          files, sandboxConfig: sandbox,
           signal: controller.signal,
           async onSandbox(handle) {
             tracked.current = { ownerId: revision.ownerId, runId: revision.runId, revisionId: revision.id, sandboxId: handle.sandboxId, expiresAt: handle.expiresAt,
