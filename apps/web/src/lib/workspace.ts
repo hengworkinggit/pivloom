@@ -37,15 +37,42 @@ export function configurationProblem() {
 }
 
 let api: ReturnType<typeof createApiWorkspace> | undefined;
+let identityClient: ReturnType<typeof createClient> | undefined;
+function getIdentityClient() {
+  if (!identityClient) identityClient = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: "pivloom.auth.v1" },
+  });
+  return identityClient;
+}
+
+export async function registerAccount(input: { name: string; email: string; password: string }) {
+  const problem = configurationProblem();
+  if (problem) throw new WorkspaceError("CONFIGURATION_ERROR", problem);
+  const { data, error } = await getIdentityClient().auth.signUp({
+    email: input.email.trim(), password: input.password,
+    options: { data: { display_name: input.name.trim() } },
+  });
+  if (error || !data.user) throw new WorkspaceError("SIGNUP_FAILED", error?.message ?? "暂时无法注册，请稍后重试。");
+  return { requiresConfirmation: !data.session };
+}
+
+export async function updateAccount(input: { name?: string; email?: string; password?: string }) {
+  const { error } = await getIdentityClient().auth.updateUser({
+    ...(input.name !== undefined ? { data: { display_name: input.name.trim() } } : {}),
+    ...(input.email !== undefined ? { email: input.email.trim() } : {}),
+    ...(input.password !== undefined ? { password: input.password } : {}),
+  });
+  if (error) throw new WorkspaceError("ACCOUNT_UPDATE_FAILED", error.message);
+  await getApiWorkspace().retry();
+}
+
 export function getApiWorkspace() {
   if (isDemoMode) throw new WorkspaceError("MODE_MISMATCH", "当前为演示模式。");
   const problem = configurationProblem();
   if (problem) throw new WorkspaceError("CONFIGURATION_ERROR", problem);
   if (api) return api;
   const storageKey = "pivloom.auth.v1";
-  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey },
-  });
+  const supabase = getIdentityClient();
   const token = (session: Session | null): TokenSession | null => session ? { accessToken: session.access_token, userId: session.user.id } : null;
   api = createApiWorkspace({
     async getSession() {

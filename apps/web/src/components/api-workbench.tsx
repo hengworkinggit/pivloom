@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowUp, LoaderCircle, MessageSquare, Monitor, PanelLeftClose, PanelLeftOpen, RefreshCw, TriangleAlert } from "lucide-react";
+import { ArrowUp, LoaderCircle, MessageSquare, Monitor, PanelLeftClose, PanelLeftOpen, TriangleAlert } from "lucide-react";
 import { getApiWorkspace } from "@/lib/workspace";
 import { WorkspaceError } from "@/lib/api-workspace";
 import { usePrivateQuery, useWorkspaceAuth } from "@/lib/use-workspace";
@@ -17,6 +17,7 @@ import { Button } from "./ui/button";
 import { useGenerationState } from "./generation-state";
 import { GenerationActivity, GenerationOutcome } from "./generation-activity";
 import { GenerationResult } from "./generation-result";
+import { SessionModelPicker } from "./session-model-picker";
 import { checkMatchesRevision } from "./generation-review";
 
 const rejectedSubmissions = new Set(["INVALID_INPUT", "PROJECT_BUSY", "CLEANUP_PENDING", "STALE_BASE", "IDEMPOTENCY_CONFLICT", "SERVICE_BUSY", "QUOTA_EXCEEDED", "NOT_FOUND", "UNAUTHENTICATED", "MODEL_PROFILE_NOT_FOUND", "MODEL_CONFIG_CHANGED", "MODEL_NOT_VERIFIED", "MODEL_CONFIGURATION_MISSING"]);
@@ -52,7 +53,6 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   // are both frozen on the run.
   const inCatalog = !!modelOverrideId && credentialModels.some((model) => model.id === modelOverrideId);
   const effectiveModelId = modelOverrideId && (customModelMode || inCatalog) ? modelOverrideId : selectedModel?.modelId ?? null;
-  const showCatalogPicker = credentialModels.length > 0 && !customModelMode;
   const [draft, setDraft] = useState(() => readDraft(ownerId, projectId));
   const draftRef = useRef(draft);
   const [draftStored, setDraftStored] = useState(true);
@@ -179,31 +179,6 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
           {!state.active && run && run.error?.retryable && <p className="generation-retry-row" role="status">{run.error.message}<Button variant="outline" size="sm" disabled={pending || !modelReady} onClick={() => void retry()}>以新任务重试</Button></p>}
           {submitError && <p className="inline-error" role="alert">{submitError}</p>}
           {unknownSubmission && <div className="run-notice" role="status"><div><strong>上次提交的结果尚未确认</strong><p>确认会沿用原请求，不会把正在编辑的草稿重复发送。</p></div><button disabled={pending} onClick={() => void send(unknownSubmission)}>确认提交结果</button></div>}
-          <div className="generation-model-field"><label htmlFor="generation-model">使用模型</label><div>
-            <select id="generation-model" value={state.active && run ? `run:${run.id}` : selectedModel?.id ?? ""} disabled={pending || state.active || !modelQuery.data?.length} onChange={(event) => { setSelectedModelId(event.target.value); setModelOverrideId(null); saveSessionModel(ownerId, projectId, event.target.value, null); }}>
-              {state.active && run && <option value={`run:${run.id}`}>{lockedProfile ? `${lockedProfile.name} · ${run.modelId ?? lockedProfile.modelId}` : "任务使用的已保存配置"} · v{run.modelConfigVersion}（本次已锁定）</option>}
-              {!modelQuery.data?.length && !state.active && <option value="">{modelQuery.data ? "尚未配置模型" : "正在读取模型…"}</option>}
-              {modelQuery.data?.map((model) => <option key={model.id} value={model.id}>{model.name} · {model.modelId} · v{model.configVersion}{model.isDefault ? "（默认）" : ""}</option>)}
-            </select><button className="icon-button" aria-label="刷新模型配置" disabled={pending || state.active} onClick={modelQuery.refresh}><RefreshCw size={14} /></button>
-          </div></div>
-          {!state.active && selectedModel && <div className="generation-model-field"><label htmlFor="generation-model-id">模型</label>
-            <div>
-              {showCatalogPicker
-                ? <select id="generation-model-id" value={effectiveModelId ?? ""} disabled={pending} onChange={(event) => {
-                    if (event.target.value === "__custom__") { setCustomModelMode(true); return; }
-                    const modelId = event.target.value || null; setModelOverrideId(modelId); saveSessionModel(ownerId, projectId, selectedModel.id, modelId);
-                  }}>
-                    {selectedModel.modelId && !credentialModels.some((model) => model.id === selectedModel.modelId) && <option value={selectedModel.modelId}>{selectedModel.modelId}（当前配置）</option>}
-                    {credentialModels.map((model) => <option key={model.id} value={model.id}>{model.name} · {model.id}{model.id === selectedModel.modelId ? "（默认）" : ""}</option>)}
-                    <option value="__custom__">自定义模型 ID…</option>
-                  </select>
-                : <span className="generation-model-custom-wrap">
-                    <input id="generation-model-id" className="generation-model-custom" value={effectiveModelId ?? ""} placeholder="输入模型 ID（未收录端点）" maxLength={160} disabled={pending} onChange={(event) => { const modelId = event.target.value.trim(); setModelOverrideId(modelId); saveSessionModel(ownerId, projectId, selectedModel.id, modelId || null); }} />
-                    {credentialModels.length > 0 && <button type="button" className="generation-model-switch" disabled={pending} onClick={() => setCustomModelMode(false)}>从目录选择…</button>}
-                  </span>}
-            </div>
-            <small className="generation-model-hint">{credentialModels.length > 0 ? (customModelMode ? "正在使用自定义模型 ID；每次任务会锁定此模型。" : "在本会话中覆盖模型；每次任务会锁定此模型。") : "该服务商未收录，直接输入模型 ID；每次任务会锁定此模型。"}</small>
-          </div>}
           {!state.active && (modelQuery.error || modelQuery.data && !modelReady) && <p className="generation-model-help" role="status">{modelQuery.error || (selectedModel ? "此配置尚未通过流式和工具调用测试。" : "先连接并测试你要使用的模型。")}{" "}<Link href="/settings/models">前往模型设置</Link></p>}
           <form className={cn("chat-composer", state.active && "composer-running")} onSubmit={(event) => { event.preventDefault(); void send(); }}>
             <label className="sr-only" htmlFor="followup-prompt">{clarification ? "回答澄清问题" : "应用需求"}</label>
@@ -211,7 +186,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); void send(); }
             }} />
             <div className="chat-composer-controls"><span><span className="small-status-dot" />{run?.state === "repairing" ? `检查未通过，正在自动修复（第 ${run.attempt + 1} 轮）` : run?.state === "cancel_requested" || stopping ? "正在停止：等待远端模型与沙箱清理确认" : state.active ? "正在执行，可以继续写草稿" : run?.cleanupState === "pending" ? "正在清理执行资源" : clarification ? "回答后继续原需求" : "准备好你的下一个想法"}{project.quota && <span className="generation-quota">今日额度 {project.quota.dailyAccepted}/{project.quota.dailyLimit}</span>}</span>
-              <span className="composer-actions">{canStop && <Button type="button" variant="outline" size="sm" disabled={stopping} onClick={() => void stop()} aria-label="停止任务">{stopping ? <><LoaderCircle className="spin" size={14} />正在停止</> : "停止"}</Button>}<Button type="submit" size="icon" disabled={busy || !!unknownSubmission || !draft.trim() || tooLong || !modelReady} aria-label={clarification ? "发送回答" : "发送需求"}>{pending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</Button></span></div>
+              <span className="composer-actions"><SessionModelPicker profiles={modelQuery.data} selectedProfileId={selectedModel?.id} catalog={credentialModels} effectiveModelId={effectiveModelId} lockedLabel={state.active && run ? `${lockedProfile?.name ?? "已保存配置"} · ${run.modelId ?? lockedProfile?.modelId ?? "模型"} · v${run.modelConfigVersion}` : undefined} disabled={pending || state.active} onProfile={(id) => { setSelectedModelId(id); setModelOverrideId(null); setCustomModelMode(false); saveSessionModel(ownerId, projectId, id, null); }} onModel={(id) => { if (!selectedModel) return; setCustomModelMode(false); setModelOverrideId(id); saveSessionModel(ownerId, projectId, selectedModel.id, id); }} onCustom={(id) => { if (!selectedModel) return; setCustomModelMode(true); setModelOverrideId(id); saveSessionModel(ownerId, projectId, selectedModel.id, id); }} onRefresh={modelQuery.refresh} />{canStop && <Button type="button" variant="outline" size="sm" disabled={stopping} onClick={() => void stop()} aria-label="停止任务">{stopping ? <><LoaderCircle className="spin" size={14} />正在停止</> : "停止"}</Button>}<Button type="submit" size="icon" disabled={busy || !!unknownSubmission || !draft.trim() || tooLong || !modelReady} aria-label={clarification ? "发送回答" : "发送需求"}>{pending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</Button></span></div>
           </form>
           {quotaFull && <p className="generation-model-help" role="status">今日任务额度已用完（{project.quota!.dailyLimit} 个），请明日再试或联系维护者。</p>}
           {tooLong && <p id="draft-error" className="inline-error" role="alert">需求最多 {promptLimit.toLocaleString()} 个字符。</p>}

@@ -9,7 +9,10 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { status, error, epoch, auth } = useWorkspaceAuth();
   useEffect(() => {
-    if (status === "anonymous") router.replace("/login");
+    if (status === "anonymous") {
+      const next = window.location.pathname + window.location.search;
+      router.replace(`/login?next=${encodeURIComponent(next)}`);
+    }
   }, [status, router]);
   if (status === "error")
     return (
