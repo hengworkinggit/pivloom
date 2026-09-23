@@ -1,71 +1,79 @@
 # Pivloom · 派织
 
-把想法织成可运行的应用。Pivloom 是基于 Pi SDK 的 AI Web 应用构建工作台，固定角色协作完成规划、编码、浏览器检查和有限修复。
+Pivloom 是一个可在线使用的 AI Web 应用构建工作台。用户描述需求，三个固定角色依次规划、编写代码、操作浏览器检查；通过检查的版本成为项目当前版本。工作台保存对话、源码和检查结果，支持在同一项目继续修改。
 
-本项目原工作名为 nano-Atoms。真实工作台已接通登录、项目与模型配置、Pi 三角色生成、沙箱构建与浏览器检查、版本迭代、停止/重试和预览恢复。公网入口为 **[Pivloom](https://pivloom-69-5-7-187.sslip.io)**，使用免费 sslip.io 域名及 HTTPS。用户可选“永久发布”：只有主动发布的已验收版本才获得独立 HTTPS 地址；未发布作品仍仅有会到期、可重建的沙箱预览。[已发布的示例作品](https://3c866a6a-26e9-4af4-89d4-d84127b7d430.app-69-5-7-187.sslip.io/)可直接访问。
+**[在线体验](https://pivloom-69-5-7-187.sslip.io/)** · **[已发布的示例应用](https://3c866a6a-26e9-4af4-89d4-d84127b7d430.app-69-5-7-187.sslip.io/)** · **[产品与技术文档](docs/README.md)**
 
-[#13](https://github.com/hengworkinggit/pivloom/issues/13) 与 [#14](https://github.com/hengworkinggit/pivloom/issues/14) 已关闭。公网工作台现有自助注册、个人资料与额度、六个可预览模板、中英与明暗切换，以及会话模型菜单。生产 Run 不设累计 Token 上限，仍记录用量并保留时间与工具调用边界。原工作台验收见[收尾记录](docs/test-runs/2026-09-23-finalization.md)，本次前端改版见[前端验收](docs/test-runs/2026-09-23-frontend-refresh.md)。
+## 能做什么
 
-## 本地运行
+- **生成与迭代**：用自然语言创建 React/TypeScript 应用；后续需求基于当前已验收版本继续修改。
+- **可见的协作过程**：Coordinator 定义目标和可观察行为，Builder 写入多文件源码，Reviewer 在真实浏览器中检查候选应用；失败时最多执行两轮修复。
+- **版本与恢复**：服务端保存项目、消息、源码快照、运行事件和检查结果。旧成功版本不会被失败候选覆盖；临时预览到期后可从保存的源码重建。
+- **可选永久发布**：用户主动点击“永久发布”，才把当前已验收版本的静态产物部署到独立 HTTPS 地址。未发布项目不会自动获得永久链接；发布地址不依赖预览沙箱存活。
+- **自带模型配置**：用户在设置页填写 Provider、Base URL、模型和 API Key，完成流式与工具调用测试后使用。密钥按用户隔离并在服务端加密保存。
+- **完整工作台**：注册登录、项目列表与真实截图、只读源码、运行事件、停止/重试、六个模板、中英与明暗主题及窄屏布局。
 
-使用 Node.js 24 或更高版本，按[基础设施说明](docs/infrastructure-setup.md)准备 API 与 Web 的本地配置，在仓库根目录执行：
+## 体验路径
 
-```bash
+1. 打开[在线工作台](https://pivloom-69-5-7-187.sslip.io/)，注册或登录；到“模型设置”连接可用的模型服务。
+2. 创建项目并描述需求。执行时可查看三个角色的阶段、运行事件以及上一成功版本。
+3. 在预览里实际操作生成的应用，查看对应源码；再发送修改需求。
+4. 预览到期时使用“重新启动预览”。需要长期分享时，再点击“永久发布”。
+
+[活动报名示例](https://3c866a6a-26e9-4af4-89d4-d84127b7d430.app-69-5-7-187.sslip.io/)可匿名访问，展示表单校验、报名列表、搜索筛选、确认与统计。生成应用自己的业务数据由其代码决定：该示例使用浏览器 localStorage，不提供跨设备云数据库。
+
+## 架构
+
+| 层 | 实现与职责 |
+|---|---|
+| 工作台 | Next.js 16、React 19、TypeScript、Tailwind；项目、对话、预览、源码和模型设置 |
+| API 与执行器 | 常驻 Fastify 服务；HTTP/SSE、身份校验、固定角色交接、运行状态、版本提交和发布 |
+| Agent | Pi SDK；角色会话与工具权限由服务端约束，只有 Builder 能修改生成源码 |
+| 隔离运行 | OpenSandbox + Docker/gVisor；安装依赖、构建、运行生成应用及浏览器检查均在沙箱内 |
+| 持久化 | 自托管 Supabase Auth、PostgreSQL 和私有 Storage；项目与运行状态在数据库，源码及检查工件在对象存储 |
+| 公开入口 | Caddy；工作台、版本独立预览域名、按项目划分的可选静态发布域名 |
+
+生成应用默认只有短期预览。预览恢复重新创建沙箱并从保存的源码构建，不调用模型；正式发布复制与当前已验收版本匹配的静态构建产物，访问发布域名时不启动沙箱或模型。每个版本的预览使用独立 origin；浏览器 localStorage 不会自动跨版本或跨发布域名迁移。
+
+当前是单实例部署，生成任务全局串行。生成应用的通用后端、独立数据库、自定义域名、多人实时协作和支付计费尚未实现。[产品范围](docs/PRD.md)与[技术设计](docs/TRD.md)说明了取舍。
+
+## 本地开发
+
+需要 Node.js 24+、npm，以及按[基础设施说明](docs/infrastructure-setup.md)准备的 Supabase 与 OpenSandbox。复制 [API 示例配置](apps/api/.env.example)和 [Web 示例配置](apps/web/.env.example)到各自的本地环境文件，填入本地基础设施地址与管理凭据；用户模型密钥在页面配置，不写入 Web 环境文件。
+
+~~~bash
 npm ci
+npm run build:contracts
 npm run dev:api
-# 另一个终端
+# 在另一个终端
 npm run dev
-```
+~~~
 
-打开 [Pivloom 前端](http://localhost:45231/projects)，使用已准备的真实测试账号登录。在[模型设置](http://localhost:45231/settings/models)填写服务地址、模型和 Key，保存并测试；普通用户不编辑服务器模型环境变量。账号口令和基础设施管理密钥不进入仓库。
+工作台默认位于 <http://localhost:45231/projects>。真实模式连接 API，不会静默降级为假数据；若只需查看早期前端演示，可显式运行 `npm run dev:demo`，其结果不代表真实生成。
 
-使用远端已有 API 时只启动本地 Web，并配置 API 与身份服务的转发地址；同一数据库只能有一个执行器，不要同时启动本地 API 和远端 `pivloom-api.service`。维护者的 `npm run g0:serve -w @pivloom/api` 是独立基础设施探针，不属于正式产品导航。
+## 验证与部署
 
-原 Mock 演示保留在显式 `npm run dev:demo` 模式，含模拟生成、迭代、停止/重试和预览恢复。真实模式不会自动切换为 Demo；演示结果不计入真实产品验收。
-
-## 发布到已有服务器
-
-前后端分别构建，发布到 `/opt/pivloom/api-releases` 和 `/opt/pivloom/web-releases`，由独立 systemd 服务运行。宿主 Caddy 保留原有站点，Pivloom Web/API/预览使用回环端口 18012/18010/18011。
-
-可复用的[打包、发布、回滚和公网探针](infra/release/README.md)已经入库，不依赖维护者的 `.cache/development` 脚本。模型 Key 通过设置页面保存；服务器环境文件只放基础设施配置。构建产物禁止携带 `.env` 文件。
-
-生产 API 拒绝 `TEST_PROFILE` 和测试依赖注入。故障验收的 `apps/api/scripts/testing/repair-server.mjs` 只用于独立测试数据库，不能成为公网服务的启动项。
-
-```bash
+~~~bash
 npm run typecheck
 npm run lint
 npm test
 npm run build
-```
+~~~
 
-- [PRD：功能、边界与完成条件](docs/PRD.md)
-- [TRD：架构、开源模块参考、接口、数据与实施路线](docs/TRD.md)
-- [E2E：Codex 内置浏览器测试方案及用例](docs/E2E.md)
-- [文档优先级与当前状态](docs/README.md)
-- [正式开发总 Spec](docs/specs/real-development-v1.md)
-- [GitHub 开发任务、依赖与逐模块 E2E 门槛](docs/tickets/real-development-v1/README.md)
-- [研究索引](research/README.md)
-- [前端实现与 Mock 接口说明](apps/web/README.md)
-- [前端开源参考](docs/frontend-open-source.md)
-- [第三方 UI 版权声明](docs/third-party-ui-notices.md)
-- [设计方向与样式规范](design/README.md)
+真实环境另需验证身份隔离、模型调用、沙箱构建、浏览器行为、预览恢复及永久发布。实际执行记录见[主流程验收](docs/test-runs/2026-09-23-finalization.md)、[前端验收](docs/test-runs/2026-09-23-frontend-refresh.md)和[可选发布验收](docs/test-runs/2026-09-23-publication.md)。
 
-确定的主路线：Next 工作台 + 常驻 Fastify API + Pi SDK + OpenSandbox（Docker + gVisor）+ agent-browser + 自托管 Supabase。固定三角色按阶段交接，只有 Builder 写源码；不叠加 Deep Agents、LangChain 或 LangGraph。相关评估已写入 TRD。
+前后端同仓、独立构建部署；单实例生产环境使用 systemd 运行 API/Web，并由 Caddy 提供 HTTPS。参见[发布与回滚指南](infra/release/README.md)。生产密钥、测试账号密码和服务器配置不提交到仓库。
 
 ## 仓库结构
 
-前后端同仓维护、独立构建和部署，共享接口契约。
+~~~text
+apps/web/           Next.js 工作台
+apps/api/           Fastify API、Agent 执行器与沙箱集成
+packages/contracts/ 前后端共享的接口与事件 schema
+migrations/         PostgreSQL 数据结构及权限
+infra/              Supabase、沙箱和生产发布配置
+docs/               产品、技术与验收文档
+research/           选型研究与历史决策
+~~~
 
-```text
-apps/
-  web/                 Next.js 工作台
-  api/                 Fastify API 与 Agent 服务
-packages/
-  contracts/           共享类型、事件和接口 schema
-docs/                  PRD、TRD、E2E 规格
-research/              历史研究记录
-```
-
-`apps/web` 为 Next.js 前端，`apps/api` 为常驻 Fastify API 与隔离运行时，`packages/contracts` 为共享 schema；`migrations` 与 `infra` 提供数据库和自托管配置。历史研究保留原工作名，不作为另一套产品范围。
-
-PRD/TRD/E2E 描述真实产品的目标；各模块以独立浏览器与真实集成验收为准，Mock、故障 fixture 和真实模型运行分别记录。仓库已公开；服务端凭据及测试账号密码保留在忽略文件和服务器私有配置中。
+第三方组件及 UI 参考见[开源来源](docs/frontend-open-source.md)和[版权说明](docs/third-party-ui-notices.md)。本仓库目前未附独立的软件许可证；公开可读不自动授予再分发许可。
