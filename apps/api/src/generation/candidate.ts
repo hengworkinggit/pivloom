@@ -130,7 +130,7 @@ export async function runCandidate(
   const workspace = new OpenSandboxWorkspace(
     {
       ...input.sandboxConfig,
-      lifetimeMs: Math.min(input.sandboxConfig.lifetimeMs ?? 900_000, 900_000),
+      lifetimeMs: input.sandboxConfig.lifetimeMs ?? RUN_DEADLINE_MS,
     },
     boundaries.sandboxConnector,
   );

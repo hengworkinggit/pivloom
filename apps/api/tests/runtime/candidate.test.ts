@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "vitest";
 import type { Handoff } from "@pivloom/contracts";
 import { runCandidate } from "../../src/generation/candidate.js";
 import { createRunTokenBudget } from "../../src/runtime/token-budget.js";
-import { RUN_DEADLINE_MINUTES } from "../../src/runtime/budgets.js";
+import { RUN_DEADLINE_MINUTES, RUN_DEADLINE_MS } from "../../src/runtime/budgets.js";
 import type {
   SandboxConnection,
   SandboxConnector,
@@ -24,6 +24,7 @@ async function remoteFixture(
 ) {
   const files = new Map<string, Buffer>();
   let live = true;
+  const renewals: number[] = [];
   const commands: string[] = [];
   const server = createServer((_request, response) => {
     response.setHeader("Content-Type", "application/json");
@@ -44,7 +45,7 @@ async function remoteFixture(
       live = false;
     },
     isRunning: async () => live,
-    renew: async () => {},
+    renew: async (seconds) => { renewals.push(seconds); },
     close: async () => {},
     read: async (path) => files.get(path) ?? Buffer.alloc(0),
     write: async (path, content) => {
@@ -116,7 +117,7 @@ async function remoteFixture(
     },
   };
   const connector: SandboxConnector = { create: async () => connection };
-  return { connector, files, commands, isLive: () => live };
+  return { connector, files, commands, renewals, isLive: () => live };
 }
 
 function modelFixture(content: string, reportedUsage = { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 }) {
@@ -188,6 +189,7 @@ test("repair Builder receives the failed behavior and compiler diagnostic from i
         behaviors: [{ id: "B02", title: "筛选已读", precondition: "已有已读和未读书籍", action: "点击已读", expected: "只显示已读", required: true }] } },
   }, { sandboxConnector: remote.connector });
   expect(result.status).toBe("candidate");
+  expect(remote.renewals).toContain(RUN_DEADLINE_MS / 1000);
   const request = JSON.stringify(model.requests[0].messages);
   for (const diagnostic of failedChecks) expect(request).toContain(diagnostic);
 });
