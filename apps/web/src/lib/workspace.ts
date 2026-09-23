@@ -63,7 +63,7 @@ export async function updateAccount(input: { name?: string; email?: string; pass
     ...(input.password !== undefined ? { password: input.password } : {}),
   });
   if (error) throw new WorkspaceError("ACCOUNT_UPDATE_FAILED", error.message);
-  await getApiWorkspace().retry();
+  if (input.name !== undefined) await getApiWorkspace().retry();
 }
 
 export function getApiWorkspace() {

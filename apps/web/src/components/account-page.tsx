@@ -30,13 +30,14 @@ function AccountContent() {
       if (part === "password" && password.length < 8) throw new Error(ui.text("密码至少需要 8 位。", "Use at least 8 characters for your password."));
       await updateAccount({ [part]: part === "name" ? name : part === "email" ? email : password });
       if (part === "password") setPassword("");
+      if (part === "email") setEmail(user?.email ?? "");
       setNotice(part === "email" ? ui.text("如需验证新邮箱，请前往邮箱完成确认。", "If asked, confirm the change from your new inbox.") : ui.text("账户信息已保存。", "Account updated."));
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(null); }
   }
   return <div className="account-page"><AppHeader /><main className="account-main">
     <Link className="settings-back" href="/projects"><ArrowLeft size={15} />{ui.text("返回项目", "Back to projects")}</Link>
-    <div className="account-heading"><div className="section-eyebrow">YOUR ACCOUNT</div><h1>{ui.text("账户与额度", "Account & usage")}</h1><p>{ui.text("管理个人信息，查看今天还能创建多少次任务。", "Manage your profile and see your available runs.")}</p></div>
+    <div className="account-heading"><div className="section-eyebrow">YOUR ACCOUNT</div><h1>{ui.text("账户与额度", "Account & usage")}</h1><p>{ui.text("管理个人信息，查看近 24 小时的可用任务次数。", "Manage your profile and see your available runs in the rolling 24-hour window.")}</p></div>
     <div className="account-layout">
       <section className="account-panel" aria-labelledby="account-profile-title">
         <div className="account-panel-heading"><CircleUserRound size={20} /><div><h2 id="account-profile-title">{ui.text("个人信息", "Profile")}</h2><p>{ui.text("这些信息只与你的账户关联。", "These details belong to your account.")}</p></div></div>
