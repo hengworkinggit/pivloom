@@ -1,8 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import type { ProjectMessage, Revision, RevisionDiffResponse } from "@pivloom/contracts";
+import type { ProjectMessage, Revision, RevisionDiffResponse, RollbackOperation } from "@pivloom/contracts";
 import { useUiPreferences } from "@/lib/ui-preferences";
+
+export interface RollbackActions {
+  busy: boolean; unknown: boolean; disabled: boolean; operation: RollbackOperation | null;
+  error: string; storageWarning: boolean;
+  start: (targetRevisionId: string, expectedCurrentRevisionId: string) => void;
+  confirm: () => void; cancel: () => void; clearResult: () => void;
+}
+
+const rollbackPhases: Record<RollbackOperation["status"], [string, string]> = {
+  preparing: ["正在准备源码与独立预览…", "Preparing source and isolated preview…"],
+  prepared: ["预览已准备，正在切换当前版本…", "Preview prepared; switching current version…"],
+  cancel_requested: ["正在取消，等待资源清理…", "Cancelling and cleaning up…"],
+  cleanup_pending: ["正在清理执行资源…", "Cleaning up execution resources…"],
+  committed: ["回滚完成，当前版本与预览已切换。", "Rollback complete; current version and preview switched."],
+  failed: ["回滚失败；原当前版本保持不变。", "Rollback failed; the previous current version remains."],
+  cancelled: ["回滚已取消；原当前版本保持不变。", "Rollback cancelled; the previous current version remains."],
+};
 
 function statusLabel(revision: Revision, currentRevisionId: string | null, english: boolean) {
   if (revision.id === currentRevisionId) return english ? "Current" : "当前";
@@ -11,41 +28,86 @@ function statusLabel(revision: Revision, currentRevisionId: string | null, engli
 }
 
 export function VersionHistoryPanel({ revisions, currentRevisionId, selectedRevision, messages, onSelect, onCompare,
-  comparison, comparing, comparisonError, historyError = "" }: {
+  comparison, comparing, comparisonError, historyError = "", currentFromRollback = false, rollback }: {
   revisions: Revision[]; currentRevisionId: string | null; selectedRevision: Revision | null;
   messages: ProjectMessage[]; onSelect: (revisionId: string) => void;
   onCompare: (fromRevisionId: string, toRevisionId: string) => void;
   comparison: RevisionDiffResponse | null; comparing: boolean; comparisonError: string; historyError?: string;
+  currentFromRollback?: boolean;
+  rollback?: RollbackActions;
 }) {
   const ui = useUiPreferences();
   const english = ui.locale === "en";
   const [chosenBaseId, setChosenBaseId] = useState("");
+  const [confirmation, setConfirmation] = useState<{ fromId: string; targetId: string } | null>(null);
   const defaultBase = selectedRevision && (
     revisions.find((revision) => revision.revisionNo < selectedRevision.revisionNo)
     ?? revisions.find((revision) => revision.id !== selectedRevision.id));
   const base = revisions.find((revision) => revision.id === chosenBaseId && revision.id !== selectedRevision?.id) ?? defaultBase;
-  const selectedMessages = selectedRevision ? messages.filter((message) => message.runId === selectedRevision.runId) : [];
+  const currentRollbackMessage = currentFromRollback && selectedRevision?.id === currentRevisionId
+    ? [...messages].reverse().find((message) => message.kind === "rollback") : null;
+  const selectedMessages = selectedRevision ? [
+    ...messages.filter((message) => message.runId === selectedRevision.runId),
+    ...(currentRollbackMessage ? [currentRollbackMessage] : []),
+  ] : [];
   const current = revisions.find((revision) => revision.id === currentRevisionId);
+  const rollbackTarget = confirmation && revisions.find((revision) => revision.id === confirmation.targetId);
+  const rollbackFrom = confirmation && revisions.find((revision) => revision.id === confirmation.fromId);
   const visibleDiff = comparison && comparison.toRevision.id === selectedRevision?.id && comparison.fromRevision.id === base?.id ? comparison : null;
 
   if (!revisions.length) return null;
   return <section className="version-history" aria-label={ui.text("版本历史", "Version history")}>
     <div className="version-history-picker">
       <label htmlFor="history-version-select">{ui.text("查看版本", "View version")}</label>
-      <select id="history-version-select" data-testid="history-version-select" value={selectedRevision?.id ?? ""} onChange={(event) => onSelect(event.target.value)}>
+      <select id="history-version-select" data-testid="history-version-select" value={selectedRevision?.id ?? ""} onChange={(event) => { setConfirmation(null); onSelect(event.target.value); }}>
         {revisions.map((revision) => <option key={revision.id} value={revision.id}>v{revision.revisionNo} · {statusLabel(revision, currentRevisionId, english)}</option>)}
       </select>
       <span className="version-history-current">{ui.text("当前", "Current")} {current ? `v${current.revisionNo}` : "—"}</span>
     </div>
     <p className="version-history-context">{ui.text("正在查看", "Viewing")} {selectedRevision ? `v${selectedRevision.revisionNo}` : "—"}
       {selectedRevision && selectedRevision.id !== currentRevisionId && <span> · {ui.text("只读；后续生成仍以当前版本为基线", "Read only; the next run still uses the current version")}</span>}
+      {selectedRevision?.id === currentRevisionId && currentFromRollback && <span> · {ui.text("从历史版本恢复的当前基线", "Current baseline restored from history")}</span>}
     </p>
+    {rollback && selectedRevision?.status === "accepted" && selectedRevision.buildStatus === "passed"
+      && currentRevisionId && selectedRevision.id !== currentRevisionId && !rollback.busy && !confirmation &&
+      <button type="button" className="version-history-rollback-trigger" disabled={rollback.disabled}
+        onClick={() => setConfirmation({ fromId: currentRevisionId, targetId: selectedRevision.id })}>
+        {ui.text(`回滚到 v${selectedRevision.revisionNo}`, `Rollback to v${selectedRevision.revisionNo}`)}
+      </button>}
+    {rollback && confirmation && rollbackTarget && rollbackFrom && <div className="version-history-rollback-confirm" role="group" aria-label={ui.text("确认回滚版本", "Confirm version rollback")}>
+      <strong>{ui.text("确认切换当前版本", "Confirm current version change")}</strong>
+      <p data-testid="rollback-direction">v{rollbackFrom.revisionNo} → v{rollbackTarget.revisionNo}</p>
+      <p>{ui.text("将从目标版本的完整源码重建预览。历史版本与对话保留；不会调用模型，也不会自动更新已发布作品。旧检查只代表目标版本当时的验收，重建后需重新验证。",
+        "The preview will be rebuilt from the complete target source. History and conversation remain. This does not call a model or update the published app. Earlier checks are historical; verify the rebuilt preview again.")}</p>
+      {confirmation.fromId !== currentRevisionId && <p role="alert">{ui.text("当前版本已变化，请重新选择回滚目标。", "The current version changed. Choose the rollback target again.")}</p>}
+      <div className="version-history-rollback-actions">
+        <button type="button" disabled={rollback.disabled || rollback.busy || confirmation.fromId !== currentRevisionId}
+          onClick={() => { rollback.start(confirmation.targetId, confirmation.fromId); setConfirmation(null); }}>{ui.text("确认回滚", "Confirm rollback")}</button>
+        <button type="button" onClick={() => setConfirmation(null)}>{ui.text("暂不回滚", "Keep current version")}</button>
+      </div>
+    </div>}
+    {rollback && (rollback.busy || rollback.operation || rollback.error) && <div className="version-history-rollback-status" role="status" data-testid="rollback-status">
+      {rollback.busy && !rollback.operation && !rollback.unknown && <p>{ui.text("正在读取已保存的回滚操作…", "Looking up the saved rollback operation…")}</p>}
+      {rollback.operation && <p><strong>{ui.text(...rollbackPhases[rollback.operation.status])}</strong>{" · "}
+        {ui.text("目标版本", "Target version")} v{revisions.find((item) => item.id === rollback.operation?.targetRevisionId)?.revisionNo ?? "—"}</p>}
+      {rollback.unknown && <p>{ui.text("提交结果尚未确认；再次确认会沿用原幂等键，不会创建第二个回滚。", "Submission outcome is unknown. Confirming uses the same idempotency key and cannot create another rollback.")}</p>}
+      {rollback.storageWarning && <p role="alert">{ui.text("浏览器未能保存恢复信息，请保持页面打开直到结果确认。", "The browser could not save recovery state. Keep this page open until the result is confirmed.")}</p>}
+      {rollback.operation?.error && <p role="alert">{rollback.operation.error.code}: {rollback.operation.error.message}</p>}
+      {rollback.error && <p role="alert">{rollback.error}</p>}
+      <div className="version-history-rollback-actions">
+        {rollback.unknown && <button type="button" onClick={rollback.confirm}>{ui.text("确认提交结果", "Confirm submission result")}</button>}
+        {rollback.busy && !rollback.unknown && rollback.error && <button type="button" onClick={rollback.confirm}>{ui.text("重新读取操作", "Retry operation lookup")}</button>}
+        {rollback.operation && ["preparing", "prepared"].includes(rollback.operation.status) && <button type="button" onClick={rollback.cancel}>{ui.text("取消回滚", "Cancel rollback")}</button>}
+        {!rollback.busy && rollback.operation && ["committed", "failed", "cancelled"].includes(rollback.operation.status)
+          && <button type="button" onClick={rollback.clearResult}>{ui.text("关闭提示", "Dismiss")}</button>}
+      </div>
+    </div>}
     {historyError && <p className="version-history-error" role="alert">{historyError}</p>}
     <details className="version-history-details">
       <summary>{ui.text(`全部 ${revisions.length} 个已保存版本`, `All ${revisions.length} saved versions`)}</summary>
       <ol>{revisions.map((revision) => <li key={revision.id}>
         <button type="button" aria-current={revision.id === selectedRevision?.id ? "true" : undefined}
-          onClick={() => onSelect(revision.id)}>
+          onClick={() => { setConfirmation(null); onSelect(revision.id); }}>
           <strong>v{revision.revisionNo} · {statusLabel(revision, currentRevisionId, english)}</strong>
           <span>{new Date(revision.createdAt).toLocaleString(english ? "en-US" : "zh-CN", { hour12: false })}</span>
           <small>{revision.manifest.length} {ui.text("个文件", "files")} · {revision.sourceHash.slice(0, 12)}</small>
@@ -58,7 +120,7 @@ export function VersionHistoryPanel({ revisions, currentRevisionId, selectedRevi
         <dt>sourceHash</dt><dd>{selectedRevision.sourceHash}</dd>
         <dt>Run ID</dt><dd>{selectedRevision.runId}</dd>
         <dt>{ui.text("构建", "Build")}</dt><dd>{selectedRevision.buildStatus}</dd></dl>
-      <ol className="version-history-messages">{selectedMessages.map((message) => <li key={message.id}><strong>{message.kind === "user" ? ui.text("需求", "Request") : message.kind === "question" ? ui.text("澄清", "Question") : ui.text("结果", "Result")}</strong><p>{message.content}</p></li>)}</ol>
+      <ol className="version-history-messages">{selectedMessages.map((message) => <li key={message.id}><strong>{message.kind === "rollback" ? ui.text("回滚事件", "Rollback event") : message.kind === "user" ? ui.text("需求", "Request") : message.kind === "question" ? ui.text("澄清", "Question") : ui.text("结果", "Result")}</strong><p>{message.content}</p></li>)}</ol>
       {!selectedMessages.length && <p>{ui.text("此版本没有可展示的对话记录。", "No conversation messages for this version.")}</p>}
     </details>}
     {selectedRevision && revisions.length > 1 && <details className="version-history-details version-history-compare" open={!!visibleDiff || undefined}>

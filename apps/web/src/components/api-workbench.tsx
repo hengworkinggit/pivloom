@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowUp, LoaderCircle, MessageSquare, Monitor, PanelLeftClose, PanelLeftOpen, TriangleAlert } from "lucide-react";
+import { ArrowUp, LoaderCircle, MessageSquare, Monitor, PanelLeftClose, PanelLeftOpen, RotateCcw, TriangleAlert } from "lucide-react";
 import { getApiWorkspace } from "@/lib/workspace";
 import { WorkspaceError } from "@/lib/api-workspace";
 import { usePrivateQuery, useWorkspaceAuth } from "@/lib/use-workspace";
@@ -23,6 +23,7 @@ import { useCancellationRequestLatch } from "@/lib/use-cancellation-request-latc
 import { DeploymentVersion } from "./deployment-version";
 import { checkMatchesRevision } from "./generation-review";
 import { createVersionHistoryApi } from "@/lib/version-history-api";
+import { useRollback } from "@/lib/use-rollback";
 import { VersionHistoryPanel } from "./version-history";
 import type { Revision } from "@pivloom/contracts";
 
@@ -109,7 +110,19 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const previewQuery = usePrivateQuery(previewLoader);
   const publicationLoader = useCallback(() => state.generation.getPublication(projectId), [projectId, state.generation]);
   const publicationQuery = usePrivateQuery(publicationLoader);
-  const busy = pending || state.active || run?.cleanupState === "pending";
+  const refreshPreview = previewQuery.refresh;
+  const refreshPublication = publicationQuery.refresh;
+  const refreshProject = state.refresh;
+  const onRollbackCommitted = useCallback(async (targetRevisionId: string) => {
+    setSelectedRevisionId(targetRevisionId);
+    setComparisonTarget(null);
+    await refreshProject();
+    refreshHistory();
+    refreshPreview();
+    refreshPublication();
+  }, [refreshProject, refreshHistory, refreshPreview, refreshPublication]);
+  const rollback = useRollback({ api, ownerId, projectId, onCommitted: onRollbackCommitted });
+  const busy = pending || state.active || run?.cleanupState === "pending" || rollback.busy;
   const tooLong = draft.trim().length > promptLimit;
   const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => { bottom.current?.scrollIntoView?.({ block: "nearest" }); }, [project?.messages.length, run?.state]);
@@ -174,7 +187,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   }
   /** Rebuilds a preview from the saved snapshot; it never calls a model. */
   async function restore() {
-    if (!revision || restoring) return;
+    if (!revision || restoring || rollback.busy) return;
     setRestoring(true); setActionError("");
     try {
       await state.generation.restorePreview(projectId, revision.id);
@@ -190,7 +203,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   }
   async function publish() {
     const current = project?.currentRevision;
-    if (!current || publishing || state.active) return;
+    if (!current || publishing || state.active || rollback.busy) return;
     setPublishing(true); setPublicationError("");
     try {
       let preview = await state.generation.getPreview(projectId, current.id);
@@ -223,6 +236,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
         <div className="chat-scroll">
           {project.messages.length === 0 ? <div className="chat-welcome"><LoomMark /><h2>{ui.text("想法已经就位", "Your idea starts here")}</h2><p>{ui.text("描述你想实现的功能，用自己的模型开始构建。", "Describe what you want and build it with your model.")}</p></div>
             : project.messages.filter((message) => !(clarification && message.kind === "question" && message.runId === run?.id)).map((message) => message.kind === "user" ? <article className="user-message" key={message.id}><div>{message.content}</div></article>
+              : message.kind === "rollback" ? <article className="rollback-message" data-testid="rollback-conversation-event" key={message.id}><RotateCcw size={15} aria-hidden="true" /><div><strong>{ui.text("版本回滚", "Version rollback")}</strong><p>{message.content}</p></div></article>
               : <article className="assistant-message" key={message.id}><div className="assistant-message-heading"><LoomMark /><strong>{message.kind === "question" ? ui.text("协调者", "Coordinator") : "Pivloom"}</strong></div><div className="assistant-message-body"><p className="message-content">{message.content}</p></div></article>)}
           {run && <GenerationActivity run={run} events={state.view!.events} roles={state.view!.roles} />}
           <div ref={bottom} />
@@ -254,22 +268,30 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
         {project.currentRevision && <div className="publication-bar">
           <span>{publicationQuery.data?.revisionId === project.currentRevision.id
             ? ui.text("当前版本已永久发布", "Current version is published")
-            : ui.text("预览会到期，发布后可用独立域名长期访问", "Previews expire; publish for a lasting URL")}</span>
+            : publicationQuery.data
+              ? ui.text("已发布作品仍是之前的版本；回滚不会自动更新它", "The published app is still an earlier version; rollback does not update it")
+              : ui.text("预览会到期，发布后可用独立域名长期访问", "Previews expire; publish for a lasting URL")}</span>
           {publicationQuery.data && <a href={publicationQuery.data.url} target="_blank" rel="noopener noreferrer">{ui.text("访问已发布作品", "Open published app")}</a>}
-          {publicationQuery.data?.revisionId !== project.currentRevision.id && <Button size="sm" disabled={publishing || state.active} onClick={() => void publish()}>
+          {publicationQuery.data?.revisionId !== project.currentRevision.id && <Button size="sm" disabled={publishing || busy} onClick={() => void publish()}>
             {publishing ? <><LoaderCircle className="spin" size={14} />{ui.text("正在发布…", "Publishing…")}</> : ui.text(publicationQuery.data ? "发布新版本" : "永久发布", publicationQuery.data ? "Publish update" : "Publish app")}
           </Button>}
         </div>}
         {(publicationError || publicationQuery.error) && <p className="inline-error" role="alert">{publicationError || publicationQuery.error}</p>}
         <VersionHistoryPanel revisions={revisions} currentRevisionId={project.project.currentRevisionId} selectedRevision={revision}
-          messages={project.messages} historyError={historyQuery.error}
+          messages={project.messages} historyError={historyQuery.error} currentFromRollback={!!project.latestCheckHistorical}
           onSelect={(id) => { setSelectedRevisionId(id); setComparisonTarget(null); }}
           onCompare={(from, to) => setComparisonTarget({ from, to, key: crypto.randomUUID() })}
           comparison={comparisonTarget?.to === revision?.id ? diffQuery.data ?? null : null}
           comparing={!!comparisonTarget && !diffQuery.data && !diffQuery.error}
-          comparisonError={comparisonTarget?.to === revision?.id ? diffQuery.error : ""} />
+          comparisonError={comparisonTarget?.to === revision?.id ? diffQuery.error : ""}
+          rollback={{ busy: rollback.busy, unknown: rollback.unknown,
+            disabled: busy || !!unknownSubmission || publishing || restoring,
+            operation: rollback.operation, error: rollback.error, storageWarning: rollback.storageWarning,
+            start: (target, from) => { void rollback.start(target, from); },
+            confirm: () => { void rollback.confirm(); }, cancel: () => { void rollback.cancel(); },
+            clearResult: rollback.clearResult }} />
         {previewQuery.error && <p className="inline-error" role="alert">{previewQuery.error}</p>}
-        <GenerationResult projectId={projectId} revision={revision} preview={hasSnapshotPreview ? snapshotPreview! : previewQuery.data ?? null} generation={state.generation} active={state.active} latestCheck={project.latestCheck} checking={state.active && run?.phase === "review" && revision?.runId === run.id} restoring={restoring || (previewQuery.data?.state === "restoring" && previewQuery.data.revisionId === revision?.id)} onRestore={state.active ? undefined : () => void restore()} />
+        <GenerationResult projectId={projectId} revision={revision} preview={hasSnapshotPreview ? snapshotPreview! : previewQuery.data ?? null} generation={state.generation} active={state.active} latestCheck={project.latestCheck} historicalCheck={revision?.status === "accepted" && (revision.id !== project.project.currentRevisionId || !!project.latestCheckHistorical)} checking={state.active && run?.phase === "review" && revision?.runId === run.id} restoring={restoring || (previewQuery.data?.state === "restoring" && previewQuery.data.revisionId === revision?.id)} onRestore={busy ? undefined : () => void restore()} />
       </div>
     </main>
   </div>;
