@@ -2,7 +2,7 @@
 
 ## Parent
 
-[总Spec](../../specs/technical-recheck-github-spec.md)
+[[Spec] Pivloom 技术复核：上游复用、五组验收、Canvas 与版本回滚 · #16](https://github.com/hengworkinggit/pivloom/issues/16)
 
 ## What to build
 
@@ -20,7 +20,7 @@ Reviewer能够在当前候选中发送正常四向键、空格和短动作序列
 
 ## Upstream reuse
 
-采用 U05, U10, U11；按[固定源码与许可清单](../../../research/reuse-manifest-2026-09-23.json)执行，并在实现记录里标明直接调用、复制或适配及偏差。官方API能解决的能力不另写一套执行机制。
+采用 U05, U10, U11；按[固定源码与许可清单](https://github.com/hengworkinggit/pivloom/blob/0e871a146abfd771edac5725f84480997bd1f1d2/research/reuse-manifest-2026-09-23.json)执行，并在实现记录里标明直接调用、复制或适配及偏差。官方API能解决的能力不另写一套执行机制。
 
 不替换默认产品浏览器为另一套Playwright/Python框架，不强制DOM棋盘来降低验收难度。
 
@@ -33,8 +33,8 @@ Reviewer能够在当前候选中发送正常四向键、空格和短动作序列
 - 报告记录环境、Web/API SHA、模型/浏览器/沙箱版本、真实或fixture边界、Run/Revision/sourceHash、预期/实际、截图/原始Check及清理结果；不给未执行项PASS。
 - 本票所有必需条件实际通过、问题修复复测后才关闭；BLOCKED/NOT_RUN不算完成，最终RC-12不能代替本票验收。
 
-[详细E2E契约](../../E2E.md) · [技术方案](../../specs/technical-recheck-v2.md)
+[详细E2E契约](https://github.com/hengworkinggit/pivloom/blob/0e871a146abfd771edac5725f84480997bd1f1d2/docs/E2E.md) · [技术方案](https://github.com/hengworkinggit/pivloom/blob/0e871a146abfd771edac5725f84480997bd1f1d2/docs/specs/technical-recheck-v2.md)
 
 ## Blocked by
 
-- [RC-04 · 让 Reviewer 真正读取截图并验证模型图像能力](rc-04-reviewer-image-pipeline.md)
+- [RC-04 · #20](https://github.com/hengworkinggit/pivloom/issues/20)

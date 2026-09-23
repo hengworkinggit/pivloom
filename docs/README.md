@@ -6,7 +6,7 @@
 
 | 文档 | 用途 |
 |---|---|
-| [GitHub总Spec](specs/technical-recheck-github-spec.md) / [开发票清单](tickets/technical-recheck-v2/README.md) | 本次正式实施规格、完整切片、阻塞依赖和逐模块关闭门槛 |
+| [GitHub总Spec #16](https://github.com/hengworkinggit/pivloom/issues/16) / [规格正文](specs/technical-recheck-github-spec.md) / [开发票清单](tickets/technical-recheck-v2/README.md) | 本次正式实施规格、完整切片、阻塞依赖和逐模块关闭门槛 |
 | [技术复核方案 v3](specs/technical-recheck-v2.md) | 当前要实现的路线、五组/完整子检查、实施顺序和通过门槛 |
 | [E2E v2](E2E.md) | 新原始Prompts、E01–E42与I01–I22、故障gate和证据口径 |
 | [精确复用清单](../research/reuse-manifest-2026-09-23.json) | 固定上游commit、许可、COPY/ADAPT/直接调用边界、目标模块和测试映射 |

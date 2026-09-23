@@ -2,7 +2,7 @@
 
 ## Parent
 
-[总Spec](../../specs/technical-recheck-github-spec.md)
+[[Spec] Pivloom 技术复核：上游复用、五组验收、Canvas 与版本回滚 · #16](https://github.com/hengworkinggit/pivloom/issues/16)
 
 ## What to build
 
@@ -21,9 +21,9 @@
 
 ## Upstream reuse
 
-采用 U01–U15；按[固定源码与许可清单](../../../research/reuse-manifest-2026-09-23.json)执行，并在实现记录里标明直接调用、复制或适配及偏差。官方API能解决的能力不另写一套执行机制。
+采用 U01–U15；按[固定源码与许可清单](https://github.com/hengworkinggit/pivloom/blob/0e871a146abfd771edac5725f84480997bd1f1d2/research/reuse-manifest-2026-09-23.json)执行，并在实现记录里标明直接调用、复制或适配及偏差。官方API能解决的能力不另写一套执行机制。
 
-这是一轮冻结产物的最终验收，不是重做所有开发；阶段失败先归因并重测受影响范围，必要模块仍保持开放。
+这是一轮冻结产物的最终验收，不是重做所有开发；阶段失败先归因并重测受影响范围，必要模块仍保持开放。 本轮未提供新的截止时间时，D05如实记录本次复核交付时间和适用范围，不倒填时间，也不把已结束的旧48小时期限当作新一轮截止。
 
 ## Testing and completion gate
 
@@ -34,10 +34,10 @@
 - 报告记录环境、Web/API SHA、模型/浏览器/沙箱版本、真实或fixture边界、Run/Revision/sourceHash、预期/实际、截图/原始Check及清理结果；不给未执行项PASS。
 - 本票所有必需条件实际通过、问题修复复测后才关闭；BLOCKED/NOT_RUN不算完成，最终RC-12不能代替本票验收。
 
-[详细E2E契约](../../E2E.md) · [技术方案](../../specs/technical-recheck-v2.md)
+[详细E2E契约](https://github.com/hengworkinggit/pivloom/blob/0e871a146abfd771edac5725f84480997bd1f1d2/docs/E2E.md) · [技术方案](https://github.com/hengworkinggit/pivloom/blob/0e871a146abfd771edac5725f84480997bd1f1d2/docs/specs/technical-recheck-v2.md)
 
 ## Blocked by
 
-- [RC-09 · 原子回滚已验收版本并统一 Preview 与对话基线](rc-09-atomic-revision-rollback.md)
-- [RC-10 · 全新计算器完成真实生成及功能和视觉两轮增量](rc-10-calculator-increments-e2e.md)
-- [RC-11 · 全新 Canvas 贪吃蛇通过真实模型和浏览器验收](rc-11-canvas-snake-e2e.md)
+- [RC-09 · #25](https://github.com/hengworkinggit/pivloom/issues/25)
+- [RC-10 · #26](https://github.com/hengworkinggit/pivloom/issues/26)
+- [RC-11 · #27](https://github.com/hengworkinggit/pivloom/issues/27)

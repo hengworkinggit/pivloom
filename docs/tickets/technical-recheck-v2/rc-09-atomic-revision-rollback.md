@@ -2,7 +2,7 @@
 
 ## Parent
 
-[总Spec](../../specs/technical-recheck-github-spec.md)
+[[Spec] Pivloom 技术复核：上游复用、五组验收、Canvas 与版本回滚 · #16](https://github.com/hengworkinggit/pivloom/issues/16)
 
 ## What to build
 
@@ -21,7 +21,7 @@
 
 ## Upstream reuse
 
-采用 U07, U09, U12, U14；按[固定源码与许可清单](../../../research/reuse-manifest-2026-09-23.json)执行，并在实现记录里标明直接调用、复制或适配及偏差。官方API能解决的能力不另写一套执行机制。
+采用 U07, U09, U12, U14；按[固定源码与许可清单](https://github.com/hengworkinggit/pivloom/blob/0e871a146abfd771edac5725f84480997bd1f1d2/research/reuse-manifest-2026-09-23.json)执行，并在实现记录里标明直接调用、复制或适配及偏差。官方API能解决的能力不另写一套执行机制。
 
 不复制Dyad的Neon恢复/Electron/Git新commit语义，不把Pi会话树切换当作文件回滚。
 
@@ -34,10 +34,10 @@
 - 报告记录环境、Web/API SHA、模型/浏览器/沙箱版本、真实或fixture边界、Run/Revision/sourceHash、预期/实际、截图/原始Check及清理结果；不给未执行项PASS。
 - 本票所有必需条件实际通过、问题修复复测后才关闭；BLOCKED/NOT_RUN不算完成，最终RC-12不能代替本票验收。
 
-[详细E2E契约](../../E2E.md) · [技术方案](../../specs/technical-recheck-v2.md)
+[详细E2E契约](https://github.com/hengworkinggit/pivloom/blob/0e871a146abfd771edac5725f84480997bd1f1d2/docs/E2E.md) · [技术方案](https://github.com/hengworkinggit/pivloom/blob/0e871a146abfd771edac5725f84480997bd1f1d2/docs/specs/technical-recheck-v2.md)
 
 ## Blocked by
 
-- [RC-03 · 失败终态可靠落库并完成资源清理与重试](rc-03-durable-terminal-cleanup.md)
-- [RC-07 · 退出与切账号后撤销私有 Preview 访问](rc-07-preview-session-isolation.md)
-- [RC-08 · 浏览完整历史版本及真实源码差异](rc-08-revision-history-diff.md)
+- [RC-03 · #19](https://github.com/hengworkinggit/pivloom/issues/19)
+- [RC-07 · #23](https://github.com/hengworkinggit/pivloom/issues/23)
+- [RC-08 · #24](https://github.com/hengworkinggit/pivloom/issues/24)
