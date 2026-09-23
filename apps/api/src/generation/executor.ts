@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { RoleUsage, RunPhase } from "@pivloom/contracts";
+import { TerminalRunStates, type RoleUsage, type RunPhase } from "@pivloom/contracts";
 import type { GenerationRepository, StoredRestore, StoredRevision, StoredRun } from "../data/generation.js";
 import type { ModelProfileService } from "../models/service.js";
 import { sourceBundleFiles, type SourceStore } from "../storage/source.js";
@@ -16,10 +16,18 @@ import type { PreviewGateway } from "./preview.js";
 
 interface Resource {
   ownerId: string; runId: string; revisionId: string; sandboxId: string; expiresAt: string;
+  cleanupPending?: boolean;
   /** Restores own their cleanup lock independently of the source Run. */
   restore?: { projectId: string; id: string };
 }
-interface Task { controller: AbortController; done: Promise<void>; sandboxId?: string }
+type TerminalIntent =
+  | { kind: "cancelled"; input: Parameters<GenerationRepository["finishCancelled"]>[2] }
+  | { kind: "failed"; input: Parameters<GenerationRepository["finishFailed"]>[2] };
+interface Task {
+  controller: AbortController; done: Promise<void>; sandboxId?: string;
+  terminal?: TerminalIntent; settlementError?: unknown; settling?: Promise<void>; retained?: boolean;
+  commitUnknown?: boolean; settlementAttempts?: number;
+}
 
 function storedUsage(usage: TokenUsage): RoleUsage {
   return {
@@ -33,17 +41,28 @@ function storedUsage(usage: TokenUsage): RoleUsage {
 export function createGenerationExecutor(options: {
   repository: GenerationRepository; models: ModelProfileService; sources: SourceStore; artifacts: ArtifactStore;
   previews: PreviewGateway; sandbox: SandboxConfig; maxSandboxes: number;
-}, boundaries: NonNullable<Parameters<typeof runCandidate>[1]> & { modelFetch?: typeof fetch; maxToolCalls?: number } = {}) {
+}, boundaries: NonNullable<Parameters<typeof runCandidate>[1]> & {
+  modelFetch?: typeof fetch; maxToolCalls?: number; settlementRetryMs?: number; cleanupSweepMs?: number;
+} = {}) {
   const toolLimit = boundaries.maxToolCalls ?? RUN_TOOL_LIMIT;
   if (!Number.isInteger(toolLimit) || toolLimit < 1 || toolLimit > RUN_TOOL_LIMIT)
     throw new Error("Tool limit must be between 1 and the run ceiling");
+  const settlementRetryMs = boundaries.settlementRetryMs ?? 3_000;
+  if (!Number.isInteger(settlementRetryMs) || settlementRetryMs < 1) throw new Error("Settlement retry interval must be positive");
+  const cleanupSweepMs = boundaries.cleanupSweepMs ?? 30_000;
+  if (!Number.isInteger(cleanupSweepMs) || cleanupSweepMs < 1) throw new Error("Cleanup sweep interval must be positive");
   const { repository, models, sources, artifacts, previews, sandbox } = options;
   const tasks = new Map<string, Task>();
+  const taskRun = new Map<string, StoredRun>();
+  const pendingRestoreFailures = new Map<string, {
+    ownerId: string; projectId: string; input: { code: string; message: string }; settling?: Promise<void>;
+  }>();
   const resources = new Map<string, Resource>();
   let closing = false;
   let sweep: Promise<void> | undefined;
 
   async function destroy(resource: Resource) {
+    resource.cleanupPending = true;
     previews.revoke(resource.revisionId, resource.sandboxId);
     const result = await destroyCandidateSandbox({ sandboxConfig: sandbox, sandboxId: resource.sandboxId });
     if (result.confirmed) {
@@ -76,6 +95,14 @@ export function createGenerationExecutor(options: {
     const tokenBudget = createRunTokenBudget();
     // Every attempt owns a distinct immutable revision id, including repairs.
     let revisionId = randomUUID();
+    const finishCancelled = (input: Parameters<GenerationRepository["finishCancelled"]>[2]) => {
+      task.terminal = { kind: "cancelled", input };
+      return repository.finishCancelled(run.ownerId, run.id, input);
+    };
+    const finishFailed = (input: Parameters<GenerationRepository["finishFailed"]>[2]) => {
+      task.terminal = { kind: "failed", input };
+      return repository.finishFailed(run.ownerId, run.id, input);
+    };
     async function setPhase(next: RunPhase) {
       if (phase === next) return;
       await repository.setPhase(run.ownerId, run.id, { phase: next, state: "building" });
@@ -193,7 +220,7 @@ export function createGenerationExecutor(options: {
           // routing every non-candidate result through finishFailed changes the
           // authoritative run state to failed.
           if (task.controller.signal.reason === "CANCELLED") {
-            await repository.finishCancelled(run.ownerId, run.id, {
+            await finishCancelled({
               cleanupState: result.cleanup === "pending" ? "pending" : "confirmed",
               summary: result.cleanup === "pending"
                 ? "任务已停止，远端资源回收尚未确认，已阻止新的任务。"
@@ -218,7 +245,7 @@ export function createGenerationExecutor(options: {
             attempt = completion.repairNextAttempt;
             continue;
           }
-          await repository.finishFailed(run.ownerId, run.id, {
+          await finishFailed({
             ...result.error, retryable: true, resultRevisionId,
             cleanupState: result.cleanup === "pending" ? "pending" : "confirmed",
             roleUsage: activeUsage ? { roleRunId: role.id, usage: activeUsage } : undefined,
@@ -250,8 +277,12 @@ export function createGenerationExecutor(options: {
         }, boundaries);
         toolCalls += checked.usage?.toolCalls ?? 0;
         activeUsage = checked.usage ? storedUsage(checked.usage) : undefined;
+        // A lost transaction response is ambiguous: the accepted Preview might
+        // already be current. Reconcile the DB state before deleting its sandbox.
+        task.commitUnknown = true;
         const completion = await repository.finishReview(run.ownerId, run.id, { receipt: checked.receipt, usage: activeUsage });
-        if (completion.repairNextAttempt === null) { retained = true; break; }
+        task.commitUnknown = false;
+        if (completion.repairNextAttempt === null) { retained = true; task.retained = true; break; }
         // The rejected candidate keeps its saved source for inspection, but its
         // sandbox is released so one project never holds two live candidates.
         failedChecks = completion.check.items.filter((item) => item.verdict !== "passed")
@@ -260,7 +291,7 @@ export function createGenerationExecutor(options: {
         seed = sourceBundleFiles(await sources.load(completion.revision.source));
         const rejected = currentResource();
         if (rejected && resources.has(rejected.sandboxId) && !await destroy(rejected).catch(() => false)) {
-          await repository.finishFailed(run.ownerId, run.id, {
+          await finishFailed({
             code: "SANDBOX_CLEANUP_PENDING", message: "上轮候选沙箱回收尚未确认，已停止修复，请等待资源回收后重试。",
             retryable: true, resultRevisionId, cleanupState: "pending",
           });
@@ -270,13 +301,25 @@ export function createGenerationExecutor(options: {
         attempt = completion.repairNextAttempt;
       }
     } catch (error) {
+      if (task.commitUnknown) {
+        // If the commit succeeded but its response was lost, a second terminal
+        // transition must neither replace the accepted result nor kill Preview.
+        // If the DB cannot answer yet, retain the remote until retrySettlement.
+        const persisted = await repository.getRun(run.ownerId, run.id);
+        if (TerminalRunStates.has(persisted.state)) {
+          retained = true;
+          task.retained = true;
+          return;
+        }
+        task.commitUnknown = false;
+      }
       if (error instanceof RuntimeError && error.usage) activeUsage = storedUsage(error.usage);
       let confirmed = true;
       const pending = currentResource();
       if (pending && resources.has(pending.sandboxId)) confirmed = await destroy(pending).catch(() => false);
       // A user-requested stop is a terminal state of its own, never a failure.
       if (task.controller.signal.reason === "CANCELLED") {
-        await repository.finishCancelled(run.ownerId, run.id, {
+        await finishCancelled({
           cleanupState: confirmed ? "confirmed" : "pending",
           summary: confirmed ? "任务已停止，远端模型调用与沙箱已确认回收。" : "任务已停止，远端资源回收尚未确认，已阻止新的任务。",
         });
@@ -303,7 +346,7 @@ export function createGenerationExecutor(options: {
           : "unknown";
         console.error(`run ${run.id} failed at phase ${phase}: ${detail}`);
       }
-      await repository.finishFailed(run.ownerId, run.id, {
+      await finishFailed({
         code: failure.code, message: failure.message, retryable: failure.retryable,
         resultRevisionId, cleanupState: confirmed ? "confirmed" : "pending",
         roleUsage: activeRoleId && activeUsage ? { roleRunId: activeRoleId, usage: activeUsage } : undefined,
@@ -311,25 +354,91 @@ export function createGenerationExecutor(options: {
     } finally {
       clearTimeout(deadlineTimer);
       const leftover = currentResource();
-      if (!retained && leftover && resources.has(leftover.sandboxId)) await destroy(leftover).catch(() => {});
+      if (!retained && !task.commitUnknown && leftover && resources.has(leftover.sandboxId)) await destroy(leftover).catch(() => {});
       await models.releaseForRun(run.ownerId, run.credentialLeaseId);
     }
   }
+
+  // A failed terminal transaction is still this process's responsibility. Retry
+  // only the idempotent repository transition and cleanup; never replay Pi or a
+  // sandbox command that could create a second candidate.
+  function retrySettlement(run: StoredRun, task: Task): Promise<void> {
+    if (task.settling) return task.settling;
+    const attempt = (async () => {
+      let saved = await repository.getRun(run.ownerId, run.id);
+      if (saved.state === "completed" || (task.commitUnknown && TerminalRunStates.has(saved.state))) task.retained = true;
+      if (!task.retained) {
+        for (const resource of [...resources.values()].filter((item) => !item.restore && item.runId === run.id))
+          await destroy(resource).catch(() => false);
+      }
+      const cleanupState = [...resources.values()].some((item) => !item.restore && item.runId === run.id) ? "pending" : "confirmed";
+      if (!TerminalRunStates.has(saved.state)) {
+        if (saved.state === "cancel_requested" || task.terminal?.kind === "cancelled" || task.controller.signal.reason === "CANCELLED") {
+          const summary = task.terminal?.kind === "cancelled" ? task.terminal.input.summary
+            : "任务已停止，远端模型调用与沙箱已确认回收。";
+          saved = await repository.finishCancelled(run.ownerId, run.id, { cleanupState, summary });
+        } else {
+          const input = task.terminal?.kind === "failed" ? task.terminal.input : {
+            code: "GENERATION_FAILED", message: "执行中断，已保存的候选仍可查看，可以重新提交。", retryable: true,
+          };
+          saved = await repository.finishFailed(run.ownerId, run.id, { ...input, cleanupState });
+        }
+      }
+      if (cleanupState === "confirmed" && saved.cleanupState === "pending")
+        await repository.confirmCleanup(run.ownerId, run.id);
+      await models.releaseForRun(run.ownerId, run.credentialLeaseId);
+      task.settlementError = undefined;
+      tasks.delete(run.id);
+      taskRun.delete(run.id);
+    })();
+    task.settling = attempt.finally(() => { task.settling = undefined; });
+    return task.settling;
+  }
+
+  function reportSettlementFailure(runId: string, task: Task, error: unknown) {
+    const attempts = task.settlementAttempts = (task.settlementAttempts ?? 0) + 1;
+    if (attempts !== 1 && attempts % 20 !== 0) return;
+    const reason = error instanceof ApiFailure || error instanceof RuntimeError ? error.code
+      : error instanceof Error ? error.name : "unknown";
+    console.error(`run ${runId} terminal settlement retry ${attempts} is pending (${reason})`);
+  }
+
+  function retryRestoreFailure(id: string): Promise<void> {
+    const pending = pendingRestoreFailures.get(id);
+    if (!pending) return Promise.resolve();
+    if (pending.settling) return pending.settling;
+    const attempt = repository.failRestore(pending.ownerId, pending.projectId, id, pending.input).then(() => {
+      pendingRestoreFailures.delete(id);
+    });
+    pending.settling = attempt.finally(() => { pending.settling = undefined; });
+    return pending.settling;
+  }
+
+  const settlementTimer = setInterval(() => {
+    if (closing) return;
+    for (const [runId, task] of tasks) {
+      if (!task.settlementError) continue;
+      const run = taskRun.get(runId);
+      if (run) void retrySettlement(run, task).catch((error) => reportSettlementFailure(runId, task, error));
+    }
+    for (const id of pendingRestoreFailures.keys()) void retryRestoreFailure(id).catch(() => {});
+  }, settlementRetryMs);
+  settlementTimer.unref();
 
   const timer = setInterval(() => {
     if (sweep || closing) return;
     sweep = (async () => {
       for (const resource of resources.values()) {
-        if (Date.parse(resource.expiresAt) > Date.now()) continue;
+        if (!resource.cleanupPending && Date.parse(resource.expiresAt) > Date.now()) continue;
         const active = tasks.get(resource.runId);
-        if (active) { active.controller.abort(); continue; }
+        if (active && !resource.cleanupPending) { active.controller.abort("RUN_TIMEOUT"); continue; }
         await destroy(resource).catch(() => {});
       }
     })().finally(() => { sweep = undefined; });
-  }, 30_000);
+  }, cleanupSweepMs);
   timer.unref();
 
-  const restores = new Set<Promise<void>>();
+  const restores = new Map<Promise<void>, AbortController>();
   /** Rebuilds a preview for a saved revision. No model call, no new revision. */
   function restore(record: StoredRestore, revision: StoredRevision) {
     const controller = new AbortController();
@@ -358,18 +467,23 @@ export function createGenerationExecutor(options: {
           { sandboxId: result.handle.sandboxId, expiresAt: result.handle.expiresAt });
       } catch (error) {
         if (tracked.current && resources.has(tracked.current.sandboxId)) await destroy(tracked.current).catch(() => false);
-        const code = error instanceof RuntimeError ? error.code : "RESTORE_FAILED";
+        const code = controller.signal.reason === "RESTORE_TIMEOUT" ? "RESTORE_TIMEOUT"
+          : controller.signal.reason === "SERVICE_RESTARTED" ? "SERVICE_RESTARTED"
+            : error instanceof RuntimeError ? error.code : "RESTORE_FAILED";
         const raw = error instanceof Error ? error.message : "预览恢复未完成。";
         const message = raw.replaceAll(sandbox.apiKey, "[REDACTED]")
           .replace(/Bearer\s+[^\s"']+/gi, "Bearer [REDACTED]").slice(0, 2000);
-        await repository.failRestore(revision.ownerId, revision.projectId, record.id, {
-          code, message: controller.signal.aborted ? "预览恢复超时，源码仍已保存，可以重新发起。" : message,
-        }).catch(() => undefined);
+        pendingRestoreFailures.set(record.id, { ownerId: revision.ownerId, projectId: revision.projectId, input: {
+          code, message: controller.signal.reason === "RESTORE_TIMEOUT"
+            ? "预览恢复超时，源码仍已保存，可以重新发起。"
+            : controller.signal.aborted ? "服务停止了预览恢复，源码仍已保存，可以重新发起。" : message,
+        } });
+        await retryRestoreFailure(record.id).catch(() => {});
       } finally {
         clearTimeout(timeout);
       }
     })();
-    restores.add(task);
+    restores.set(task, controller);
     return task.finally(() => restores.delete(task));
   }
 
@@ -391,18 +505,37 @@ export function createGenerationExecutor(options: {
       if (tasks.has(run.id)) return;
       const task: Task = { controller: new AbortController(), done: Promise.resolve() };
       if (closing) task.controller.abort();
+      taskRun.set(run.id, run);
       tasks.set(run.id, task);
-      // Promise is retained for graceful shutdown; no detached rejections or implicit retry.
-      task.done = execute(run, task).catch(() => {}).finally(() => tasks.delete(run.id));
+      task.done = execute(run, task).then(() => {
+        tasks.delete(run.id);
+        taskRun.delete(run.id);
+      }, async (error) => {
+        task.settlementError = error;
+        console.error(`run ${run.id} terminal transition is pending; retrying without model or tool replay`);
+        await retrySettlement(run, task).catch((failure) => reportSettlementFailure(run.id, task, failure));
+      });
     },
     async close() {
       closing = true;
       clearInterval(timer);
+      clearInterval(settlementTimer);
       for (const task of tasks.values()) task.controller.abort();
+      for (const controller of restores.values()) controller.abort("SERVICE_RESTARTED");
       await Promise.allSettled([...tasks.values()].map((task) => task.done));
-      await Promise.allSettled([...restores]);
+      // A remote connector that ignores abort must not prevent process shutdown
+      // forever. The next boot reconciles still-pending restore bindings.
+      let restoreGrace: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        Promise.allSettled([...restores.keys()]),
+        new Promise<void>((resolve) => { restoreGrace = setTimeout(resolve, 15_000); }),
+      ]);
+      clearTimeout(restoreGrace);
       await sweep;
       for (const resource of resources.values()) await destroy(resource).catch(() => {});
+      await Promise.allSettled([...pendingRestoreFailures.keys()].map(retryRestoreFailure));
+      await Promise.allSettled([...tasks].filter(([, task]) => task.settlementError).map(([runId, task]) =>
+        retrySettlement(taskRun.get(runId)!, task)));
     },
   };
 }

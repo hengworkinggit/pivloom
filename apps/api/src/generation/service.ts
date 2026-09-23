@@ -29,6 +29,7 @@ export function createGenerationService(options: {
   artifactObjects?: ArtifactObjects;
   eventLimits?: RunEventLimits;
   publishedRoot?: string; publishedBaseUrl?: string;
+  recoverySweepMs?: number;
 }) {
   const projects = createProjectRepository(options.database);
   const eventHub = createRunEventHub();
@@ -44,6 +45,10 @@ export function createGenerationService(options: {
   const publications = options.publishedBaseUrl ? createPublicationStore({
     root: options.publishedRoot ?? "/opt/pivloom/published", baseUrl: options.publishedBaseUrl, sandbox: options.sandbox,
   }) : null;
+  let closing = false;
+  let recovering: Promise<number> | undefined;
+  const recoverySweepMs = options.recoverySweepMs ?? 30_000;
+  if (!Number.isInteger(recoverySweepMs) || recoverySweepMs < 1) throw new Error("Recovery sweep interval must be positive");
 
   function previewView(ownerId: string, revision: StoredRevision, binding: StoredSandboxBinding | null, restore: StoredRestore | null = null): Preview {
     const live = previews.get(ownerId, revision.id);
@@ -73,7 +78,7 @@ export function createGenerationService(options: {
   }
 
   /** Boot-time reconciliation: no run from a previous process may stay "active". */
-  async function recover() {
+  async function recoverOnce() {
     const claim = await options.database.system(async (client) => client.query<{
       o_run_id: string; o_owner_id: string; o_project_id: string; o_sandbox_ids: string[] | null;
     }>("SELECT * FROM nano.claim_stale_runs($1)", [options.bootId]));
@@ -99,6 +104,24 @@ export function createGenerationService(options: {
     await options.database.system(async (client) => { await client.query("SELECT nano.recover_stale_restores()"); });
     return claim.rows.length;
   }
+
+  function recover(): Promise<number> {
+    if (recovering) return recovering;
+    recovering = recoverOnce().finally(() => { recovering = undefined; });
+    return recovering;
+  }
+
+  // A remote kill or final DB write can fail during boot reconciliation. Keep
+  // retrying the same durable claims while this process is alive, not only on
+  // the next deployment/restart.
+  const recoveryTimer = setInterval(() => {
+    if (closing) return;
+    void recover().catch((error) => {
+      const reason = error instanceof Error ? error.name : "unknown";
+      console.error(`stale resource reconciliation is pending (${reason})`);
+    });
+  }, recoverySweepMs);
+  recoveryTimer.unref();
 
   return {
     repository,
@@ -203,7 +226,13 @@ export function createGenerationService(options: {
       if (!file) throw new ApiFailure(503, "SNAPSHOT_UNAVAILABLE", "源码快照暂时无法读取。", true);
       return RevisionFileResponseSchema.parse({ revisionId, path, content: file.content, sha256: file.sha256 });
     },
-    async close() { await executor.close(); await previews.close(); },
+    async close() {
+      closing = true;
+      clearInterval(recoveryTimer);
+      await recovering?.catch(() => {});
+      await executor.close();
+      await previews.close();
+    },
   };
 }
 export type GenerationService = ReturnType<typeof createGenerationService>;

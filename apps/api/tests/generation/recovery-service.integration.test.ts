@@ -17,6 +17,8 @@ describe.skipIf(!process.env.PIVLOOM_RECOVERY_DATABASE_URL)("generation service 
   let admin: Pool;
   let database: PivloomDatabase;
   let service: GenerationService;
+  let remoteUrl: string;
+  const extraServices: GenerationService[] = [];
   const ownerId = randomUUID();
   const profileId = randomUUID();
   const projectIds: string[] = [];
@@ -42,7 +44,7 @@ describe.skipIf(!process.env.PIVLOOM_RECOVERY_DATABASE_URL)("generation service 
     await new Promise<void>((resolve) => remote.listen(0, "127.0.0.1", resolve));
     const address = remote.address();
     if (!address || typeof address === "string") throw new Error("Recovery HTTP fixture unavailable");
-    const remoteUrl = `http://127.0.0.1:${address.port}`;
+    remoteUrl = `http://127.0.0.1:${address.port}`;
     database = new PivloomDatabase(databaseUrl);
     service = createGenerationService({
       database,
@@ -50,7 +52,7 @@ describe.skipIf(!process.env.PIVLOOM_RECOVERY_DATABASE_URL)("generation service 
       identity: { appOrigin: "http://localhost:45231", supabaseUrl: remoteUrl,
         supabaseSecretKey: "unused-recovery-fixture", databaseUrl },
       sandbox: { baseUrl: remoteUrl, apiKey: "unused-recovery-fixture", image: "never-created" },
-      previewOrigin: "http://localhost:45311", bootId: randomUUID(), maxSandboxes: 2,
+      previewOrigin: "http://localhost:45311", bootId: randomUUID(), maxSandboxes: 2, recoverySweepMs: 3_600_000,
     });
     const client = await admin.connect();
     try {
@@ -69,6 +71,7 @@ describe.skipIf(!process.env.PIVLOOM_RECOVERY_DATABASE_URL)("generation service 
   }, 30_000);
 
   afterAll(async () => {
+    for (const extra of extraServices) await extra.close();
     await service?.close();
     await database?.close();
     if (admin) {
@@ -169,5 +172,32 @@ describe.skipIf(!process.env.PIVLOOM_RECOVERY_DATABASE_URL)("generation service 
     expect(settled.events.filter((event) => event.type === "run.finished")).toHaveLength(0);
     expect((await service.projectDetail(ownerId, previous.projectId)).activeRun).toBeNull();
     expect((await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [previous.projectId])).rows[0].operation_id).toBeNull();
+  }, 60_000);
+
+  test("background reconciliation retries a recovered pending cleanup without another API restart", async () => {
+    const previous = await previousRun("interrupted");
+    unavailable.add(previous.sandboxId);
+    const restarted = createGenerationService({
+      database,
+      models: createModelProfileService(database, createCredentialVault(randomBytes(32).toString("base64"))),
+      identity: { appOrigin: "http://localhost:45231", supabaseUrl: remoteUrl,
+        supabaseSecretKey: "unused-recovery-fixture", databaseUrl: process.env.PIVLOOM_RECOVERY_DATABASE_URL! },
+      sandbox: { baseUrl: remoteUrl, apiKey: "unused-recovery-fixture", image: "never-created" },
+      previewOrigin: "http://localhost:45311", bootId: randomUUID(), maxSandboxes: 2, recoverySweepMs: 50,
+    });
+    extraServices.push(restarted);
+    const deadline = Date.now() + 30_000;
+    while (!requests.some((request) => request === `DELETE /v1/sandboxes/${previous.sandboxId}`) && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    expect((await admin.query("SELECT cleanup_state FROM nano.runs WHERE id=$1", [previous.runId])).rows[0].cleanup_state).toBe("pending");
+    unavailable.delete(previous.sandboxId);
+    let cleanup = "pending";
+    while (cleanup !== "confirmed" && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      cleanup = (await admin.query("SELECT cleanup_state FROM nano.runs WHERE id=$1", [previous.runId])).rows[0].cleanup_state;
+    }
+    expect(cleanup).toBe("confirmed");
+    expect((await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [previous.projectId])).rows[0].operation_id).toBeNull();
+    expect((await restarted.runDetail(ownerId, previous.runId)).run.error?.message).toBe("Original restart failure");
   }, 60_000);
 });
