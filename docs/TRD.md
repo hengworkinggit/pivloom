@@ -1,12 +1,12 @@
 # Pivloom TRD
 
-> 最新执行状态：2026-09-22基础联合验证已通过：真实Pi四工具生成、OpenSandbox/gVisor构建与Chrome、跨来源iframe交互和刷新、Auth/Storage、BYOK页面、单沙箱与Supabase共同负载。正式工作台生成尚待接入，模块完整E2E仍按各票门槛执行。详见[联合验收](foundation-validation-2026-09-22.md)。
+版本：2.0补充 · 2026-09-23。当前线上已有真实生成、持久化、预览恢复和可选静态发布；本轮复核改造尚未实施。最新技术决策以[上游复用方案](specs/technical-recheck-v2.md)和[精确复制/调用清单](../research/reuse-manifest-2026-09-23.json)为准，验证以[E2E v2](E2E.md)为准。下方T模块与早期接口草案保留作领域背景，冲突处服从本段及新方案，不再当作全部已实现或全部未实现。
 
-版本：1.1 · 2026-09-22 · 状态：设计规格，待实现与集成验证。范围以 [PRD](PRD.md) 为准，测试以 [E2E](E2E.md) 为准。
+复核版本固定Pi 0.86.1、agent-browser 0.38.1和现有OpenSandbox 1.1.0 SDK；使用官方会话/工具/图片/压缩、原生batch动作。取消与回滚分别移植OpenHands/Dyad的已审计顺序及测试，保留现有PostgreSQL与不可变源码快照。OpenManus只借图像反馈与游戏操作方法；不复制Python主循环、多模态硬编码名单、Dyad Pro限制目录或未公开Manus实现。
 
-2026-09-22沙箱决定：采用OpenSandbox Docker + gVisor systrap，已在授权服务器通过沙箱基础设施实测；Pi保留，E2B不再是前置。已验证文件/命令、React构建、Chrome、跨origin iframe、取消、TTL和清理。完整Pi生成与Supabase联调、联合容量及正式产品E2E仍待通过。详见[实测记录](sandbox-g0-results.md)与[方案依据](sandbox-options.md)。本地开发/E2E使用localhost或隧道，不依赖公网域名。
+本轮确认五个验收组和完整原子子检查。保留所有旧required叶子，groups仅引用其ID，服务端聚合真实结果；不能沿用“最多五个平铺目标、只保留一个旧行为”。同一Provider真实图像输入、Canvas操作、私有Preview session撤销、版本回滚、终态落库与部署SHA均必须实测。
 
-本文中的接口、表结构、文件目录与伪代码是我们的实现契约；标注“官方 API”的部分才是上游能力。版本是研究基线，不能把尚未编译、部署的组合写成已验证栈。
+累计Token上限保持取消。Pi重试计数按连续错误链且成功响应后重置；平台Run截止、远端取消和销毁确认另有职责。详见[Pi源码审计](../research/pi-reuse-audit-2026-09-23.md)，不能再使用旧budgets注释的计数解释。
 
 ## 1. 固定技术决策
 
@@ -230,7 +230,7 @@ stateDiagram-v2
 
 任何非终态都可因服务重启进入 `interrupted`；执行错误可进入 `failed`。构建修复耗尽进入 `needs_changes`，不因图省略一条错误边而继续无限重试。终态为 `completed / needs_changes / needs_input / failed / cancelled / interrupted`，终态不可改回活动态。
 
-`phase` 比 `state` 更细：`plan / provision / implement / build / snapshot / review / persist / cleanup`，用于错误定位和 UI 当前动作。`attempt` 从 0 开始，1、2 为两轮修复。任务外层 deadline/Token/工具预算始终优先，可能在两轮修复前结束。
+`phase` 比 `state` 更细：`plan / provision / implement / build / snapshot / review / persist / cleanup`，用于错误定位和 UI 当前动作。`attempt` 从 0 开始，1、2 为两轮修复。任务外层deadline和工具边界可能在两轮修复前结束；累计Token仅记录用量，不设停止上限。
 
 `cancel_requested` 持续到结束确认；`cleanup_state=pending` 时显示“远端清理待确认”，不能另开该项目的生成。遇到失联，定时查询/终止已知 sandbox，或等待配置的有效期到期并核验，再解除阻塞。不要为让 UI 好看提前写 `cancelled`。
 
@@ -263,12 +263,13 @@ interface BehaviorTarget {
   required: boolean;
 }
 interface Plan {
-  schemaVersion: 1;
+  schemaVersion: 2; // 拟议groups版本；历史schemaVersion=1保持只读兼容
   goal: string;
   changeSummary: string;
   assumptions: string[];
   outOfScope: string[];
-  behaviors: BehaviorTarget[]; // 1–5；修改时含至少一个原有行为
+  behaviors: BehaviorTarget[]; // 原子子检查；保留全部旧required，不再限于5条
+  groups: { id: string; title: string; behaviorIds: string[] }[]; // 本轮确认5组；服务端校验完整唯一覆盖
 }
 interface Handoff {
   runId: string;
@@ -300,7 +301,7 @@ interface ReviewResult {
 }
 ```
 
-计划最多 5 个目标，每个摘要有字符上限；schema 验证失败允许一次纠正机会。检查者逐项提交行为证据时，该纠正机会按每份行为报告计算；同一份报告再次无效则 `AGENT_OUTPUT_INVALID`，成功记录后下一份报告有独立纠正机会。修复任务使用旧计划、失败步骤和失败快照，不把全部聊天、所有截图和每个角色全部历史反复拼接。
+本轮计划采用五组及完整子检查（旧平铺格式需要兼容读取），每个摘要保持现有输入大小约束；schema 验证失败允许一次纠正机会。检查者逐项提交行为证据时，该纠正机会按每份行为报告计算；同一份报告再次无效则 `AGENT_OUTPUT_INVALID`，成功记录后下一份报告有独立纠正机会。修复任务使用旧计划、失败步骤和失败快照，不把全部聊天、所有截图和每个角色全部历史反复拼接。
 
 结构化交接存于下一 `role_runs.input_json`，来源存 `predecessor_id`；无需另建通用消息队列表。唯一键 `(run_id, role, attempt)` 防止重复派工。阶段结果、下一 RoleRun 的 queued 记录、阶段事件在同一事务提交后，才调用下一角色。
 
@@ -366,7 +367,7 @@ interface RoleRunner {
 4. read/write/edit 工厂使用 remote operations；bash operations 只执行 OpenSandbox。未适配的 find/ls/grep 等工具不启用。各项目的逻辑 cwd 使用唯一命名，adapter 再映射到远端 `/workspace/app`，避免 SDK 的本地路径锁混淆项目。
 5. `session.subscribe` 的增量事件进入我们串行的 EventAppender；关键 tool start/end 可在 wrapper 中 await 持久化。角色结束、快照提交和阶段转换前显式 `await flush()`。
 6. 超长命令输出在 adapter 内截断并保存远端/Storage 工件；不把 Pi 默认本地临时日志路径暴露给只会读远端的模型。
-7. 取消调用 `session.abort()`，同时由 workspace/browser adapter 终止远端活动；设置最长等待，无法确认则保留 cleanup pending。
+7. 取消必须await `session.abort()`及原生idle/运行收口，同时由workspace/browser adapter终止远端活动；设置最长等待，无法确认则保留 cleanup pending。
 
 ### 6.3 模型选择规则
 
@@ -380,7 +381,7 @@ interface RoleRunner {
 
 Builder 需要稳定 tool calling；Reviewer 若要用截图判断布局，profile 必须支持图像输入且在 Pi 所用 provider adapter 中实测可用。没有真实可用凭据和验证结果前，不凭模型排行榜捏造“已锁定最优模型”。
 
-G0 必须记录：准确模型 ID、provider、Pi provider 协议、工具调用和截图读取是否通过、一次生成的耗时/用量。若只有文本模型，必须明确 Reviewer 只做 DOM 行为检查、视觉检查由 Codex E2E 完成，不保留未经验证的“自动视觉验收”宣传。
+G0 必须记录：准确模型 ID、provider、Pi provider 协议、工具调用和截图读取是否通过、一次生成的耗时/用量。若只有文本模型，可做DOM诊断，但本轮Canvas与自动视觉门槛必须记BLOCKED并解决；独立人工截图不能替代要求的Reviewer真图像链路。
 
 凭据由 API 进程持有；不转发到 OpenSandbox、生成应用前端、SSE 或 prompt。SDK 使用独立服务配置，不读取开发者的个人 CLI 登录态。对 provider 的超时/限流只做有上限的瞬时重试；鉴权失败直接报错，避免无意义重复消耗。
 
@@ -906,6 +907,8 @@ API **只部署一个 replica**，不进行滚动双实例执行，也不自动�
 
 生产运行按已知 usage 记录模型用量，不以累计 Token 数终止任务。任务 deadline 到达立即停止新调用并清理。金额预算只有配置了准确模型价格才计算，不能用未知价格给出虚假总费用。
 
+**历史校准记录（以下旧Token上限与旧超时数值不再作为当前配置）：**
+
 2026-09-22 首次三角色集成校准：#7 A 首轮真实任务的 Coordinator、Builder、Reviewer 分别报告 5,313、27,511、17,882 token，共 50,706 token、11 次模型请求；后续请求的完整输入与最大输出预留已超出原 60,000 上限，任务以 TOKEN_BUDGET_EXCEEDED 结束，并非浏览器不可用。考虑完整行为逐项操作约 20 轮的容量估计，将每 run 上限校准为 200,000，Reviewer 每 attempt 校准为 300 秒；每请求 90 秒、整个 run 10 分钟及工具 80 次不变。仍按最终请求正文预留，未知、错误及中止用量保守保留；这次调整不表示 #7 真实 E2E 已通过。
 
 2026-09-22 第二次校准（依据真实 run 墙钟，取代上一条中的时间与 Token 数值）：一次真实三角色 run 实测 Coordinator 73 秒、Builder 207 秒、Reviewer 290 秒才走到检查收尾，合计约 570 秒，已贴着 600 秒上限；Reviewer 的 14 次请求平均约 20 秒，由模型固定输出的 thinking 决定，且 `max_tokens` 无法关闭（供应商对该模型拒绝 `thinking:{type:'disabled'}`）。原来的 90 秒单请求上限会把正在正常收敛的规划请求判成失败，300 秒 Reviewer 上限也不足以覆盖 5 个行为的逐项操作。据此校准：一次 run 30 分钟、单次模型请求 120 秒、Reviewer 每 attempt 20 分钟、每 run Token 400,000；工具 80 次不变。同时启用有上限的 provider 瞬态重试（`maxRetries=2`、`baseDelayMs=1000`、单次退避上限 8 秒，仅限 SDK 判定为瞬态的 429/5xx/网络与超时类错误，配额、计费与鉴权失败快速失败），每次尝试都单独在共享账本上预留与计量。所有数值仍是上限，不是目标耗时；本次校准不表示 #7 真实 E2E 已通过。
@@ -916,7 +919,7 @@ API **只部署一个 replica**，不进行滚动双实例执行，也不自动�
 
 ## 13. 测试分层与可观察性
 
-**主用户流程使用 Codex 内置浏览器**，含线上工作台、登录、需求输入、iframe 交互、两轮修改、刷新重新进入和窄屏。不是用产品 Reviewer 的“passed”取代独立开发验收。
+**主用户流程使用独立真实浏览器（可用IAB或固定版本agent-browser，明确记录会话）**，含线上工作台、登录、需求输入、iframe 交互、两轮修改、刷新重新进入和窄屏。不是用产品 Reviewer 的“passed”取代独立开发验收。
 
 集成测试负责 UI 不足以严格证明的事实：幂等/并发、停止与完成竞争、远端 kill、版本匹配、数据库事务、SSE 窗口、owner 越权、Storage 故障和启动恢复。浏览器测试和集成测试各报告结果，不把 API 成功当作 UI 流程通过。具体矩阵见 [E2E](E2E.md)。
 

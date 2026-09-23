@@ -1,0 +1,57 @@
+{
+  "piVersion": "0.86.1",
+  "networkCalls": 0,
+  "results": [
+    {
+      "probe": "retry_settlement",
+      "pass": true,
+      "calls": 2,
+      "events": [
+        {
+          "type": "agent_end",
+          "willRetry": true
+        },
+        {
+          "type": "auto_retry_start"
+        },
+        {
+          "type": "auto_retry_end",
+          "success": true
+        },
+        {
+          "type": "agent_end",
+          "willRetry": false
+        },
+        {
+          "type": "agent_settled"
+        }
+      ]
+    },
+    {
+      "probe": "abort_waits_for_tool_signal",
+      "pass": true,
+      "toolAborted": true,
+      "isIdle": true
+    },
+    {
+      "probe": "image_tool_result_reaches_model_context",
+      "pass": true,
+      "imageObserved": true,
+      "networkModelVisionTest": false
+    },
+    {
+      "probe": "branch_changes_context_not_workspace",
+      "pass": true,
+      "fileAfterBranch": "v2",
+      "branchUsers": 1,
+      "oldHistoryPreserved": true,
+      "persistedFile": true
+    },
+    {
+      "probe": "official_remote_operations_write_edit_read",
+      "pass": true
+    }
+  ],
+  "scope": "OFFLINE_SDK_PROBE_NOT_PRODUCT_E2E",
+  "commit": "13cbf77df2396303013a41646bcfa77b4271ae56"
+}

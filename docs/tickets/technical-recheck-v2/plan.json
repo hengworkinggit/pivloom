@@ -1,0 +1,518 @@
+{
+  "feature": "technical-recheck-v2",
+  "parentTitle": "[Spec] Pivloom 技术复核：上游复用、五组验收、Canvas 与版本回滚",
+  "parentLabels": [
+    "type:spec",
+    "ready-for-agent",
+    "priority:p0",
+    "e2e-required"
+  ],
+  "tickets": [
+    {
+      "code": "RC-01",
+      "slug": "deployment-provenance",
+      "title": "[RC-01] 页面展示可核对的 Web/API 部署 SHA",
+      "what": "评审者在工作台能复制正在运行的Web/API提交标识，并与版本端点、构建记录及发布产物相互核对；同包重启不变，换包才变化。",
+      "blockers": [],
+      "acceptance": [
+        "从确定提交干净构建，Web/API元数据由同一次构建输入产生并随产物发布；未提交业务源码或旧dist不能伪装为目标提交。",
+        "只读版本接口返回组件、完整commit和构建时间；页面显示各自简写并可复制完整SHA，不用bootId或生成应用sourceHash代替。",
+        "采用Next官方build/deployment ID语义，验证deploymentId存在时的优先级；不在运行时从服务器checkout读取HEAD冒充产物版本。",
+        "页面、API与manifest三方一致；重启原包后不变，切换新产物后更新，旧缓存不能继续展示错误版本。",
+        "Web/API独立部署时如实显示两者；正式复核记录冻结的一组SHA，而非假设它们永远相同。",
+        "E32/I16及相关桌面、窄屏、复制操作通过并附实际截图/响应/产物记录后才关闭。"
+      ],
+      "e2e": [
+        "E32",
+        "E26"
+      ],
+      "integration": [
+        "I16",
+        "I11"
+      ],
+      "reuse": [
+        "U15"
+      ],
+      "boundary": "不重写部署平台，不把本票的版本接口通过算作任何生成应用E2E通过。",
+      "labels": [
+        "enhancement",
+        "ready-for-agent",
+        "priority:p0",
+        "e2e-required"
+      ]
+    },
+    {
+      "code": "RC-02",
+      "slug": "pi-lifecycle",
+      "title": "[RC-02] 复用 Pi 原生生命周期并可靠停止三个角色",
+      "what": "用户在Coordinator、Builder、Reviewer的模型流、工具等待、重试退避或上下文压缩期间点击停止，看到真实取消结果；正常/重试成功的任务只在SDK真正结束后收口。",
+      "blockers": [],
+      "acceptance": [
+        "三个Pi依赖固定0.86.1；复用官方会话、远程operations、ToolDefinition、retry与compaction；不引入第二套Agent循环或顺带升级0.87。",
+        "先做必要的薄宿主收敛，再逐角色迁移并保持回归可运行；保留owner/路径约束、凭据隔离和可回读业务证据。",
+        "等待原生abort/idle或运行promise结束再dispose；不能在agent_end(willRetry)时提前宣告角色完成。",
+        "修复Builder返回cancelled却进入finishFailed的路径；用户取消最终为cancelled，deadline、Provider超时和服务停止保留不同原因。",
+        "使用Dyad取消请求latch的小模块适配Run UUID；连续点击Stop不会反复提交或提前解除停止状态。",
+        "Provider重试仅一个控制点，成功assistant响应重置连续错误计数；退避中可取消，认证/非法参数不盲重试。",
+        "Pi listener返回void不代表外部写库完成；保留异步事件drain并传播错误，不能通过吞异常删掉执行责任。",
+        "官方compaction替代固定last-two-turn裁剪；长会话压缩后工具声明、要求和证据可回读，取消压缩能收口。",
+        "完成E13/E14/E41及I02/I03/I19/I20/I21的定向实测；真实远端终止与离线SDK结果分别报告。"
+      ],
+      "e2e": [
+        "E13",
+        "E14",
+        "E41"
+      ],
+      "integration": [
+        "I02",
+        "I03",
+        "I19",
+        "I20",
+        "I21"
+      ],
+      "reuse": [
+        "U01",
+        "U02",
+        "U04",
+        "U06",
+        "U08"
+      ],
+      "boundary": "不重新加入累计Token停止阈值；不把本地abort或按钮状态当远端沙箱已销毁。",
+      "labels": [
+        "bug",
+        "ready-for-agent",
+        "priority:p0",
+        "e2e-required"
+      ]
+    },
+    {
+      "code": "RC-03",
+      "slug": "durable-terminal-cleanup",
+      "title": "[RC-03] 失败终态可靠落库并完成资源清理与重试",
+      "what": "取消、超时、Provider失败、数据库短时故障或首次销毁失败后，用户重新打开项目能看到正确终态；资源确认后可以继续提交或显式重试。",
+      "blockers": [
+        "RC-02"
+      ],
+      "acceptance": [
+        "终态事务失败不能只log/catch吞掉后从执行队列移除；待持久化责任仍可追踪，DB恢复后幂等收口，不重发模型/工具副作用。",
+        "失败Run及错误阶段、原因、已保存候选可重新读取；旧current始终保留，重试生成新Run并关联旧Run。",
+        "cleanup_pending有近期重试和持久化结果，不能只等原Preview TTL；确认前不误释放相应操作锁/资源槽。",
+        "按官方OpenSandbox区分renew、kill和close；确认远端已销毁后再记confirmed，精确绑定owner/run/sandbox。",
+        "处理创建后未绑定、Check完成但终态未提交、取消与成功竞争、API被终止后重启等窗口；只有一个合法终态且无永久活动Run。",
+        "恢复预览任务也参与停止与重启对账；关闭进程不无限等待无人持有的restore。",
+        "首个destroy失败不能误删其他owner/版本或永久发布产物；恢复后的显式重试可真正执行。",
+        "E15/E18/E20/E30/E40和关联集成用例实际通过，报告包含DB状态、远端确认和模型调用计数；fixture与真实故障补证分开。"
+      ],
+      "e2e": [
+        "E15",
+        "E18",
+        "E20",
+        "E30",
+        "E40"
+      ],
+      "integration": [
+        "I02",
+        "I03",
+        "I07",
+        "I17",
+        "I19"
+      ],
+      "reuse": [
+        "U07",
+        "U08",
+        "U12"
+      ],
+      "boundary": "不建设分布式队列或透明Agent续跑；不以无限放宽超时、Token或工具限制掩盖状态缺陷。",
+      "labels": [
+        "bug",
+        "ready-for-agent",
+        "priority:p0",
+        "e2e-required"
+      ]
+    },
+    {
+      "code": "RC-04",
+      "slug": "reviewer-image-pipeline",
+      "title": "[RC-04] 让 Reviewer 真正读取截图并验证模型图像能力",
+      "what": "用户在模型设置确认所选配置的图像能力，Reviewer获得当前候选的真实图片并基于图像作出判断；不支持图片时有明确状态，不会假装视觉验收成功。",
+      "blockers": [
+        "RC-02"
+      ],
+      "acceptance": [
+        "按Pi官方ImageContent形式回传真实PNG/JPEG及正确MIME，同时保留artifact/observation/revision元信息；不是仅返回路径、URL、hash或artifact ID。",
+        "选定并冻结的实际Provider/base URL/model经过真实图像探针，使用只存在于图片中的变化信息验证，不用HTTP200或模型名单猜测。",
+        "模型设置和工作台区分unknown/verified/unsupported或失败；不支持时提示选择可用配置，不静默丢图或切换其他Provider。",
+        "模型input能力声明、实际出站图像、返回内容可用脱敏证据核对；API Key、token和图片中的私密内容不出现在公开报告。",
+        "长Reviewer会话/compaction后图片、MIME、工具声明与完整验收证据仍可读取；图像与当前revision/action对应。",
+        "移植OpenManus图片反馈顺序但拒绝硬编码多模态名单、MIME丢失和浮动Python/MCP运行时。",
+        "E31/E33及I13/I21通过；离线ImageContent探针和真实Provider视觉能力分别记录，真实视觉未验证不得关闭。"
+      ],
+      "e2e": [
+        "E31",
+        "E33"
+      ],
+      "integration": [
+        "I13",
+        "I21"
+      ],
+      "reuse": [
+        "U03",
+        "U04",
+        "U10"
+      ],
+      "boundary": "不以DOM版贪吃蛇替代Canvas；不新增通用多模型路由平台或把整套OpenManus当作Pi外层。",
+      "labels": [
+        "enhancement",
+        "ready-for-agent",
+        "priority:p0",
+        "e2e-required"
+      ]
+    },
+    {
+      "code": "RC-05",
+      "slug": "canvas-browser-actions",
+      "title": "[RC-05] 复用原生批量动作完成 Canvas 游戏观察闭环",
+      "what": "Reviewer能够在当前候选中发送正常四向键、空格和短动作序列，等待后重新观察Canvas与HUD；输入失败、空白画布或运行错误不能获得通过结论。",
+      "blockers": [
+        "RC-04"
+      ],
+      "acceptance": [
+        "固定agent-browser0.38.1，直接采用press/wait/batch/screenshot及JSON argv语义；补齐上下两层键盘schema，不自造CDP/时序执行器。",
+        "每条batch动作的结果、时序、浏览器session、revision及后续观察可核对；作用域只限当前候选，出错停止并读取真实结果。",
+        "短动作后通过正常暂停或及时截图稳定观察，图像确实进入Reviewer；不得注入坐标、分数、作弊按钮或隐藏冻结状态。",
+        "如动作涉及按下/保持/释放，按原生能力明确测试并在异常/取消后释放输入；不能把仅press一次说成已验证任意持键游戏。",
+        "保存Canvas与整页/HUD证据及console/pageerror；空白Canvas、输入断线、假计分/不增长和只有菜单的负例必须failed/blocked。",
+        "继承历史小游戏recipe的方法时保留来源和许可，修正exit0不代表成功、文本状态不是视觉证明等边界。",
+        "E34/E42及I10/I13在已部署适配器通过；本机原版9动作探针不能作为本票完成结果。"
+      ],
+      "e2e": [
+        "E34",
+        "E42"
+      ],
+      "integration": [
+        "I10",
+        "I13"
+      ],
+      "reuse": [
+        "U05",
+        "U10",
+        "U11"
+      ],
+      "boundary": "不替换默认产品浏览器为另一套Playwright/Python框架，不强制DOM棋盘来降低验收难度。",
+      "labels": [
+        "enhancement",
+        "ready-for-agent",
+        "priority:p0",
+        "e2e-required"
+      ]
+    },
+    {
+      "code": "RC-06",
+      "slug": "five-groups-full-regression",
+      "title": "[RC-06] 固定五组验收并完整保留增量子检查",
+      "what": "用户每轮看到五个明确验收组及全部子检查；新增功能和视觉修改不会删除旧必需项，组通过由服务端从真实子项结果计算。",
+      "blockers": [],
+      "acceptance": [
+        "新契约定义五个稳定group及完整原子BehaviorTarget引用；取消平铺叶子最多五项的误限，每个required子项完整且唯一归组。",
+        "每组只有所有required子项passed才可通过；failed、blocked、未执行或缺证据子项不能被5/5掩盖；展示真实子项数量和详情。",
+        "增量携带全部旧required ID与语义；新增追加，明确需求变更记录替代；删除旧项、仅保留一项或复用ID改义必须拒绝。",
+        "计划、handoff、Check入库与界面使用同一版本契约，提交结果校验revision/sourceHash和真实观察，不接受模型自报一个总分。",
+        "历史平铺Plan/Check继续只读、按原始N/N与历史格式显示，不倒填更强覆盖或伪造新5/5。",
+        "采用现有领域schema/校验和Pi官方单份ToolDefinition，不另造验收DSL、独立服务或第二套Provider工具声明。",
+        "E39及I06/I08/I20/I21对应子集通过：漏项/改义负例、视觉增量全回归、压缩后要求可回读和五组聚合均可核对。"
+      ],
+      "e2e": [
+        "E39"
+      ],
+      "integration": [
+        "I06",
+        "I08",
+        "I20",
+        "I21"
+      ],
+      "reuse": [
+        "U01",
+        "U03",
+        "U04"
+      ],
+      "boundary": "固定五组为用户确认的展示/执行分组，不能将每个组当成一次随便点击或限制为最多五条真实需求。",
+      "labels": [
+        "bug",
+        "ready-for-agent",
+        "priority:p0",
+        "e2e-required"
+      ]
+    },
+    {
+      "code": "RC-07",
+      "slug": "preview-session-isolation",
+      "title": "[RC-07] 退出与切账号后撤销私有 Preview 访问",
+      "what": "用户退出后旧私有Preview的新请求失效，同浏览器切换账号不会继承访问权；另一个有效会话继续可用，公开发布地址仍按既有规则匿名可读。",
+      "blockers": [],
+      "acceptance": [
+        "复用现有Supabase local signOut和已验证身份中的session_id；服务端验证登录session有效，不把JWT未过期/getUser成功当作即时撤销保证。",
+        "私有grant/Cookie限于owner、session和revision，普通API不接受它；凭据不进入生成应用、URL日志或公开报告。",
+        "退出当前session后，旧入口、Cookie、HTML、JS、marker及旧凭证新请求被拒；同浏览器B和独立B都不能读取A私有内容。",
+        "另一有效A会话不被误退出；A重新登录可从工作台取得新授权，Preview过期仍可恢复正确保存版本。",
+        "移植OpenHands资源Cookie作用域与匹配清除属性测试，不复制长期API key Cookie或仅清客户端却宣称服务端撤销。",
+        "在同构隔离环境验证A/B，不恢复已删除生产B，不破坏生产A；已下载内容不可远程抹除，验收针对新网络请求。",
+        "E11/E25/E37和I09/I14实际通过，并单列公共发布匿名可读的正常结果。"
+      ],
+      "e2e": [
+        "E11",
+        "E25",
+        "E37"
+      ],
+      "integration": [
+        "I09",
+        "I14"
+      ],
+      "reuse": [
+        "U13",
+        "U14"
+      ],
+      "boundary": "不重造身份系统、全局下线所有设备或把公开发布可访问判成私有越权。",
+      "labels": [
+        "bug",
+        "ready-for-agent",
+        "priority:p0",
+        "e2e-required"
+      ]
+    },
+    {
+      "code": "RC-08",
+      "slug": "revision-history-diff",
+      "title": "[RC-08] 浏览完整历史版本及真实源码差异",
+      "what": "用户在项目内查看全部已保存版本、其状态与对话归属，并比较完整源码；只读查看旧版不会悄悄切换当前版本或后续生成基线。",
+      "blockers": [],
+      "acceptance": [
+        "提供owner隔离、顺序明确的历史版本读取与UI，区分accepted、candidate、rejected及当前版本；不再只展示current/latestCandidate。",
+        "查看任一版本时文件树、内容、revisionNo/sourceHash与对话/Check来源一致；未知或跨owner目标拒绝。",
+        "相邻或指定版本diff覆盖完整manifest，包含新增、删除、移动、Unicode子目录及内容变化；hash变化本身不代表有效功能。",
+        "只读选择清楚区分正在查看和current；不修改项目current、下次Run的baseRevisionId或公共发布版本。",
+        "立即完成的文件写入也能出现在快照/diff中，不能由异步UI事件先后漏掉变化。",
+        "重登/新会话后历史与完整源码可读；过期Preview状态准确，需要恢复时显式走已有流程。",
+        "E07/E11/E38和I05/I09/I18通过，复用OpenCode/Dyad的完整树/竞态测试问题集。"
+      ],
+      "e2e": [
+        "E07",
+        "E11",
+        "E38"
+      ],
+      "integration": [
+        "I05",
+        "I09",
+        "I18"
+      ],
+      "reuse": [
+        "U07",
+        "U09"
+      ],
+      "boundary": "不引入第二套影子Git状态、不在此票改变current、不增加手动源码编辑/ZIP/Remix。",
+      "labels": [
+        "enhancement",
+        "ready-for-agent",
+        "priority:p0",
+        "e2e-required"
+      ]
+    },
+    {
+      "code": "RC-09",
+      "slug": "atomic-revision-rollback",
+      "title": "[RC-09] 原子回滚已验收版本并统一 Preview 与对话基线",
+      "what": "用户从历史将第三版回到第一版；目标准备成功后源码、Preview、版本号和当前对话基线一起切换，历史保留，失败不损坏原current。",
+      "blockers": [
+        "RC-03",
+        "RC-07",
+        "RC-08"
+      ],
+      "acceptance": [
+        "仅允许同owner同project的accepted版本；请求携带目标、expected current和幂等键，与生成/恢复共用项目操作互斥。",
+        "按Dyad开放流程持久化from/target、已准备binding、phase/error；从完整目标manifest创建干净工作区，核对构建与marker后再事务切current。",
+        "准备失败保持旧current；已准备未提交重启、事务已提交响应丢失、重复请求和双标签竞争均产生唯一合法结果，无永久锁/无主沙箱。",
+        "真实显示目标旧revisionNo，后续历史仍可浏览；追加回滚事件并明确当前对话上下文，不能把latestRun误当current。",
+        "回滚后完整路径集合和逐文件内容等于目标，无新增文件残留；下一轮修改从目标source/plan出发、版本号继续递增。",
+        "回滚不调用模型；历史Check标明历史来源，重建后另做真实浏览器操作，不伪造新Check。",
+        "私有Preview遵循session授权；公共发布不自动更新，localStorage不承诺业务数据回滚或跨域迁移。",
+        "E35/E36/E38及I15/I18通过，覆盖越权、未验收目标、恢复失败、取消/重启及提交竞争。"
+      ],
+      "e2e": [
+        "E35",
+        "E36",
+        "E38"
+      ],
+      "integration": [
+        "I15",
+        "I18",
+        "I09"
+      ],
+      "reuse": [
+        "U07",
+        "U09",
+        "U12",
+        "U14"
+      ],
+      "boundary": "不复制Dyad的Neon恢复/Electron/Git新commit语义，不把Pi会话树切换当作文件回滚。",
+      "labels": [
+        "enhancement",
+        "ready-for-agent",
+        "priority:p0",
+        "e2e-required"
+      ]
+    },
+    {
+      "code": "RC-10",
+      "slug": "calculator-increments-e2e",
+      "title": "[RC-10] 全新计算器完成真实生成及功能和视觉两轮增量",
+      "what": "从一个空项目真实生成计算器，再在同一项目完成计算历史功能和明确视觉改版；逐轮证明完整旧功能、五组子检查、源码差异及Preview一致。",
+      "blockers": [
+        "RC-01",
+        "RC-03",
+        "RC-05",
+        "RC-06"
+      ],
+      "acceptance": [
+        "使用E2E已固定A0/A1/A2原始Prompt，开始时project无current和业务seed；TEST_PROFILE/产物替换关闭，三次用户提交分别记录。",
+        "真实Provider/model/configVersion、role调用、工具写入、构建与版本证据可关联；不得用预制计算器、测试答案或旧报名/书单替代。",
+        "A0通过优先级/括号、小数、退格、除零后恢复、键盘和可用布局断言。",
+        "A1确实新增历史记录/重用/清空和同origin刷新保留；A0全部required仍通过。",
+        "A2实际呈现深色背景、橙色运算键、等宽结果区和390px可用布局；A0/A1全部行为保留。",
+        "每轮五组及全部子检查真实通过，完整文件diff可读且与Prompt吻合；project不变，baseRevision/current/Check/Preview marker一致。",
+        "运行中刷新恢复同一Run不重复提交；新独立浏览器和退出重登后平台项目、对话、版本和全部源码一致。",
+        "E04/E05/E06/E07/E08/E09/E10/E11/E21/E26/E39完成后附逐轮完整证据才关闭；上游测试/模型自述不能替代。"
+      ],
+      "e2e": [
+        "E04",
+        "E05",
+        "E06",
+        "E07",
+        "E08",
+        "E09",
+        "E10",
+        "E11",
+        "E21",
+        "E26",
+        "E39"
+      ],
+      "integration": [
+        "I01",
+        "I04",
+        "I06",
+        "I13",
+        "I16",
+        "I18",
+        "I21"
+      ],
+      "reuse": [
+        "U01",
+        "U02",
+        "U03",
+        "U04",
+        "U05"
+      ],
+      "boundary": "A的评审作品不作为本票新项目；失败/重试记录保留，不以修复attempt充当两轮用户增量。",
+      "labels": [
+        "enhancement",
+        "ready-for-agent",
+        "priority:p0",
+        "e2e-required"
+      ],
+      "prompts": [
+        "做一个中文计算器网页，从空业务工程实现。支持数字、小数、加减乘除、括号和标准运算优先级；有清空、退格、等号按钮，也能用键盘数字、运算符、Enter、Backspace、Escape操作。除零和无效表达式有明确提示，清空后能继续计算。显示当前表达式和结果，手机窄屏按钮可操作。不要预写测试答案，不使用现成计算器页面。",
+        "在这个计算器中增加计算历史：记录算式和结果，可从历史重用结果，并有清空历史操作。当前浏览器刷新后历史保留。保留原来的四则、括号优先级、小数、键盘、清空退格、错误提示和恢复功能。",
+        "保留全部功能和计算历史，把页面改为深色背景、橙色运算键、等宽结果区；调整键盘间距和字号，使390px宽度下无需横向滚动且所有按键可用。只改变这里明确提出的视觉要求，不删减已有功能或校验。"
+      ]
+    },
+    {
+      "code": "RC-11",
+      "slug": "canvas-snake-e2e",
+      "title": "[RC-11] 全新 Canvas 贪吃蛇通过真实模型和浏览器验收",
+      "what": "在另一个空项目真实生成Canvas贪吃蛇，并通过正常输入、画布图像与HUD证明游戏可玩；同时核对计算器等其他项目未被改动。",
+      "blockers": [
+        "RC-01",
+        "RC-03",
+        "RC-05",
+        "RC-06"
+      ],
+      "acceptance": [
+        "使用E2E固定贪吃蛇原始Prompt，新project无业务seed、fixture关闭；真实模型调用、写入、构建和检查与结果Revision可关联。",
+        "实际使用Canvas，进入gameplay看到蛇和食物；不得换DOM棋盘、书单、预制游戏或只截菜单来替代。",
+        "正常四向键输入有效且禁止立即反向穿过自身；通过观察画面和实际移动吃到食物，长度与分数对应增长。",
+        "正常Space暂停/继续可验证；碰墙和自碰导致结束；重开恢复当前棋盘/分数，同浏览器最高分按需求持久化。",
+        "短动作batch、等待、正常暂停和真实截图形成闭环；Reviewer实际收到图像，状态文本仅辅助，不注入分数/坐标或隐藏时钟作弊。",
+        "五组完整子检查及独立QA通过；空白Canvas、输入断线、只加分不增长、碰撞无效等隔离负例必须failed/blocked。",
+        "源码功能与计算器明显不同，完整manifest/Check/Preview一致；别的project/current/对话/源码不被改变。",
+        "E12/E33/E34/E42和相关图像/浏览器/版本集成断言通过；Provider视觉未验证或任何玩法未实操均不得关闭。"
+      ],
+      "e2e": [
+        "E12",
+        "E33",
+        "E34",
+        "E42"
+      ],
+      "integration": [
+        "I06",
+        "I10",
+        "I13",
+        "I16",
+        "I20",
+        "I21"
+      ],
+      "reuse": [
+        "U03",
+        "U05",
+        "U10",
+        "U11"
+      ],
+      "boundary": "不要把OpenManus测试fixture或历史游戏脚本exit0当真实玩法通过；不额外引入Python Agent运行时。",
+      "labels": [
+        "enhancement",
+        "ready-for-agent",
+        "priority:p0",
+        "e2e-required"
+      ],
+      "prompts": [
+        "做一个中文贪吃蛇小游戏，使用Canvas绘制棋盘、蛇和食物。方向键四向控制，不能立即反向穿过自己；支持开始、空格暂停/继续、游戏结束后重新开始。吃食物时蛇变长且分数增加，碰墙或撞到自己结束；显示当前分数、最高分和操作说明，最高分在同一浏览器刷新后保留。不要提供测试专用加分、改坐标或跳过碰撞按钮。"
+      ]
+    },
+    {
+      "code": "RC-12",
+      "slug": "frozen-release-recheck",
+      "title": "[RC-12] 冻结部署并完成跨会话回滚与故障最终复核",
+      "what": "评审者打开明确的一组Web/API产物即可复现两种新应用、两轮增量、五组结果、版本回滚和身份恢复；维护者有相同构建下的故障终态与资源证据。",
+      "blockers": [
+        "RC-09",
+        "RC-10",
+        "RC-11"
+      ],
+      "acceptance": [
+        "先确认每个上游模块issue已有独立关联E2E记录，不能在本票补一张总表代替模块验收；冻结实际Web/API SHA、Pi/浏览器/沙箱与模型配置。",
+        "在线正常路径复核计算器A0/A1/A2和Canvas贪吃蛇，逐轮源diff、5组子项、Preview及版本元组一致；不继承旧样本PASS。",
+        "在最终产物上完成全新A浏览器、A退出重登、同浏览器切B、独立B及另一有效A矩阵，核对项目、对话、源码、版本和私有Preview。",
+        "同构隔离环境完成完整回滚及失败/并发/重启窗口；在最终构建核对回滚后下一次生成基线，公开发布仍只由用户主动更新。",
+        "超时、各阶段取消、终态DB失败、Provider单层重试、资源首次清理失败和服务重启均有对应UI/数据库/远端补证。",
+        "全部必需E01–E42、I01–I21、D01–D05逐项列状态及证据；固定0.86.1未升级时I22明确N/A；任何必需FAIL/BLOCKED/NOT_RUN不得关闭。",
+        "精确清理本轮临时身份/fixture/沙箱，保留生产A及正式作品；不恢复任何Codex巡检或飞书评论定时任务。",
+        "更新交付入口、当前实现范围、部署SHA和可复现测试报告；无凭据泄漏、不伪造结果，不自动代用户回复评审或发送材料。"
+      ],
+      "e2e": [
+        "E01–E42",
+        "D01–D05"
+      ],
+      "integration": [
+        "I01–I21",
+        "I22: conditional"
+      ],
+      "reuse": [
+        "U01–U15"
+      ],
+      "boundary": "这是一轮冻结产物的最终验收，不是重做所有开发；阶段失败先归因并重测受影响范围，必要模块仍保持开放。",
+      "labels": [
+        "enhancement",
+        "ready-for-agent",
+        "priority:p0",
+        "e2e-required"
+      ]
+    }
+  ]
+}

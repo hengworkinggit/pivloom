@@ -1,0 +1,101 @@
+{
+  "scope": "UPSTREAM_TOOL_PROBE_NOT_PRODUCT_E2E",
+  "date": "2026-09-23",
+  "upstream": "vercel-labs/agent-browser",
+  "version": "0.38.1",
+  "commit": "aff6125c023b810ea3f2e5deec5379e9a4270bdc",
+  "runtime": "Node.js 24.19.0; native Chrome engine on macOS",
+  "modelCalls": 0,
+  "productionAccess": false,
+  "commands": [
+    {
+      "argv": [
+        "wait",
+        "--text",
+        "Ready"
+      ],
+      "success": true,
+      "error": null,
+      "observedKeys": null
+    },
+    {
+      "argv": [
+        "press",
+        "ArrowRight"
+      ],
+      "success": true,
+      "error": null,
+      "observedKeys": null
+    },
+    {
+      "argv": [
+        "press",
+        "ArrowDown"
+      ],
+      "success": true,
+      "error": null,
+      "observedKeys": null
+    },
+    {
+      "argv": [
+        "press",
+        "ArrowLeft"
+      ],
+      "success": true,
+      "error": null,
+      "observedKeys": null
+    },
+    {
+      "argv": [
+        "press",
+        "ArrowUp"
+      ],
+      "success": true,
+      "error": null,
+      "observedKeys": null
+    },
+    {
+      "argv": [
+        "press",
+        "Space"
+      ],
+      "success": true,
+      "error": null,
+      "observedKeys": null
+    },
+    {
+      "argv": [
+        "wait",
+        "80"
+      ],
+      "success": true,
+      "error": null,
+      "observedKeys": null
+    },
+    {
+      "argv": [
+        "get",
+        "text",
+        "#keys"
+      ],
+      "success": true,
+      "error": null,
+      "observedKeys": "[\"ArrowRight\",\"ArrowDown\",\"ArrowLeft\",\"ArrowUp\",\" \"]"
+    },
+    {
+      "argv": [
+        "screenshot",
+        "/tmp/pivloom-reuse-research/browser-probe/batch.png"
+      ],
+      "success": true,
+      "error": null,
+      "observedKeys": null
+    }
+  ],
+  "allCommandsPassed": true,
+  "limits": [
+    "Local synthetic page only; not a generated Snake application.",
+    "No model received the screenshot; provider vision capability remains unverified.",
+    "Does not prove the deployed Linux sandbox or Pivloom wrapper is wired correctly."
+  ]
+}

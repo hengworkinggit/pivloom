@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "summary_transcribed_from_existing_exec_tool_outputs",
+  "originalDiskLogSaved": false,
+  "note": "No original stdout log file was saved. Commands, output summaries, exit codes and timings below are transcribed from the existing successful tool sessions; no tests were rerun to create this file.",
+  "date": "2026-09-23",
+  "timezone": "Asia/Shanghai",
+  "repository": "https://github.com/earendil-works/pi",
+  "tag": "v0.86.1",
+  "commit": "13cbf77df2396303013a41646bcfa77b4271ae56",
+  "sourceCheckout": "/tmp/pivloom-pi-audit",
+  "workingDirectory": "/tmp/pivloom-pi-audit/packages/coding-agent",
+  "runtime": {
+    "node": "v24.19.0",
+    "vitest": "4.1.11"
+  },
+  "environment": {
+    "PI_OFFLINE": "1"
+  },
+  "dependencySetup": [
+    "Test runner and dependencies reused from the existing nano-Atoms node_modules.",
+    "Generated model catalog JSON was copied from installed pi-ai 0.86.1 into the temporary checkout because the Git checkout omits generated provider data.",
+    "Selected upstream test files and source implementations were not modified."
+  ],
+  "runs": [
+    {
+      "execSessionId": 75779,
+      "completionChunkId": "73ca74",
+      "command": "PI_OFFLINE=1 node /Users/heng/Desktop/nano-Atoms/node_modules/vitest/vitest.mjs run test/agent-session-retry.test.ts test/agent-session-concurrent.test.ts test/suite/agent-session-tool-result-images.test.ts test/suite/regressions/1717-2113-agent-session-event-settlement.test.ts",
+      "exitCode": 0,
+      "startTimeLocal": "19:25:12",
+      "durationSeconds": 2.65,
+      "testFiles": {
+        "passed": 4,
+        "total": 4
+      },
+      "tests": {
+        "passed": 16,
+        "total": 16
+      },
+      "timingSummary": "transform 4.91s, setup 0ms, import 8.92s, tests 634ms, environment 0ms",
+      "outputSummary": "Test Files  4 passed (4)\nTests  16 passed (16)\nStart at  19:25:12\nDuration  2.65s (transform 4.91s, setup 0ms, import 8.92s, tests 634ms, environment 0ms)"
+    },
+    {
+      "execSessionId": 71908,
+      "completionChunkId": "e4af0e",
+      "command": "PI_OFFLINE=1 node /Users/heng/Desktop/nano-Atoms/node_modules/vitest/vitest.mjs run test/suite/agent-session-compaction.test.ts",
+      "exitCode": 0,
+      "startTimeLocal": "19:26:38",
+      "durationSeconds": 2.19,
+      "testFiles": {
+        "passed": 1,
+        "total": 1
+      },
+      "tests": {
+        "passed": 29,
+        "total": 29
+      },
+      "timingSummary": "transform 1.30s, setup 0ms, import 1.96s, tests 157ms, environment 0ms",
+      "outputSummary": "Test Files  1 passed (1)\nTests  29 passed (29)\nStart at  19:26:38\nDuration  2.19s (transform 1.30s, setup 0ms, import 1.96s, tests 157ms, environment 0ms)"
+    }
+  ],
+  "totals": {
+    "testFilesPassed": 5,
+    "testFilesTotal": 5,
+    "testsPassed": 45,
+    "testsTotal": 45
+  },
+  "scope": {
+    "modelCalls": "Faux/mock streams in the selected tests; no production model generation or vision test.",
+    "notProven": [
+      "Pivloom production fixes",
+      "Remote provider vision capability",
+      "Production sandbox cleanup",
+      "Platform database transactions"
+    ],
+    "notCounted": "Earlier import-only setup failures executed no tests. The API-key-dependent agent-session-tree-navigation.test.ts was not included in the successful runs and is not counted as passed."
+  }
+}

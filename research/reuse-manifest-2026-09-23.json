@@ -1,0 +1,360 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-23",
+  "pivloomBaseCommit": "92ffbb940015a2ac9182c26d81d93dc45269d710",
+  "purpose": "Pinned implementation decisions for next implementation; not a claim of production integration",
+  "userDecision": "exactly five acceptance groups, complete inherited subchecks, no discarded required behavior",
+  "items": [
+    {
+      "id": "U01",
+      "repository": "https://github.com/earendil-works/pi",
+      "commit": "13cbf77df2396303013a41646bcfa77b4271ae56",
+      "license": "MIT",
+      "reuseMode": "direct_sdk_and_official_example",
+      "implementationStatus": "planned_adapter_changes_not_deployed",
+      "sourceFiles": [
+        "packages/coding-agent/examples/sdk/12-full-control.ts",
+        "packages/coding-agent/src/core/agent-session.ts",
+        "packages/coding-agent/test/agent-session-retry.test.ts"
+      ],
+      "targetAreas": [
+        "runtime/pi.ts",
+        "runtime/coordinator.ts",
+        "runtime/reviewer.ts"
+      ],
+      "acceptance": [
+        "E13",
+        "E41",
+        "I17",
+        "I19"
+      ],
+      "boundaries": "Pin0.86.1; wait prompt/abort/idle/settled. Keep asynchronous DB event drain; Pi does not await external event listeners.",
+      "permalinkBase": "https://github.com/earendil-works/pi/blob/13cbf77df2396303013a41646bcfa77b4271ae56/"
+    },
+    {
+      "id": "U02",
+      "repository": "https://github.com/earendil-works/pi",
+      "commit": "13cbf77df2396303013a41646bcfa77b4271ae56",
+      "license": "MIT",
+      "reuseMode": "direct_sdk_operations",
+      "implementationStatus": "planned_adapter_changes_not_deployed",
+      "sourceFiles": [
+        "packages/coding-agent/examples/extensions/ssh.ts",
+        "packages/coding-agent/src/core/tools/bash.ts"
+      ],
+      "targetAreas": [
+        "runtime/pi.ts",
+        "runtime/workspace.ts"
+      ],
+      "acceptance": [
+        "I20",
+        "E14"
+      ],
+      "boundaries": "Copy operations seam, not shell path interpolation or assumption that killing local SSH kills remote children.",
+      "permalinkBase": "https://github.com/earendil-works/pi/blob/13cbf77df2396303013a41646bcfa77b4271ae56/"
+    },
+    {
+      "id": "U03",
+      "repository": "https://github.com/earendil-works/pi",
+      "commit": "13cbf77df2396303013a41646bcfa77b4271ae56",
+      "license": "MIT",
+      "reuseMode": "copy_official_image_tool_result_shape",
+      "implementationStatus": "planned_adapter_changes_not_deployed",
+      "sourceFiles": [
+        "packages/coding-agent/test/suite/agent-session-tool-result-images.test.ts",
+        "packages/coding-agent/src/utils/tool-result-images.ts",
+        "packages/ai/test/openai-completions-tool-result-images.test.ts"
+      ],
+      "targetAreas": [
+        "runtime/reviewer.ts",
+        "runtime/browser.ts",
+        "models/capabilities"
+      ],
+      "acceptance": [
+        "E33",
+        "I13"
+      ],
+      "boundaries": "Actual ImageContent/MIME; model.input=image and real Provider probe required; artifact ID/HTTP200 not vision proof.",
+      "permalinkBase": "https://github.com/earendil-works/pi/blob/13cbf77df2396303013a41646bcfa77b4271ae56/"
+    },
+    {
+      "id": "U04",
+      "repository": "https://github.com/earendil-works/pi",
+      "commit": "13cbf77df2396303013a41646bcfa77b4271ae56",
+      "license": "MIT",
+      "reuseMode": "direct_sdk_compaction",
+      "implementationStatus": "planned_adapter_changes_not_deployed",
+      "sourceFiles": [
+        "packages/coding-agent/docs/compaction.md",
+        "packages/coding-agent/test/suite/agent-session-compaction.test.ts"
+      ],
+      "targetAreas": [
+        "runtime/reviewer.ts"
+      ],
+      "acceptance": [
+        "I21"
+      ],
+      "boundaries": "Replace hand-trimmed last-two-turn context; preserve required checks and reloadable evidence; compaction may invoke model.",
+      "permalinkBase": "https://github.com/earendil-works/pi/blob/13cbf77df2396303013a41646bcfa77b4271ae56/"
+    },
+    {
+      "id": "U05",
+      "repository": "https://github.com/vercel-labs/agent-browser",
+      "commit": "aff6125c023b810ea3f2e5deec5379e9a4270bdc",
+      "license": "Apache-2.0",
+      "reuseMode": "direct_pinned_cli",
+      "implementationStatus": "planned_adapter_changes_not_deployed",
+      "sourceFiles": [
+        "cli/src/native/interaction.rs",
+        "cli/src/native/actions.rs",
+        "cli/src/mcp.rs",
+        "cli/src/main.rs"
+      ],
+      "targetAreas": [
+        "runtime/browser.ts",
+        "runtime/reviewer.ts",
+        "sandbox image"
+      ],
+      "acceptance": [
+        "E34",
+        "E42",
+        "I10"
+      ],
+      "boundaries": "Use native press/wait/batch/screenshot and JSON argv; preserve action/revision scope, cancellation and per-item errors.",
+      "permalinkBase": "https://github.com/vercel-labs/agent-browser/blob/aff6125c023b810ea3f2e5deec5379e9a4270bdc/"
+    },
+    {
+      "id": "U06",
+      "repository": "https://github.com/dyad-sh/dyad",
+      "commit": "0ffb5b7333264473e61b4773ce6e25001ebd06db",
+      "license": "Apache-2.0 outside src/pro",
+      "reuseMode": "copy_small_hook_and_port_tests",
+      "implementationStatus": "planned_adapter_changes_not_deployed",
+      "sourceFiles": [
+        "src/components/chat/useCancellationRequestLatch.ts",
+        "src/components/chat/useCancellationRequestLatch.test.tsx"
+      ],
+      "targetAreas": [
+        "web/components/api-workbench.tsx"
+      ],
+      "acceptance": [
+        "E13",
+        "E14"
+      ],
+      "boundaries": "Change chatId type to Run UUID; UI latch never proves remote cleanup. Retain LICENSE/NOTICE/modification note.",
+      "permalinkBase": "https://github.com/dyad-sh/dyad/blob/0ffb5b7333264473e61b4773ce6e25001ebd06db/"
+    },
+    {
+      "id": "U07",
+      "repository": "https://github.com/dyad-sh/dyad",
+      "commit": "0ffb5b7333264473e61b4773ce6e25001ebd06db",
+      "license": "Apache-2.0 outside src/pro",
+      "reuseMode": "adapt_transition_checkpoint_and_transaction",
+      "implementationStatus": "planned_adapter_changes_not_deployed",
+      "sourceFiles": [
+        "src/version_preview/state.ts",
+        "src/version_preview/transition.ts",
+        "src/ipc/services/version_preview_definition.ts",
+        "src/chat_stream/persistence.ts",
+        "e2e-tests/version_integrity.spec.ts"
+      ],
+      "targetAreas": [
+        "data/generation.ts",
+        "generation/service.ts",
+        "version history/rollback UI"
+      ],
+      "acceptance": [
+        "E35",
+        "E36",
+        "E38",
+        "E40",
+        "I15",
+        "I17"
+      ],
+      "boundaries": "Map to existing immutable Supabase snapshots/PostgreSQL; do not copy Electron/Git/Neon or alter v3-to-v1 semantics. Never import src/pro.",
+      "permalinkBase": "https://github.com/dyad-sh/dyad/blob/0ffb5b7333264473e61b4773ce6e25001ebd06db/"
+    },
+    {
+      "id": "U08",
+      "repository": "https://github.com/OpenHands/software-agent-sdk",
+      "commit": "9e042d1f0bf7233b2a1a2bca4872625768eaac71",
+      "license": "MIT",
+      "reuseMode": "adapt_interrupt_order_and_tests",
+      "implementationStatus": "planned_adapter_changes_not_deployed",
+      "sourceFiles": [
+        "openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py",
+        "tests/sdk/conversation/test_interrupt.py",
+        "tests/tools/terminal/test_conversation_cleanup.py"
+      ],
+      "targetAreas": [
+        "generation/executor.ts",
+        "runtime role stop bridge"
+      ],
+      "acceptance": [
+        "E13",
+        "E14",
+        "E18",
+        "E30",
+        "E40"
+      ],
+      "boundaries": "Use Pi/AbortSignal; pause is not interrupt; retained cancel token for late tools; SDK close flags do not prove sandbox gone.",
+      "permalinkBase": "https://github.com/OpenHands/software-agent-sdk/blob/9e042d1f0bf7233b2a1a2bca4872625768eaac71/"
+    },
+    {
+      "id": "U09",
+      "repository": "https://github.com/anomalyco/opencode",
+      "commit": "18ef3cc7c5a25b82114c953a80ccc09f4988f74e",
+      "license": "MIT",
+      "reuseMode": "port_snapshot_test_cases_retry_reference_only",
+      "implementationStatus": "planned_adapter_changes_not_deployed",
+      "sourceFiles": [
+        "packages/opencode/test/snapshot/snapshot.test.ts",
+        "packages/opencode/test/session/snapshot-tool-race.test.ts",
+        "packages/opencode/src/session/retry.ts"
+      ],
+      "targetAreas": [
+        "snapshot/rollback tests",
+        "Provider retry tests only if gap"
+      ],
+      "acceptance": [
+        "E38",
+        "E41",
+        "I18",
+        "I19"
+      ],
+      "boundaries": "No shadow-Git engine; complete manifest includes deletions. No second retry loop around Pi.",
+      "permalinkBase": "https://github.com/anomalyco/opencode/blob/18ef3cc7c5a25b82114c953a80ccc09f4988f74e/"
+    },
+    {
+      "id": "U10",
+      "repository": "https://github.com/FoundationAgents/OpenManus",
+      "commit": "3309bf4e416fb1c74b008f3e86494439a31bad53",
+      "license": "MIT",
+      "reuseMode": "adapt_image_message_protocol_and_tests",
+      "implementationStatus": "planned_adapter_changes_not_deployed",
+      "sourceFiles": [
+        "app/tool/mcp.py",
+        "app/agent/toolcall.py",
+        "tests/tools/test_browser_use_mcp.py"
+      ],
+      "targetAreas": [
+        "Reviewer image pipeline design"
+      ],
+      "acceptance": [
+        "E33",
+        "E42",
+        "I13"
+      ],
+      "boundaries": "Use Pi ImageContent, not Python runtime, floating uvx dependency, hardcoded multimodal model list, MIME loss or raw Python execution.",
+      "permalinkBase": "https://github.com/FoundationAgents/OpenManus/blob/3309bf4e416fb1c74b008f3e86494439a31bad53/"
+    },
+    {
+      "id": "U11",
+      "repository": "https://github.com/openai/skills",
+      "commit": "30444aed500c00c85294d12074f6e3ee794f808a",
+      "license": "Apache-2.0 in develop-web-game directory",
+      "reuseMode": "adapt_archived_game_recipe",
+      "implementationStatus": "planned_adapter_changes_not_deployed",
+      "sourceFiles": [
+        "skills/.curated/develop-web-game/SKILL.md",
+        "skills/.curated/develop-web-game/scripts/web_game_playwright_client.js",
+        "skills/.curated/develop-web-game/LICENSE.txt"
+      ],
+      "targetAreas": [
+        "browser burst/observe workflow",
+        "game E2E"
+      ],
+      "acceptance": [
+        "E12",
+        "E34",
+        "E42"
+      ],
+      "boundaries": "Removed from current main; own maintenance required. Port to existing agent-browser, do not install new default Playwright browser. exit0/state hook/screenshot alone not PASS.",
+      "permalinkBase": "https://github.com/openai/skills/blob/30444aed500c00c85294d12074f6e3ee794f808a/"
+    },
+    {
+      "id": "U12",
+      "repository": "https://github.com/opensandbox-group/OpenSandbox",
+      "commit": "15426df5d146d6ce7499a16bd1ed871e7242fe27",
+      "license": "Apache-2.0",
+      "reuseMode": "direct_sdk_1.1.0",
+      "implementationStatus": "planned_adapter_changes_not_deployed",
+      "sourceFiles": [
+        "sdks/sandbox/javascript/src/sandbox.ts",
+        "sdks/sandbox/javascript/README.md"
+      ],
+      "targetAreas": [
+        "runtime/workspace.ts",
+        "generation/executor.ts"
+      ],
+      "acceptance": [
+        "E14",
+        "E17",
+        "E18",
+        "E30",
+        "E40"
+      ],
+      "boundaries": "renew from now; kill remote instance; close only transport. Keep owner resource confirmation and database state.",
+      "permalinkBase": "https://github.com/opensandbox-group/OpenSandbox/blob/15426df5d146d6ce7499a16bd1ed871e7242fe27/"
+    },
+    {
+      "id": "U13",
+      "repository": "https://github.com/OpenHands/software-agent-sdk",
+      "commit": "9e042d1f0bf7233b2a1a2bca4872625768eaac71",
+      "license": "MIT",
+      "reuseMode": "port_workspace_cookie_scope_tests",
+      "implementationStatus": "planned_adapter_changes_not_deployed",
+      "sourceFiles": [
+        "openhands-agent-server/openhands/agent_server/auth_router.py",
+        "openhands-agent-server/openhands/agent_server/dependencies.py",
+        "tests/agent_server/test_workspace_cookie_auth.py"
+      ],
+      "targetAreas": [
+        "generation/preview.ts",
+        "auth/supabase.ts"
+      ],
+      "acceptance": [
+        "E25",
+        "E37",
+        "I14"
+      ],
+      "boundaries": "Scope pattern only. Do not copy long-lived session API key cookie or assume DELETE revokes server credential.",
+      "permalinkBase": "https://github.com/OpenHands/software-agent-sdk/blob/9e042d1f0bf7233b2a1a2bca4872625768eaac71/"
+    }
+  ],
+  "officialApiReferences": [
+    {
+      "id": "U14",
+      "name": "Supabase sessions",
+      "urls": [
+        "https://supabase.com/docs/guides/auth/sessions",
+        "https://supabase.com/docs/guides/auth/signout"
+      ],
+      "decision": "keep existing local signOut; verify authenticated session_id against server session existence for immediate private-preview revocation",
+      "acceptance": [
+        "E25",
+        "E37",
+        "I14"
+      ]
+    },
+    {
+      "id": "U15",
+      "name": "Next.js 16.3.5 installed docs",
+      "urls": [
+        "https://nextjs.org/docs/app/api-reference/config/next-config-js/generateBuildId"
+      ],
+      "decision": "single build commit input for immutable Web/API metadata; handle deploymentId precedence",
+      "acceptance": [
+        "E32",
+        "I16"
+      ]
+    }
+  ],
+  "copyRules": [
+    "Pin exact source and include relevant copyright/LICENSE/NOTICE when copying substantive code.",
+    "Record adaptations and rerun upstream-derived assertions on Pivloom adapters.",
+    "Do not copy Dyad src/pro restricted code.",
+    "Manus application export does not make its proprietary Agent implementation available.",
+    "No production generation or deployed feature validation was performed in this research."
+  ]
+}
