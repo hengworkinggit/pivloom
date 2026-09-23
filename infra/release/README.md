@@ -11,8 +11,6 @@ npm ci
 npm run typecheck
 npm run lint
 npm test
-npm run build:contracts
-npm run build --workspace @pivloom/api
 ```
 
 Web 的公开来源与 CSP 在构建时确定。通过受限的本机配置提供 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`，然后构建；只有 publishable key 可以进入浏览器。以下均是公开地址，不含服务管理密钥：
@@ -24,14 +22,14 @@ export PREVIEW_BASE_URL=https://preview-pivloom-69-5-7-187.sslip.io
 export API_INTERNAL_ORIGIN=http://127.0.0.1:18010
 export SUPABASE_INTERNAL_ORIGIN=http://127.0.0.1:54321
 test -n "$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
-npm run build --workspace @pivloom/web
+python3 infra/release/build.py
 
 release="$(git rev-parse --short HEAD)-$(date -u +%Y%m%dT%H%M%SZ)"
 python3 infra/release/package.py api "$release"
 python3 infra/release/package.py web "$release"
 ```
 
-产物默认放在被忽略的 `.cache/releases/`，每个压缩包附带提交、工作树状态、构建时间和 SHA-256 记录。打包器拒绝 `.env` / `.env.*` 及越出打包目录的链接；Web 包包含 standalone server、static 和 public 资源。若 Next 追踪到了环境文件，先从干净 checkout 通过进程环境重新构建，不把该文件放进发布包。记录中的 `worktreeDirty` 必须与实际发布情况一致；脚本不会声称未提交代码等同于 HEAD。
+`build.py` 只接受干净提交，先删除旧构建目录，再用同一提交构建 API 和 Web，并把提交 SHA 与构建时间写入各自的产物。通常 Next 的 `BUILD_ID` 等于该 SHA；若显式设置 `PIVLOOM_DEPLOYMENT_ID`，以 Next 的 deployment ID 优先规则为准，产物同时记录实际 `BUILD_ID`。`package.py` 核对工作树、产物提交与 Web `BUILD_ID` 后才打包。产物默认放在被忽略的 `.cache/releases/`，压缩包附 SHA-256 记录；打包器拒绝 `.env` / `.env.*` 及越出打包目录的链接。Web 包包含 standalone server、static 和 public 资源。
 
 ## 主机准备与迁移
 

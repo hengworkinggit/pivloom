@@ -38,7 +38,10 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
-      - run: npm run build
+      - run: python3 infra/release/test_package.py
+      - run: python3 infra/release/build.py
+      - run: python3 infra/release/package.py api ci-api
+      - run: python3 infra/release/package.py web ci-web
 
   postgres:
     name: Real PostgreSQL repair and recovery (external HTTP fixtures)

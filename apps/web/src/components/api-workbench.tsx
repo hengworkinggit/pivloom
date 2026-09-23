@@ -20,6 +20,7 @@ import { GenerationResult } from "./generation-result";
 import { SessionModelPicker } from "./session-model-picker";
 import { useUiPreferences } from "@/lib/ui-preferences";
 import { useCancellationRequestLatch } from "@/lib/use-cancellation-request-latch";
+import { DeploymentVersion } from "./deployment-version";
 import { checkMatchesRevision } from "./generation-review";
 
 const rejectedSubmissions = new Set(["INVALID_INPUT", "PROJECT_BUSY", "CLEANUP_PENDING", "STALE_BASE", "IDEMPOTENCY_CONFLICT", "SERVICE_BUSY", "QUOTA_EXCEEDED", "NOT_FOUND", "UNAUTHENTICATED", "MODEL_PROFILE_NOT_FOUND", "MODEL_CONFIG_CHANGED", "MODEL_NOT_VERIFIED", "MODEL_CONFIGURATION_MISSING"]);
@@ -196,6 +197,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   if (!project) return <><AppHeader /><div className="page-loader" aria-label={ui.text("正在打开项目", "Opening project")}><LoaderCircle className="spin" size={24} /></div></>;
   return <div className="workbench-page">
     <AppHeader title={project.project.title} saving={state.active} />
+    <DeploymentVersion />
     <nav className="mobile-workbench-tabs" aria-label={ui.text("工作区", "Workspace")}><button aria-pressed={mobileTab === "chat"} onClick={() => setMobileTab("chat")}><MessageSquare size={15} />{ui.text("对话", "Chat")}{state.active && <span className="mini-dot" />}</button><button aria-pressed={mobileTab === "result"} onClick={() => setMobileTab("result")}><Monitor size={15} />{ui.text("结果", "Result")}{revision && <span>v{revision.revisionNo}</span>}</button></nav>
     <main className={cn("workbench-layout", `mobile-show-${mobileTab}`, collapsed && "chat-collapsed")}>
       <section className="chat-panel" aria-label={ui.text("与 Pivloom 对话", "Chat with Pivloom")}>

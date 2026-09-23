@@ -4,6 +4,9 @@ const config: NextConfig = {
   // A standalone server keeps the deployed release self-contained instead of
   // shipping the whole monorepo node_modules to the host.
   output: "standalone",
+  generateBuildId: async () => process.env.PIVLOOM_BUILD_COMMIT ?? null,
+  // Next uses deploymentId instead of generateBuildId when both are supplied.
+  deploymentId: process.env.PIVLOOM_DEPLOYMENT_ID,
   devIndicators: false,
   poweredByHeader: false,
   async headers() {

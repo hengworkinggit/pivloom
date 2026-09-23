@@ -724,6 +724,38 @@ svg {
   padding: 0 22px;
   background: #fcfdf9;
 }
+.deployment-version {
+  min-height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 3px 22px;
+  border-bottom: 1px solid #e6eadf;
+  background: #f8faf5;
+  color: #687568;
+  font-size: 11px;
+}
+.deployment-version-title { margin-right: 3px; }
+.deployment-version button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 2px 7px;
+  border: 1px solid #dce5d4;
+  border-radius: 6px;
+  background: #fff;
+  color: #445340;
+  font: inherit;
+  cursor: pointer;
+}
+.deployment-version button:disabled { opacity: .6; cursor: default; }
+.deployment-version-notice { color: #346444; }
+@media (max-width: 600px) {
+  .deployment-version { justify-content: flex-start; padding: 3px 12px; overflow-x: auto; white-space: nowrap; }
+}
 .header-divider {
   width: 1px;
   height: 19px;

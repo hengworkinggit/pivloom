@@ -19,6 +19,33 @@ def main():
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}", args.release):
         parser.error("invalid release name")
     root = Path(__file__).resolve().parents[2]
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    if not re.fullmatch(r"[a-f0-9]{40}", commit):
+        parser.error("cannot identify a complete source commit")
+    if subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=root):
+        parser.error("release source is dirty; build and package a clean commit")
+    manifest_path = (root / "apps/api/dist/version.json" if args.component == "api"
+                     else root / "apps/web/.next/standalone/apps/web/version.json")
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except (OSError, ValueError):
+        parser.error("build version manifest is missing or invalid")
+    if (manifest.get("component") != args.component or manifest.get("commit") != commit
+            or not isinstance(manifest.get("builtAt"), str)):
+        parser.error("build version manifest does not match the source commit")
+    try:
+        datetime.datetime.fromisoformat(manifest["builtAt"].replace("Z", "+00:00"))
+    except ValueError:
+        parser.error("build timestamp is invalid")
+    if args.component == "web":
+        try:
+            build_id = (root / "apps/web/.next/BUILD_ID").read_text().strip()
+        except OSError:
+            parser.error("Next build ID is missing")
+        if manifest.get("buildId") != build_id:
+            parser.error("Web build manifest and Next build ID disagree")
+        if not manifest.get("deploymentId") and build_id != commit:
+            parser.error("Next build ID does not match the source commit")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     archive = output / f"{args.component}-{args.release}.tar.gz"
@@ -68,8 +95,9 @@ def main():
     metadata = {
         "component": args.component,
         "release": args.release,
-        "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
-        "worktreeDirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True)),
+        "commit": commit,
+        "builtAt": manifest["builtAt"],
+        "worktreeDirty": False,
         "createdAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "archiveSha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
         "files": len(entries),

@@ -12,6 +12,7 @@ import { registerModelRoutes } from "./routes/models.js";
 import { registerGenerationRoutes } from "./routes/generation.js";
 import { createGenerationService, type GenerationService } from "./generation/service.js";
 import type { SourceObjectStore } from "./storage/source.js";
+import { readApiBuildVersion } from "./build-version.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -34,6 +35,9 @@ export interface CreateAppOptions {
 
 export function createApp(options: CreateAppOptions = {}) {
   const env = options.env ?? process.env;
+  const buildVersion = readApiBuildVersion();
+  if (env.NODE_ENV === "production" && !buildVersion.commit)
+    throw new Error("API artifact version manifest is missing or invalid");
   if ((options.generationBoundaries || env.TEST_PROFILE) && env.NODE_ENV !== "test")
     throw new Error("Generation test adapters require an isolated test process");
   const dailyLimitByOwner = env.DAILY_RUN_LIMIT_OVERRIDES
@@ -75,6 +79,7 @@ export function createApp(options: CreateAppOptions = {}) {
     });
   });
   app.get("/api/v1/health/live", async () => ({ status: "live", bootId }));
+  app.get("/api/v1/version", async (_request, reply) => reply.header("cache-control", "no-store").send(buildVersion));
   app.get("/api/v1/health/ready", async (_request, reply) => {
     const checks = database && verifier ? await Promise.all([database.healthy(), verifier.healthy()]) : [false];
     const ready = checks.every(Boolean);
