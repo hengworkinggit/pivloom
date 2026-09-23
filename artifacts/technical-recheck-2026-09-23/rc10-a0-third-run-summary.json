@@ -1,0 +1,252 @@
+{
+  "capturedAt": "2026-09-23T22:57:53.087Z",
+  "environment": {
+    "apiSha": "7c9244acba2131f08dab43932bbec427da1a294e",
+    "qaBrowser": "agent-browser 0.36.0",
+    "webSha": "7c9244acba2131f08dab43932bbec427da1a294e"
+  },
+  "lastEvents": [
+    {
+      "at": "2026-09-23T22:54:08.311Z",
+      "message": "检查者执行 browser_click",
+      "success": null,
+      "tool": "browser_click",
+      "type": "tool.started"
+    },
+    {
+      "at": "2026-09-23T22:54:09.720Z",
+      "message": "检查工具已完成",
+      "success": true,
+      "tool": "browser_click",
+      "type": "tool.completed"
+    },
+    {
+      "at": "2026-09-23T22:54:13.724Z",
+      "message": "检查者执行 browser_click",
+      "success": null,
+      "tool": "browser_click",
+      "type": "tool.started"
+    },
+    {
+      "at": "2026-09-23T22:54:13.737Z",
+      "message": "检查工具未完成（RECORD_BEHAVIOR_REQUIRED:B03）",
+      "success": false,
+      "tool": "browser_click",
+      "type": "tool.completed"
+    },
+    {
+      "at": "2026-09-23T22:54:19.845Z",
+      "message": "检查者执行 browser_observe",
+      "success": null,
+      "tool": "browser_observe",
+      "type": "tool.started"
+    },
+    {
+      "at": "2026-09-23T22:54:20.860Z",
+      "message": "检查工具已完成",
+      "success": true,
+      "tool": "browser_observe",
+      "type": "tool.completed"
+    },
+    {
+      "at": "2026-09-23T22:54:41.188Z",
+      "message": "检查者执行 browser_click",
+      "success": null,
+      "tool": "browser_click",
+      "type": "tool.started"
+    },
+    {
+      "at": "2026-09-23T22:54:42.321Z",
+      "message": "",
+      "success": null,
+      "tool": null,
+      "type": "run.finished"
+    }
+  ],
+  "project": {
+    "currentRevisionId": null,
+    "id": "bfbbe5cc-4207-4d3e-9620-84df5035e1bc",
+    "latestCheck": null,
+    "preview": {
+      "expiresAt": "2026-09-23T23:15:55.144Z",
+      "revisionId": "81e435c2-60eb-4905-b3fb-842a8cace844",
+      "sourceHash": "2c5be61432bf6731e6fc893bc227b457526b4103dd6e318fe37cb2aaa378b27c",
+      "state": "expired"
+    }
+  },
+  "reviewerLastRecordAt": "2026-09-23T22:53:11.026Z",
+  "reviewerToolStartsSinceLastRecord": [
+    {
+      "at": "2026-09-23T22:53:15.989Z",
+      "tool": "browser_click"
+    },
+    {
+      "at": "2026-09-23T22:53:31.771Z",
+      "tool": "browser_click"
+    },
+    {
+      "at": "2026-09-23T22:53:38.354Z",
+      "tool": "browser_click"
+    },
+    {
+      "at": "2026-09-23T22:53:46.427Z",
+      "tool": "browser_click"
+    },
+    {
+      "at": "2026-09-23T22:53:51.948Z",
+      "tool": "browser_click"
+    },
+    {
+      "at": "2026-09-23T22:53:57.373Z",
+      "tool": "browser_click"
+    },
+    {
+      "at": "2026-09-23T22:54:02.678Z",
+      "tool": "browser_click"
+    },
+    {
+      "at": "2026-09-23T22:54:08.311Z",
+      "tool": "browser_click"
+    },
+    {
+      "at": "2026-09-23T22:54:13.724Z",
+      "tool": "browser_click"
+    },
+    {
+      "at": "2026-09-23T22:54:19.845Z",
+      "tool": "browser_observe"
+    },
+    {
+      "at": "2026-09-23T22:54:41.188Z",
+      "tool": "browser_click"
+    }
+  ],
+  "revision": {
+    "buildStatus": "passed",
+    "id": "81e435c2-60eb-4905-b3fb-842a8cace844",
+    "manifest": [
+      {
+        "bytes": 263,
+        "path": "index.html",
+        "sha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42"
+      },
+      {
+        "bytes": 26874,
+        "path": "package-lock.json",
+        "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6"
+      },
+      {
+        "bytes": 517,
+        "path": "package.json",
+        "sha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65"
+      },
+      {
+        "bytes": 5792,
+        "path": "src/App.tsx",
+        "sha256": "c3c413f50f5cec47c0ab13f58fc67f9a4e116980c593b66abcbfa48e3dab1396"
+      },
+      {
+        "bytes": 153,
+        "path": "src/main.tsx",
+        "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c"
+      },
+      {
+        "bytes": 1793,
+        "path": "src/style.css",
+        "sha256": "ce1ae5988d48bfea34cc46ee7873e987b4cb8fd1b25469d2efbcf7199c9ebfcd"
+      },
+      {
+        "bytes": 331,
+        "path": "tsconfig.json",
+        "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837"
+      }
+    ],
+    "revisionNo": 3,
+    "sourceHash": "2c5be61432bf6731e6fc893bc227b457526b4103dd6e318fe37cb2aaa378b27c",
+    "status": "candidate"
+  },
+  "roles": {
+    "builder": {
+      "failedToolEvents": [
+        {
+          "at": "2026-09-23T22:46:43.478Z",
+          "message": "远程工具未完成",
+          "tool": "read"
+        },
+        {
+          "at": "2026-09-23T22:46:43.490Z",
+          "message": "远程工具未完成",
+          "tool": "read"
+        },
+        {
+          "at": "2026-09-23T22:46:43.503Z",
+          "message": "远程工具未完成",
+          "tool": "read"
+        }
+      ],
+      "finishedAt": "2026-09-23T22:51:41.101Z",
+      "id": "5c29bd12-fce2-4faf-a228-13a343526ea1",
+      "startedAt": "2026-09-23T22:45:54.089Z",
+      "state": "succeeded",
+      "toolStarts": {
+        "bash": 5,
+        "edit": 1,
+        "read": 3,
+        "write": 2
+      }
+    },
+    "coordinator": {
+      "failedToolEvents": [],
+      "finishedAt": "2026-09-23T22:45:54.071Z",
+      "id": "758ee7fc-824f-4e13-9a28-13b7c5cfc91d",
+      "startedAt": "2026-09-23T22:44:49.629Z",
+      "state": "succeeded",
+      "toolStarts": {
+        "project_summary": 1,
+        "submit_plan": 1
+      }
+    },
+    "reviewer": {
+      "failedToolEvents": [
+        {
+          "at": "2026-09-23T22:54:13.737Z",
+          "message": "检查工具未完成（RECORD_BEHAVIOR_REQUIRED:B03）",
+          "tool": "browser_click"
+        }
+      ],
+      "finishedAt": "2026-09-23T22:54:42.321Z",
+      "id": "88a3e81a-5c6b-4a7d-81b8-d731a9a924f4",
+      "startedAt": "2026-09-23T22:51:41.261Z",
+      "state": "failed",
+      "toolStarts": {
+        "browser_click": 16,
+        "browser_observe": 2,
+        "browser_open": 1,
+        "browser_screenshot": 2,
+        "record_behavior": 2,
+        "source_read": 3
+      }
+    }
+  },
+  "run": {
+    "attempt": 0,
+    "baseRevisionId": null,
+    "cleanupState": "confirmed",
+    "createdAt": "2026-09-23T22:44:49.603Z",
+    "deadlineAt": "2026-09-23T23:14:49.603Z",
+    "error": {
+      "code": "AGENT_OUTPUT_INVALID",
+      "message": "检查结果未通过格式或证据校验，请稍后重试。",
+      "retryable": true
+    },
+    "finishedAt": "2026-09-23T22:54:42.321Z",
+    "id": "2478fa6d-4757-4c93-84d9-a833f5184a9c",
+    "modelConfigVersion": 2,
+    "modelId": null,
+    "modelProfileId": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+    "phase": "cleanup",
+    "resultRevisionId": "81e435c2-60eb-4905-b3fb-842a8cace844",
+    "state": "failed",
+    "summary": "检查结果未通过格式或证据校验，请稍后重试。"
+  }
+}

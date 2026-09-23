@@ -1,0 +1,221 @@
+{
+  "capturedAt": "2026-09-23T22:37:58.258Z",
+  "environment": {
+    "apiSha": "083c22d1c72664ed61b12508aefd0954b614d65c",
+    "projectUrl": "https://pivloom-69-5-7-187.sslip.io/projects/bfbbe5cc-4207-4d3e-9620-84df5035e1bc",
+    "qaBrowser": "agent-browser 0.36.0",
+    "webSha": "083c22d1c72664ed61b12508aefd0954b614d65c"
+  },
+  "eventCount": 200,
+  "lastEvents": [
+    {
+      "at": "2026-09-23T22:35:52.640Z",
+      "message": "检查工具已完成",
+      "success": true,
+      "toolName": "browser_screenshot",
+      "type": "tool.completed"
+    },
+    {
+      "at": "2026-09-23T22:36:01.423Z",
+      "message": "检查者执行 record_behavior",
+      "success": null,
+      "toolName": "record_behavior",
+      "type": "tool.started"
+    },
+    {
+      "at": "2026-09-23T22:36:01.443Z",
+      "message": "检查工具已完成",
+      "success": true,
+      "toolName": "record_behavior",
+      "type": "tool.completed"
+    },
+    {
+      "at": "2026-09-23T22:36:06.531Z",
+      "message": "检查者执行 browser_click",
+      "success": null,
+      "toolName": "browser_click",
+      "type": "tool.started"
+    },
+    {
+      "at": "2026-09-23T22:36:07.904Z",
+      "message": "检查工具已完成",
+      "success": true,
+      "toolName": "browser_click",
+      "type": "tool.completed"
+    },
+    {
+      "at": "2026-09-23T22:36:12.854Z",
+      "message": "检查者执行 browser_click",
+      "success": null,
+      "toolName": "browser_click",
+      "type": "tool.started"
+    },
+    {
+      "at": "2026-09-23T22:36:14.113Z",
+      "message": "检查工具已完成",
+      "success": true,
+      "toolName": "browser_click",
+      "type": "tool.completed"
+    },
+    {
+      "at": "2026-09-23T22:36:20.928Z",
+      "message": "检查者执行 browser_click",
+      "success": null,
+      "toolName": "browser_click",
+      "type": "tool.started"
+    },
+    {
+      "at": "2026-09-23T22:36:20.940Z",
+      "message": "检查工具未完成（BROWSER_BLOCKED）",
+      "success": false,
+      "toolName": "browser_click",
+      "type": "tool.completed"
+    },
+    {
+      "at": "2026-09-23T22:36:21.039Z",
+      "message": "",
+      "success": null,
+      "toolName": null,
+      "type": "run.finished"
+    }
+  ],
+  "profile": {
+    "configVersion": 2,
+    "id": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+    "modelId": "kimi-k2.7-code",
+    "name": "火山方舟 · GLM 5.3 Flash",
+    "provider": "openai-completions"
+  },
+  "project": {
+    "currentRevisionId": null,
+    "id": "bfbbe5cc-4207-4d3e-9620-84df5035e1bc",
+    "latestCandidateId": "46f4a405-83b1-442d-b0c9-5258d059291c",
+    "latestCheck": null,
+    "preview": {
+      "expiresAt": "2026-09-23T22:36:19.859Z",
+      "revisionId": "46f4a405-83b1-442d-b0c9-5258d059291c",
+      "sourceHash": "af6df6acb3b024bda8630f35bb9cd7ce06d890707021c7edd900ce574ce0a622",
+      "state": "expired",
+      "url": null
+    }
+  },
+  "revision": {
+    "attempt": 0,
+    "buildStatus": "passed",
+    "id": "46f4a405-83b1-442d-b0c9-5258d059291c",
+    "manifest": [
+      {
+        "bytes": 263,
+        "path": "index.html",
+        "sha256": "386c55c246ac483ca244c4a3627d2f5bae416325a36577c86a6d7da8d2c4420c"
+      },
+      {
+        "bytes": 26874,
+        "path": "package-lock.json",
+        "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6"
+      },
+      {
+        "bytes": 517,
+        "path": "package.json",
+        "sha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65"
+      },
+      {
+        "bytes": 5363,
+        "path": "src/App.tsx",
+        "sha256": "4998a473e73e599df628ec362faff09d3599aee929d68fbcfdbd73a48c341db0"
+      },
+      {
+        "bytes": 153,
+        "path": "src/main.tsx",
+        "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c"
+      },
+      {
+        "bytes": 1663,
+        "path": "src/style.css",
+        "sha256": "78e69b1d21a3dea33de1af2e8883dceff2ddae5604c8d5ea15ba704cf19459da"
+      },
+      {
+        "bytes": 331,
+        "path": "tsconfig.json",
+        "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837"
+      }
+    ],
+    "revisionNo": 2,
+    "sourceHash": "af6df6acb3b024bda8630f35bb9cd7ce06d890707021c7edd900ce574ce0a622",
+    "status": "candidate"
+  },
+  "roles": {
+    "builder": {
+      "attempt": 0,
+      "failedToolEvents": [],
+      "finishedAt": "2026-09-23T22:24:58.731Z",
+      "id": "3fd80af4-789c-46d2-8768-0d57e1ad8611",
+      "startedAt": "2026-09-23T22:21:18.970Z",
+      "state": "succeeded",
+      "toolStarts": {}
+    },
+    "coordinator": {
+      "attempt": 0,
+      "failedToolEvents": [],
+      "finishedAt": "2026-09-23T22:21:18.954Z",
+      "id": "a05b36d4-11ab-4079-9fb6-f2e05b83edb9",
+      "startedAt": "2026-09-23T22:20:19.948Z",
+      "state": "succeeded",
+      "toolStarts": {}
+    },
+    "reviewer": {
+      "attempt": 0,
+      "failedToolEvents": [
+        {
+          "at": "2026-09-23T22:29:16.136Z",
+          "message": "检查工具未完成（RECORD_BEHAVIOR_REQUIRED:B05）",
+          "toolName": "browser_click"
+        },
+        {
+          "at": "2026-09-23T22:31:31.899Z",
+          "message": "检查工具未完成（RECORD_BEHAVIOR_REQUIRED:B06）",
+          "toolName": "browser_click"
+        },
+        {
+          "at": "2026-09-23T22:36:20.940Z",
+          "message": "检查工具未完成（BROWSER_BLOCKED）",
+          "toolName": "browser_click"
+        }
+      ],
+      "finishedAt": "2026-09-23T22:36:21.039Z",
+      "id": "7f2d3f62-7bca-41f3-84a3-15d5e73656ff",
+      "startedAt": "2026-09-23T22:24:58.831Z",
+      "state": "failed",
+      "toolStarts": {
+        "browser_click": 63,
+        "browser_open": 1,
+        "browser_reload": 1,
+        "browser_resize": 1,
+        "browser_screenshot": 12,
+        "record_behavior": 13,
+        "source_read": 3
+      }
+    }
+  },
+  "run": {
+    "attempt": 0,
+    "baseRevisionId": null,
+    "cleanupState": "confirmed",
+    "createdAt": "2026-09-23T22:20:19.920Z",
+    "deadlineAt": "2026-09-23T22:50:19.920Z",
+    "error": {
+      "code": "CHECK_BLOCKED",
+      "message": "检查过程或浏览器关闭尚未完成，候选未被接受。",
+      "retryable": true
+    },
+    "finishedAt": "2026-09-23T22:36:21.039Z",
+    "id": "4d43a018-9ce0-4c16-9b8a-5935a6895d1c",
+    "modelConfigVersion": 2,
+    "modelId": null,
+    "modelProfileId": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+    "phase": "cleanup",
+    "resultRevisionId": "46f4a405-83b1-442d-b0c9-5258d059291c",
+    "state": "failed",
+    "summary": "检查过程或浏览器关闭尚未完成，候选未被接受。"
+  }
+}

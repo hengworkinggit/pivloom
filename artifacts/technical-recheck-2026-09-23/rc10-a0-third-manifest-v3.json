@@ -1,0 +1,55 @@
+{
+  "files": [
+    {
+      "bytes": 263,
+      "downloadSha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42",
+      "manifestSha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42",
+      "match": true,
+      "path": "index.html"
+    },
+    {
+      "bytes": 26874,
+      "downloadSha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6",
+      "manifestSha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6",
+      "match": true,
+      "path": "package-lock.json"
+    },
+    {
+      "bytes": 517,
+      "downloadSha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65",
+      "manifestSha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65",
+      "match": true,
+      "path": "package.json"
+    },
+    {
+      "bytes": 5792,
+      "downloadSha256": "c3c413f50f5cec47c0ab13f58fc67f9a4e116980c593b66abcbfa48e3dab1396",
+      "manifestSha256": "c3c413f50f5cec47c0ab13f58fc67f9a4e116980c593b66abcbfa48e3dab1396",
+      "match": true,
+      "path": "src/App.tsx"
+    },
+    {
+      "bytes": 153,
+      "downloadSha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c",
+      "manifestSha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c",
+      "match": true,
+      "path": "src/main.tsx"
+    },
+    {
+      "bytes": 1793,
+      "downloadSha256": "ce1ae5988d48bfea34cc46ee7873e987b4cb8fd1b25469d2efbcf7199c9ebfcd",
+      "manifestSha256": "ce1ae5988d48bfea34cc46ee7873e987b4cb8fd1b25469d2efbcf7199c9ebfcd",
+      "match": true,
+      "path": "src/style.css"
+    },
+    {
+      "bytes": 331,
+      "downloadSha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837",
+      "manifestSha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837",
+      "match": true,
+      "path": "tsconfig.json"
+    }
+  ],
+  "revisionId": "81e435c2-60eb-4905-b3fb-842a8cace844",
+  "sourceHash": "2c5be61432bf6731e6fc893bc227b457526b4103dd6e318fe37cb2aaa378b27c"
+}
