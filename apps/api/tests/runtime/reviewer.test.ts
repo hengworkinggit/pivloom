@@ -116,6 +116,41 @@ test('a static render-only behavior passes with one observation and a screenshot
   assertReviewerResult(result);
 });
 
+test('a bound browser observationId is canonicalized to its event ID before storing a static check',async()=>{
+  let eventId='',browserObservationId='';
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content) as {id?:string;observationId?:string;artifactId?:string}:null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2){eventId=String(data?.id);browserObservationId=String(data?.observationId);
+      return {name:'browser_screenshot',args:{}};}
+    return {name:'record_behavior',args:{...report([browserObservationId]).items[0],
+      screenshotIds:[data?.artifactId],reproSteps:['查看初始静态画面']}};
+  });
+  f.input.handoff.plan={...f.input.handoff.plan,
+    behaviors:[{...f.input.handoff.plan.behaviors[0],action:'直接查看页面初始状态。'}]};
+  const result=await runReviewer({...f.input,requireVisionEvidence:true});
+  expect(eventId).not.toBe(browserObservationId);
+  expect(result.result.items[0].observationEventIds).toEqual([eventId]);
+  expect(result.result.items[0].verdict).toBe('passed');
+});
+
+test('an interactive check may reference its own browser observationId without accepting foreign evidence',async()=>{
+  let eventId='',browserObservationId='';
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content) as {id?:string;observationId?:string;artifactId?:string}:null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_click',args:{behaviorId:'B01',observationId:data?.observationId,ref:'e1'}};
+    if(n===3){eventId=String(data?.id);browserObservationId=String(data?.observationId);
+      return {name:'browser_screenshot',args:{}};}
+    return {name:'record_behavior',args:{...report([browserObservationId]).items[0],screenshotIds:[data?.artifactId]}};
+  });
+  const result=await runReviewer({...f.input,requireVisionEvidence:true});
+  expect(result.result.items[0].observationEventIds).toEqual([eventId]);
+  expect(f.stats().actions).toBe(1);
+});
+
 test.each(['blank','menu'])('negative fixture: %s Canvas cannot pass an interactive behavior without a key',{timeout:30_000},async mode=>{
   let firstObservationEventId='',screenshotId='',imageReachedProvider=false;
   const screenshot=readFileSync(new URL(`../fixtures/canvas-negative/images/${mode}-page-initial.png`,import.meta.url));
