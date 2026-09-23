@@ -35,11 +35,11 @@ export interface CreateAppOptions {
 
 export function createApp(options: CreateAppOptions = {}) {
   const env = options.env ?? process.env;
+  if ((options.generationBoundaries || env.TEST_PROFILE) && env.NODE_ENV !== "test")
+    throw new Error("Generation test adapters require an isolated test process");
   const buildVersion = readApiBuildVersion();
   if (env.NODE_ENV === "production" && !buildVersion.commit)
     throw new Error("API artifact version manifest is missing or invalid");
-  if ((options.generationBoundaries || env.TEST_PROFILE) && env.NODE_ENV !== "test")
-    throw new Error("Generation test adapters require an isolated test process");
   const dailyLimitByOwner = env.DAILY_RUN_LIMIT_OVERRIDES
     ? z.record(z.uuid(), z.number().int().min(1).max(1000)).parse(JSON.parse(env.DAILY_RUN_LIMIT_OVERRIDES))
     : undefined;
