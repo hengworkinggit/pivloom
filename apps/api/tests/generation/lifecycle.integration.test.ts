@@ -96,25 +96,36 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
   }, 30_000);
 
   afterAll(async () => {
+    if (!admin) return;
     // Leave no fixture rows behind: the recovery scan and quota count both read
     // every run, so a leaked active row would change later results.
-    if (runIds.length) await admin.query("DELETE FROM nano.run_events WHERE run_id = ANY($1::uuid[])", [runIds]);
-    if (runIds.length) await admin.query("DELETE FROM nano.messages WHERE run_id = ANY($1::uuid[])", [runIds]);
-    if (runIds.length) await admin.query("DELETE FROM nano.preview_restores WHERE project_id = ANY($1::uuid[])", [projectIds]);
-    if (projectIds.length) await admin.query("UPDATE nano.projects SET operation_kind=NULL, operation_id=NULL WHERE id = ANY($1::uuid[])", [projectIds]);
-    if (runIds.length) await admin.query("DELETE FROM nano.sandboxes WHERE run_id = ANY($1::uuid[])", [runIds]);
-    if (projectIds.length) await admin.query("UPDATE nano.projects SET current_revision_id=NULL WHERE id = ANY($1::uuid[])", [projectIds]);
-    if (projectIds.length) await admin.query("DELETE FROM nano.revisions WHERE project_id = ANY($1::uuid[])", [projectIds]);
-    if (runIds.length) await admin.query("DELETE FROM nano.role_runs WHERE run_id = ANY($1::uuid[])", [runIds]);
-    // runs.credential_lease_id references the leases, so the runs must go first:
-    // deleting leases first violates the foreign key, aborts the rest of this
-    // cleanup and silently leaks fixture runs into the daily quota.
-    if (runIds.length) await admin.query("DELETE FROM nano.runs WHERE id = ANY($1::uuid[])", [runIds]);
-    if (runIds.length) await admin.query("DELETE FROM nano.model_credential_leases WHERE reference_id = ANY($1::uuid[])", [runIds]);
-    if (projectIds.length) await admin.query("DELETE FROM nano.projects WHERE id = ANY($1::uuid[])", [projectIds]);
-    await writeFile(manifestPath, JSON.stringify({ prefix, ownerA, ownerB, projectIds, runIds, cleaned: true }, null, 2), { mode: 0o600 }).catch(() => undefined);
-    await admin.end();
-    await database.close();
+    const client = await admin.connect();
+    let cleaned = false;
+    try {
+      await client.query("BEGIN");
+      await client.query("SET CONSTRAINTS ALL DEFERRED");
+      if (runIds.length) await client.query("DELETE FROM nano.run_events WHERE run_id = ANY($1::uuid[])", [runIds]);
+      if (runIds.length) await client.query("DELETE FROM nano.messages WHERE run_id = ANY($1::uuid[])", [runIds]);
+      if (runIds.length) await client.query("DELETE FROM nano.preview_restores WHERE project_id = ANY($1::uuid[])", [projectIds]);
+      if (projectIds.length) await client.query("UPDATE nano.projects SET operation_kind=NULL, operation_id=NULL WHERE id = ANY($1::uuid[])", [projectIds]);
+      if (runIds.length) await client.query("DELETE FROM nano.sandboxes WHERE run_id = ANY($1::uuid[])", [runIds]);
+      if (projectIds.length) await client.query("UPDATE nano.projects SET current_revision_id=NULL WHERE id = ANY($1::uuid[])", [projectIds]);
+      if (projectIds.length) await client.query("DELETE FROM nano.revisions WHERE project_id = ANY($1::uuid[])", [projectIds]);
+      if (runIds.length) await client.query("DELETE FROM nano.role_runs WHERE run_id = ANY($1::uuid[])", [runIds]);
+      if (runIds.length) await client.query("DELETE FROM nano.runs WHERE id = ANY($1::uuid[])", [runIds]);
+      if (runIds.length) await client.query("DELETE FROM nano.model_credential_leases WHERE reference_id = ANY($1::uuid[])", [runIds]);
+      if (projectIds.length) await client.query("DELETE FROM nano.projects WHERE id = ANY($1::uuid[])", [projectIds]);
+      await client.query("COMMIT");
+      cleaned = true;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+      await admin.end();
+      await database.close();
+    }
+    if (cleaned) await writeFile(manifestPath, JSON.stringify({ prefix, ownerA, ownerB, projectIds, runIds, cleaned }, null, 2), { mode: 0o600 }).catch(() => undefined);
   }, 60_000);
 
   async function project() {
@@ -196,6 +207,30 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
     } finally {
       await admin.query("UPDATE nano.runs SET state='cancelled', cleanup_state='confirmed' WHERE id=$1 AND state NOT IN ('completed','cancelled','interrupted','needs_changes','failed','needs_input')", [run.id]);
       await admin.query("UPDATE nano.projects SET operation_kind=NULL, operation_id=NULL WHERE id=$1", [target.id]);
+    }
+  }, CASE_TIMEOUT_MS);
+
+  test("confirmed delayed cleanup replaces a cancelled run's stale pending message", async (context) => {
+    if (!quotaLeft) { context.skip(); return; }
+    const repo = repository();
+    const target = await project();
+    const run = await accept(repo, target.id, "延迟清理测试");
+    try {
+      await repo.cancel(runOwner, run.id);
+      const pending = await repo.finishCancelled(runOwner, run.id, {
+        cleanupState: "pending", summary: "任务已停止，远端资源回收尚未确认，已阻止新的任务。",
+      });
+      expect(pending).toMatchObject({ state: "cancelled", cleanupState: "pending" });
+      const confirmed = await repo.confirmCleanup(runOwner, run.id);
+      expect(confirmed).toMatchObject({ state: "cancelled", cleanupState: "confirmed",
+        summary: "任务已停止，远端模型调用与沙箱已确认回收。" });
+      const message = await admin.query("SELECT content FROM nano.messages WHERE run_id=$1 AND kind='result'", [run.id]);
+      expect(message.rows.map((row) => row.content)).toEqual(["任务已停止，远端模型调用与沙箱已确认回收。"]);
+      expect((await repo.confirmCleanup(runOwner, run.id)).summary).toBe(confirmed.summary);
+      expect((await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [target.id])).rows[0].operation_id).toBeNull();
+    } finally {
+      await admin.query("UPDATE nano.runs SET state='cancelled',cleanup_state='confirmed' WHERE id=$1", [run.id]);
+      await admin.query("UPDATE nano.projects SET operation_kind=NULL,operation_id=NULL WHERE id=$1", [target.id]);
     }
   }, CASE_TIMEOUT_MS);
 

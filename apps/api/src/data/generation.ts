@@ -837,9 +837,16 @@ export function createGenerationRepository(
       if (!TerminalRunStates.has(current.state)) throw new ApiFailure(409, "RUN_STILL_ACTIVE", "任务尚未结束，不能释放清理占用。");
       if (current.cleanup_state !== "pending") return storedRun(current);
       if (parent.operation_id !== runId) throw new ApiFailure(409, "RUN_NOT_ACTIVE", "项目操作与待清理任务不一致。");
-      const result = await client.query("UPDATE nano.runs SET cleanup_state='confirmed' WHERE owner_id=$1 AND id=$2 RETURNING *", [ownerId, runId]);
+      const confirmedSummary = "任务已停止，远端模型调用与沙箱已确认回收。";
+      const result = await client.query(`UPDATE nano.runs SET cleanup_state='confirmed',
+        summary=CASE WHEN state='cancelled' THEN $3 ELSE summary END
+        WHERE owner_id=$1 AND id=$2 RETURNING *`, [ownerId, runId, confirmedSummary]);
+      if (current.state === "cancelled") {
+        await client.query("UPDATE nano.messages SET content=$4 WHERE owner_id=$1 AND project_id=$2 AND run_id=$3 AND kind='result'",
+          [ownerId, current.project_id, runId, confirmedSummary]);
+      }
       await client.query("UPDATE nano.projects SET operation_kind=NULL,operation_id=NULL,operation_started_at=NULL,updated_at=now() WHERE owner_id=$1 AND id=$2 AND operation_id=$3", [ownerId, current.project_id, runId]);
-      await event(client, result.rows[0], { type: "run.phase", payload: { phase: "cleanup", cleanupState: "confirmed" } });
+      await event(client, result.rows[0], { type: "run.phase", payload: { phase: "cleanup", cleanupState: "confirmed", message: current.state === "cancelled" ? confirmedSummary : undefined } });
       return storedRun(result.rows[0]);
     }),
     listReferencedSourceKeys: (ownerId, projectId) => owned(ownerId, async (client) => {

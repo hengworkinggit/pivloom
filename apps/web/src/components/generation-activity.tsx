@@ -25,7 +25,10 @@ const roleLabelsEn: Record<RoleRun["role"], string> = { coordinator: "Coordinato
 const roleStateLabelsEn: Record<RoleRun["state"], string> = { queued: "Queued", running: "Running", succeeded: "Complete", failed: "Incomplete", cancelled: "Stopped", interrupted: "Interrupted" };
 function describe(event: RunEvent, locale: Locale) {
   const phase = textValue(event.payload.phase);
-  if (event.type === "run.phase") return phase in phaseLabels ? (locale === "en" ? phaseLabelsEn : phaseLabels)[phase as RunPhase] : locale === "en" ? "Phase updated" : "执行阶段更新";
+  if (event.type === "run.phase") {
+    if (phase === "cleanup" && event.payload.cleanupState === "confirmed") return locale === "en" ? "Resources cleaned up" : "资源清理已确认";
+    return phase in phaseLabels ? (locale === "en" ? phaseLabelsEn : phaseLabels)[phase as RunPhase] : locale === "en" ? "Phase updated" : "执行阶段更新";
+  }
   const role = textValue(event.payload.role);
   const detail = textValue(event.payload.toolName) || textValue(event.payload.tool) || (role in roleLabels ? (locale === "en" ? roleLabelsEn : roleLabels)[role as RoleRun["role"]] : role);
   return [(locale === "en" ? eventLabelsEn : eventLabels)[event.type] ?? (locale === "en" ? "Run updated" : "执行状态更新"), detail].filter(Boolean).join(" · ");
