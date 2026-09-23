@@ -450,6 +450,32 @@ test('an invalid behavior draft exposes a static reason and can be corrected onc
   expect(f.stats()).toEqual({calls:4,actions:1,closes:1});
 });
 
+test('a corrected behavior does not consume the next behavior draft correction opportunity',async()=>{
+  let actionId='';
+  const rejections:string[]=[];
+  const second={...plan.behaviors[0],id:'B02',title:'第二项检查',expected:'第二项动作之后仍有书名'};
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    if(n===4||n===8){
+      rejections.push(last?.content??'');
+      return {name:'record_behavior',args:{...report([actionId]).items[0],behaviorId:n===4?'B01':'B02'}};
+    }
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2||n===6)return {name:'browser_click',args:{behaviorId:n===2?'B01':'B02',observationId:data.observationId,ref:'e1'}};
+    if(n===5)return {name:'browser_observe',args:{}};
+    actionId=data.id;
+    return {name:'record_behavior',args:{...report([randomUUID()]).items[0],behaviorId:n===3?'B01':'B02'}};
+  });
+  f.input.handoff.plan={...plan,behaviors:[...plan.behaviors,second]};
+  const result=await runReviewer(f.input);
+  expect(rejections).toHaveLength(2);
+  expect(rejections.every(reason=>reason.includes('OBSERVATION_SCOPE'))).toBe(true);
+  expect(result.result.items).toMatchObject([{behaviorId:'B01',verdict:'passed'},{behaviorId:'B02',verdict:'passed'}]);
+  expect(result.result.items.every(item=>item.observationEventIds.every(id=>result.evidence.some(event=>event.id===id&&event.behaviorId===item.behaviorId)))).toBe(true);
+  expect(f.stats()).toEqual({calls:8,actions:2,closes:1});
+});
+
 test.each([
   {code:'ACTION_EVIDENCE_REQUIRED',change:{observationEventIds:[]}},
   {code:'OBSERVATION_SCOPE',change:{observationEventIds:[randomUUID()]}},

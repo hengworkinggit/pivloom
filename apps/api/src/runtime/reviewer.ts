@@ -304,6 +304,10 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
               const problem=reportProblem(parsedReport.data);if(problem)throw invalid(problem.problem, problem.behaviorId);
               decision=parsedReport.data;
             }
+            // Each validated behavior completes its draft. A corrected earlier
+            // item must not spend the next item's single correction opportunity.
+            // Browser actions alone never reset consecutive report rejections.
+            invalidReports=0;
             value={recorded:true,accepted:Boolean(decision),remainingBehaviorIds:handoff.plan.behaviors.filter(b=>!completedBehaviors.has(b.id)).map(b=>b.id)};
           } else if(name==='source_read'){
             const {path}=schemas.source_read.parse(params),file=input.files.find(f=>f.path===path);
