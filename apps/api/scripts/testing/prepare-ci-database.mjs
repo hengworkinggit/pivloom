@@ -11,7 +11,7 @@ async function main() {
   if (connection.protocol !== 'postgres:' || connection.hostname !== '127.0.0.1' || connection.port !== '5432'
     || connection.pathname !== '/postgres' || connection.search || connection.hash)
     throw Error('Only the runner-local disposable postgres service is supported');
-  const databases = ['pivloom_repair_test_ci', 'pivloom_recovery_test_ci'];
+  const databases = ['pivloom_repair_test_ci', 'pivloom_recovery_test_ci', 'pivloom_rollback_test_ci'];
   const admin = new Pool({ connectionString: connection.href, max: 1, connectionTimeoutMillis: 5000 });
   try {
     stage = 'fresh service check';
@@ -52,7 +52,7 @@ async function main() {
     // GITHUB_ENV is the runner's private step handoff, not a committed env file.
     stage = 'runner environment handoff';
     await appendFile(process.env.GITHUB_ENV,
-      `DATABASE_URL=${urls[0]}\nMIGRATION_DATABASE_URL=${urls[0]}\nPIVLOOM_RECOVERY_DATABASE_URL=${urls[1]}\n`);
+      `DATABASE_URL=${urls[0]}\nMIGRATION_DATABASE_URL=${urls[0]}\nPIVLOOM_RECOVERY_DATABASE_URL=${urls[1]}\nPIVLOOM_ROLLBACK_DATABASE_URL=${urls[2]}\n`);
   } finally { await admin.end(); }
 }
 

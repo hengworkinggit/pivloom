@@ -19,9 +19,9 @@ describe.skipIf(process.env.PIVLOOM_ROLLBACK_INTEGRATION !== "1")("atomic rollba
     if (!process.env.DATABASE_URL || !process.env.MIGRATION_DATABASE_URL)
       throw Error("Explicit isolated database required");
     const dbName = new URL(process.env.DATABASE_URL).pathname.slice(1);
-    if (!/^pivloom_repair_test_[a-z0-9_]+$/.test(dbName)
+    if (!/^pivloom_rollback_test_[a-z0-9_]+$/.test(dbName)
       || new URL(process.env.MIGRATION_DATABASE_URL).pathname !== `/${dbName}`)
-      throw Error("Dedicated repair database required");
+      throw Error("Dedicated rollback database required");
     admin = new Pool({ connectionString: process.env.MIGRATION_DATABASE_URL, max: 1 });
     expect((await admin.query("SELECT current_database() AS name")).rows[0].name).toBe(dbName);
     expect((await admin.query("SELECT id FROM nano.runs LIMIT 1")).rowCount).toBe(0);

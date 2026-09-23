@@ -72,7 +72,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:contracts
-      - name: Prepare two empty databases with the actual migrations
+      - name: Prepare three empty databases with the actual migrations
         run: node apps/api/scripts/testing/prepare-ci-database.mjs
         env:
           PIVLOOM_CI_POSTGRES_URL: postgres://postgres:pivloom-ci-only@127.0.0.1:5432/postgres
@@ -81,15 +81,20 @@ jobs:
           npm test --workspace @pivloom/api --
           tests/generation/build-repair.integration.test.ts
           tests/generation/recovery-service.integration.test.ts
-          tests/generation/rollback.integration.test.ts
         env:
           PIVLOOM_REPAIR_INTEGRATION: '1'
+      - name: Run rollback against its own empty PostgreSQL database
+        run: |
+          export DATABASE_URL="$PIVLOOM_ROLLBACK_DATABASE_URL"
+          export MIGRATION_DATABASE_URL="$PIVLOOM_ROLLBACK_DATABASE_URL"
+          npm test --workspace @pivloom/api -- tests/generation/rollback.integration.test.ts
+        env:
           PIVLOOM_ROLLBACK_INTEGRATION: '1'
       - name: State the verification boundary
         if: always()
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
-          This job uses real PostgreSQL 17.6, all repository migrations, and two separate CI databases.
+          This job uses real PostgreSQL 17.6, all repository migrations, and three separate CI databases.
           The minimal `auth.users` table is an FK fixture, not a running Supabase Auth service.
           The repair and rollback suites supply persistence fixtures; recovery uses an external sandbox HTTP fixture.
           Test encryption keys are generated randomly inside each suite. No user, provider or SSH secrets are used.
