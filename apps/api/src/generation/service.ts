@@ -18,6 +18,7 @@ import { createGenerationExecutor } from "./executor.js";
 import { destroyCandidateSandbox } from "./candidate.js";
 import { createPreviewGateway } from "./preview.js";
 import { createRunEventHub, openRunEventStream, type RunEventLimits } from "./events.js";
+import { createPublicationStore } from "./publication.js";
 
 export function createGenerationService(options: {
   database: PivloomDatabase; models: ModelProfileService; identity: IdentityConfig;
@@ -27,6 +28,7 @@ export function createGenerationService(options: {
   sourceObjects?: SourceObjectStore;
   artifactObjects?: ArtifactObjects;
   eventLimits?: RunEventLimits;
+  publishedRoot?: string; publishedBaseUrl?: string;
 }) {
   const projects = createProjectRepository(options.database);
   const eventHub = createRunEventHub();
@@ -39,6 +41,9 @@ export function createGenerationService(options: {
   const artifacts = createArtifactStore({ url: options.identity.supabaseUrl, secret: options.identity.supabaseSecretKey, objects: options.artifactObjects });
   const previews = createPreviewGateway({ publicOrigin: options.previewOrigin, appOrigin: options.identity.appOrigin, sandboxOrigin: options.sandbox.baseUrl });
   const executor = createGenerationExecutor({ repository, models: options.models, sources, artifacts, previews, sandbox: options.sandbox, maxSandboxes: options.maxSandboxes }, options.generationBoundaries);
+  const publications = options.publishedBaseUrl ? createPublicationStore({
+    root: options.publishedRoot ?? "/opt/pivloom/published", baseUrl: options.publishedBaseUrl, sandbox: options.sandbox,
+  }) : null;
 
   function previewView(ownerId: string, revision: StoredRevision, binding: StoredSandboxBinding | null, restore: StoredRestore | null = null): Preview {
     const live = previews.get(ownerId, revision.id);
@@ -134,6 +139,30 @@ export function createGenerationService(options: {
       const label = name.slice(0, -suffix.length);
       if (label.includes(".") || label.length === 0) return false;
       return repository.revisionExists(label);
+    },
+    publishedHostAllowed(host: string) { return publications?.hostAllowed(host) ?? Promise.resolve(false); },
+    publishedFile(host: string, path: string) { return publications?.publicFile(host, path) ?? Promise.resolve(null); },
+    async publication(ownerId: string, projectId: string) {
+      await projects.get(ownerId, projectId);
+      return { publication: publications ? await publications.get(projectId) : null };
+    },
+    async publish(ownerId: string, projectId: string) {
+      if (!publications) throw new ApiFailure(503, "PUBLICATION_UNAVAILABLE", "永久发布尚未配置。");
+      const project = await projects.get(ownerId, projectId);
+      if (!project.currentRevisionId) throw new ApiFailure(409, "NO_ACCEPTED_REVISION", "项目尚无通过检查的版本。");
+      const revision = await repository.getRevision(ownerId, project.currentRevisionId);
+      const check = await repository.getRunCheck(ownerId, revision.runId);
+      if (revision.status !== "accepted" || revision.buildStatus !== "passed"
+        || check?.verdict !== "passed" || check.revisionId !== revision.id || check.sourceHash !== revision.sourceHash)
+        throw new ApiFailure(409, "REVISION_NOT_VERIFIED", "当前版本尚未通过检查，不能发布。");
+      const existing = await publications.get(projectId);
+      if (existing?.revisionId === revision.id && existing.sourceHash === revision.sourceHash) return { publication: existing };
+      const binding = await repository.getPreviewBinding(ownerId, projectId, revision.id);
+      if (!binding || binding.state !== "active" || binding.sourceHash !== revision.sourceHash
+        || Date.parse(binding.expiresAt) <= Date.now())
+        throw new ApiFailure(409, "PREVIEW_NOT_READY", "发布前请重新启动当前版本的预览。");
+      return { publication: await publications.publish({ projectId, revisionId: revision.id,
+        sourceHash: revision.sourceHash, sandboxId: binding.sandboxId }) };
     },
     async cancel(ownerId: string, runId: string) {
       const cancelled = await repository.cancel(ownerId, runId);

@@ -20,7 +20,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/pivloom-api
+ReadWritePaths=/var/lib/pivloom-api /opt/pivloom/published
 
 [Install]
 WantedBy=multi-user.target

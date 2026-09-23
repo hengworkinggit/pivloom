@@ -64,6 +64,8 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const [submitError, setSubmitError] = useState("");
   const [stopping, setStopping] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publicationError, setPublicationError] = useState("");
   const [actionError, setActionError] = useState("");
   const [mobileTab, setMobileTab] = useState<"chat" | "result">("chat");
   const [collapsed, setCollapsed] = useState(false);
@@ -84,6 +86,8 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
     return state.generation.getPreview(projectId, revisionId);
   }, [projectId, revisionId, hasSnapshotPreview, state.generation]);
   const previewQuery = usePrivateQuery(previewLoader);
+  const publicationLoader = useCallback(() => state.generation.getPublication(projectId), [projectId, state.generation]);
+  const publicationQuery = usePrivateQuery(publicationLoader);
   const busy = pending || state.active || run?.cleanupState === "pending";
   const tooLong = draft.trim().length > promptLimit;
   const bottom = useRef<HTMLDivElement>(null);
@@ -157,6 +161,28 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
     } catch (reason) { setActionError(errorMessage(reason)); }
     finally { setRestoring(false); }
   }
+  async function publish() {
+    const current = project?.currentRevision;
+    if (!current || publishing || state.active) return;
+    setPublishing(true); setPublicationError("");
+    try {
+      let preview = await state.generation.getPreview(projectId, current.id);
+      if (preview?.state !== "ready") {
+        await state.generation.restorePreview(projectId, current.id);
+        for (let attempt = 0; attempt < 60; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          preview = await state.generation.getPreview(projectId, current.id);
+          if (preview?.state === "ready") break;
+          if (preview?.state !== "restoring") throw new Error(preview?.error ?? "预览恢复失败，请重试。");
+        }
+      }
+      if (preview?.state !== "ready") throw new Error("预览恢复超时，请稍后重试。");
+      await state.generation.publish(projectId);
+      publicationQuery.refresh();
+      await state.refresh();
+    } catch (reason) { setPublicationError(errorMessage(reason)); }
+    finally { setPublishing(false); }
+  }
 
   if (!project && state.error) return <><AppHeader /><main className="standalone-state"><TriangleAlert size={30} /><h1>{ui.text("暂时无法打开这个项目", "This project is temporarily unavailable")}</h1><p role="alert">{state.error}</p><div className="inline-actions"><Button variant="outline" onClick={() => void state.refresh()}>{ui.text("重新加载", "Reload")}</Button><Button asChild><Link href="/projects">{ui.text("返回我的项目", "Back to projects")}</Link></Button></div></main></>;
   if (!project) return <><AppHeader /><div className="page-loader" aria-label={ui.text("正在打开项目", "Opening project")}><LoaderCircle className="spin" size={24} /></div></>;
@@ -197,6 +223,16 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
       </section>
       <div className="generation-result-shell">
         {collapsed && <button className="generation-expand-chat icon-button" aria-label={ui.text("展开对话", "Expand chat")} onClick={() => setCollapsed(false)}><PanelLeftOpen size={16} /></button>}
+        {project.currentRevision && <div className="publication-bar">
+          <span>{publicationQuery.data?.revisionId === project.currentRevision.id
+            ? ui.text("当前版本已永久发布", "Current version is published")
+            : ui.text("预览会到期，发布后可用独立域名长期访问", "Previews expire; publish for a lasting URL")}</span>
+          {publicationQuery.data && <a href={publicationQuery.data.url} target="_blank" rel="noopener noreferrer">{ui.text("访问已发布作品", "Open published app")}</a>}
+          {publicationQuery.data?.revisionId !== project.currentRevision.id && <Button size="sm" disabled={publishing || state.active} onClick={() => void publish()}>
+            {publishing ? <><LoaderCircle className="spin" size={14} />{ui.text("正在发布…", "Publishing…")}</> : ui.text(publicationQuery.data ? "发布新版本" : "永久发布", publicationQuery.data ? "Publish update" : "Publish app")}
+          </Button>}
+        </div>}
+        {(publicationError || publicationQuery.error) && <p className="inline-error" role="alert">{publicationError || publicationQuery.error}</p>}
         {revisions.length > 1 && <label className="generation-revision-picker">{ui.text("查看版本", "View version")}<select value={revision?.id ?? ""} onChange={(event) => setSelectedRevisionId(event.target.value)}>{revisions.map((item) => <option key={item.id} value={item.id}>v{item.revisionNo} · {item.status === "candidate" ? ui.text("候选", "Candidate") : item.status === "rejected" ? ui.text("未通过候选", "Failed candidate") : ui.text("当前版本", "Current")}</option>)}</select></label>}
         {previewQuery.error && <p className="inline-error" role="alert">{previewQuery.error}</p>}
         <GenerationResult revision={revision} preview={hasSnapshotPreview ? snapshotPreview! : previewQuery.data ?? null} generation={state.generation} active={state.active} latestCheck={project.latestCheck} checking={state.active && run?.phase === "review" && revision?.runId === run.id} restoring={restoring || (previewQuery.data?.state === "restoring" && previewQuery.data.revisionId === revision?.id)} onRestore={state.active ? undefined : () => void restore()} />

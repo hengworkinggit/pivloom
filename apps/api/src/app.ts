@@ -91,6 +91,17 @@ export function createApp(options: CreateAppOptions = {}) {
     }));
   } else if (database && verifier) {
     app.register(async (configured) => {
+      configured.get("/__published/", async (request, reply) => {
+        const file = await generation?.publishedFile(request.headers.host ?? "", "");
+        return file ? reply.header("x-content-type-options", "nosniff").header("cache-control", "public, max-age=60")
+          .type(file.mime).send(file.bytes) : reply.code(404).send();
+      });
+      configured.get("/__published/*", async (request, reply) => {
+        const path = new URL(request.url, "http://localhost").pathname.slice("/__published/".length);
+        const file = await generation?.publishedFile(request.headers.host ?? "", path);
+        return file ? reply.header("x-content-type-options", "nosniff").header("cache-control", "public, max-age=60")
+          .type(file.mime).send(file.bytes) : reply.code(404).send();
+      });
       // The public proxy calls this before it issues a certificate for a
       // revision subdomain; it is unauthenticated on purpose and answers only
       // for names this service actually serves.
@@ -98,7 +109,10 @@ export function createApp(options: CreateAppOptions = {}) {
         const domain = typeof (request.query as { domain?: unknown } | null)?.domain === "string"
           ? (request.query as { domain: string }).domain : "";
         const allowed = generation !== null && domain.length > 0 && domain.length <= 255
-          && await generation.previewHostAllowed(domain).catch(() => false);
+          && await Promise.all([
+            generation.previewHostAllowed(domain).catch(() => false),
+            generation.publishedHostAllowed(domain).catch(() => false),
+          ]).then(([preview, published]) => preview || published);
         return reply.code(allowed ? 200 : 403).type("text/plain").send(allowed ? "ok" : "denied");
       });
       if (env.MODEL_CREDENTIALS_ENCRYPTION_KEY) {
@@ -110,6 +124,7 @@ export function createApp(options: CreateAppOptions = {}) {
           if (!Number.isInteger(maxSandboxes) || maxSandboxes < 1 || maxSandboxes > 2) throw new Error("Invalid sandbox capacity");
           generation = createGenerationService({ database, models, identity: configuration.value, bootId,
             previewOrigin: env.PREVIEW_BASE_URL, maxSandboxes, sourceObjects: options.sourceObjects, dailyLimitByOwner,
+            publishedBaseUrl: env.PUBLISHED_APP_BASE_URL, publishedRoot: env.PUBLISHED_APP_ROOT,
             generationBoundaries: options.generationBoundaries,
             sandbox: { baseUrl: env.OPENSANDBOX_BASE_URL, apiKey: env.OPENSANDBOX_API_KEY, image: env.OPENSANDBOX_IMAGE, lifetimeMs: 900_000 },
           });

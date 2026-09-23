@@ -58,6 +58,10 @@ export async function registerGenerationRoutes(app: FastifyInstance, options: {
       const key = parseInput(z.uuid(), request.headers["idempotency-key"]);
       return service().restorePreview(ownerId, projectId, { revisionId: body.revisionId, idempotencyKey: key });
     });
+    secured.get("/api/v1/projects/:id/publication", async (request) =>
+      service().publication(requireOwner(request), id(request)));
+    secured.post("/api/v1/projects/:id/publication", async (request) =>
+      service().publish(requireOwner(request), id(request)));
     secured.get("/api/v1/revisions/:id/check", async (request) => service().check(requireOwner(request), id(request)));
     secured.get("/api/v1/checks/:id/artifacts/:artifactId", async (request, reply) => {
       const params = parseInput(z.object({ id: z.uuid(), artifactId: z.uuid() }), request.params);

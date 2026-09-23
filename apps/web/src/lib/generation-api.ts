@@ -5,11 +5,15 @@ import {
   type CreateRunRequest, type RunEvent, type ReviewArtifact,
 } from "@pivloom/contracts";
 import { WorkspaceError, type ApiWorkspace } from "./api-workspace";
+import { z } from "zod";
 import { readDraft, saveDraft } from "./drafts";
 import { readRunEvents } from "./run-events";
 
 export interface RunSubmission { key: string; body: CreateRunRequest }
 const pendingKey = (projectId: string) => `pending-run:${projectId}`;
+const PublicationResponse = z.object({ publication: z.object({
+  projectId: z.uuid(), revisionId: z.uuid(), sourceHash: z.string(), url: z.url(), publishedAt: z.string(),
+}).nullable() });
 
 export function readPendingSubmission(ownerId: string, projectId: string): RunSubmission | null {
   try {
@@ -40,6 +44,10 @@ export function createGenerationApi(api: Pick<ApiWorkspace, "request" | "request
         method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() },
         body: JSON.stringify({ revisionId }),
       })),
+    getPublication: async (projectId: string) => PublicationResponse.parse(
+      await api.request(`/projects/${encodeURIComponent(projectId)}/publication`)).publication,
+    publish: async (projectId: string) => PublicationResponse.parse(
+      await api.request(`/projects/${encodeURIComponent(projectId)}/publication`, { method: "POST" })).publication,
     getRun: async (runId: string) => RunDetailResponseSchema.parse(await api.request(`/runs/${encodeURIComponent(runId)}`)),
     getCheck: async (revisionId: string) => {
       const result = RevisionCheckResponseSchema.safeParse(await api.request(`/revisions/${encodeURIComponent(revisionId)}/check`));

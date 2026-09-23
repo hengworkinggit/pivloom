@@ -2905,3 +2905,6 @@ svg {
 [data-theme=dark] .thumbnail-skeleton-top span,[data-theme=dark] .thumbnail-skeleton-content b { background:#4e626e; }
 [data-theme=dark] .thumbnail-skeleton-content i { background:#38545b; }
 [data-theme=dark] .thumbnail-skeleton-content i:nth-child(2) { background:#3f4862; }
+.publication-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.publication-bar span { flex: 1 1 210px; color: var(--muted-foreground); }
+.publication-bar a { color: var(--primary); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
