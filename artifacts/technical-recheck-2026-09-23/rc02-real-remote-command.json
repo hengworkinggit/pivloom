@@ -1,0 +1,15 @@
+{
+  "case": "RC-02 remote command cancellation subcheck",
+  "executedAt": "2026-09-23T13:18:12Z",
+  "environment": "authorized OpenSandbox host, isolated disposable sandbox",
+  "implementation": "OpenSandboxWorkspace.exec with a long-lived process and child process",
+  "modelCalled": false,
+  "uiTested": false,
+  "readinessObserved": true,
+  "commandWait": "stopped",
+  "settleMs": 3748,
+  "remoteRemovalConfirmed": true,
+  "status": "PASS",
+  "fullE14Status": "NOT_RUN",
+  "note": "The adapter and remote sandbox stopped. E14 still requires a workbench Stop action during a real remote command stage."
+}
