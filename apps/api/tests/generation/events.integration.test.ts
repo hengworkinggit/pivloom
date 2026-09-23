@@ -80,7 +80,7 @@ describe.skipIf(process.env.PIVLOOM_EVENTS_INTEGRATION !== "1")("durable generat
     if (target.rows[0]?.environment_id !== environmentId) throw Error("Database target mismatch");
     database = new EventReadBoundaryDatabase(process.env.DATABASE_URL);
     models = createModelProfileService(database, createCredentialVault(process.env.MODEL_CREDENTIALS_ENCRYPTION_KEY));
-    const verified = (await models.list(ownerId)).find((model) => model.isDefault && model.capabilities.streaming === "verified" && model.capabilities.tools === "verified");
+    const verified = (await models.list(ownerId)).find((model) => model.isDefault && model.capabilities.streaming === "verified" && model.capabilities.tools === "verified" && model.capabilities.vision === "verified");
     if (!verified) throw Error("A verified default profile is required; fixtures never change model configuration");
     profile = verified;
     const directory = resolve("../../.cache/events", environmentId);

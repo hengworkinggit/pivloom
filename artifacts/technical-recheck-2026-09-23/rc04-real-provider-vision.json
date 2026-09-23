@@ -1,0 +1,22 @@
+{
+  "case": "RC-04 real Provider image capability gate",
+  "executedAtUtc": "2026-09-23T18:59:00Z",
+  "environment": "local Pi 0.86.1 adapter, existing production A profile and actual remote Provider; read-only database access",
+  "provider": "openai-completions",
+  "baseUrl": "https://ark.cn-beijing.volces.com/api/coding/v3",
+  "modelId": "kimi-k2.7-code",
+  "frozenConfigVersion": 2,
+  "imageProbe": {
+    "declaredInput": ["text", "image"],
+    "mimeType": "image/png",
+    "imageCountInActualOutboundPayload": 2,
+    "imageOnlyChallenge": "two randomly selected colored center squares, with colors absent from text prompt",
+    "expectedAnswer": "A=GREEN;B=YELLOW",
+    "providerAnswer": "A=GREEN;B=YELLOW",
+    "answerMatched": true,
+    "elapsedMs": 4046,
+    "result": "PASS"
+  },
+  "boundary": "This verifies the real configured Provider's image input via Pi. It is not a product Reviewer/browser/Canvas E2E and does not persist a profile capability or change production state.",
+  "sensitiveData": "API key, bearer token, credential ciphertext and PNG bytes are omitted."
+}

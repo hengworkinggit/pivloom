@@ -3,10 +3,11 @@ import { stream as openAIStream } from "@earendil-works/pi-ai/api/openai-complet
 import { stream as anthropicStream } from "@earendil-works/pi-ai/api/anthropic-messages";
 import type { CreateModelProfile, ModelTestResult } from "@pivloom/contracts";
 import { createModelFetch, validateModelEndpoint } from "./transport.js";
+import { probeModelVision } from "./vision.js";
 
 const unknown = { streaming: "unknown", tools: "unknown", vision: "unknown" } as const;
 
-/** Two bounded Pi requests: one harmless echo tool call, then its acknowledged result. */
+/** Pi tests tools/streaming first, then sends image-only information to the same selected model. */
 export async function testModelConnection(input: Pick<CreateModelProfile, "provider" | "baseUrl" | "modelId" | "apiKey">): Promise<ModelTestResult> {
   const testedAt = new Date().toISOString();
   await validateModelEndpoint(input.baseUrl);
@@ -68,7 +69,20 @@ export async function testModelConnection(input: Pick<CreateModelProfile, "provi
     const second = await negotiate("none");
     const text = second.content.filter((part) => part.type === "text").map((part) => part.text).join("");
     if (!streaming || !text.includes("PIVLOOM_OK")) throw new Error("STREAM_OR_TOOL_REPLY_UNSUPPORTED");
-    return { status: "passed", message: "连接、流式响应和工具调用均已验证。视觉能力尚未验证。", capabilities: { streaming: "verified", tools: "verified", vision: "unknown" }, testedAt };
+    clearTimeout(timer);
+    const visionController = new AbortController();
+    const visionTimer = setTimeout(() => visionController.abort(), 40_000);
+    let vision: Awaited<ReturnType<typeof probeModelVision>>;
+    try { vision = await probeModelVision(input, fetch, visionController.signal); }
+    finally { clearTimeout(visionTimer); }
+    const visionMessage = {
+      verified: "图像理解已通过实际图片内容测试。",
+      unsupported: "当前模型明确拒绝图片输入，请选择支持图像的配置。",
+      failed: "图片已送达但模型未正确识别内容，不能用于视觉验收。",
+      unknown: "图像能力尚未证实，请重试或选择支持图像的配置。",
+    }[vision.state];
+    return { status: "passed", message: `连接、流式响应和工具调用均已验证。${visionMessage}`,
+      capabilities: { streaming: "verified", tools: "verified", vision: vision.state }, testedAt };
   } catch {
     return {
       status: "failed", testedAt, capabilities: unknown,

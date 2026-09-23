@@ -25,6 +25,7 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
   const profileId = "438088cb-5fd0-4704-ad57-3b64ed47c55f";
   const runId = "74b24d87-1342-4d43-8c4e-f82e766a0633";
   const revisionId = "753f8374-d88f-4399-b366-0aa544d03a2f";
+  const previewUrl = "https://" + revisionId + ".preview.example.test/p/" + revisionId + "/";
   const now = "2026-09-22T00:00:00.000Z";
   const expiresAt = Math.floor(Date.now() / 1000) + 3600;
   const user = { id: ownerId, email: "owner@example.test", aud: "authenticated", app_metadata: {}, user_metadata: {}, created_at: now };
@@ -50,6 +51,17 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
   let accept: (response: Response) => void = () => { throw new Error("No request waiting"); };
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url === "/api/v1/projects/" + projectId + "/preview/access") {
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toEqual({ revisionId });
+      return Response.json({ revisionId, url: previewUrl, grant: "c".repeat(64) });
+    }
+    if (url === previewUrl + "session") {
+      expect(init?.method).toBe("POST");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Preview " + "c".repeat(64));
+      expect(init?.credentials).toBe("include");
+      return new Response(null, { status: 204 });
+    }
     if (url === "https://identity.example.test/auth/v1/user") return Response.json(user);
     if (url === "/api/v1/me") return Response.json({ user: { id: ownerId, name: "Owner", email: user.email } });
     if (url === "/api/v1/model-profiles") return Response.json({ profiles: [{ id: profileId, name: "真实配置", provider: "openai-completions", baseUrl: "https://provider.example.test/v1", modelId: "fixture-model", configVersion: 3, keyMask: "••••0000", isDefault: true, capabilities: { streaming: "verified", tools: "verified", vision: "unknown" }, lastTest: null, createdAt: now, updatedAt: now }] });
@@ -207,10 +219,10 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
   project.preview = { state: "ready", revisionId, sourceHash: candidate.sourceHash, url: `${window.location.origin}/unsafe-preview`, expiresAt: null, error: null };
   await act(async () => { window.dispatchEvent(new Event("focus")); container.querySelector<HTMLButtonElement>('#preview-tab')?.click(); });
   expect(container.querySelector('iframe[title="应用预览"]')).toBeNull();
-  project.preview.url = "https://preview.example.test/app/";
+  project.preview.url = previewUrl;
   await act(async () => { window.dispatchEvent(new Event("focus")); });
   const frame = container.querySelector<HTMLIFrameElement>('iframe[title="应用预览"]');
-  expect(frame?.getAttribute("src")).toBe("https://preview.example.test/app/");
+  expect(frame?.getAttribute("src")).toBe(previewUrl);
   expect(frame?.getAttribute("sandbox")).toBe("allow-scripts allow-same-origin allow-forms");
   await act(async () => { window.dispatchEvent(new Event("focus")); });
   expect(container.querySelector('iframe[title="应用预览"]')).toBe(frame);

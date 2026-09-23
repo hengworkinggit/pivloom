@@ -44,7 +44,7 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
     // daily quota. Which account that is changes as the day is consumed, so the
     // A/B roles are assigned from the live counter instead of being assumed.
     const verifiedFor = async (owner: string) => (await models.list(owner))
-      .find((profile) => profile.isDefault && profile.capabilities.streaming === "verified" && profile.capabilities.tools === "verified");
+      .find((profile) => profile.isDefault && profile.capabilities.streaming === "verified" && profile.capabilities.tools === "verified" && profile.capabilities.vision === "verified");
     const [aProfile, aQuota, bProfile, bQuota] = await Promise.all([
       verifiedFor(userA),
       createGenerationRepository(database, models, { executorBootId: randomUUID() }).quota(userA),
@@ -113,10 +113,11 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
       const remaining = await admin.query(`SELECT
         (SELECT count(*)::int FROM nano.projects WHERE id=ANY($1::uuid[])) AS projects,
         (SELECT count(*)::int FROM nano.runs WHERE id=ANY($2::uuid[])) AS runs,
-        (SELECT count(*)::int FROM nano.model_credential_leases WHERE id=ANY($3::uuid[])) AS leases,
-        (SELECT count(*)::int FROM storage.objects WHERE bucket_id='pivloom-private' AND name=ANY($4::text[])) AS objects`,
-      [projectIds, runIds, leaseIds, sourceKeys]);
-      expect(remaining.rows[0]).toEqual({ projects: 0, runs: 0, leases: 0, objects: 0 });
+        (SELECT count(*)::int FROM nano.model_credential_leases WHERE id=ANY($3::uuid[])) AS leases`,
+      [projectIds, runIds, leaseIds]);
+      expect(remaining.rows[0]).toEqual({ projects: 0, runs: 0, leases: 0 });
+      const objectLists = await Promise.all(projectIds.map((projectId) => sources.listObjects(ownerA, projectId)));
+      expect(objectLists.flat().filter((object) => sourceKeys.includes(object.key))).toEqual([]);
       cleanupVerifiedAt = new Date().toISOString();
       await saveManifest();
     }
@@ -167,6 +168,12 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
     expect(finished).toMatchObject({ state: "failed", resultRevisionId: revisionId, error: { code: "CHECK_BLOCKED" } });
     expect((await createProjectRepository(database).get(ownerA, id)).currentRevisionId).toBeNull();
     expect((await generation.listProjectRevisions(ownerA, id)).map((item) => item.id)).toEqual([revisionId]);
+    const history = await generation.readProjectVersionHistory(ownerA, id);
+    expect(history.currentRevisionId).toBeNull();
+    expect(history.revisions.map((item) => [item.id, item.revisionNo, item.sourceHash, item.status])).toEqual([
+      [revisionId, 1, prepared.sourceHash, "candidate"],
+    ]);
+    await expect(generation.readProjectVersionHistory(ownerB, id)).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(generation.getRevision(ownerB, revisionId)).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(generation.setPhase(ownerA, accepted.run.id, { phase: "implement" })).rejects.toMatchObject({ code: "RUN_NOT_ACTIVE" });
   }, 90_000);

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Pool, type PoolClient } from "pg";
@@ -43,7 +43,7 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     if ((await admin.query("SELECT environment_id FROM nano.environment_identity WHERE id=true")).rows[0]?.environment_id !== environmentId) throw Error("Database target mismatch");
     database = new PivloomDatabase(process.env.DATABASE_URL);
     models = createModelProfileService(database, createCredentialVault(process.env.MODEL_CREDENTIALS_ENCRYPTION_KEY));
-    const verified = (await models.list(ownerA)).find((profile) => profile.isDefault && profile.capabilities.streaming === "verified" && profile.capabilities.tools === "verified");
+    const verified = (await models.list(ownerA)).find((profile) => profile.isDefault && profile.capabilities.streaming === "verified" && profile.capabilities.tools === "verified" && profile.capabilities.vision === "verified");
     if (!verified) throw Error("An existing verified model profile is required; this fixture never calls or modifies it");
     model = verified;
     generation = createGenerationRepository(database, models, { executorBootId: randomUUID() });
@@ -81,11 +81,12 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     const execution = await generation.startReviewer(ownerA, fixture.run.id);
     const staging = new Map<string, Uint8Array>();
     let actions = 0, closes = 0, calls = 0;
+    const screenshotBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL0KAAAAABJRU5ErkJggg==','base64');
     const connection: SandboxConnection = {
       sandboxId: fixture.sandbox.sandboxId, kill: async () => {}, isRunning: async () => true, renew: async () => {}, close: async () => {},
       endpoint: async () => ({ url: "http://preview-fixture.invalid", headers: {} }),
       write: async (path, bytes) => { staging.set(path, bytes); },
-      read: async () => new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+      read: async () => screenshotBytes,
       run: async (command) => {
         let stdoutTail: string;
         if (command.startsWith("node /opt/pivloom/source-io.mjs")) {
@@ -105,19 +106,23 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
         return { id: randomUUID(), interrupt: async () => {}, wait: async () => ({ exitCode: 0, stdoutTail, stderrTail: "" }) };
       },
     };
+    let actionEvidenceId='';
     const fetch: typeof globalThis.fetch = async (_url, init) => {
       calls++;
       const request = JSON.parse(String(init?.body));
       const last = request.messages.filter((message: { role: string }) => message.role === "tool").at(-1);
       const observation = last ? JSON.parse(last.content) : undefined;
+      const screenshotTurn=action==='reload'?4:3;
+      const capture = () => { actionEvidenceId=observation.id; return { name: "browser_screenshot", args: {} }; };
       const choice = calls === 1 ? { name: "browser_open", args: { path: "/" } }
         : calls === 2 ? action === "press"
           ? { name: "browser_press", args: { behaviorId: "B01", observationId: observation.observationId, key: "Enter" } }
           : { name: "browser_click", args: { behaviorId: "B01", observationId: observation.observationId, ref: "e1" } }
           : calls === 3 && action === "reload" ? { name: "browser_reload", args: { behaviorId: "B01", observationId: observation.observationId } }
+          : calls === screenshotTurn ? capture()
           : { name: "submit_review", args: { revisionId: fixture.revision.id, sourceHash: fixture.revision.sourceHash,
             items: [{ behaviorId: "B01", verdict, expected: plan.behaviors[0].expected, actual: verdict === "passed" ? "列表出现测试书名" : "列表未更新",
-              observationEventIds: [observation.id], screenshotIds: [], reproSteps: ["输入测试书名并添加"] }], summary: verdict === "passed" ? "关键流程检查通过" : "添加后列表未更新" } };
+              observationEventIds: [actionEvidenceId], screenshotIds: [observation.artifactId], reproSteps: ["输入测试书名并添加"] }], summary: verdict === "passed" ? "关键流程检查通过" : "添加后列表未更新" } };
       const chunk = { id: "review-db-fixture", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0,
         delta: { role: "assistant", tool_calls: [{ index: 0, id: `call-${calls}`, type: "function", function: { name: choice.name, arguments: JSON.stringify(choice.args) } }] }, finish_reason: null }] };
       return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({ ...chunk, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } })}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
@@ -129,7 +134,7 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
         const artifact = await artifactStore.save(scope, image); sourceKeys.push(artifact.key); await save(); return artifact;
       } },
       sandboxConfig: { baseUrl: "http://sandbox-fixture.invalid", apiKey: "sandbox-fixture", image: "fixture" },
-      modelConfig: { provider: "review-db-fixture", id: "fixture", api: "openai-completions", baseUrl: "https://model-fixture.invalid/v1", apiKey: "fixture-not-a-real-key", fetch },
+      modelConfig: { provider: "review-db-fixture", id: "fixture", api: "openai-completions", baseUrl: "https://model-fixture.invalid/v1", apiKey: "fixture-not-a-real-key", fetch, supportsImages: true },
       signal: new AbortController().signal,
       assertActive: () => generation.assertRoleActive(ownerA, fixture.run.id, { role: "reviewer", roleRunId: execution.role.id, attempt: execution.scope.attempt }),
     }, { sandboxConnector: connector, previewFetch: async () => new Response(JSON.stringify({ revisionId: verdict === "blocked" ? randomUUID() : fixture.revision.id, sourceHash: fixture.revision.sourceHash })) });
@@ -207,7 +212,7 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     const fixture = await candidate();
     const review = await reviewed(fixture);
     expect(review.receipt.markerVerified).toBe(true);
-    expect(review.stats).toEqual({ actions: 1, closes: 1, calls: 3 });
+    expect(review.stats).toEqual({ actions: 1, closes: 1, calls: 4 });
     expect(review.receipt.artifacts).toHaveLength(1);
     await expect(generation.finishReview(ownerB, fixture.run.id, { receipt: review.receipt })).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(generation.finishReview(ownerA, fixture.run.id, { receipt: JSON.parse(JSON.stringify(review.receipt)) })).rejects.toMatchObject({ code: "INVALID_REVIEW_RECEIPT" });
@@ -253,10 +258,12 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     const artifact = finished.check.artifacts[0];
     expect("key" in artifact).toBe(false);
     const stored = await generation.getArtifact(ownerA, artifact.id);
-    expect(stored).toMatchObject({ checkId: finished.check.id, source: { revisionId: fixture.revision.id }, artifact: { id: artifact.id, bytes: 8 } });
+    expect(stored).toMatchObject({ checkId: finished.check.id, source: { revisionId: fixture.revision.id }, artifact: { id: artifact.id } });
+    expect(stored.artifact.bytes).toBeGreaterThan(8);
     await expect(generation.getArtifact(ownerB, artifact.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
     const bytes = await createArtifactStore({ url: process.env.SUPABASE_URL!, secret: process.env.SUPABASE_SECRET_KEY! }).load(stored.source, stored.artifact);
-    expect([...bytes]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+    expect([...bytes.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe(artifact.sha256);
     await expect(generation.finishReview(ownerA, fixture.run.id, { receipt: review.receipt })).rejects.toMatchObject({ code: "RUN_NOT_ACTIVE" });
     expect((await generation.listProjectMessages(ownerA, fixture.project.id)).filter((message) => message.kind === "result")).toHaveLength(1);
     expect((await generation.listEvents(ownerA, fixture.run.id)).slice(-3).map((event) => event.type)).toEqual(["role.completed", "check.completed", "run.finished"]);
@@ -277,7 +284,7 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
   test("an Enter keyboard action retains its key and can promote after its observed behavior passes", async () => {
     const fixture = await candidate();
     const review = await reviewed(fixture, "passed", "press");
-    expect(review.stats).toEqual({ actions: 1, closes: 1, calls: 3 });
+    expect(review.stats).toEqual({ actions: 1, closes: 1, calls: 4 });
     const finished = await generation.finishReview(ownerA, fixture.run.id, { receipt: review.receipt });
     expect(finished.run.state).toBe("completed");
     expect(finished.check.verdict).toBe("passed");
@@ -289,7 +296,7 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
   test("a reload after adding retains its bound observation through real persistence and finalization", async () => {
     const fixture = await candidate();
     const review = await reviewed(fixture, "passed", "reload");
-    expect(review.stats).toEqual({ actions: 1, closes: 1, calls: 4 });
+    expect(review.stats).toEqual({ actions: 1, closes: 1, calls: 5 });
     const finished = await generation.finishReview(ownerA, fixture.run.id, { receipt: review.receipt });
     expect(finished.run.state).toBe("completed");
     expect(finished.check.verdict).toBe("passed");

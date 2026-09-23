@@ -23,13 +23,25 @@ const value = z
   .string()
   .max(2000)
   .refine((text) => !text.includes("\0") && !/^\s*-(?:-|[a-z])/i.test(text));
+export const BrowserPressKeySchema = z.enum(["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space"]);
+const keyBatchSchema = z.strictObject({
+  observationId,
+  steps: z.array(z.strictObject({ key: BrowserPressKeySchema, waitMs: z.number().int().min(0).max(1000) })).min(1).max(8),
+}).refine((value) => value.steps.reduce((total, step) => total + step.waitMs, 0) <= 4000);
+export type BrowserKeyBatch = z.infer<typeof keyBatchSchema>;
+export interface BrowserKeyBatchResult {
+  observation: BrowserObservation;
+  startedAt: string;
+  finishedAt: string;
+  steps: Array<{ index: number; key: z.infer<typeof BrowserPressKeySchema>; waitMs: number; success: boolean }>;
+}
 const actionSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("click"), ref, observationId }),
   z.strictObject({ type: z.literal("fill"), ref, text: value, observationId }),
   z.strictObject({ type: z.literal("select"), ref, value, observationId }),
   z.strictObject({
     type: z.literal("press"),
-    key: z.enum(["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp"]),
+    key: BrowserPressKeySchema,
     observationId: observationId.optional(),
   }),
   z.strictObject({
@@ -189,6 +201,36 @@ export class RemoteBrowser {
   }
   async act(action: BrowserAction): Promise<BrowserObservation> {
     return this.exclusive(() => this.performAction(action));
+  }
+  async keyBatch(input: BrowserKeyBatch): Promise<BrowserKeyBatchResult> {
+    return this.exclusive(async () => {
+      const parsed = keyBatchSchema.safeParse(input);
+      if (!parsed.success) throw new RuntimeError("INVALID_BROWSER_ACTION", "无效键盘动作序列");
+      if (!this.observation || parsed.data.observationId !== this.observation.id)
+        throw new RuntimeError("STALE_BROWSER_REF", "请重新观察后使用本会话引用");
+      const url = await this.checkOrigin();
+      if (url !== this.observation.url) {
+        this.observation = undefined;
+        throw new RuntimeError("STALE_BROWSER_REF", "页面已经变化，请重新观察");
+      }
+      this.observation = undefined;
+      const commands = parsed.data.steps.flatMap((step) => [
+        ["press", step.key], ...(step.waitMs ? [["wait", String(step.waitMs)]] : []),
+      ]);
+      const startedAt = new Date().toISOString();
+      const results = await this.callBatch(commands);
+      const finishedAt = new Date().toISOString();
+      let position = 0;
+      const steps = parsed.data.steps.map((step, index) => {
+        const pressed = results[position++];
+        const waited = step.waitMs ? results[position++] : undefined;
+        return { index, key: step.key, waitMs: step.waitMs,
+          success: pressed?.success === true && (!step.waitMs || waited?.success === true) };
+      });
+      for (const step of steps) await this.onEvent?.({ id: randomUUID(), at: finishedAt,
+        type: "browser.action", message: `浏览器 batch ${step.index + 1}: ${step.key}`, success: step.success });
+      return { observation: await this.observePage(), startedAt, finishedAt, steps };
+    });
   }
   private async performAction(
     action: BrowserAction,
@@ -430,5 +472,36 @@ export class RemoteBrowser {
     )
       throw new RuntimeError("BROWSER_BLOCKED", "浏览器响应格式错误");
     return raw.data as Record<string, unknown>;
+  }
+  private async callBatch(commands: string[][]): Promise<Array<{ command: string[]; success: boolean }>> {
+    const cli = ["agent-browser", "--session", this.session, "--json", "batch", "--bail"]
+      .map(shellQuote).join(" ");
+    const command = `printf %s ${shellQuote(JSON.stringify(commands))} | ${cli}`;
+    this.started = true;
+    this.commandsInFlight++;
+    let result;
+    try {
+      result = await this.workspace.executeService(this.handle, command, { uid: 0, timeoutMs: this.remainingTime() });
+    } finally {
+      this.commandsInFlight--;
+    }
+    this.assertOpen();
+    this.remainingTime();
+    let raw: unknown;
+    try { raw = JSON.parse(result.stdoutTail); }
+    catch { throw new RuntimeError("BROWSER_BLOCKED", "浏览器批量结果格式错误"); }
+    if (!Array.isArray(raw) || raw.length < 1 || raw.length > commands.length)
+      throw new RuntimeError("BROWSER_BLOCKED", "浏览器批量结果数量错误");
+    const results = raw.map((entry, index) => {
+      if (!entry || typeof entry !== "object" || !Array.isArray(entry.command)
+        || entry.command.length !== commands[index].length
+        || !entry.command.every((part: unknown, partIndex: number) => part === commands[index][partIndex])
+        || typeof entry.success !== "boolean")
+        throw new RuntimeError("BROWSER_BLOCKED", "浏览器批量结果与请求不匹配");
+      return { command: commands[index], success: entry.success };
+    });
+    if ((result.exitCode !== 0) !== results.some((entry) => !entry.success))
+      throw new RuntimeError("BROWSER_BLOCKED", "浏览器批量退出状态与动作结果不一致");
+    return results;
   }
 }

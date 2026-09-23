@@ -162,6 +162,15 @@ describe.skipIf(process.env.PIVLOOM_IDENTITY_INTEGRATION !== "1")("real self-hos
       await admin.query(`UPDATE nano.model_profile_versions SET capabilities=
         '{"streaming":"verified","tools":"verified","vision":"unknown"}' WHERE profile_id=$1`, [profile.id]);
       const referenceId = randomUUID();
+      await expect(models.freezeForRun(owner("A"), profile.id, 1, referenceId)).rejects.toMatchObject({ code: "MODEL_VISION_NOT_VERIFIED", statusCode: 422 });
+      // This fixture tests lease behavior, not the external Provider. Mark its
+      // capability explicitly only after proving an unverified run is refused.
+      await admin.query(`UPDATE nano.model_profile_versions SET capabilities=
+        '{"streaming":"verified","tools":"verified","vision":"verified"}' WHERE profile_id=$1`, [profile.id]);
+      await expect(database.owned(owner("A"), (client) => models.freezeInTransaction(
+        client, owner("A"), profile.id, 1, referenceId, "different-unprobed-model"))).rejects.toMatchObject({
+        code: "MODEL_OVERRIDE_VISION_UNVERIFIED", statusCode: 422,
+      });
       const lease = await models.freezeForRun(owner("A"), profile.id, 1, referenceId);
       expect(lease).toMatchObject({ profileId: profile.id, configVersion: 1, referenceId });
       expect(JSON.stringify(lease)).not.toContain(originalKey);

@@ -1,0 +1,164 @@
+{
+  "at": "2026-09-23T19:18:26.891Z",
+  "environment": "isolated E18 fixture; read-only inspection",
+  "projectId": "06a9d28d-e342-4ae9-9011-e4c046b02da6",
+  "currentRevisionId": null,
+  "historyCurrentRevisionId": null,
+  "revisions": [
+    {
+      "id": "2f7b9d97-5bee-4923-aa83-662a2a13047c",
+      "runId": "fe27b648-3051-4100-8acb-66dae0f65d53",
+      "revisionNo": 2,
+      "status": "rejected",
+      "sourceHash": "0d9b2b4e54af912196ecc72edd7b0121f3b87e948c38543bf9b6f23a93be7ec9",
+      "files": [
+        {
+          "path": "src/App.tsx",
+          "sha256": "664d35260cdfde00f4206d5f61c2829e8ffd33f3b5db2689993e550fe49209ec"
+        },
+        {
+          "path": "src/added.ts",
+          "sha256": "d014fbb73f38a43de61fdcb39a3cba0ce0a735264af727e51b86a5d84eeb5ed4"
+        },
+        {
+          "path": "src/new/name.ts",
+          "sha256": "90f82db57e7869a6ae04dbe9b0c4dbceaa72f96f7810e1c21b1737c74aa85f4b"
+        },
+        {
+          "path": "src/unchanged.ts",
+          "sha256": "e9446810aede94ee09fd0720cafe0f6d15f9b35dbcda662bcaf3d63d7009c479"
+        },
+        {
+          "path": "src/保留/颜色.css",
+          "sha256": "a13fc6989027814a2ef9c39df9db22bff8dee301395914039610095f3b05cb80"
+        }
+      ],
+      "messages": [
+        {
+          "kind": "user",
+          "content": "RC08 diagnostic snapshot v2; fixture only, no model or build executed"
+        },
+        {
+          "kind": "result",
+          "content": "Diagnostic fixture saved; no generation or build was executed"
+        }
+      ]
+    },
+    {
+      "id": "9ac65b68-a3ee-4ebf-ab32-47c9ac58abee",
+      "runId": "d4617711-ab1a-444c-93a6-2c7fedc9d78e",
+      "revisionNo": 1,
+      "status": "candidate",
+      "sourceHash": "84296344629e92dd11e9242615b0a6a931c159859e4d380b61c430e393c6c0cc",
+      "files": [
+        {
+          "path": "src/App.tsx",
+          "sha256": "5326eae736a0d2e9446ebe1690cf9e4ac020f32e1312ad639c65cbbde4477dd1"
+        },
+        {
+          "path": "src/old/name.ts",
+          "sha256": "90f82db57e7869a6ae04dbe9b0c4dbceaa72f96f7810e1c21b1737c74aa85f4b"
+        },
+        {
+          "path": "src/removed.ts",
+          "sha256": "d8b0cb855c04ec4bf715854d923a4735a033752635c60721d37758700057c36b"
+        },
+        {
+          "path": "src/unchanged.ts",
+          "sha256": "e9446810aede94ee09fd0720cafe0f6d15f9b35dbcda662bcaf3d63d7009c479"
+        },
+        {
+          "path": "src/保留/颜色.css",
+          "sha256": "7294bb502150d23e65f217d03d66f616caac96ed9c2ccb7235ee6a952c99e027"
+        }
+      ],
+      "messages": [
+        {
+          "kind": "user",
+          "content": "RC08 diagnostic snapshot v1; fixture only, no model or build executed"
+        },
+        {
+          "kind": "result",
+          "content": "Diagnostic fixture saved; no generation or build was executed"
+        }
+      ]
+    }
+  ],
+  "comparison": {
+    "fromRevisionId": "9ac65b68-a3ee-4ebf-ab32-47c9ac58abee",
+    "toRevisionId": "2f7b9d97-5bee-4923-aa83-662a2a13047c",
+    "unchangedCount": 1,
+    "changes": [
+      {
+        "kind": "modified",
+        "from": {
+          "path": "src/App.tsx",
+          "bytes": 28,
+          "sha256": "5326eae736a0d2e9446ebe1690cf9e4ac020f32e1312ad639c65cbbde4477dd1"
+        },
+        "to": {
+          "path": "src/App.tsx",
+          "bytes": 28,
+          "sha256": "664d35260cdfde00f4206d5f61c2829e8ffd33f3b5db2689993e550fe49209ec"
+        },
+        "patch": "Index: src/App.tsx\n===================================================================\n--- src/App.tsx\n+++ src/App.tsx\n@@ -1,1 +1,1 @@\n-export const title = 'Old';\n+export const title = 'New';\n"
+      },
+      {
+        "kind": "added",
+        "from": null,
+        "to": {
+          "path": "src/added.ts",
+          "bytes": 27,
+          "sha256": "d014fbb73f38a43de61fdcb39a3cba0ce0a735264af727e51b86a5d84eeb5ed4"
+        },
+        "patch": "===================================================================\n--- /dev/null\n+++ src/added.ts\n@@ -0,0 +1,1 @@\n+export const added = true;\n"
+      },
+      {
+        "kind": "moved",
+        "from": {
+          "path": "src/old/name.ts",
+          "bytes": 24,
+          "sha256": "90f82db57e7869a6ae04dbe9b0c4dbceaa72f96f7810e1c21b1737c74aa85f4b"
+        },
+        "to": {
+          "path": "src/new/name.ts",
+          "bytes": 24,
+          "sha256": "90f82db57e7869a6ae04dbe9b0c4dbceaa72f96f7810e1c21b1737c74aa85f4b"
+        },
+        "patch": "===================================================================\n--- src/old/name.ts\n+++ src/new/name.ts\n"
+      },
+      {
+        "kind": "removed",
+        "from": {
+          "path": "src/removed.ts",
+          "bytes": 29,
+          "sha256": "d8b0cb855c04ec4bf715854d923a4735a033752635c60721d37758700057c36b"
+        },
+        "to": null,
+        "patch": "===================================================================\n--- src/removed.ts\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-export const removed = true;\n"
+      },
+      {
+        "kind": "modified",
+        "from": {
+          "path": "src/保留/颜色.css",
+          "bytes": 22,
+          "sha256": "7294bb502150d23e65f217d03d66f616caac96ed9c2ccb7235ee6a952c99e027"
+        },
+        "to": {
+          "path": "src/保留/颜色.css",
+          "bytes": 23,
+          "sha256": "a13fc6989027814a2ef9c39df9db22bff8dee301395914039610095f3b05cb80"
+        },
+        "patch": "Index: src/保留/颜色.css\n===================================================================\n--- src/保留/颜色.css\n+++ src/保留/颜色.css\n@@ -1,1 +1,1 @@\n-.card { color: red; }\n+.card { color: blue; }\n"
+      }
+    ]
+  },
+  "previews": {
+    "v1": "unavailable",
+    "v2": "unavailable"
+  },
+  "checks": {
+    "v1": null,
+    "v2": null
+  }
+}

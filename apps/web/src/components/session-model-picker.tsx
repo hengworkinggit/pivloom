@@ -24,8 +24,17 @@ export function SessionModelPicker({ profiles, selectedProfileId, catalog, effec
   const [custom, setCustom] = useState("");
   const profile = profiles?.find((item) => item.id === selectedProfileId);
   const modelName = catalog.find((item) => item.id === effectiveModelId)?.name ?? effectiveModelId ?? profile?.modelId;
+  // A verified image probe belongs to one exact model ID, not to every model on
+  // the same endpoint. An untested session override remains unknown.
+  const vision = effectiveModelId && effectiveModelId !== profile?.modelId ? "unknown" : profile?.capabilities.vision ?? "unknown";
+  const visionLabel = {
+    unknown: ui.text("图像待验证", "Vision unknown"),
+    verified: ui.text("图像已验证", "Vision verified"),
+    unsupported: ui.text("不支持图像", "Vision unsupported"),
+    failed: ui.text("图像测试失败", "Vision probe failed"),
+  }[vision];
   const filtered = catalog.filter((item) => `${item.name} ${item.id}`.toLowerCase().includes(query.toLowerCase()));
-  return <DropdownMenu.Root>
+  return <><DropdownMenu.Root>
     <DropdownMenu.Trigger asChild><button type="button" className="session-model-trigger" disabled={disabled || !profiles?.length} aria-label={ui.text("选择会话模型", "Select session model")}><Cpu size={15} /><span>{lockedLabel ?? modelName ?? ui.text("选择模型", "Select model")}</span><ChevronDown size={13} /></button></DropdownMenu.Trigger>
     <DropdownMenu.Portal><DropdownMenu.Content className="session-model-menu" side="top" align="start" sideOffset={10}>
       <div className="session-model-menu-title"><strong>{ui.text("会话模型", "Session model")}</strong><span>{ui.text("下次任务生效", "For the next run")}</span></div>
@@ -38,5 +47,5 @@ export function SessionModelPicker({ profiles, selectedProfileId, catalog, effec
       </div>
       <div className="session-model-menu-footer"><button type="button" onClick={onRefresh}><RefreshCw size={13} />{ui.text("刷新", "Refresh")}</button><Link href="/settings/models"><Settings2 size={13} />{ui.text("管理模型", "Manage models")}</Link></div>
     </DropdownMenu.Content></DropdownMenu.Portal>
-  </DropdownMenu.Root>;
+  </DropdownMenu.Root><span className="session-model-vision-status" role="status">{visionLabel}</span></>;
 }

@@ -37,7 +37,7 @@ describe.skipIf(process.env.PIVLOOM_PLANNING_INTEGRATION !== "1")("planning thro
     if ((await admin.query("SELECT environment_id FROM nano.environment_identity WHERE id=true")).rows[0]?.environment_id !== environmentId) throw Error("Database target mismatch");
     database = new PivloomDatabase(process.env.DATABASE_URL);
     models = createModelProfileService(database, createCredentialVault(process.env.MODEL_CREDENTIALS_ENCRYPTION_KEY));
-    const verified = (await models.list(ownerA)).find((profile) => profile.isDefault && profile.capabilities.streaming === "verified" && profile.capabilities.tools === "verified");
+    const verified = (await models.list(ownerA)).find((profile) => profile.isDefault && profile.capabilities.streaming === "verified" && profile.capabilities.tools === "verified" && profile.capabilities.vision === "verified");
     if (!verified) throw Error("A verified existing model is required; this fixture never changes a profile or calls a model");
     model = verified;
     generation = createGenerationRepository(database, models, { executorBootId: randomUUID() });

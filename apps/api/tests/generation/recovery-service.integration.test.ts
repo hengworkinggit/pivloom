@@ -186,6 +186,7 @@ describe.skipIf(!process.env.PIVLOOM_RECOVERY_DATABASE_URL)("generation service 
       previewOrigin: "http://localhost:45311", bootId: randomUUID(), maxSandboxes: 2, recoverySweepMs: 50,
     });
     extraServices.push(restarted);
+    await restarted.recover(); // actual server waits for boot reconciliation before listening
     const deadline = Date.now() + 30_000;
     while (!requests.some((request) => request === `DELETE /v1/sandboxes/${previous.sandboxId}`) && Date.now() < deadline)
       await new Promise((resolve) => setTimeout(resolve, 50));

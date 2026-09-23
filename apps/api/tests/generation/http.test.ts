@@ -100,6 +100,8 @@ describe("anonymous generation HTTP boundaries", () => {
     { method: "GET" as const, url: `/api/v1/runs/${runId}` },
     { method: "GET" as const, url: `/api/v1/runs/${runId}/events` },
     { method: "GET" as const, url: `/api/v1/revisions/${revisionId}/files` },
+    { method: "GET" as const, url: `/api/v1/projects/${projectId}/revisions` },
+    { method: "GET" as const, url: `/api/v1/projects/${projectId}/revisions/diff?from=${revisionId}&to=${runId}` },
     {
       method: "GET" as const,
       url: `/api/v1/revisions/${revisionId}/file?path=src%2FApp.tsx`,
@@ -575,6 +577,21 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_HTTP_INTEGRATION !== "1")(
           },
         ],
       });
+      const history = await api(`/projects/${projectIds[0]}/revisions`, tokenA);
+      expect(history.status).toBe(200);
+      expect(await history.json()).toMatchObject({
+        projectId: projectIds[0], currentRevisionId: null,
+        revisions: [{ id: revisionId, runId, revisionNo: 1, status: "candidate", sourceHash }],
+      });
+      const sameVersionDiff = await api(
+        `/projects/${projectIds[0]}/revisions/diff?from=${revisionId}&to=${revisionId}`, tokenA,
+      );
+      expect(sameVersionDiff.status).toBe(200);
+      expect(await sameVersionDiff.json()).toMatchObject({
+        fromRevision: { id: revisionId, manifest: [{ path: "README.md" }] },
+        toRevision: { id: revisionId, manifest: [{ path: "README.md" }] },
+        unchangedCount: 1, changes: [],
+      });
       const files = await api(`/revisions/${revisionId}/files`, tokenA);
       expect(files.status).toBe(200);
       expect(await files.json()).toMatchObject({
@@ -629,6 +646,8 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_HTTP_INTEGRATION !== "1")(
         `/runs/${runId}/events`,
         `/revisions/${revisionId}/files`,
         `/revisions/${revisionId}/file?path=README.md`,
+        `/projects/${projectIds[0]}/revisions`,
+        `/projects/${projectIds[0]}/revisions/diff?from=${revisionId}&to=${revisionId}`,
         `/projects/${projectIds[0]}/preview?revisionId=${revisionId}`,
       ]) {
         const response = await api(path, tokenB);
@@ -642,6 +661,11 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_HTTP_INTEGRATION !== "1")(
         tokenA,
       );
       expect(misplaced.status).toBe(404);
+      const misplacedDiff = await api(
+        `/projects/${projectIds[1]}/revisions/diff?from=${revisionId}&to=${revisionId}`,
+        tokenA,
+      );
+      expect(misplacedDiff.status).toBe(404);
       expect(sandboxRequests).toBe(0);
     }, 45_000);
 
@@ -872,7 +896,7 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_DISCONNECT_INTEGRATION !== "1")(
         await admin.query("INSERT INTO nano.model_profiles(id,owner_id,current_version,is_default) VALUES($1,$2,1,false)", [modelProfileId, ownerId]);
         await admin.query(`INSERT INTO nano.model_profile_versions(profile_id,owner_id,config_version,name,provider,base_url,model_id,key_mask,capabilities)
           VALUES($1,$2,1,$3,'openai-completions','https://127.0.0.1/v1','fixture-never-called','fixture',
-            '{"streaming":"verified","tools":"verified","vision":"unknown"}')`, [modelProfileId, ownerId, prefix]);
+            '{"streaming":"verified","tools":"verified","vision":"verified"}')`, [modelProfileId, ownerId, prefix]);
         await admin.query("INSERT INTO nano.model_credentials(profile_id,config_version,owner_id,ciphertext,nonce,auth_tag) VALUES($1,1,$2,$3,$4,$5)",
           [modelProfileId, ownerId, encrypted.ciphertext, encrypted.nonce, encrypted.authTag]);
         await admin.query("COMMIT");

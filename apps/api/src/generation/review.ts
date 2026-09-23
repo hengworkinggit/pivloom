@@ -22,6 +22,7 @@ const blockedReasons=new Map([
   ['COMMAND_TIMEOUT','浏览器操作超时，已停止后续操作，当前候选尚未通过检查。'],
   ['BROWSER_ORIGIN_REJECTED','浏览器离开了绑定的候选预览，已停止检查。'],
   ['BROWSER_BLOCKED','浏览器无法访问或完成页面操作，当前候选尚未通过检查。'],
+  ['VISION_NOT_VERIFIED','当前模型的图像能力未通过实际图片测试，请在模型设置中验证支持图像的配置；当前候选尚未完成视觉检查。'],
 ]);
 export function assertVerifiedReviewReceipt(receipt:VerifiedReviewReceipt){
   if(!receipts.has(receipt))throw new RuntimeError('INVALID_REVIEW_RECEIPT','检查结果未经版本和浏览器证据校验');
@@ -89,7 +90,7 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     if(error instanceof RuntimeError && ['AGENT_OUTPUT_INVALID','TOKEN_BUDGET_EXCEEDED','TOOL_BUDGET_EXCEEDED','ROLE_NOT_ACTIVE','MODEL_FAILED','MODEL_REQUEST_TIMEOUT'].includes(error.code))throw error;
     if(error instanceof RuntimeError&&error.usage)usage=error.usage;
     const versionMismatch=error instanceof RuntimeError&&error.code==='CHECK_VERSION_MISMATCH';
-    const reason=error instanceof RuntimeError?blockedReasons.get(error.diagnosticCode??''):undefined;
+    const reason=error instanceof RuntimeError?blockedReasons.get(error.code)??blockedReasons.get(error.diagnosticCode??''):undefined;
     const message=versionMismatch?'候选源码或预览版本不一致，未接受检查结果。':deadline.signal.aborted?`检查超过本轮 ${Math.round(REVIEW_ATTEMPT_TIMEOUT_MS/60000)} 分钟时限，候选尚未通过检查。`:reason??'浏览器或检查过程未完成，当前候选尚未通过检查。';
     result={revisionId:binding.revisionId,sourceHash:binding.sourceHash,summary:message,items:input.handoff.plan.behaviors.map(behavior=>({
       behaviorId:behavior.id,verdict:'blocked' as const,expected:behavior.expected,actual:message,observationEventIds:[],screenshotIds:[],reproSteps:[],

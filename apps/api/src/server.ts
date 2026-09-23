@@ -4,6 +4,9 @@ const port = Number(process.env.API_PORT ?? 45310);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid API_PORT");
 const previewPort = Number(process.env.PREVIEW_PORT ?? 45311);
 if (!Number.isInteger(previewPort) || previewPort < 1 || previewPort > 65535) throw new Error("Invalid PREVIEW_PORT");
+const advertisedPreview = process.env.PREVIEW_BASE_URL ? new URL(process.env.PREVIEW_BASE_URL) : null;
+if (advertisedPreview?.hostname === "localhost" && Number(advertisedPreview.port || (advertisedPreview.protocol === "https:" ? 443 : 80)) !== previewPort)
+  throw new Error("Local PREVIEW_BASE_URL port must match PREVIEW_PORT");
 const app = createApp({ logger: false, previewListen: { host: process.env.PREVIEW_HOST ?? "127.0.0.1", port: previewPort } });
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => { void app.close().then(() => process.exit(0)); });

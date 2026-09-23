@@ -39,6 +39,13 @@ test("a locally plausible JWT is denied when Auth rejects it", async () => {
   });
   expect(response.status).toBe(401);
   expect(await response.json()).toMatchObject({ error: { code: "UNAUTHENTICATED" } });
+  for (const headers of [
+    { Cookie: "pivloom_preview=fixture-resource-cookie" },
+    { Cookie: "pivloom_preview=fixture-resource-cookie", Authorization: "Preview fixture-grant" },
+  ] as Array<Record<string, string>>) {
+    const resourceCredential = await fetch(`${origin}/api/v1/me`, { headers });
+    expect(resourceCredential.status).toBe(401);
+  }
 });
 
 test("a missing model master key gives authenticated callers a configuration error without exposing profiles", async () => {

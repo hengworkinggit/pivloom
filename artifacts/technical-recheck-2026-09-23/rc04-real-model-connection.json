@@ -1,0 +1,19 @@
+{
+  "case": "E31 selected Provider connection and image capability",
+  "environment": "local updated API testModelConnection code; existing saved production A profile decrypted in memory for read-only probe",
+  "provider": "openai-completions",
+  "baseUrl": "https://ark.cn-beijing.volces.com/api/coding/v3",
+  "modelId": "kimi-k2.7-code",
+  "configVersion": 2,
+  "elapsedMs": 5316,
+  "result": {
+    "status": "passed",
+    "capabilities": {
+      "streaming": "verified",
+      "tools": "verified",
+      "vision": "verified"
+    }
+  },
+  "boundary": "This is a real Pi/Provider test without production DB mutation. The authenticated public model-test endpoint and UI states must be checked after deploying this code.",
+  "secrets": "API key, account credentials, tokens and PNG bytes omitted"
+}

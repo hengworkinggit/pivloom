@@ -68,7 +68,7 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
     // A/B accounts exist so one can be exhausted while the other still works.
     const service = createModelProfileService(database, createCredentialVault(process.env.MODEL_CREDENTIALS_ENCRYPTION_KEY!));
     const verified = async (owner: string) => (await service.list(owner)).find((profile) =>
-      profile.isDefault && profile.capabilities.streaming === "verified" && profile.capabilities.tools === "verified");
+      profile.isDefault && profile.capabilities.streaming === "verified" && profile.capabilities.tools === "verified" && profile.capabilities.vision === "verified");
     const quotaFor = async (owner: string) => createGenerationRepository(
       database, createModelProfileService(database, createCredentialVault(process.env.MODEL_CREDENTIALS_ENCRYPTION_KEY!)),
       { executorBootId: randomUUID() }).quota(owner);

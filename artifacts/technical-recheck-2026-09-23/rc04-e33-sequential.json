@@ -1,0 +1,28 @@
+{
+  "case": "E33 sequential real Provider questions on two real Canvas screenshot ToolResults",
+  "profile": {
+    "provider": "openai-completions",
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/coding/v3",
+    "modelId": "kimi-k2.7-code",
+    "configVersion": 2
+  },
+  "piVersion": "0.86.1",
+  "imageHashes": [
+    "c7eafe235266542f1c470b154f0afd8801f5351f11c065e58a4ba7b6497ec740",
+    "431773bddc2a0e508222bdb2b46588abb51f8782053cda0da3e2e204d4886d06"
+  ],
+  "outboundImageCounts": [
+    1,
+    2
+  ],
+  "answers": [
+    "YELLOW",
+    "RED"
+  ],
+  "expected": [
+    "YELLOW",
+    "RED"
+  ],
+  "result": "PASS",
+  "boundary": "The screenshot PNGs came from the real OpenSandbox/RemoteBrowser Canvas run. Pi sent each as a ToolResult in a separate actual Provider request. No production data changed."
+}

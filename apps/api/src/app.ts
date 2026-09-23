@@ -10,8 +10,9 @@ import { createCredentialVault } from "./models/credentials.js";
 import { createModelProfileService } from "./models/service.js";
 import { registerModelRoutes } from "./routes/models.js";
 import { registerGenerationRoutes } from "./routes/generation.js";
+import { registerVersionHistoryRoutes } from "./routes/version-history.js";
 import { createGenerationService, type GenerationService } from "./generation/service.js";
-import type { SourceObjectStore } from "./storage/source.js";
+import { createSourceStore, type SourceObjectStore } from "./storage/source.js";
 import { readApiBuildVersion } from "./build-version.js";
 
 declare module "fastify" {
@@ -47,6 +48,9 @@ export function createApp(options: CreateAppOptions = {}) {
   const bootId = randomUUID();
   const recovering: { run?: () => Promise<number> } = {};
   const database = configuration.ready ? new PivloomDatabase(configuration.value.databaseUrl) : null;
+  const sessionDatabase = configuration.ready && configuration.value.authSessionDatabaseUrl
+    && configuration.value.authSessionDatabaseUrl !== configuration.value.databaseUrl
+    ? new PivloomDatabase(configuration.value.authSessionDatabaseUrl) : database;
   const verifier = configuration.ready ? createIdentityVerifier(configuration.value) : null;
   let generation: GenerationService | null = null;
   const app = Fastify({
@@ -56,8 +60,13 @@ export function createApp(options: CreateAppOptions = {}) {
     bodyLimit: 32 * 1024,
   });
   app.decorateRequest("identity", null);
+  app.decorateRequest("identitySessionId", null);
   app.decorate("recoverStaleRuns", async () => (recovering.run ? await recovering.run() : 0));
-  app.addHook("onClose", async () => { await generation?.close(); await database?.close(); });
+  app.addHook("onClose", async () => {
+    await generation?.close();
+    await database?.close();
+    if (sessionDatabase !== database) await sessionDatabase?.close();
+  });
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ApiFailure) {
       if (error.code === "SERVICE_BUSY") reply.header("retry-after", "5");
@@ -127,7 +136,8 @@ export function createApp(options: CreateAppOptions = {}) {
         if (env.OPENSANDBOX_BASE_URL && env.OPENSANDBOX_API_KEY && env.OPENSANDBOX_IMAGE && env.PREVIEW_BASE_URL) {
           const maxSandboxes = Number(env.SANDBOX_MAX_ACTIVE ?? 2);
           if (!Number.isInteger(maxSandboxes) || maxSandboxes < 1 || maxSandboxes > 2) throw new Error("Invalid sandbox capacity");
-          generation = createGenerationService({ database, models, identity: configuration.value, bootId,
+          generation = createGenerationService({ database, sessionDatabase: sessionDatabase ?? database,
+            models, identity: configuration.value, bootId,
             previewOrigin: env.PREVIEW_BASE_URL, maxSandboxes, sourceObjects: options.sourceObjects, dailyLimitByOwner,
             publishedBaseUrl: env.PUBLISHED_APP_BASE_URL, publishedRoot: env.PUBLISHED_APP_ROOT,
             generationBoundaries: options.generationBoundaries,
@@ -158,6 +168,12 @@ export function createApp(options: CreateAppOptions = {}) {
         loadProjectDetail: service ? (ownerId, projectId) => service.projectDetail(ownerId, projectId) : undefined,
         loadQuota: service ? (ownerId) => service.repository.quota(ownerId) : undefined });
       await registerGenerationRoutes(configured, { generation, verifyIdentity: verifier.verify });
+      await registerVersionHistoryRoutes(configured, {
+        generation,
+        sources: generation ? createSourceStore({ url: configuration.value.supabaseUrl,
+          secret: configuration.value.supabaseSecretKey, objects: options.sourceObjects }) : null,
+        verifyIdentity: verifier.verify,
+      });
     });
   }
 

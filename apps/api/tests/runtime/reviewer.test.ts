@@ -39,18 +39,19 @@ function setup(turn: (request: { messages: Array<{ role: string; content: string
   const browser: ReviewBrowser = { sessionId:'pivloom-'+revisionId, open:async()=>observation(), observe:async()=>observation(),
     resize:async(width,height)=>({...observation(),text:`[viewport] width=${width} height=${height} scrollWidth=${width}\n测试书名`}),
     act:async()=>{actions++; return observation();}, logs:async()=>({errors:[]}), close:async()=>{closes++; return {confirmed:true};},
-    screenshot:async()=>({base64:'',sha256:'b'.repeat(64),mimeType:'image/png'}) };
+    screenshot:async()=>({base64:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL0KAAAAABJRU5ErkJggg==',sha256:'b'.repeat(64),mimeType:'image/png'}) };
   const fetch: typeof globalThis.fetch = async (_url, init) => {
     const choice = turn(JSON.parse(String(init?.body)), ++calls);
     const chunk = { id:'fixture-'+calls,object:'chat.completion.chunk',created:1,model:'fixture',choices:[{index:0,delta:{role:'assistant',reasoning_content:'PRIVATE_HIDDEN_REASONING',tool_calls:[{index:0,id:'call-'+calls,type:'function',function:{name:choice.name,arguments:JSON.stringify(choice.args)}}]},finish_reason:null}] };
     return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({...chunk,choices:[{index:0,delta:{},finish_reason:'tool_calls'}],usage:usageForCall(calls)})}\n\ndata: [DONE]\n\n`,{headers:{'content-type':'text/event-stream'}});
   };
   const runId = randomUUID(),roleRunId=randomUUID();
-  const modelConfig: ModelConfig & {fetch: typeof globalThis.fetch} = {provider:'review-fixture',id:'fixture',api:'openai-completions',baseUrl:'https://fixture.invalid/v1',apiKey:'private-review-key',fetch};
+  const modelConfig: ModelConfig & {fetch: typeof globalThis.fetch} = {provider:'review-fixture',id:'fixture',api:'openai-completions',baseUrl:'https://fixture.invalid/v1',apiKey:'private-review-key',fetch,supportsImages:true};
   const input = { binding:{runId,roleRunId,attempt:0,revisionId,sourceHash,sandboxId:'fixture-sandbox',browserSessionId:browser.sessionId},
     sessionId:randomUUID(), handoff:{runId,fromRoleRunId:randomUUID(),toRole:'reviewer' as const,attempt:0,baseRevisionId:null,expectedRevisionId:revisionId,sourceHash,plan,task:'检查新增书籍',artifactIds:[]},
     browser,files:[{path:'src/App.tsx',content:'export default function App() {}'}],modelConfig,
-    signal:new AbortController().signal,assertActive:async()=>{},saveScreenshot:async()=>({id:randomUUID(),mimeType:'image/png' as const,sha256:'b'.repeat(64)}) };
+    signal:new AbortController().signal,assertActive:async()=>{},requireVisionEvidence:false,
+    saveScreenshot:async()=>({id:randomUUID(),mimeType:'image/png' as const,sha256:'b'.repeat(64)}) };
   return { input, stats:()=>({calls,actions,closes}) };
 }
 const report=(ids:string[])=>({revisionId,sourceHash,items:[{behaviorId:'B01',verdict:'passed',expected:'出现书名',actual:'已出现',observationEventIds:ids,screenshotIds:[],reproSteps:['点击添加']}],summary:'通过'});
@@ -110,6 +111,114 @@ test('a static render-only behavior passes with one observation and a screenshot
   expect(result.result.items[0].verdict).toBe('passed');
   expect(f.stats()).toEqual({calls:3,actions:0,closes:1});
   assertReviewerResult(result);
+});
+
+test('Pi receives actual screenshot bytes with PNG MIME and can reread the same bound image',async()=>{
+  let observationEventId='',artifactId='',firstImage='',rereadImage='';
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2){observationEventId=data.id;return {name:'browser_screenshot',args:{}};}
+    const imageMessage=request.messages.filter(message=>message.role==='user' && Array.isArray(message.content as unknown)).at(-1);
+    const image=(imageMessage?.content as unknown as Array<{type:string;image_url?:{url:string}}> | undefined)?.find(part=>part.type==='image_url')?.image_url?.url??'';
+    expect(image).toMatch(/^data:image\/png;base64,/);
+    if(n===3){
+      artifactId=data.artifactId;firstImage=image;
+      expect(data).toMatchObject({revisionId,sourceHash,browserSessionId:f.input.browser.sessionId,mimeType:'image/png'});
+      return {name:'screenshot_read',args:{artifactId}};
+    }
+    rereadImage=image;
+    expect(data).toMatchObject({artifactId,revisionId,sourceHash,browserSessionId:f.input.browser.sessionId,mimeType:'image/png'});
+    return {name:'record_behavior',args:{...report([observationEventId]).items[0],screenshotIds:[artifactId],reproSteps:['观察当前画面颜色']}};
+  });
+  const result=await runReviewer({...f.input,requireVisionEvidence:true});
+  expect(firstImage).toBe(rereadImage);
+  expect(result.artifacts.map(artifact=>artifact.id)).toContain(artifactId);
+  expect(result.result.items[0].verdict).toBe('passed');
+  expect(f.stats()).toEqual({calls:4,actions:0,closes:1});
+});
+
+test('an unverified image model blocks Reviewer before Provider I/O and closes the browser',async()=>{
+  const f=setup(()=>({name:'browser_open',args:{}}));
+  f.input.modelConfig.supportsImages=false;
+  await expect(runReviewer(f.input)).rejects.toMatchObject({code:'VISION_NOT_VERIFIED'});
+  expect(f.stats()).toEqual({calls:0,actions:0,closes:1});
+});
+
+test('a passing DOM report is rejected when no image entered a later Provider request',async()=>{
+  let actionId='';
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    let data:null|{observationId?:string;id?:string}=null;
+    try{data=last?JSON.parse(last.content):null;}catch{ /* The first rejected report is a static tool error. */ }
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_click',args:{behaviorId:'B01',observationId:data?.observationId,ref:'e1'}};
+    actionId ||= data?.id??'';
+    return {name:'submit_review',args:report([actionId])};
+  });
+  await expect(runReviewer({...f.input,requireVisionEvidence:true})).rejects.toMatchObject({
+    code:'AGENT_OUTPUT_INVALID',message:expect.stringContaining('IMAGE_EVIDENCE_REQUIRED'),
+  });
+  expect(f.stats()).toEqual({calls:4,actions:1,closes:1});
+});
+
+test('Canvas key batch binds every input result, fresh observation and delivered image to the current revision',async()=>{
+  let batchEventId='';
+  let batchToolResult:Record<string,unknown>|undefined;
+  let batchCalls=0;
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content) as Record<string,unknown>:null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_key_batch',args:{behaviorId:'B01',observationId:data?.observationId,
+      steps:[{key:'ArrowUp',waitMs:100},{key:'ArrowRight',waitMs:100},{key:'Space',waitMs:0}]}};
+    if(n===3){batchEventId=String(data?.id);batchToolResult=data??undefined;return {name:'browser_screenshot',args:{}};}
+    return {name:'record_behavior',args:{...report([batchEventId]).items[0],
+      screenshotIds:[data?.artifactId],actual:'Canvas 与 HUD 在键盘操作后更新',reproSteps:['上、右、空格']}};
+  });
+  f.input.browser.keyBatch=async({steps})=>{
+    batchCalls++;
+    return {observation:{...await f.input.browser.observe(),text:'Canvas HUD score=1'},
+      startedAt:'2026-09-23T18:00:00.000Z',finishedAt:'2026-09-23T18:00:00.250Z',
+      steps:steps.map((step,index)=>({index,...step,success:true}))};
+  };
+  const result=await runReviewer({...f.input,requireVisionEvidence:true});
+  expect(batchCalls).toBe(1);
+  expect(batchToolResult).toMatchObject({revisionId,sourceHash,browserSessionId:f.input.browser.sessionId,
+    batch:{steps:[{index:0,key:'ArrowUp',success:true},{index:1,key:'ArrowRight',success:true},{index:2,key:'Space',success:true}]}});
+  const evidence=result.evidence.find(event=>event.id===batchEventId);
+  expect(evidence).toMatchObject({behaviorId:'B01',action:'key_batch',batch:{startedAt:'2026-09-23T18:00:00.000Z'}});
+  expect(evidence?.batch?.steps).toMatchObject([
+    {index:0,key:'ArrowUp',waitMs:100,success:true},
+    {index:1,key:'ArrowRight',waitMs:100,success:true},
+    {index:2,key:'Space',waitMs:0,success:true},
+  ]);
+  expect(result.result.items[0].verdict).toBe('passed');
+});
+
+test('a failed Canvas input cannot pass and is reported blocked after the one correction turn',async()=>{
+  let batchEventId='';
+  let rejected='';
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    let data:Record<string,unknown>|null=null;
+    try{data=last?JSON.parse(last.content) as Record<string,unknown>:null;}
+    catch{rejected=String(last?.content??'');}
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_key_batch',args:{behaviorId:'B01',observationId:data?.observationId,
+      steps:[{key:'ArrowUp',waitMs:100},{key:'ArrowRight',waitMs:100}]}};
+    if(n===3){batchEventId=String(data?.id);return {name:'record_behavior',args:report([batchEventId]).items[0]};}
+    return {name:'record_behavior',args:{...report([batchEventId]).items[0],verdict:'blocked',
+      actual:'第二个方向键未执行，无法判断游戏响应',reproSteps:['重试方向键失败']}};
+  });
+  f.input.browser.keyBatch=async({steps})=>({observation:await f.input.browser.observe(),
+    startedAt:'2026-09-23T18:00:00.000Z',finishedAt:'2026-09-23T18:00:00.200Z',
+    steps:steps.map((step,index)=>({index,...step,success:index===0}))});
+  const result=await runReviewer(f.input);
+  expect(rejected).toContain('INPUT_FAILED');
+  expect(result.result.items[0].verdict).toBe('blocked');
+  expect(result.evidence.find(event=>event.id===batchEventId)?.batch?.steps.map(step=>step.success)).toEqual([true,false]);
 });
 
 test('a transient provider failure is retried with bounded backoff and still reaches a real check',{timeout:90_000},async()=>{
@@ -411,6 +520,40 @@ test('native Pi compaction keeps a long review running and old observations rema
   expect(reread).toBe(true);
   expect(result.result.items[0].verdict).toBe('passed');
   expect(result.evidence[0].id).toBe(firstObservationId);
+});
+
+test('after Pi compaction the Reviewer can reread the actual current-revision PNG, not merely its artifact ID',{timeout:90_000},async()=>{
+  let observationEventId='',artifactId='',summaries=0,rereadImage=false;
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2){observationEventId=data.id;return {name:'browser_screenshot',args:{}};}
+    if(n===3)artifactId=data.artifactId;
+    if(n<=5)return {name:'browser_observe',args:{}};
+    if(n===6)return {name:'screenshot_read',args:{artifactId}};
+    const imageMessage=request.messages.filter(message=>message.role==='user' && Array.isArray(message.content as unknown)).at(-1);
+    rereadImage=Boolean((imageMessage?.content as unknown as Array<{type:string;image_url?:{url:string}}> | undefined)
+      ?.some(part=>part.type==='image_url' && part.image_url?.url.startsWith('data:image/png;base64,')));
+    expect(data).toMatchObject({artifactId,revisionId,sourceHash,mimeType:'image/png'});
+    return {name:'record_behavior',args:{...report([observationEventId]).items[0],screenshotIds:[artifactId],reproSteps:['压缩后重新读取画面']}};
+  },n=>n===5?{prompt_tokens:13_000,completion_tokens:5,total_tokens:13_005}:{prompt_tokens:10,completion_tokens:5,total_tokens:15});
+  f.input.modelConfig.contextWindow=16_000;
+  const open=f.input.browser.open,observe=f.input.browser.observe;
+  f.input.browser.open=async(path)=>({...await open(path),text:'initial image observation '.repeat(400)});
+  f.input.browser.observe=async()=>({...await observe(),text:'later image observation '.repeat(400)});
+  const originalFetch=f.input.modelConfig.fetch!;
+  f.input.modelConfig.fetch=async(url,init)=>{
+    const request=JSON.parse(String(init?.body));
+    if(Array.isArray(request.tools)&&request.tools.length)return originalFetch(url,init);
+    summaries++;
+    const chunk={id:'image-compaction-fixture',object:'chat.completion.chunk',created:1,model:'fixture',choices:[{index:0,delta:{role:'assistant',content:'The screenshot artifact can be reread after compaction.'},finish_reason:null}]};
+    return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({...chunk,choices:[{index:0,delta:{},finish_reason:'stop'}],usage:{prompt_tokens:200,completion_tokens:20,total_tokens:220}})}\n\ndata: [DONE]\n\n`,{headers:{'content-type':'text/event-stream'}});
+  };
+  const result=await runReviewer({...f.input,requireVisionEvidence:true});
+  expect(summaries).toBeGreaterThan(0);
+  expect(rereadImage).toBe(true);
+  expect(result.result.items[0].verdict).toBe('passed');
 });
 
 test('cancelling native Pi compaction stops Reviewer and closes its browser',{timeout:30_000},async()=>{

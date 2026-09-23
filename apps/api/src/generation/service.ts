@@ -13,7 +13,7 @@ import { createSourceStore, type SourceObjectStore } from "../storage/source.js"
 import { createArtifactStore, type ArtifactObjects } from "../storage/artifacts.js";
 import type { IdentityConfig } from "../config/identity.js";
 import type { SandboxConfig } from "../runtime/types.js";
-import { ApiFailure } from "../routes/errors.js";
+import { ApiFailure, unauthenticated } from "../routes/errors.js";
 import { createGenerationExecutor } from "./executor.js";
 import { destroyCandidateSandbox } from "./candidate.js";
 import { createPreviewGateway } from "./preview.js";
@@ -22,6 +22,7 @@ import { createPublicationStore } from "./publication.js";
 
 export function createGenerationService(options: {
   database: PivloomDatabase; models: ModelProfileService; identity: IdentityConfig;
+  sessionDatabase?: PivloomDatabase;
   sandbox: SandboxConfig; previewOrigin: string; bootId: string; maxSandboxes: number;
   dailyLimitByOwner?: Readonly<Record<string, number>>;
   generationBoundaries?: Parameters<typeof createGenerationExecutor>[1];
@@ -40,13 +41,21 @@ export function createGenerationService(options: {
   });
   const sources = createSourceStore({ url: options.identity.supabaseUrl, secret: options.identity.supabaseSecretKey, objects: options.sourceObjects });
   const artifacts = createArtifactStore({ url: options.identity.supabaseUrl, secret: options.identity.supabaseSecretKey, objects: options.artifactObjects });
-  const previews = createPreviewGateway({ publicOrigin: options.previewOrigin, appOrigin: options.identity.appOrigin, sandboxOrigin: options.sandbox.baseUrl });
+  const previews = createPreviewGateway({ publicOrigin: options.previewOrigin, appOrigin: options.identity.appOrigin,
+    sandboxOrigin: options.sandbox.baseUrl,
+    isSessionActive: async (ownerId, sessionId) => (options.sessionDatabase ?? options.database).system(async (client) => {
+      const result = await client.query<{ active: boolean }>("SELECT nano.preview_session_active($1::uuid, $2::uuid) AS active", [ownerId, sessionId]);
+      return result.rows[0]?.active === true;
+    }),
+  });
   const executor = createGenerationExecutor({ repository, models: options.models, sources, artifacts, previews, sandbox: options.sandbox, maxSandboxes: options.maxSandboxes }, options.generationBoundaries);
   const publications = options.publishedBaseUrl ? createPublicationStore({
     root: options.publishedRoot ?? "/opt/pivloom/published", baseUrl: options.publishedBaseUrl, sandbox: options.sandbox,
   }) : null;
   let closing = false;
   let recovering: Promise<number> | undefined;
+  const bootRestoreClaims = new Map<string, { ownerId: string; projectId: string; sandboxId: string }>();
+  let bootRestoreScanComplete = false;
   const recoverySweepMs = options.recoverySweepMs ?? 30_000;
   if (!Number.isInteger(recoverySweepMs) || recoverySweepMs < 1) throw new Error("Recovery sweep interval must be positive");
 
@@ -77,7 +86,19 @@ export function createGenerationService(options: {
       await repository.getActiveRestore(ownerId, projectId, selected));
   }
 
-  /** Boot-time reconciliation: no run from a previous process may stay "active". */
+  async function retryBootRestoreClaims() {
+    for (const [restoreId, claim] of bootRestoreClaims) {
+      const destroyed = await destroyCandidateSandbox({ sandboxConfig: options.sandbox, sandboxId: claim.sandboxId })
+        .catch(() => ({ confirmed: false }));
+      if (!destroyed.confirmed) continue;
+      const marked = await repository.markRestoreSandboxDestroyed(claim.ownerId, claim.projectId, restoreId, claim.sandboxId)
+        .then(() => true, () => false);
+      if (marked) bootRestoreClaims.delete(restoreId);
+    }
+  }
+
+  /** Boot claims stale restores once. Later sweeps only retry those exact IDs;
+   * a global scan after listen would kill this process's live restore. */
   async function recoverOnce() {
     const claim = await options.database.system(async (client) => client.query<{
       o_run_id: string; o_owner_id: string; o_project_id: string; o_sandbox_ids: string[] | null;
@@ -91,17 +112,21 @@ export function createGenerationService(options: {
       if (confirmed)
         await options.database.system(async (client) => { await client.query("SELECT nano.settle_recovered_run($1,$2)", [row.o_owner_id, row.o_run_id]); }).catch(() => undefined);
     }
-    const restores = await options.database.system(async (client) => client.query<{
-      o_restore_id: string; o_owner_id: string; o_project_id: string; o_sandbox_id: string;
-    }>("SELECT * FROM nano.claim_stale_restores()"));
-    for (const row of restores.rows) {
-      const destroyed = await destroyCandidateSandbox({ sandboxConfig: options.sandbox, sandboxId: row.o_sandbox_id }).catch(() => ({ confirmed: false }));
-      if (destroyed.confirmed)
-        await repository.markRestoreSandboxDestroyed(row.o_owner_id, row.o_project_id, row.o_restore_id, row.o_sandbox_id);
+    if (!bootRestoreScanComplete) {
+      const restores = await options.database.system(async (client) => client.query<{
+        o_restore_id: string; o_owner_id: string; o_project_id: string; o_sandbox_id: string;
+      }>("SELECT * FROM nano.claim_stale_restores()"));
+      for (const row of restores.rows) bootRestoreClaims.set(row.o_restore_id, {
+        ownerId: row.o_owner_id, projectId: row.o_project_id, sandboxId: row.o_sandbox_id,
+      });
+      await retryBootRestoreClaims();
+      // Pending restores without a registered sandbox can only be classified
+      // at boot. Running this again after listen would race a new remote create.
+      await options.database.system(async (client) => { await client.query("SELECT nano.recover_stale_restores()"); });
+      bootRestoreScanComplete = true;
+    } else {
+      await retryBootRestoreClaims();
     }
-    // Restores interrupted before the remote ID was registered have no known
-    // sandbox to kill; the short remote creation TTL bounds that crash window.
-    await options.database.system(async (client) => { await client.query("SELECT nano.recover_stale_restores()"); });
     return claim.rows.length;
   }
 
@@ -115,7 +140,7 @@ export function createGenerationService(options: {
   // retrying the same durable claims while this process is alive, not only on
   // the next deployment/restart.
   const recoveryTimer = setInterval(() => {
-    if (closing) return;
+    if (closing || !bootRestoreScanComplete) return;
     void recover().catch((error) => {
       const reason = error instanceof Error ? error.name : "unknown";
       console.error(`stale resource reconciliation is pending (${reason})`);
@@ -150,6 +175,14 @@ export function createGenerationService(options: {
         preview: revision ? previewView(ownerId, revision, binding) : null });
     },
     preview,
+    async previewAccess(ownerId: string, projectId: string, revisionId: string, sessionId: string) {
+      const selected = await preview(ownerId, projectId, revisionId);
+      if (!selected || selected.state !== "ready" || !selected.url)
+        throw new ApiFailure(404, "PREVIEW_UNAVAILABLE", "预览暂时不可用，请重新启动预览。");
+      const grant = await previews.issueGrant(ownerId, revisionId, sessionId);
+      if (!grant) throw unauthenticated();
+      return { url: selected.url, grant, revisionId };
+    },
     /**
      * Authorises one certificate request for a revision subdomain. Any other
      * host is refused, so a public proxy can never be talked into issuing a

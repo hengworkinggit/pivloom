@@ -127,7 +127,8 @@ export function createGenerationExecutor(options: {
         repository.getPlanningContext(run.ownerId, run.id),
       ]);
       const modelConfig = { provider: "pivloom-byok", id: run.modelId ?? model.profile.modelId, api: model.profile.provider,
-        baseUrl: model.profile.baseUrl, apiKey: model.apiKey, fetch: boundaries.modelFetch ?? model.fetch, supportsImages: false };
+        baseUrl: model.profile.baseUrl, apiKey: model.apiKey, fetch: boundaries.modelFetch ?? model.fetch,
+        supportsImages: (run.modelId == null || run.modelId === model.profile.modelId) && model.profile.capabilities.vision === "verified" };
       const safeMessage = (message: string) => message.replaceAll(model.apiKey, "[REDACTED]")
         .replaceAll(sandbox.apiKey, "[REDACTED]").replace(/Bearer\s+[^\s"']+/gi, "Bearer [REDACTED]").slice(0, 2000);
       const recordEvent = (roleRunId: string) => async (event: ProbeEvent) => {

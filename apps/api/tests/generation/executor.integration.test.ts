@@ -28,6 +28,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
   let models: ReturnType<typeof createModelProfileService>;
   let repository: ReturnType<typeof createGenerationRepository>;
   let model: { id: string; configVersion: number };
+  const fixtureProfileId = randomUUID();
   const projects: string[] = [], leases: string[] = [];
   const prefix = `executor-fixture-${randomUUID()}`;
   const closers: Array<() => Promise<void>> = [];
@@ -48,10 +49,23 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     const identity = configuredOwner ? null : JSON.parse(await readFile(resolve("../../.cache/identity", environment, "manifest.json"), "utf8"));
     owner = configuredOwner ?? identity.users.find((user: { label: string }) => user.label === "A").id;
     database = new PivloomDatabase(process.env.DATABASE_URL);
-    models = createModelProfileService(database, createCredentialVault(process.env.MODEL_CREDENTIALS_ENCRYPTION_KEY));
-    const profile = (await models.list(owner)).find((item) => item.capabilities.streaming === "verified" && item.capabilities.tools === "verified");
-    if (!profile) throw Error("Isolated test account needs a verified profile");
-    model = profile;
+    const vault = createCredentialVault(process.env.MODEL_CREDENTIALS_ENCRYPTION_KEY);
+    models = createModelProfileService(database, vault);
+    // The provider and browser are explicit test seams. Give this isolated suite
+    // its own exact-model image capability fixture; never change account A's
+    // saved profile or mistake the fixture for a real Provider probe.
+    const sealed = vault.seal("executor-fixture-key-not-real", { ownerId: owner, profileId: fixtureProfileId, version: 1 });
+    await admin.query("BEGIN");
+    try {
+      await admin.query("INSERT INTO nano.model_profiles(id,owner_id,current_version,is_default) VALUES($1,$2,1,false)", [fixtureProfileId, owner]);
+      await admin.query(`INSERT INTO nano.model_profile_versions(profile_id,owner_id,config_version,name,provider,base_url,model_id,key_mask,capabilities)
+        VALUES($1,$2,1,$3,'openai-completions','https://model-fixture.invalid/v1','executor-fixture','fixture',
+          '{"streaming":"verified","tools":"verified","vision":"verified"}')`, [fixtureProfileId, owner, prefix]);
+      await admin.query("INSERT INTO nano.model_credentials(profile_id,config_version,owner_id,ciphertext,nonce,auth_tag) VALUES($1,1,$2,$3,$4,$5)",
+        [fixtureProfileId, owner, sealed.ciphertext, sealed.nonce, sealed.authTag]);
+      await admin.query("COMMIT");
+    } catch (error) { await admin.query("ROLLBACK"); throw error; }
+    model = { id: fixtureProfileId, configVersion: 1 };
     repository = createGenerationRepository(database, models, { executorBootId: randomUUID(), maxSandboxes: 5,
       onCommittedEvent: (_owner, event) => { if (event.type === "run.finished") finished.get(event.runId)?.(); } });
   }, 30_000);
@@ -69,6 +83,16 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
           await admin.query(`DELETE FROM nano.${table} WHERE project_id=ANY($1::uuid[])`, [projects]);
         await admin.query("DELETE FROM nano.model_credential_leases WHERE id=ANY($1::uuid[]) AND owner_id=$2", [leases, owner]);
         await admin.query("DELETE FROM nano.projects WHERE id=ANY($1::uuid[])", [projects]);
+        await admin.query("COMMIT");
+      } catch (error) { await admin.query("ROLLBACK"); throw error; }
+    }
+    if (admin) {
+      await admin.query("BEGIN");
+      try {
+        await admin.query("SET CONSTRAINTS ALL DEFERRED");
+        await admin.query("DELETE FROM nano.model_credentials WHERE owner_id=$1 AND profile_id=$2", [owner, fixtureProfileId]);
+        await admin.query("DELETE FROM nano.model_profile_versions WHERE owner_id=$1 AND profile_id=$2", [owner, fixtureProfileId]);
+        await admin.query("DELETE FROM nano.model_profiles WHERE owner_id=$1 AND id=$2", [owner, fixtureProfileId]);
         await admin.query("COMMIT");
       } catch (error) { await admin.query("ROLLBACK"); throw error; }
     }
@@ -180,12 +204,19 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
         else if (!priorCalls.includes("browser_click")) {
           const observation = responses.map((message) => { try { return JSON.parse(message.content); } catch { return null; } }).reverse().find((value) => value?.observationId);
           calls = [{ name: "browser_click", args: { behaviorId: "B01", observationId: observation.observationId, ref: "e1" } }];
+        } else if (!priorCalls.includes("browser_screenshot")) {
+          calls = [{ name: "browser_screenshot", args: {} }];
         } else {
-          const observation = JSON.parse(last!.content);
+          const screenshot = JSON.parse(last!.content);
+          const observation = responses.map((message) => { try { return JSON.parse(message.content); } catch { return null; } })
+            .reverse().find((value) => value?.action === "click");
+          expect(request.messages.some((message: { role: string; content: unknown }) => message.role === "user" && Array.isArray(message.content)
+            && message.content.some((part: { type: string; image_url?: { url: string } }) => part.type === "image_url"
+              && part.image_url?.url.startsWith("data:image/png;base64,")))).toBe(true);
           const failed = (mode === "tool-budget" || mode === "cleanup-fails") && builderSessions === 1;
           calls = [{ name: "record_behavior", args: { behaviorId: "B01", verdict: failed ? "failed" : "passed",
             expected: plan.behaviors[0].expected, actual: failed ? "点击后仍为0" : "点击后显示1",
-            observationEventIds: [observation.id], screenshotIds: [], reproSteps: ["点击加一"] } }];
+            observationEventIds: [observation.id], screenshotIds: [screenshot.artifactId], reproSteps: ["点击加一"] } }];
         }
       }
       const delta = calls.length ? { role: "assistant", tool_calls: calls.map((call, index) => ({ index, id: randomUUID(), type: "function", function: { name: call.name, arguments: JSON.stringify(call.args) } })) }

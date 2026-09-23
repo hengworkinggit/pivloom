@@ -22,6 +22,9 @@ import { useUiPreferences } from "@/lib/ui-preferences";
 import { useCancellationRequestLatch } from "@/lib/use-cancellation-request-latch";
 import { DeploymentVersion } from "./deployment-version";
 import { checkMatchesRevision } from "./generation-review";
+import { createVersionHistoryApi } from "@/lib/version-history-api";
+import { VersionHistoryPanel } from "./version-history";
+import type { Revision } from "@pivloom/contracts";
 
 const rejectedSubmissions = new Set(["INVALID_INPUT", "PROJECT_BUSY", "CLEANUP_PENDING", "STALE_BASE", "IDEMPOTENCY_CONFLICT", "SERVICE_BUSY", "QUOTA_EXCEEDED", "NOT_FOUND", "UNAUTHENTICATED", "MODEL_PROFILE_NOT_FOUND", "MODEL_CONFIG_CHANGED", "MODEL_NOT_VERIFIED", "MODEL_CONFIGURATION_MISSING"]);
 
@@ -72,12 +75,27 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const [mobileTab, setMobileTab] = useState<"chat" | "result">("chat");
   const [collapsed, setCollapsed] = useState(false);
   const [selectedRevisionId, setSelectedRevisionId] = useState("");
+  const [comparisonTarget, setComparisonTarget] = useState<{ from: string; to: string; key: string } | null>(null);
   const project = state.view?.project;
   const run = state.view?.run;
+  const historyApi = useMemo(() => createVersionHistoryApi(api), [api]);
+  const historyLoader = useCallback(() => historyApi.list(projectId), [historyApi, projectId]);
+  const historyQuery = usePrivateQuery(historyLoader);
+  const { refresh: refreshHistory } = historyQuery;
+  const historyCurrentId = project?.project.currentRevisionId;
+  const historyCandidateId = project?.latestCandidate?.id;
+  useEffect(() => { if (historyCurrentId !== undefined) refreshHistory(); }, [historyCurrentId, historyCandidateId, run?.state, refreshHistory]);
+  const diffLoader = useCallback(() => comparisonTarget
+    ? historyApi.compare(projectId, comparisonTarget.from, comparisonTarget.to) : Promise.resolve(null),
+  [historyApi, projectId, comparisonTarget]);
+  const diffQuery = usePrivateQuery(diffLoader);
   const cancellation = useCancellationRequestLatch({ runId: run?.id, isActive: state.active, isCancellationSettling: run?.state === "cancel_requested" });
   const clarification = run?.state === "needs_input" ? run.clarification : null;
   const lockedProfile = state.active && run ? modelQuery.data?.find((model) => model.id === run.modelProfileId && model.configVersion === run.modelConfigVersion) : null;
-  const revisions = [project?.currentRevision, project?.latestCandidate].filter((revision) => !!revision);
+  const savedHistory = !!historyQuery.data && historyQuery.data.currentRevisionId === project?.project.currentRevisionId
+    && (!project?.latestCandidate || historyQuery.data.revisions.some((item) => item.id === project.latestCandidate!.id));
+  const revisions: Revision[] = savedHistory ? historyQuery.data!.revisions
+    : [project?.currentRevision, project?.latestCandidate].filter((item): item is Revision => !!item);
   const revision = revisions.find((item) => item.id === selectedRevisionId) ?? project?.currentRevision ?? project?.latestCandidate ?? null;
   const runRevision = revisions.find((item) => item.id === run?.resultRevisionId);
   const runCheck = project?.latestCheck && runRevision && project.latestCheck.runId === run?.id && checkMatchesRevision(project.latestCheck, runRevision) ? project.latestCheck : null;
@@ -243,9 +261,15 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
           </Button>}
         </div>}
         {(publicationError || publicationQuery.error) && <p className="inline-error" role="alert">{publicationError || publicationQuery.error}</p>}
-        {revisions.length > 1 && <label className="generation-revision-picker">{ui.text("查看版本", "View version")}<select value={revision?.id ?? ""} onChange={(event) => setSelectedRevisionId(event.target.value)}>{revisions.map((item) => <option key={item.id} value={item.id}>v{item.revisionNo} · {item.status === "candidate" ? ui.text("候选", "Candidate") : item.status === "rejected" ? ui.text("未通过候选", "Failed candidate") : ui.text("当前版本", "Current")}</option>)}</select></label>}
+        <VersionHistoryPanel revisions={revisions} currentRevisionId={project.project.currentRevisionId} selectedRevision={revision}
+          messages={project.messages} historyError={historyQuery.error}
+          onSelect={(id) => { setSelectedRevisionId(id); setComparisonTarget(null); }}
+          onCompare={(from, to) => setComparisonTarget({ from, to, key: crypto.randomUUID() })}
+          comparison={comparisonTarget?.to === revision?.id ? diffQuery.data ?? null : null}
+          comparing={!!comparisonTarget && !diffQuery.data && !diffQuery.error}
+          comparisonError={comparisonTarget?.to === revision?.id ? diffQuery.error : ""} />
         {previewQuery.error && <p className="inline-error" role="alert">{previewQuery.error}</p>}
-        <GenerationResult revision={revision} preview={hasSnapshotPreview ? snapshotPreview! : previewQuery.data ?? null} generation={state.generation} active={state.active} latestCheck={project.latestCheck} checking={state.active && run?.phase === "review" && revision?.runId === run.id} restoring={restoring || (previewQuery.data?.state === "restoring" && previewQuery.data.revisionId === revision?.id)} onRestore={state.active ? undefined : () => void restore()} />
+        <GenerationResult projectId={projectId} revision={revision} preview={hasSnapshotPreview ? snapshotPreview! : previewQuery.data ?? null} generation={state.generation} active={state.active} latestCheck={project.latestCheck} checking={state.active && run?.phase === "review" && revision?.runId === run.id} restoring={restoring || (previewQuery.data?.state === "restoring" && previewQuery.data.revisionId === revision?.id)} onRestore={state.active ? undefined : () => void restore()} />
       </div>
     </main>
   </div>;

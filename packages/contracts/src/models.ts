@@ -38,7 +38,7 @@ export type ModelEndpointModels = z.infer<typeof ModelEndpointModelsSchema>;
 export const ModelCapabilitiesSchema = z.object({
   streaming: z.enum(["verified", "unknown"]),
   tools: z.enum(["verified", "unknown"]),
-  vision: z.literal("unknown"),
+  vision: z.enum(["unknown", "verified", "unsupported", "failed"]),
 });
 export type ModelCapabilities = z.infer<typeof ModelCapabilitiesSchema>;
 export const ModelTestResultSchema = z.object({

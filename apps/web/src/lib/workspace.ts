@@ -1,5 +1,6 @@
 import { createClient, type Session } from "@supabase/supabase-js";
 import { createApiWorkspace, INITIAL_AUTH, WorkspaceError, type AuthSnapshot, type TokenSession } from "./api-workspace";
+import { clearVisitedPrivatePreviews } from "./preview-session";
 
 export const APP_MODE = process.env.NEXT_PUBLIC_APP_MODE ?? "api";
 export const isDemoMode = APP_MODE === "demo";
@@ -109,6 +110,7 @@ export function getApiWorkspace() {
         await supabase.auth.stopAutoRefresh();
         localStorage.removeItem(storageKey);
       }
+      void clearVisitedPrivatePreviews();
     },
     subscribe(listener) {
       const { data } = supabase.auth.onAuthStateChange((event, session) => {

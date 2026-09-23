@@ -63,6 +63,9 @@ async function openWorkbench(options: { verdict?: Check["verdict"]; unchecked?: 
     if (url === "/api/v1/me") return Response.json({ user: { id: ownerId, name: "Owner", email: user.email } });
     if (url === "/api/v1/model-profiles") return Response.json({ profiles: [] });
     if (url === `/api/v1/projects/${projectId}`) return Response.json(project);
+    if (url === `/api/v1/projects/${projectId}/revisions`) return Response.json({ projectId,
+      currentRevisionId: currentRevision?.id ?? null,
+      revisions: currentRevision && currentRevision.id !== revision.id ? [revision, currentRevision] : [revision] });
     if (url === `/api/v1/runs/${runId}`) return Response.json({ run, roles: [], revision, events: [], preview });
     if (url === `/api/v1/revisions/${revisionId}/check`) return Response.json({ check: project.latestCheck });
     if (currentRevision && url === `/api/v1/revisions/${currentRevision.id}/check`) return Response.json({ check: null });
@@ -133,12 +136,12 @@ it("does not label an unchecked candidate as a passed check", async () => {
 
 it("labels a rejected candidate separately while the earlier accepted revision remains current", async () => {
   const view = await openWorkbench({ verdict: "failed", previousCurrent: true });
-  const picker = view.container.querySelector<HTMLSelectElement>(".generation-revision-picker select");
-  expect(Array.from(picker?.options ?? [], (option) => option.textContent)).toEqual(["v1 · 当前版本", "v2 · 未通过候选"]);
-  expect(picker?.selectedOptions[0].textContent).toBe("v1 · 当前版本");
+  const picker = view.container.querySelector<HTMLSelectElement>("[data-testid=history-version-select]");
+  expect(Array.from(picker?.options ?? [], (option) => option.textContent)).toEqual(["v2 · 未通过", "v1 · 当前"]);
+  expect(picker?.selectedOptions[0].textContent).toBe("v1 · 当前");
   await act(async () => { if (picker) { picker.value = revisionId; picker.dispatchEvent(new Event("change", { bubbles: true })); } });
   expect(view.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain("关键流程检查未通过");
-  expect(view.container.querySelector('.generation-revision-picker option')?.textContent).toBe("v1 · 当前版本");
+  expect(view.container.querySelector(".version-history-current")?.textContent).toBe("当前 v1");
 });
 
 it("explains that two failed repairs reached the limit while the accepted revision stays current", async () => {
@@ -146,7 +149,7 @@ it("explains that two failed repairs reached the limit while the accepted revisi
   const outcome = view.container.querySelector('[data-testid="run-result"]');
   expect(outcome?.textContent).toContain("已尝试修复 2 轮，已达上限，停止自动修复。");
   expect(outcome?.textContent).toContain("报名提交尚未达到预期。");
-  expect(view.container.querySelector<HTMLSelectElement>(".generation-revision-picker select")?.selectedOptions[0].textContent).toBe("v1 · 当前版本");
+  expect(view.container.querySelector<HTMLSelectElement>("[data-testid=history-version-select]")?.selectedOptions[0].textContent).toBe("v1 · 当前");
 });
 
 it("rejects a check bound to a different source snapshot before showing its verdict or screenshots", async () => {

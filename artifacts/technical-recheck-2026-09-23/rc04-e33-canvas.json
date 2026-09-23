@@ -1,0 +1,65 @@
+{
+  "case": "E33 real OpenSandbox Canvas + RemoteBrowser + Pi Reviewer",
+  "result": "PASS",
+  "profile": {
+    "provider": "openai-completions",
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/coding/v3",
+    "modelId": "kimi-k2.7-code",
+    "configVersion": 2
+  },
+  "piVersion": "0.86.1",
+  "browser": "agent-browser in real OpenSandbox",
+  "runId": "58f4f285-eca7-4c07-9227-daf2a6111d34",
+  "revisionId": "4227331b-8895-4da1-9add-fd970dc40d8b",
+  "sourceHash": "427681c0e96b9ba82142158c9dfd1ada23feb97debfac062ef0b9f70ef7f3927",
+  "browserSessionId": "pivloom-a05975d9-a94b-4c58-8fe6-a9cc6570c4b3",
+  "sandboxId": "9bf3b1ad-0afd-42b2-9e7a-56b03b4995fc",
+  "realProviderRequests": 2,
+  "outboundImages": 2,
+  "expectedColors": [
+    "YELLOW",
+    "RED"
+  ],
+  "actual": "Before clicking 'Change scene' the canvas square is yellow; after clicking it turns red. No runtime errors occurred.",
+  "colorsMatched": true,
+  "screenshotHashes": [
+    "c7eafe235266542f1c470b154f0afd8801f5351f11c065e58a4ba7b6497ec740",
+    "431773bddc2a0e508222bdb2b46588abb51f8782053cda0da3e2e204d4886d06"
+  ],
+  "reviewVerdict": "passed",
+  "artifacts": [
+    {
+      "id": "a7bb5b63-b037-4267-b5cc-47c15f446218",
+      "mimeType": "image/png",
+      "sha256": "c7eafe235266542f1c470b154f0afd8801f5351f11c065e58a4ba7b6497ec740"
+    },
+    {
+      "id": "03618681-0e9a-4d9d-b0e9-e1a90e7cbaf6",
+      "mimeType": "image/png",
+      "sha256": "431773bddc2a0e508222bdb2b46588abb51f8782053cda0da3e2e204d4886d06"
+    }
+  ],
+  "evidenceEvents": [
+    {
+      "id": "51891649-2381-4ff2-b459-a0516fec13fa",
+      "action": null,
+      "behaviorId": null,
+      "observationId": "0fdfb5bb-17e1-479a-abef-13276c7edba3"
+    },
+    {
+      "id": "501b181a-cead-4d1e-98ae-7d158ad193d6",
+      "action": "click",
+      "behaviorId": "B01",
+      "observationId": "5b2d5114-c9d3-4ae2-9fcf-13f5fcdc08f0"
+    }
+  ],
+  "fixtureBoundary": "Only the first four model tool decisions are scripted; Canvas browser actions, PNG screenshots, and the final image-bearing Provider turn are real.",
+  "cleanupConfirmed": true,
+  "remoteSandboxHttpStatusAfterDestroy": 404,
+  "screenshots": [
+    "e33-1.png",
+    "e33-2.png"
+  ],
+  "modelRequestsTotal": 6,
+  "scriptedToolDecisionTurns": 4
+}

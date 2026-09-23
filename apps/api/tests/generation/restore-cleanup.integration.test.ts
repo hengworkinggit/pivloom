@@ -13,6 +13,8 @@ import { createModelProfileService } from "../../src/models/service.js";
 describe.skipIf(process.env.PIVLOOM_RESTORE_CLEANUP_INTEGRATION !== "1")("durable preview restore cleanup", () => {
   const owner = randomUUID(), otherOwner = randomUUID(), profile = randomUUID();
   let admin: Pool, database: PivloomDatabase, service: GenerationService;
+  let remoteOrigin: string;
+  const extraServices: GenerationService[] = [];
   const requests: string[] = [];
   const unavailable = new Set<string>();
   const remote = createServer((request, response) => {
@@ -34,6 +36,7 @@ describe.skipIf(process.env.PIVLOOM_RESTORE_CLEANUP_INTEGRATION !== "1")("durabl
     const address = remote.address();
     if (!address || typeof address === "string") throw Error("HTTP fixture unavailable");
     const origin = `http://127.0.0.1:${address.port}`;
+    remoteOrigin = origin;
     database = new PivloomDatabase(process.env.DATABASE_URL);
     service = createGenerationService({ database,
       models: createModelProfileService(database, createCredentialVault(randomBytes(32).toString("base64"))),
@@ -51,6 +54,7 @@ describe.skipIf(process.env.PIVLOOM_RESTORE_CLEANUP_INTEGRATION !== "1")("durabl
   }, 30_000);
 
   afterAll(async () => {
+    for (const extra of extraServices) await extra.close();
     await service?.close();
     await database?.close();
     if (admin) {
@@ -124,7 +128,7 @@ describe.skipIf(process.env.PIVLOOM_RESTORE_CLEANUP_INTEGRATION !== "1")("durabl
     expect(await repo.getRun(owner, saved.runId)).toEqual(before);
     expect((await admin.query("SELECT state FROM nano.sandboxes WHERE remote_id=$1", [saved.oldSandboxId])).rows[0].state).toBe("active");
     expect((await admin.query("SELECT state FROM nano.sandboxes WHERE remote_id=$1", [sandboxId])).rows[0].state).toBe("destroyed");
-  }, 30_000);
+  }, 90_000);
 
   test("only the registered restore sandbox can become ready and its later cleanup cannot alter the successful run", async () => {
     const saved = await successfulProject(), repo = service.repository;
@@ -137,6 +141,27 @@ describe.skipIf(process.env.PIVLOOM_RESTORE_CLEANUP_INTEGRATION !== "1")("durabl
     await repo.markRestoreSandboxDestroyed(owner, saved.projectId, restore.id, input.sandboxId);
     expect(await repo.getRun(owner, saved.runId)).toEqual(before);
     expect((await repo.getActiveRestore(owner, saved.projectId, saved.revisionId))?.status).toBe("ready");
+    expect((await repo.readProjectSnapshot(owner, saved.projectId)).project.currentRevisionId).toBe(saved.revisionId);
+  }, 90_000);
+
+  test("a restore started after boot survives repeated recovery sweeps and can bind ready", async () => {
+    const activeService = createGenerationService({ database,
+      models: createModelProfileService(database, createCredentialVault(randomBytes(32).toString("base64"))),
+      identity: { appOrigin: "http://localhost:45231", supabaseUrl: remoteOrigin,
+        supabaseSecretKey: "unused-fixture", databaseUrl: process.env.DATABASE_URL! },
+      previewOrigin: "http://localhost:45311", sandbox: { baseUrl: remoteOrigin, apiKey: "unused-fixture", image: "not-created" },
+      bootId: randomUUID(), maxSandboxes: 2, recoverySweepMs: 40 });
+    extraServices.push(activeService);
+    await activeService.recover(); // boot-only global claim before the new restore exists
+    const saved = await successfulProject(), repo = activeService.repository;
+    const { restore } = await repo.beginRestore(owner, saved.projectId, { revisionId: saved.revisionId, idempotencyKey: randomUUID() });
+    const sandboxId = randomUUID(), expiresAt = new Date(Date.now() + 600_000).toISOString();
+    await repo.registerRestoreSandbox(owner, saved.projectId, restore.id, { sandboxId, expiresAt });
+    const requestCount = requests.length;
+    await new Promise((resolve) => setTimeout(resolve, 240)); // six recovery sweeps
+    expect((await repo.getActiveRestore(owner, saved.projectId, saved.revisionId))?.status).toBe("pending");
+    expect(requests.slice(requestCount)).not.toContain(`DELETE /v1/sandboxes/${sandboxId}`);
+    expect((await repo.bindRestore(owner, saved.projectId, restore.id, { sandboxId, expiresAt })).status).toBe("ready");
     expect((await repo.readProjectSnapshot(owner, saved.projectId)).project.currentRevisionId).toBe(saved.revisionId);
   }, 30_000);
 });

@@ -1,0 +1,23 @@
+{
+  "id": "6f9160c4-cdc1-44dd-9399-007de5b1f37d",
+  "runId": "11b3c2bd-a8e6-486a-88dd-9840be089b96",
+  "revisionId": "4a9f8f3c-2c15-42f9-81a3-31b5bb224c7c",
+  "sourceHash": "3ba0ac647d8f2ea566c786e03dfcc0d51458921c05e50696c022f9d7e09b5e9c",
+  "verdict": "passed",
+  "items": [
+    {
+      "actual": "点击加一后实际页面数字显示一",
+      "verdict": "passed",
+      "expected": "数字显示一",
+      "behaviorId": "B01",
+      "reproSteps": [
+        "点击加一"
+      ],
+      "screenshotIds": [],
+      "observationEventIds": [
+        "ce6afd85-270f-48ce-9cdf-fc5606e53396"
+      ]
+    }
+  ],
+  "summary": "已检查 1 项行为：1 项通过。"
+}

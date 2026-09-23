@@ -2,7 +2,7 @@ import { once } from "node:events";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
-  CancelRunResponseSchema, CreateRunRequestSchema, CreateRunResponseSchema, PreviewResponseSchema,
+  CancelRunResponseSchema, CreateRunRequestSchema, CreateRunResponseSchema, PreviewResponseSchema, PreviewAccessResponseSchema,
   RestorePreviewRequestSchema,
 } from "@pivloom/contracts";
 import type { GenerationService } from "../generation/service.js";
@@ -77,6 +77,13 @@ export async function registerGenerationRoutes(app: FastifyInstance, options: {
     secured.get("/api/v1/projects/:id/preview", async (request) => {
       const query = parseInput(z.strictObject({ revisionId: z.uuid().optional() }), request.query);
       return PreviewResponseSchema.parse({ preview: await service().preview(requireOwner(request), id(request), query.revisionId) });
+    });
+    secured.post("/api/v1/projects/:id/preview/access", async (request, reply) => {
+      const { revisionId } = parseInput(z.strictObject({ revisionId: z.uuid() }), request.body);
+      if (!request.identitySessionId) throw new ApiFailure(401, "UNAUTHENTICATED", "登录已失效，请重新登录。");
+      const access = await service().previewAccess(requireOwner(request), id(request), revisionId, request.identitySessionId);
+      return reply.header("cache-control", "private, no-store").header("referrer-policy", "no-referrer")
+        .header("x-content-type-options", "nosniff").send(PreviewAccessResponseSchema.parse(access));
     });
     secured.get("/api/v1/runs/:id/events", async (request, reply) => {
       const ownerId = requireOwner(request);

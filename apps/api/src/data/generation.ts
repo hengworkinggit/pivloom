@@ -80,6 +80,7 @@ export interface GenerationRepository {
   getLatestRun(ownerId: string, projectId: string): Promise<StoredRun | null>;
   listProjectMessages(ownerId: string, projectId: string): Promise<ProjectMessage[]>;
   listProjectRevisions(ownerId: string, projectId: string): Promise<StoredRevision[]>;
+  readProjectVersionHistory(ownerId: string, projectId: string): Promise<{ currentRevisionId: string | null; revisions: StoredRevision[] }>;
   listEvents(ownerId: string, runId: string, after?: string, limit?: number): Promise<RunEvent[]>;
   readEventHead(ownerId: string, runId: string): Promise<{ eventId: string; state: RunState }>;
   listEventsThrough(ownerId: string, runId: string, after: string, through: string, limit?: number): Promise<RunEvent[]>;
@@ -189,8 +190,12 @@ function reviewerExecution(row: Row): ReviewerExecution {
 const storedArtifactSchema = ReviewArtifactSchema.extend({ key: z.string().min(1).max(512), bytes: z.number().int().min(8).max(2 * 1024 * 1024) });
 const reviewEvidenceSchema = z.array(z.strictObject({
   id: z.uuid(), behaviorId: z.string().regex(/^B(?:0[1-9]|[1-9]\d)$/).nullable(),
-  action: z.enum(["click", "fill", "select", "press", "scroll", "reload"]).nullable(), observationId: z.uuid(),
-  key: z.enum(["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp"]).optional(),
+  action: z.enum(["click", "fill", "select", "press", "scroll", "reload", "key_batch"]).nullable(), observationId: z.uuid(),
+  key: z.enum(["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space"]).optional(),
+  batch: z.strictObject({ startedAt: z.iso.datetime(), finishedAt: z.iso.datetime(),
+    steps: z.array(z.strictObject({ index: z.number().int().min(0).max(7),
+      key: z.enum(["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space"]),
+      waitMs: z.number().int().min(0).max(1000), success: z.boolean() })).min(1).max(8) }).optional(),
   url: z.url().max(4000), tree: z.string().max(12000), text: z.string().max(12000), truncated: z.boolean(),
 })).max(80);
 function storedCheck(row: Row): Check {
@@ -401,7 +406,7 @@ export function createGenerationRepository(
             requestText, originalRequest, clarificationTurns, baseRevisionId: parent.current_revision_id, previousPlan: basePlan?.rows[0]?.plan_json ?? null });
           if (!parsedContext.success) throw new ApiFailure(422, "PLANNING_CONTEXT_LIMIT", "补充信息已超过任务可处理范围，请重新提交简洁需求。");
           const context = parsedContext.data;
-          const lease = await models.freezeInTransaction(client, ownerId, normalized.modelProfileId, normalized.modelConfigVersion, id);
+          const lease = await models.freezeInTransaction(client, ownerId, normalized.modelProfileId, normalized.modelConfigVersion, id, normalized.modelId);
           const inserted = await client.query(`INSERT INTO nano.runs
             (id,owner_id,project_id,idempotency_key,request_hash,request_text,kind,expected_current_revision_id,base_revision_id,
              model_profile_id,model_config_version,model_id,credential_lease_id,coordinator_role_run_id,state,phase,budget_json,deadline_at,executor_boot_id,planning_context_json,parent_run_id,retry_of)
@@ -783,8 +788,20 @@ export function createGenerationRepository(
     getRevision: (ownerId, revisionId) => owned(ownerId, async (client) => storedRevision(await revision(client, ownerId, revisionId))),
     listProjectRevisions: (ownerId, projectId) => owned(ownerId, async (client) => {
       await project(client, ownerId, projectId);
-      const result = await client.query("SELECT * FROM nano.revisions WHERE owner_id=$1 AND project_id=$2 ORDER BY revision_no DESC", [ownerId, projectId]);
+      const result = await client.query("SELECT * FROM nano.revisions WHERE owner_id=$1 AND project_id=$2 ORDER BY revision_no DESC,id DESC", [ownerId, projectId]);
       return result.rows.map(storedRevision);
+    }),
+    readProjectVersionHistory: (ownerId, projectId) => owned(ownerId, async (client) => {
+      const result = await client.query(`SELECT p.current_revision_id,
+        coalesce(jsonb_agg(to_jsonb(v) ORDER BY v.revision_no DESC,v.id DESC)
+          FILTER (WHERE v.id IS NOT NULL),'[]'::jsonb) AS revisions_json
+        FROM nano.projects p
+        LEFT JOIN nano.revisions v ON v.owner_id=p.owner_id AND v.project_id=p.id
+        WHERE p.owner_id=$1 AND p.id=$2 GROUP BY p.id`, [ownerId, projectId]);
+      const row = result.rows[0];
+      if (!row) throw notFound();
+      return { currentRevisionId: row.current_revision_id as string | null,
+        revisions: (row.revisions_json as Row[]).map(storedRevision) };
     }),
     registerSandbox: (ownerId, runId, input) => owned(ownerId, async (client) => {
       const { current } = await lockedRun(client, ownerId, runId);

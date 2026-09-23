@@ -19,4 +19,4 @@
 | E18 · API 强制重启 | v1 成功时新修改 Run `7ab4685f` 在 Builder 模型等待态且候选沙箱已登记。强制终止仅隔离 API 后，新进程换 boot ID，旧 Run 变 `interrupted`，候选沙箱 `destroyed`、项目解锁；原 v1/sourceHash 与只读源码保留。[故障前状态](rc03-e18-before.json) · [重启后状态](rc03-e18-after-restart.json) · [中断页面](rc03-e18-interrupted.png) · [旧源码页面](rc03-e18-old-source-preserved.png)。页面新建 retry Run `11b3c2bd`，绑定旧 Run 和 v1；最终 v2 `4a9f8f3c` / Check `passed`，[DB 摘要](rc03-e18-after-retry.json)。 | **PARTIAL**：重启、关联、清理、源码与 DB 成功已实测；并行 #23 前端/API 热更新期间最终 UI 版本不一致，需在统一构建后重开页面补验。重试模型仍为 fixture。 |
 | E30/E40 · 截止时间、清理和终态 DB 故障 | 上述取消/失败事务与首次 destroy 的隔离集成用例通过；页面尚未执行短 deadline、真实 OpenSandbox 首次销毁失败及 DB 短时故障场景。 | **NOT_RUN**（完整页面用例）。 |
 
-测试项目暂留供 #23/#24 验收；若需恢复同一 Revision 的 Preview，单独记录新沙箱并在末尾清理。两个模块完成后按精确 owner/project/Storage 键核对并删除测试数据。生产 Web/API 尚未部署 `bc6ab97`，旧正式作品未变更。
+#23/#24 验收后已清理本轮测试项目。7 条沙箱记录在数据库中均为 `destroyed`；一次 API 强杀留下的旧 v1 Preview 由官方 OpenSandbox kill/get 补回收并确认 404，#23 最后一次恢复沙箱也独立确认远端不存在。随后以精确 owner/project 前缀删除 4 个 Run、2 个 Revision、2 个 Check 和 4 个私有 Storage 对象；下载复核为 404，剩余项目 0。生产 Web/API 尚未部署 `bc6ab97`，旧正式作品未变更。

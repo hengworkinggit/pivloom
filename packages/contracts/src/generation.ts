@@ -93,7 +93,27 @@ export const RevisionFilesResponseSchema = z.object({
 export const RevisionFileResponseSchema = z.object({
   revisionId: z.uuid(), path: z.string(), content: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
+export const VersionHistoryResponseSchema = z.object({
+  projectId: z.uuid(), currentRevisionId: z.uuid().nullable(), revisions: z.array(RevisionSchema),
+});
+export type VersionHistoryResponse = z.infer<typeof VersionHistoryResponseSchema>;
+export const RevisionDiffResponseSchema = z.object({
+  projectId: z.uuid(), fromRevision: RevisionSchema, toRevision: RevisionSchema,
+  unchangedCount: z.number().int().nonnegative(),
+  changes: z.array(z.object({
+    kind: z.enum(["added", "removed", "modified", "moved"]),
+    from: SourceFileInfoSchema.nullable(), to: SourceFileInfoSchema.nullable(),
+    patch: z.string(),
+  })),
+});
+export type RevisionDiffResponse = z.infer<typeof RevisionDiffResponseSchema>;
 export const PreviewResponseSchema = z.object({ preview: PreviewSchema.nullable() });
+/** Session-scoped browser bootstrap. The grant is sent in a Preview-only Authorization
+ * header and must never be embedded in the iframe URL or generated application. */
+export const PreviewAccessResponseSchema = z.object({
+  url: z.url(), revisionId: z.uuid(), grant: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type PreviewAccessResponse = z.infer<typeof PreviewAccessResponseSchema>;
 
 export const CancelRunResponseSchema = z.object({
   runId: z.uuid(),

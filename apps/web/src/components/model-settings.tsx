@@ -15,10 +15,19 @@ import { Button } from "./ui/button";
 
 function TestResult({ result }: { result: ModelTestResult }) {
   const ui = useUiPreferences();
-  return <div className={`model-test-result ${result.status === "passed" ? "test-passed" : "test-failed"}`} role="status">
-    {result.status === "passed" ? <CircleCheck size={17} /> : <TriangleAlert size={17} />}
-    <div><strong>{result.status === "passed" ? ui.text("连接测试通过", "Connection test passed") : ui.text("连接测试未通过", "Connection test failed")}</strong><p>{result.message}</p>
-      <div className="model-capabilities"><span>{ui.text("流式输出", "Streaming")}：{result.capabilities.streaming === "verified" ? ui.text("已验证", "Verified") : ui.text("未验证", "Unverified")}</span><span>{ui.text("工具调用", "Tool calls")}：{result.capabilities.tools === "verified" ? ui.text("已验证", "Verified") : ui.text("未验证", "Unverified")}</span><span>{ui.text("图像理解：未验证", "Vision: unverified")}</span></div>
+  const fullyVerified = result.status === "passed" && result.capabilities.vision === "verified";
+  const vision = {
+    unknown: ui.text("待验证", "Unknown"),
+    verified: ui.text("图片实测通过", "Image probe verified"),
+    unsupported: ui.text("不支持图片", "Images unsupported"),
+    failed: ui.text("图片识别未通过", "Image probe failed"),
+  }[result.capabilities.vision];
+  return <div className={`model-test-result ${fullyVerified ? "test-passed" : "test-failed"}`} role="status">
+    {fullyVerified ? <CircleCheck size={17} /> : <TriangleAlert size={17} />}
+    <div><strong>{fullyVerified ? ui.text("连接与图像测试通过", "Connection and vision verified")
+      : result.status === "passed" ? ui.text("文字连接可用，图像尚不可用于验收", "Text connection works; vision is not ready for review")
+        : ui.text("连接测试未通过", "Connection test failed")}</strong><p>{result.message}</p>
+      <div className="model-capabilities"><span>{ui.text("流式输出", "Streaming")}：{result.capabilities.streaming === "verified" ? ui.text("已验证", "Verified") : ui.text("未验证", "Unverified")}</span><span>{ui.text("工具调用", "Tool calls")}：{result.capabilities.tools === "verified" ? ui.text("已验证", "Verified") : ui.text("未验证", "Unverified")}</span><span>{ui.text("图像理解", "Vision")}：{vision}</span></div>
     </div>
   </div>;
 }
@@ -116,7 +125,7 @@ export function ModelProfileForm({ api, catalog, catalogError, profile, onSaved,
           {selectedProvider && !customModel
             ? <select id="model-id" value={modelId} onChange={(event) => event.target.value === "__custom" ? (setCustomModel(true), invalidateTest()) : chooseModel(event.target.value)} disabled={!!busy}>
                 {!selectedProvider.models.some((model) => model.id === modelId) && <option value={modelId}>{modelId}{ui.text("（当前配置）", " (current)")}</option>}
-                {selectedProvider.models.map((model) => <option key={model.id} value={model.id}>{model.name} · {model.id}{model.reasoning ? ui.text(" · 推理", " · reasoning") : ""}{model.input.includes("image") ? ui.text(" · 图像", " · vision") : ""}</option>)}
+                {selectedProvider.models.map((model) => <option key={model.id} value={model.id}>{model.name} · {model.id}{model.reasoning ? ui.text(" · 推理", " · reasoning") : ""}{model.input.includes("image") ? ui.text(" · 目录标注图像", " · catalog lists images") : ""}</option>)}
                 <option value="__custom">{ui.text("自定义模型 ID…", "Custom model ID…")}</option>
               </select>
             : <input id="model-id" value={modelId} onChange={(event) => { setModelId(event.target.value); invalidateTest(); }} placeholder={ui.text("模型名称或接入点 ID", "Model name or endpoint ID")} maxLength={160} required disabled={!!busy} autoCapitalize="none" spellCheck={false} />}
@@ -127,7 +136,7 @@ export function ModelProfileForm({ api, catalog, catalogError, profile, onSaved,
       {error && <p className="inline-error" role="alert">{error}</p>}
       {notice && <p className="model-notice" role="status">{notice}</p>}
       {result && <TestResult result={result} />}
-      <div className="model-form-footer"><p><ShieldCheck size={14} />{ui.text("测试会向服务商发送简短请求，验证流式输出与工具调用。", "A short request verifies streaming and tool calls.")}</p><div className="inline-actions"><Button type="button" variant="outline" disabled={!!busy} onClick={() => void test()}>{busy === "test" ? <LoaderCircle className="spin" size={15} /> : <PlugZap size={15} />}{ui.text("测试连接", "Test connection")}</Button><Button type="submit" variant="secondary" disabled={!!busy}>{busy === "save" && <LoaderCircle className="spin" size={15} />}{ui.text("保存配置", "Save")}</Button><Button type="button" disabled={!!busy} onClick={() => void save(true)}>{busy === "save-test" ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}{ui.text("保存并测试", "Save & test")}</Button></div></div>
+      <div className="model-form-footer"><p><ShieldCheck size={14} />{ui.text("测试会验证流式输出、工具调用，并发送两张随机颜色图片实测图像理解。", "The test checks streaming and tools, then sends two random color images to probe vision.")}</p><div className="inline-actions"><Button type="button" variant="outline" disabled={!!busy} onClick={() => void test()}>{busy === "test" ? <LoaderCircle className="spin" size={15} /> : <PlugZap size={15} />}{ui.text("测试连接", "Test connection")}</Button><Button type="submit" variant="secondary" disabled={!!busy}>{busy === "save" && <LoaderCircle className="spin" size={15} />}{ui.text("保存配置", "Save")}</Button><Button type="button" disabled={!!busy} onClick={() => void save(true)}>{busy === "save-test" ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}{ui.text("保存并测试", "Save & test")}</Button></div></div>
     </form>
   </section>;
 }
@@ -150,7 +159,8 @@ function SettingsContent() {
     if (pending.current) return;
     pending.current = true; setBusy(`${id}:${action}`); setError(""); setNotice("");
     try {
-      if (action === "test") { const result = await api.testSaved(id); setNotice(result.status === "passed" ? "连接测试通过。" : "测试未通过，请检查下方结果并修改配置。"); }
+      if (action === "test") { const result = await api.testSaved(id); setNotice(result.status === "passed" && result.capabilities.vision === "verified"
+        ? "连接和图像测试通过。" : result.status === "passed" ? "文字连接可用，但图像能力尚不能用于检查；请选择支持图片的模型并重新测试。" : "测试未通过，请检查下方结果并修改配置。"); }
       else if (action === "default") { await api.update(id, { isDefault: true }); setNotice("默认模型已更新。"); }
       else { await api.remove(id); setDeleting(null); setNotice("模型配置已删除。"); }
       refresh();
@@ -162,7 +172,7 @@ function SettingsContent() {
     <div className="settings-title-row"><div><div className="section-eyebrow">YOUR MODELS</div><h1>{ui.text("连接你的模型", "Connect your models")}</h1><p>{ui.text("选择你熟悉的模型服务，让每个项目使用自己的配置。", "Choose your provider and keep each project connected to your models.")}</p></div><Button onClick={() => { setEditing("new"); setNotice(""); }} disabled={!!busy}><Plus size={16} />{ui.text("添加模型", "Add model")}</Button></div>
     {(error || loadError) && <div className="settings-error" role="alert"><p>{error || loadError}</p>{loadError && <Button variant="outline" onClick={refresh}>重新加载</Button>}</div>}
     {notice && <p className="model-notice" role="status">{notice}</p>}
-    {editing && <ModelProfileForm key={typeof editing === "string" ? editing : `${editing.id}:${editing.configVersion}`} api={api} profile={typeof editing === "string" ? undefined : editing} catalog={catalog} catalogError={catalogError} onCancel={() => setEditing(null)} onSaved={(profile, warning) => { setEditing(null); refresh(); setNotice(warning ?? (profile.lastTest ? profile.lastTest.status === "passed" ? "模型已保存，连接测试通过。" : "模型已保存，测试未通过，请查看测试结果。" : "模型已保存。你可以随时测试连接。")); }} />}
+    {editing && <ModelProfileForm key={typeof editing === "string" ? editing : `${editing.id}:${editing.configVersion}`} api={api} profile={typeof editing === "string" ? undefined : editing} catalog={catalog} catalogError={catalogError} onCancel={() => setEditing(null)} onSaved={(profile, warning) => { setEditing(null); refresh(); setNotice(warning ?? (profile.lastTest ? profile.lastTest.status === "passed" && profile.lastTest.capabilities.vision === "verified" ? "模型已保存，连接和图像测试通过。" : profile.lastTest.status === "passed" ? "模型已保存，文字连接可用，但图像能力尚不能用于检查。" : "模型已保存，测试未通过，请查看测试结果。" : "模型已保存。你可以随时测试连接。")); }} />}
     {!profiles && !loadError ? <div className="empty-projects" aria-label="正在加载模型配置"><LoaderCircle className="spin" size={22} /></div>
       : profiles?.length === 0 && !editing ? <div className="models-empty"><div className="models-empty-icon"><KeyRound size={25} /></div><h2>{ui.text("让 Pivloom 连接你的创造力", "Connect Pivloom to your models")}</h2><p>{ui.text("添加一个模型服务。接口地址、模型和密钥都由你掌握。", "Add a provider you control. Your endpoint and key stay yours.")}</p><Button onClick={() => setEditing("new")}><Plus size={15} />{ui.text("添加第一个模型", "Add your first model")}</Button><small>{ui.text("支持多个配置，可随时切换默认模型。", "Use multiple configurations and change the default anytime.")}</small></div>
       : <div className="models-grid">{profiles?.map((profile) => <article className="model-profile-card" key={profile.id}>

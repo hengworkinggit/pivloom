@@ -1,7 +1,7 @@
 import {
   CreateRunRequestSchema, CreateRunResponseSchema, RunDetailResponseSchema,
   RevisionFilesResponseSchema, RevisionFileResponseSchema, PreviewResponseSchema, RevisionCheckResponseSchema,
-  CancelRunResponseSchema, RestorePreviewResponseSchema,
+  CancelRunResponseSchema, RestorePreviewResponseSchema, PreviewAccessResponseSchema,
   type CreateRunRequest, type RunEvent, type ReviewArtifact,
 } from "@pivloom/contracts";
 import { WorkspaceError, type ApiWorkspace } from "./api-workspace";
@@ -67,6 +67,10 @@ export function createGenerationApi(api: Pick<ApiWorkspace, "request" | "request
     getFiles: async (revisionId: string) => RevisionFilesResponseSchema.parse(await api.request(`/revisions/${encodeURIComponent(revisionId)}/files`)),
     getFile: async (revisionId: string, path: string) => RevisionFileResponseSchema.parse(await api.request(`/revisions/${encodeURIComponent(revisionId)}/file?path=${encodeURIComponent(path)}`)),
     getPreview: async (projectId: string, revisionId: string) => PreviewResponseSchema.parse(await api.request(`/projects/${encodeURIComponent(projectId)}/preview?revisionId=${encodeURIComponent(revisionId)}`)).preview,
+    openPreview: async (projectId: string, revisionId: string) => PreviewAccessResponseSchema.parse(
+      await api.request(`/projects/${encodeURIComponent(projectId)}/preview/access`, {
+        method: "POST", body: JSON.stringify({ revisionId }),
+      })),
     events: (runId: string, after: string, onEvent: (event: RunEvent) => void, signal: AbortSignal) =>
       api.requestStream(`/runs/${encodeURIComponent(runId)}/events?after=${encodeURIComponent(after)}`,
         async (response, authSignal) => { await readRunEvents(response, { runId, after, onEvent, signal: authSignal }); },

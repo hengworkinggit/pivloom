@@ -35,7 +35,7 @@ describe.skipIf(process.env.PIVLOOM_REPAIR_INTEGRATION !== "1")("build failure r
       await admin.query("INSERT INTO nano.model_profiles(id,owner_id,current_version,is_default) VALUES($1,$2,1,true)", [profile, owner]);
       await admin.query(`INSERT INTO nano.model_profile_versions(profile_id,owner_id,config_version,name,provider,base_url,model_id,key_mask,capabilities)
         VALUES($1,$2,1,'Persistence fixture','openai-completions','https://fixture.invalid/v1','fixture','masked',
-        '{"streaming":"verified","tools":"verified","vision":"unknown"}')`, [profile, owner]);
+        '{"streaming":"verified","tools":"verified","vision":"verified"}')`, [profile, owner]);
       await admin.query("INSERT INTO nano.model_credentials(profile_id,owner_id,config_version,ciphertext,nonce,auth_tag) VALUES($1,$2,1,$3,$4,$5)",
         [profile, owner, credential.ciphertext, credential.nonce, credential.authTag]);
       await admin.query("COMMIT");

@@ -1,0 +1,52 @@
+{
+  "case": "RC-05 real OpenSandbox official batch keyboard probe",
+  "result": "PASS",
+  "sourceHash": "faa2a360d5e93ae870ecc1cc1d4c8363f65cafa433e86b739960bad15754a8e1",
+  "sandboxId": "fe38d1b1-1e4a-4049-aa4b-95cfeddd16b9",
+  "browserSessionId": "pivloom-585cf3a6-ea57-4026-b8e5-992850bd3ee7",
+  "browserVersion": "agent-browser 0.38.1",
+  "initialObservationId": "0e36c9c7-b771-469b-9582-d8ae3f33eb1f",
+  "finalObservationId": "797ace21-f3d7-47c8-ae45-73f1bae5e712",
+  "startedAt": "2026-09-23T19:40:14.997Z",
+  "finishedAt": "2026-09-23T19:40:16.650Z",
+  "steps": [
+    {
+      "index": 0,
+      "key": "ArrowUp",
+      "waitMs": 100,
+      "success": true
+    },
+    {
+      "index": 1,
+      "key": "ArrowRight",
+      "waitMs": 100,
+      "success": true
+    },
+    {
+      "index": 2,
+      "key": "ArrowDown",
+      "waitMs": 100,
+      "success": true
+    },
+    {
+      "index": 3,
+      "key": "ArrowLeft",
+      "waitMs": 100,
+      "success": true
+    },
+    {
+      "index": 4,
+      "key": "Space",
+      "waitMs": 0,
+      "success": true
+    }
+  ],
+  "initialText": "DIR:RIGHT STATUS:RUNNING TRAIL:START",
+  "finalText": "DIR:LEFT STATUS:PAUSED TRAIL:START>UP>RIGHT>DOWN>LEFT>PAUSE",
+  "beforeSha256": "eeb2880692bc08667334f404bfce6059e144c8d4c088286feda8fe1822188f0e",
+  "afterSha256": "51d616f743df4f807b6e18466d4bccb54f609d849b9d8874aae8a5dcb4456ad5",
+  "pageErrors": [],
+  "fixtureBoundary": "Controlled Canvas test page; real OpenSandbox, Chromium, agent-browser batch, keyboard and screenshots. No model or generated snake game.",
+  "cleanupConfirmed": true,
+  "remoteSandboxHttpStatusAfterDestroy": 404
+}

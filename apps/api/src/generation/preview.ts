@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 import Fastify from "fastify";
 import type { Preview } from "@pivloom/contracts";
@@ -13,16 +13,13 @@ export interface PreviewRegistration {
   upstreamUrl: string;
   headers: Record<string, string>;
 }
-interface PreviewEntry extends PreviewRegistration { capability: string; revoked: boolean }
+interface PreviewEntry extends PreviewRegistration { grants: Map<string, string>; revoked: boolean }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const cookieName = "pivloom_preview";
-function matches(left: string, right: string) {
-  return left.length === right.length && timingSafeEqual(Buffer.from(left), Buffer.from(right));
-}
-
 /** A separate origin serves only registered immutable candidates. Platform bearer
  * tokens and sandbox control headers are never forwarded to each other. */
-export function createPreviewGateway(options: { publicOrigin: string; appOrigin: string; sandboxOrigin: string }) {
+export function createPreviewGateway(options: { publicOrigin: string; appOrigin: string; sandboxOrigin: string;
+  isSessionActive(ownerId: string, sessionId: string): Promise<boolean> }) {
   const publicOrigin = new URL(options.publicOrigin);
   const sandboxOrigin = new URL(options.sandboxOrigin).origin;
   const appOrigin = new URL(options.appOrigin).origin;
@@ -41,6 +38,15 @@ export function createPreviewGateway(options: { publicOrigin: string; appOrigin:
     origin.hostname = `${revisionId}.${publicOrigin.hostname}`;
     return origin;
   }
+  const cookieAttributes = (revisionId: string, maxAge: number) =>
+    `Path=/p/${revisionId}/; HttpOnly; SameSite=${localPreview ? "None" : "Lax"}; Max-Age=${maxAge}${localPreview || publicOrigin.protocol === "https:" ? "; Secure" : ""}`;
+  function allowWorkbench(request: { headers: Record<string, unknown> }, reply: { header(name: string, value: string): unknown }) {
+    if (request.headers.origin !== appOrigin) return false;
+    reply.header("access-control-allow-origin", appOrigin);
+    reply.header("access-control-allow-credentials", "true");
+    reply.header("vary", "Origin");
+    return true;
+  }
   app.addHook("onRequest", async (request, reply) => {
     const revisionId = (request.params as { revisionId?: unknown } | null)?.revisionId;
     if (typeof revisionId !== "string" || !uuid.test(revisionId) || request.headers.host !== revisionOrigin(revisionId).host)
@@ -56,18 +62,31 @@ export function createPreviewGateway(options: { publicOrigin: string; appOrigin:
     const expired = entry.revoked || Date.parse(entry.expiresAt) <= Date.now();
     return {
       state: expired ? "expired" : "ready", revisionId: entry.revisionId, sourceHash: entry.sourceHash,
-      url: expired ? null : `${revisionOrigin(entry.revisionId).origin}/p/${entry.revisionId}/enter/${entry.capability}`,
+      url: expired ? null : `${revisionOrigin(entry.revisionId).origin}/p/${entry.revisionId}/`,
       expiresAt: entry.expiresAt, error: expired ? "预览已到期，源码仍已保存。" : null,
     };
   }
   function find(revisionId: string) { return uuid.test(revisionId) ? entries.get(revisionId) : undefined; }
-  app.get<{ Params: { revisionId: string; capability: string } }>("/p/:revisionId/enter/:capability", async (request, reply) => {
+  app.options<{ Params: { revisionId: string } }>("/p/:revisionId/session", async (request, reply) => {
+    if (!allowWorkbench(request, reply)) return reply.code(403).send();
+    return reply.header("access-control-allow-methods", "POST")
+      .header("access-control-allow-headers", "Authorization").code(204).send();
+  });
+  app.post<{ Params: { revisionId: string } }>("/p/:revisionId/session", async (request, reply) => {
+    if (!allowWorkbench(request, reply)) return reply.code(403).send();
     const entry = find(request.params.revisionId);
-    if (!entry || !matches(request.params.capability, entry.capability)) return reply.code(404).send("找不到预览。");
-    if (view(entry).state !== "ready") return reply.code(410).send("预览已到期，源码仍已保存。");
+    if (!entry || view(entry).state !== "ready") return reply.code(404).send();
+    const token = /^Preview ([a-f0-9]{64})$/.exec(request.headers.authorization ?? "")?.[1];
+    const sessionId = token ? entry.grants.get(token) : undefined;
+    if (!sessionId || !await options.isSessionActive(entry.ownerId, sessionId)) return reply.code(403).send();
     const maxAge = Math.max(0, Math.floor((Date.parse(entry.expiresAt) - Date.now()) / 1000));
-    reply.header("set-cookie", `${cookieName}=${entry.capability}; Path=/p/${entry.revisionId}/; HttpOnly; SameSite=${localPreview ? "None" : "Lax"}; Max-Age=${maxAge}${localPreview || publicOrigin.protocol === "https:" ? "; Secure" : ""}`);
-    return reply.code(303).header("location", `/p/${entry.revisionId}/`).send();
+    return reply.header("set-cookie", `${cookieName}=${token}; ${cookieAttributes(entry.revisionId, maxAge)}`).code(204).send();
+  });
+  // Match the resource Cookie's host and Path when clearing it. This improves
+  // browser hygiene; revocation is the live auth.sessions check below.
+  app.post<{ Params: { revisionId: string } }>("/p/:revisionId/session/clear", async (request, reply) => {
+    if (!allowWorkbench(request, reply)) return reply.code(403).send();
+    return reply.header("set-cookie", `${cookieName}=; ${cookieAttributes(request.params.revisionId, 0)}`).code(204).send();
   });
   app.route<{ Params: { revisionId: string; "*": string } }>({
     method: ["GET", "HEAD"], url: "/p/:revisionId/*",
@@ -76,7 +95,8 @@ export function createPreviewGateway(options: { publicOrigin: string; appOrigin:
       if (!entry) return reply.code(404).send("找不到预览。");
       if (view(entry).state !== "ready") return reply.code(410).send("预览已到期，源码仍已保存。");
       const cookie = (request.headers.cookie ?? "").split(";").map((value) => value.trim()).find((value) => value.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1) ?? "";
-      if (!matches(cookie, entry.capability)) return reply.code(403).send("请从工作台打开预览。");
+      const sessionId = entry.grants.get(cookie);
+      if (!sessionId || !await options.isSessionActive(entry.ownerId, sessionId)) return reply.code(403).send("请从工作台打开预览。");
       const tail = request.params["*"];
       if (tail.split("/").some((part) => part === ".." || part === "." || part.includes("\\") || part.includes("%") || /[\u0000-\u001f]/.test(part))) return reply.code(404).send("找不到资源。");
       const path = `/p/${entry.revisionId}/${tail.split("/").map(encodeURIComponent).join("/")}`;
@@ -111,7 +131,7 @@ export function createPreviewGateway(options: { publicOrigin: string; appOrigin:
       if (!uuid.test(input.revisionId) || !uuid.test(input.sandboxId) || !/^[a-f0-9]{64}$/.test(input.sourceHash) || !Number.isFinite(Date.parse(input.expiresAt)) || target.origin !== sandboxOrigin || target.pathname.replace(/\/$/, "") !== `/v1/sandboxes/${input.sandboxId}/proxy/4173` || target.search || target.hash || target.username || target.password) throw new Error("Invalid registered preview target");
       const old = entries.get(input.revisionId);
       if (old && !old.revoked && old.sandboxId !== input.sandboxId) old.revoked = true;
-      const entry: PreviewEntry = { ...input, headers: { ...input.headers }, capability: randomBytes(32).toString("hex"), revoked: false };
+      const entry: PreviewEntry = { ...input, headers: { ...input.headers }, grants: new Map(), revoked: false };
       entries.set(input.revisionId, entry);
       return view(entry);
     },
@@ -119,9 +139,17 @@ export function createPreviewGateway(options: { publicOrigin: string; appOrigin:
       const entry = entries.get(revisionId);
       return entry?.ownerId === ownerId ? view(entry) : null;
     },
+    async issueGrant(ownerId: string, revisionId: string, sessionId: string): Promise<string | null> {
+      const entry = entries.get(revisionId);
+      if (!entry || entry.ownerId !== ownerId || view(entry).state !== "ready"
+        || !uuid.test(sessionId) || !await options.isSessionActive(ownerId, sessionId)) return null;
+      const token = randomBytes(32).toString("hex");
+      entry.grants.set(token, sessionId);
+      return token;
+    },
     revoke(revisionId: string, expectedSandboxId?: string) {
       const entry = entries.get(revisionId);
-      if (entry && (expectedSandboxId === undefined || entry.sandboxId === expectedSandboxId)) entry.revoked = true;
+      if (entry && (expectedSandboxId === undefined || entry.sandboxId === expectedSandboxId)) { entry.revoked = true; entry.grants.clear(); }
     },
     async listen(address: { host: string; port: number }) { await app.listen(address); },
     async close() { await app.close(); entries.clear(); },

@@ -24,6 +24,7 @@ async function fixture(sessionId?: string) {
       | undefined,
     png: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
     response: undefined as unknown,
+    batchResponse: undefined as unknown,
     viewport: { width: 1280, height: 720, scrollWidth: 1280 },
   };
   let live = true;
@@ -57,12 +58,14 @@ async function fixture(sessionId?: string) {
       const success =
         !state.failCommand || !command.includes(state.failCommand);
       state.afterCommand?.(command);
+      const batched = command.includes("'batch' '--bail'");
+      const batchResult = batched ? state.batchResponse : undefined;
       return {
         id: "fixture-command",
         interrupt: async () => {},
         wait: async () => ({
-          exitCode: 0,
-          stdoutTail: JSON.stringify(state.response ?? { success, data }),
+          exitCode: batched && Array.isArray(batchResult) && batchResult.some((item) => item.success === false) ? 1 : 0,
+          stdoutTail: JSON.stringify(batched ? batchResult : state.response ?? { success, data }),
           stderrTail: "",
         }),
       };
@@ -198,6 +201,61 @@ test("scroll and press use fresh observations and a fixed action timeout", async
   } finally {
     await f.cleanup();
   }
+});
+
+test("Canvas direction and pause keys use official press with a fresh observation after each action", async () => {
+  const f = await fixture();
+  try {
+    let observation = await f.browser.open();
+    for (const key of ["ArrowUp", "ArrowRight", "ArrowDown", "ArrowLeft", "Space"] as const) {
+      const next = await f.browser.act({ type: "press", key, observationId: observation.id });
+      expect(next.id).not.toBe(observation.id);
+      expect(f.commands.some(({ command }) => command.endsWith(`'press' '${key}'`))).toBe(true);
+      observation = next;
+    }
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("Canvas key batch passes JSON argv to official agent-browser and returns ordered results plus a fresh observation", async () => {
+  const f = await fixture();
+  try {
+    const commands = [["press", "ArrowUp"], ["wait", "120"], ["press", "ArrowRight"], ["wait", "80"], ["press", "Space"]];
+    f.state.batchResponse = commands.map((command) => ({ command, success: true, result: {} }));
+    const before = await f.browser.open();
+    const result = await f.browser.keyBatch({ observationId: before.id, steps: [
+      { key: "ArrowUp", waitMs: 120 }, { key: "ArrowRight", waitMs: 80 }, { key: "Space", waitMs: 0 },
+    ] });
+    expect(result.steps).toEqual([
+      { index: 0, key: "ArrowUp", waitMs: 120, success: true },
+      { index: 1, key: "ArrowRight", waitMs: 80, success: true },
+      { index: 2, key: "Space", waitMs: 0, success: true },
+    ]);
+    expect(result.observation.id).not.toBe(before.id);
+    expect(result.observation.sessionId).toBe(f.browser.sessionId);
+    expect(f.commands.some(({ command }) => command.includes("printf %s") && command.includes("'batch' '--bail'")
+      && command.includes("ArrowUp") && command.includes("ArrowRight") && command.includes("Space"))).toBe(true);
+  } finally { await f.cleanup(); }
+});
+
+test("Canvas key batch bails at the first failed input and reports later steps as unexecuted", async () => {
+  const f = await fixture();
+  try {
+    f.state.batchResponse = [
+      { command: ["press", "ArrowUp"], success: true, result: {} },
+      { command: ["wait", "100"], success: true, result: {} },
+      { command: ["press", "ArrowRight"], success: false, error: "Synthetic input disconnect" },
+    ];
+    const before = await f.browser.open();
+    const result = await f.browser.keyBatch({ observationId: before.id, steps: [
+      { key: "ArrowUp", waitMs: 100 }, { key: "ArrowRight", waitMs: 100 }, { key: "ArrowDown", waitMs: 100 },
+    ] });
+    expect(result.steps.map((step) => step.success)).toEqual([true, false, false]);
+    expect(result.observation.id).not.toBe(before.id);
+    await expect(f.browser.keyBatch({ observationId: before.id, steps: [{ key: "Space", waitMs: 0 }] }))
+      .rejects.toMatchObject({ code: "STALE_BROWSER_REF" });
+  } finally { await f.cleanup(); }
 });
 
 test("viewport resizing uses the real CLI boundary and returns measured width and overflow with fresh refs", async () => {

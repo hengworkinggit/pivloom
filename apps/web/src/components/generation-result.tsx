@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { GenerationReview } from "./generation-review";
 import { useUiPreferences } from "@/lib/ui-preferences";
+import { activatePrivatePreview } from "@/lib/preview-session";
 
 function SourceViewer({ revision, generation }: { revision: Revision; generation: GenerationApi }) {
   const ui = useUiPreferences();
@@ -62,8 +63,8 @@ function previewUrl(preview: Preview | null, revision: Revision | null, origin: 
   } catch { return null; }
 }
 
-export function GenerationResult({ revision, preview, generation, active, latestCheck, checking = false, restoring = false, onRestore }: {
-  revision: Revision | null; preview: Preview | null; generation: GenerationApi; active: boolean; latestCheck?: Check | null; checking?: boolean;
+export function GenerationResult({ projectId, revision, preview, generation, active, latestCheck, checking = false, restoring = false, onRestore }: {
+  projectId: string; revision: Revision | null; preview: Preview | null; generation: GenerationApi; active: boolean; latestCheck?: Check | null; checking?: boolean;
   restoring?: boolean; onRestore?: () => void;
 }) {
   const ui = useUiPreferences();
@@ -71,6 +72,9 @@ export function GenerationResult({ revision, preview, generation, active, latest
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [reloadKey, setReloadKey] = useState(0);
   const [loaded, setLoaded] = useState<string | null>(null);
+  const [authorizedUrl, setAuthorizedUrl] = useState<string | null>(null);
+  const [accessError, setAccessError] = useState<{ key: string; message: string } | null>(null);
+  const [accessRetry, setAccessRetry] = useState(0);
   const [observedAt, setObservedAt] = useState(() => Date.now());
   useEffect(() => {
     if (!preview?.expiresAt) return;
@@ -80,7 +84,23 @@ export function GenerationResult({ revision, preview, generation, active, latest
   }, [preview?.expiresAt]);
   const expired = preview?.state === "expired" || !!preview?.expiresAt && Date.parse(preview.expiresAt) <= observedAt;
   const url = expired ? null : previewUrl(preview, revision, typeof window === "undefined" ? "" : window.location.origin);
-  const frameKey = `${url ?? "empty"}:${reloadKey}`;
+  const revisionId = revision?.id;
+  const accessKey = `${url ?? "empty"}:${accessRetry}`;
+  const previewError = accessError?.key === accessKey ? accessError.message : "";
+  useEffect(() => {
+    if (!url || !revisionId) return;
+    const controller = new AbortController();
+    void generation.openPreview(projectId, revisionId).then(async (access) => {
+      if (access.revisionId !== revisionId || access.url !== url) throw new Error("预览版本不一致，请重新加载项目。");
+      return activatePrivatePreview(access, controller.signal);
+    }).then((ready) => { if (!controller.signal.aborted) setAuthorizedUrl(ready); })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setAccessError({ key: accessKey, message: error instanceof Error ? error.message : "预览授权失败，请重试。" });
+      });
+    return () => controller.abort();
+  }, [accessKey, generation, projectId, revisionId, url]);
+  const frameUrl = authorizedUrl === url ? url : null;
+  const frameKey = `${frameUrl ?? "empty"}:${reloadKey}`;
   const candidate = revision?.status === "candidate";
   return <section className="result-panel" aria-label={ui.text("应用结果", "App result")}>
     <div className="result-toolbar"><div className="result-toolbar-left"><div className="view-tabs" role="tablist" aria-label={ui.text("结果视图", "Result views")}>
@@ -92,8 +112,11 @@ export function GenerationResult({ revision, preview, generation, active, latest
       {tab === "preview" && <div className="preview-actions"><div className="device-toggle" aria-label={ui.text("预览宽度", "Preview width")}>
         <button aria-label={ui.text("桌面预览", "Desktop preview")} aria-pressed={device === "desktop"} onClick={() => setDevice("desktop")}><Monitor size={14} /></button>
         <button aria-label={ui.text("窄屏预览", "Narrow preview")} aria-pressed={device === "mobile"} onClick={() => setDevice("mobile")}><Smartphone size={13} /></button>
-      </div><button className="icon-button" aria-label={ui.text("刷新预览", "Refresh preview")} disabled={!url} onClick={() => setReloadKey((value) => value + 1)}><RotateCcw size={14} /></button>
-        {url && <a className="icon-button" href={url} target="_blank" rel="noopener noreferrer" aria-label={ui.text("在新标签页打开预览", "Open preview in a new tab")}><ExternalLink size={15} /></a>}
+      </div><button className="icon-button" aria-label={ui.text("刷新预览", "Refresh preview")} disabled={!url} onClick={() => {
+        if (frameUrl) setReloadKey((value) => value + 1);
+        else setAccessRetry((value) => value + 1);
+      }}><RotateCcw size={14} /></button>
+        {frameUrl && <a className="icon-button" href={frameUrl} target="_blank" rel="noopener noreferrer" aria-label={ui.text("在新标签页打开预览", "Open preview in a new tab")}><ExternalLink size={15} /></a>}
       </div>}
     </div>
     {revision && <><div className="previous-version-note">{candidate ? ui.text("候选已保存", "Candidate saved") : ui.text("已保存版本", "Saved version")}{active ? ui.text(" · 新任务正在执行，当前显示此版本", " · New run in progress; showing this version") : ""}</div>
@@ -104,10 +127,13 @@ export function GenerationResult({ revision, preview, generation, active, latest
     <div id="preview-panel" role="tabpanel" aria-labelledby="preview-tab" className={cn("preview-canvas", device === "mobile" && "preview-canvas-mobile")} hidden={tab !== "preview"}>
       {restoring && <div className="preview-empty" role="status" data-testid="preview-restoring"><LoaderCircle className="spin" size={22} />
         <h2>{ui.text("正在重建预览", "Restoring preview")}</h2><p>{ui.text("从已保存的源码重新启动预览，不会调用模型，也不会改变版本或检查结论。", "Starting from saved source without calling a model or changing the version.")}</p></div>}
-      {url ? <div className={cn("preview-frame", device === "mobile" && "phone-frame")}>
+      {frameUrl ? <div className={cn("preview-frame", device === "mobile" && "phone-frame")}>
         {loaded !== frameKey && <div className="generation-preview-loading" role="status"><LoaderCircle className="spin" size={16} />{ui.text("正在加载预览…", "Loading preview…")}</div>}
-        <iframe key={frameKey} src={url} title={ui.text("应用预览", "App preview")} className="app-preview-iframe" sandbox="allow-scripts allow-same-origin allow-forms" referrerPolicy="no-referrer" onLoad={() => setLoaded(frameKey)} />
-      </div> : <div className="preview-empty"><div className="empty-preview-icon"><Monitor size={27} /></div>
+        <iframe key={frameKey} src={frameUrl} title={ui.text("应用预览", "App preview")} className="app-preview-iframe" sandbox="allow-scripts allow-same-origin allow-forms" referrerPolicy="no-referrer" onLoad={() => setLoaded(frameKey)} />
+      </div> : url ? <div className="preview-empty" role={previewError ? "alert" : "status"}>{previewError
+        ? <><p>{previewError}</p><Button variant="outline" onClick={() => setAccessRetry((value) => value + 1)}>{ui.text("重新授权预览", "Retry preview access")}</Button></>
+        : <><LoaderCircle className="spin" size={22} /><p>{ui.text("正在验证预览访问…", "Authorizing preview access…")}</p></>}</div>
+        : <div className="preview-empty"><div className="empty-preview-icon"><Monitor size={27} /></div>
         <h2>{expired ? ui.text("预览已到期", "Preview expired") : revision ? ui.text("预览暂不可用", "Preview unavailable") : active ? ui.text("正在构建你的应用", "Building your app") : ui.text("你的应用，将从这里开始", "Your app starts here")}</h2>
         <p>{expired ? ui.text("源码快照已保存，可以在代码页查看；重新启动预览不会调用模型。", "Source is saved in Code. Restarting the preview will not call a model.") : revision ? preview?.error ?? ui.text("候选源码已保存，尚未获得可访问的预览。", "Candidate source is saved; the preview is not available yet.") : active ? ui.text("实际构建与快照保存完成后，候选预览会出现在这里。", "The preview appears here after build and snapshot complete.") : ui.text("在左侧描述需求，开始第一次真实构建。", "Describe your request on the left to start building.")}</p>
         {expired && revision && revision.buildStatus === "passed" && onRestore &&

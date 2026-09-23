@@ -1,0 +1,117 @@
+{
+  "at": "2026-09-23T19:07:21.319Z",
+  "environment": "isolated E18 fixture; read-only inspection",
+  "projectId": "e1f19e78-39b4-4aa2-b863-1ae37fd1cc10",
+  "currentRevisionId": "4a9f8f3c-2c15-42f9-81a3-31b5bb224c7c",
+  "historyCurrentRevisionId": "4a9f8f3c-2c15-42f9-81a3-31b5bb224c7c",
+  "revisions": [
+    {
+      "id": "4a9f8f3c-2c15-42f9-81a3-31b5bb224c7c",
+      "runId": "11b3c2bd-a8e6-486a-88dd-9840be089b96",
+      "revisionNo": 2,
+      "status": "accepted",
+      "sourceHash": "3ba0ac647d8f2ea566c786e03dfcc0d51458921c05e50696c022f9d7e09b5e9c",
+      "files": [
+        {
+          "path": "index.html",
+          "sha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42"
+        },
+        {
+          "path": "package-lock.json",
+          "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6"
+        },
+        {
+          "path": "package.json",
+          "sha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65"
+        },
+        {
+          "path": "src/App.tsx",
+          "sha256": "e8181c4a95c4b0af80e8a472e27d39cf791670176eb988b5a3a639ade94be262"
+        },
+        {
+          "path": "src/main.tsx",
+          "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c"
+        },
+        {
+          "path": "src/style.css",
+          "sha256": "c890470f782db22b3bef534573e7b70b96cf1acce9ba9995cdd486db92820084"
+        },
+        {
+          "path": "tsconfig.json",
+          "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837"
+        }
+      ],
+      "messages": [
+        {
+          "kind": "user",
+          "content": "在现有计数器上增加重置按钮，保留加一功能。"
+        },
+        {
+          "kind": "result",
+          "content": "已检查 1 项行为：1 项通过。"
+        }
+      ]
+    },
+    {
+      "id": "6eeb7e9f-12fa-4934-9059-111c209c0784",
+      "runId": "7f9df52b-3208-4533-ad9a-ca974a949a3c",
+      "revisionNo": 1,
+      "status": "accepted",
+      "sourceHash": "3ba0ac647d8f2ea566c786e03dfcc0d51458921c05e50696c022f9d7e09b5e9c",
+      "files": [
+        {
+          "path": "index.html",
+          "sha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42"
+        },
+        {
+          "path": "package-lock.json",
+          "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6"
+        },
+        {
+          "path": "package.json",
+          "sha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65"
+        },
+        {
+          "path": "src/App.tsx",
+          "sha256": "e8181c4a95c4b0af80e8a472e27d39cf791670176eb988b5a3a639ade94be262"
+        },
+        {
+          "path": "src/main.tsx",
+          "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c"
+        },
+        {
+          "path": "src/style.css",
+          "sha256": "c890470f782db22b3bef534573e7b70b96cf1acce9ba9995cdd486db92820084"
+        },
+        {
+          "path": "tsconfig.json",
+          "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837"
+        }
+      ],
+      "messages": [
+        {
+          "kind": "user",
+          "content": "制作一个初始为 0、点击加一按钮后显示 1 的计数器。"
+        },
+        {
+          "kind": "result",
+          "content": "已检查 1 项行为：1 项通过。"
+        }
+      ]
+    }
+  ],
+  "comparison": {
+    "fromRevisionId": "6eeb7e9f-12fa-4934-9059-111c209c0784",
+    "toRevisionId": "4a9f8f3c-2c15-42f9-81a3-31b5bb224c7c",
+    "unchangedCount": 7,
+    "changes": []
+  },
+  "previews": {
+    "v1": "expired",
+    "v2": "restoring"
+  },
+  "checks": {
+    "v1": "passed",
+    "v2": "passed"
+  }
+}

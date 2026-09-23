@@ -3,6 +3,7 @@ export interface IdentityConfig {
   supabaseUrl: string;
   supabaseSecretKey: string;
   databaseUrl: string;
+  authSessionDatabaseUrl?: string;
 }
 
 export type IdentityConfiguration =
@@ -17,8 +18,9 @@ export function readIdentityConfig(env: NodeJS.ProcessEnv): IdentityConfiguratio
     const appOrigin = new URL(env.APP_ORIGIN!);
     const supabaseUrl = new URL(env.SUPABASE_URL!);
     const databaseUrl = new URL(env.DATABASE_URL!);
+    const authSessionDatabaseUrl = new URL(env.AUTH_SESSION_DATABASE_URL || env.DATABASE_URL!);
     if (!/^https?:$/.test(appOrigin.protocol) || !/^https?:$/.test(supabaseUrl.protocol)
-      || !/^postgres(?:ql)?:$/.test(databaseUrl.protocol)
+      || !/^postgres(?:ql)?:$/.test(databaseUrl.protocol) || !/^postgres(?:ql)?:$/.test(authSessionDatabaseUrl.protocol)
       || appOrigin.username || appOrigin.password || supabaseUrl.username || supabaseUrl.password) {
       return { ready: false, missing: ["VALID_IDENTITY_CONFIGURATION"] };
     }
@@ -29,6 +31,7 @@ export function readIdentityConfig(env: NodeJS.ProcessEnv): IdentityConfiguratio
         supabaseUrl: supabaseUrl.origin,
         supabaseSecretKey: env.SUPABASE_SECRET_KEY!.trim(),
         databaseUrl: env.DATABASE_URL!.trim(),
+        authSessionDatabaseUrl: (env.AUTH_SESSION_DATABASE_URL || env.DATABASE_URL)!.trim(),
       },
     };
   } catch {

@@ -206,6 +206,10 @@ test("an explicit test output adapter replaces source before trusted build and i
       expect(context.attempt).toBe(0);
       context.signal.throwIfAborted();
       await context.workspace.write(context.handle, "src/App.tsx", Buffer.from(injected));
+      // The final write completes immediately before the build/snapshot gate.
+      // Snapshot membership must come from the frozen full tree, not a delayed
+      // tool-output event or a list captured before this awaited write.
+      await context.workspace.write(context.handle, "src/新增/马上.ts", Buffer.from("export const immediate = true;\n"));
       applied++;
     },
   });
@@ -213,6 +217,8 @@ test("an explicit test output adapter replaces source before trusted build and i
   expect(result.status).toBe("candidate");
   if (result.status !== "candidate") throw Error("Candidate missing");
   expect(result.snapshot.bundle.files.find(file => file.path === "src/App.tsx")?.content).toBe(injected);
+  expect(result.snapshot.bundle.files.find(file => file.path === "src/新增/马上.ts")?.content).toBe("export const immediate = true;\n");
+  expect(result.manifest.some(file => file.path === "src/新增/马上.ts")).toBe(true);
   expect(result.trustedBuild.sourceHash).toBe(result.snapshot.sourceHash);
 });
 

@@ -92,7 +92,7 @@ export function createModelProfileService(database: PivloomDatabase, vault: Cred
         )`, [ownerId, profileId]);
   }
   /** Call inside database.owned so a run and its credential reference can commit atomically. */
-  async function freezeInTransaction(client: PoolClient, ownerId: string, profileId: string, configVersion: number, referenceId: string) {
+  async function freezeInTransaction(client: PoolClient, ownerId: string, profileId: string, configVersion: number, referenceId: string, requestedModelId?: string | null) {
     const scoped = await client.query<{ owned: boolean }>(`SELECT current_user='nano_api'
       AND nullif(current_setting('request.jwt.claim.sub', true), '')::uuid=$1 AS owned`, [ownerId]);
     if (!scoped.rows[0]?.owned) throw new Error("Credential leases require an owner-scoped transaction");
@@ -111,8 +111,14 @@ export function createModelProfileService(database: PivloomDatabase, vault: Cred
     if (current.current_version !== configVersion) {
       throw new ApiFailure(409, "MODEL_CONFIGURATION_CHANGED", "模型配置已更新，请刷新后重试。");
     }
+    if (requestedModelId && requestedModelId !== current.model_id) {
+      throw new ApiFailure(422, "MODEL_OVERRIDE_VISION_UNVERIFIED", "图像能力验证只适用于当前模型 ID。请将要使用的模型保存为配置并重新测试。");
+    }
     if (current.capabilities.streaming !== "verified" || current.capabilities.tools !== "verified") {
       throw new ApiFailure(422, "MODEL_NOT_VERIFIED", "请先在模型设置中通过连接和工具调用测试。");
+    }
+    if (current.capabilities.vision !== "verified") {
+      throw new ApiFailure(422, "MODEL_VISION_NOT_VERIFIED", "当前模型的图像能力尚未通过实际图片测试，请在模型设置中重新测试，或选择支持图像的配置。");
     }
     const available = await client.query(`SELECT 1 FROM nano.model_credentials
       WHERE owner_id=$1 AND profile_id=$2 AND config_version=$3`, [ownerId, profileId, configVersion]);

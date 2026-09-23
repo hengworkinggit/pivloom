@@ -60,7 +60,7 @@ async function fixture(fault?:string){
     artifacts:createArtifactStore({url:'http://fixture.invalid',secret:'fixture'}),
     handoff:{runId:binding.runId,fromRoleRunId:randomUUID(),toRole:'reviewer',attempt:0,baseRevisionId:null,expectedRevisionId:binding.revisionId,sourceHash:binding.sourceHash,plan,task:'检查书名',artifactIds:[]},
     sandboxConfig:{baseUrl:'http://fixture.invalid',apiKey:'fixture',image:'fixture'},
-    modelConfig:{provider:'fixture',id:'fixture',api:'openai-completions',baseUrl:'https://model-fixture.invalid/v1',apiKey:'fixture-key',fetch:modelFetch},
+    modelConfig:{provider:'fixture',id:'fixture',api:'openai-completions',baseUrl:'https://model-fixture.invalid/v1',apiKey:'fixture-key',fetch:modelFetch,supportsImages:true},
     signal:new AbortController().signal,assertActive:async()=>{},
   };
   const boundaries={sandboxConnector:{create:async()=>connection,connect:async()=>connection},previewFetch:async()=>new Response(JSON.stringify({revisionId:source.revisionId,sourceHash:source.sourceHash}))};
@@ -97,4 +97,14 @@ test('unknown diagnostic codes use the generic blocked message without reflectin
   const {receipt}=await runReview(f.input,{...f.boundaries,previewFetch:async()=>{throw new RuntimeError('CHECK_BLOCKED','RAW_SECRET_fixture-key',undefined,undefined,'UNKNOWN_RAW_SECRET_fixture-key');}});
   expect(receipt.result.summary).toBe('浏览器或检查过程未完成，当前候选尚未通过检查。');
   expect(JSON.stringify(receipt)).not.toMatch(/RAW_SECRET|fixture-key|UNKNOWN_/);
+});
+
+test('an unverified vision model leaves the candidate blocked without pretending the Reviewer saw its pixels',async()=>{
+  const f=await fixture();
+  f.input.modelConfig.supportsImages=false;
+  const {receipt}=await runReview(f.input,f.boundaries);
+  expect(receipt.result.summary).toContain('图像能力未通过实际图片测试');
+  expect(receipt.result.items).toMatchObject([{verdict:'blocked',screenshotIds:[],observationEventIds:[]}]);
+  expect(receipt.chromeClosed).toBe(true);
+  expect(f.stats().calls).toBe(0);
 });
