@@ -14,9 +14,22 @@ import { createArtifactStore } from "../../src/storage/artifacts.js";
 import { createGenerationExecutor } from "../../src/generation/executor.js";
 import { createPreviewGateway } from "../../src/generation/preview.js";
 import type { SandboxConnection, SandboxConnector } from "../../src/runtime/workspace.js";
+import type { GroupedPlan } from "@pivloom/contracts";
 
-const plan = { schemaVersion: 1 as const, goal: "点击加一", changeSummary: "计数器", assumptions: [], outOfScope: [],
-  behaviors: [{ id: "B01", title: "加一", precondition: "初始为零", action: "点击加一", expected: "计数显示1", required: true }] };
+const plan: GroupedPlan = { schemaVersion: 2, goal: "点击加一", changeSummary: "计数器", assumptions: [], outOfScope: [],
+  behaviors: [
+    { id: "B01", title: "加一", precondition: "初始为零", action: "点击加一", expected: "计数显示1", required: true },
+    { id: "B02", title: "再次加一", precondition: "计数显示1", action: "点击加一", expected: "计数继续增加", required: true },
+    { id: "B03", title: "重置入口", precondition: "计数已增加", action: "点击加一", expected: "交互保持可用", required: true },
+    { id: "B04", title: "刷新后的交互", precondition: "页面已刷新", action: "点击加一", expected: "交互仍可用", required: true },
+    { id: "B05", title: "窄屏操作", precondition: "视口宽390像素", action: "点击加一", expected: "按钮仍可点击", required: true },
+  ], groups: [
+    { id: "G1", title: "基本计数", behaviorIds: ["B01"] },
+    { id: "G2", title: "连续输入", behaviorIds: ["B02"] },
+    { id: "G3", title: "错误恢复", behaviorIds: ["B03"] },
+    { id: "G4", title: "状态与刷新", behaviorIds: ["B04"] },
+    { id: "G5", title: "视觉布局", behaviorIds: ["B05"] },
+  ], replacements: [] };
 
 /** Real executor, Pi roles, repository transactions and snapshot validation.
  * Only provider SSE, remote processes/files/browser and object storage are fixtures.
@@ -28,6 +41,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
   let models: ReturnType<typeof createModelProfileService>;
   let repository: ReturnType<typeof createGenerationRepository>;
   let model: { id: string; configVersion: number };
+  let targetVerified = false;
   const fixtureProfileId = randomUUID();
   const projects: string[] = [], leases: string[] = [];
   const prefix = `executor-fixture-${randomUUID()}`;
@@ -45,6 +59,9 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     admin = new Pool({ connectionString: process.env.MIGRATION_DATABASE_URL, max: 1 });
     if ((await admin.query("SELECT environment_id FROM nano.environment_identity WHERE id=true")).rows[0]?.environment_id !== environment)
       throw Error("Isolated database identity mismatch");
+    if ((await admin.query("SELECT 1 FROM information_schema.columns WHERE table_schema='nano' AND table_name='checks' AND column_name='group_results_json'")).rowCount !== 1)
+      throw Error("Executor test database requires migration 015 for grouped checks");
+    targetVerified = true;
     const configuredOwner = process.env.PIVLOOM_EXECUTOR_OWNER_ID;
     const identity = configuredOwner ? null : JSON.parse(await readFile(resolve("../../.cache/identity", environment, "manifest.json"), "utf8"));
     owner = configuredOwner ?? identity.users.find((user: { label: string }) => user.label === "A").id;
@@ -86,7 +103,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
         await admin.query("COMMIT");
       } catch (error) { await admin.query("ROLLBACK"); throw error; }
     }
-    if (admin) {
+    if (admin && targetVerified) {
       await admin.query("BEGIN");
       try {
         await admin.query("SET CONSTRAINTS ALL DEFERRED");
@@ -200,23 +217,26 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
         }
       } else if (tools.includes("browser_open")) {
         const priorCalls = messages.flatMap((message) => message.tool_calls ?? []).map((call) => call.function.name);
+        const completed = priorCalls.filter((name) => name === "record_behavior").length;
+        const section = priorCalls.slice(priorCalls.lastIndexOf("record_behavior") + 1);
+        const parsedResponses = responses.map((message) => { try { return JSON.parse(message.content); } catch { return null; } });
+        const current = plan.behaviors[completed];
         if (!priorCalls.includes("browser_open")) calls = [{ name: "browser_open", args: {} }];
-        else if (!priorCalls.includes("browser_click")) {
-          const observation = responses.map((message) => { try { return JSON.parse(message.content); } catch { return null; } }).reverse().find((value) => value?.observationId);
-          calls = [{ name: "browser_click", args: { behaviorId: "B01", observationId: observation.observationId, ref: "e1" } }];
-        } else if (!priorCalls.includes("browser_screenshot")) {
+        else if (current && !section.includes("browser_click")) {
+          const observation = [...parsedResponses].reverse().find((value) => value?.observationId);
+          calls = [{ name: "browser_click", args: { behaviorId: current.id, observationId: observation.observationId, ref: "e1" } }];
+        } else if (current && !section.includes("browser_screenshot")) {
           calls = [{ name: "browser_screenshot", args: {} }];
-        } else {
+        } else if (current) {
           const screenshot = JSON.parse(last!.content);
-          const observation = responses.map((message) => { try { return JSON.parse(message.content); } catch { return null; } })
-            .reverse().find((value) => value?.action === "click");
+          const observation = [...parsedResponses].reverse().find((value) => value?.action === "click" && value.behaviorId === current.id);
           expect(request.messages.some((message: { role: string; content: unknown }) => message.role === "user" && Array.isArray(message.content)
             && message.content.some((part: { type: string; image_url?: { url: string } }) => part.type === "image_url"
               && part.image_url?.url.startsWith("data:image/png;base64,")))).toBe(true);
-          const failed = (mode === "tool-budget" || mode === "cleanup-fails") && builderSessions === 1;
-          calls = [{ name: "record_behavior", args: { behaviorId: "B01", verdict: failed ? "failed" : "passed",
-            expected: plan.behaviors[0].expected, actual: failed ? "点击后仍为0" : "点击后显示1",
-            observationEventIds: [observation.id], screenshotIds: [screenshot.artifactId], reproSteps: ["点击加一"] } }];
+          const failed = completed === 0 && (mode === "tool-budget" || mode === "cleanup-fails") && builderSessions === 1;
+          calls = [{ name: "record_behavior", args: { behaviorId: current.id, verdict: failed ? "failed" : "passed",
+            expected: current.expected, actual: failed ? "点击后仍为0" : `点击后观察 ${current.id}`,
+            observationEventIds: [observation.id], screenshotIds: [screenshot.artifactId], reproSteps: [`点击加一检查 ${current.id}`] } }];
         }
       }
       const delta = calls.length ? { role: "assistant", tool_calls: calls.map((call, index) => ({ index, id: randomUUID(), type: "function", function: { name: call.name, arguments: JSON.stringify(call.args) } })) }
@@ -250,7 +270,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     const executor = createGenerationExecutor({ repository: executionRepository, models, sources, previews, sandbox: { baseUrl: origin, apiKey: "external-sandbox-secret-never-in-generated-source", image: "fixture" }, maxSandboxes: 5,
       artifacts: createArtifactStore({ url: "http://storage-fixture.invalid", secret: "fixture", objects: {
         upload: async (key, bytes) => { objects.set(key, bytes); }, download: async (key) => objects.get(key)!,
-      } }) }, { sandboxConnector: connector, modelFetch, ...(mode === "tool-budget" ? { maxToolCalls: 6 } : {}),
+      } }) }, { sandboxConnector: connector, modelFetch, ...(mode === "tool-budget" ? { maxToolCalls: 18 } : {}),
         ...(options.settlementRetryMs ? { settlementRetryMs: options.settlementRetryMs } : {}),
         ...(options.cleanupSweepMs ? { cleanupSweepMs: options.cleanupSweepMs } : {}) });
     closers.push(async () => { await executor.close(); await previews.close(); });
@@ -293,7 +313,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     expect(result.run).toMatchObject({ state: "failed", attempt: 1, error: { code: "TOOL_BUDGET_EXCEEDED" } });
     const events = await repository.listEvents(owner, result.run.id, "0", 200);
     expect(events.length).toBeLessThan(200);
-    expect(events.filter((event) => event.type === "tool.started").length).toBeLessThanOrEqual(6);
+    expect(events.filter((event) => event.type === "tool.started").length).toBeLessThanOrEqual(18);
     expect((await createProjectRepository(database).get(owner, result.projectId)).currentRevisionId).toBeNull();
   }, 900_000);
 
