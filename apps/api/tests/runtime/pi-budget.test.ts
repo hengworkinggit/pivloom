@@ -200,6 +200,22 @@ test("a successful tool turn resets Pi's consecutive provider retry attempt befo
   expect(retryMessages.every((message) => message.includes(`第 1/${PROVIDER_RETRY_POLICY.maxRetries} 次瞬态失败`))).toBe(true);
 }, 30_000);
 
+test("stopping during Pi's retry backoff prevents a second Provider request", async () => {
+  const controller = new AbortController();
+  let requests = 0, sawRetry = false;
+  await expect(builder({ budget: createRunTokenBudget(), controller,
+    onEvent: (event) => {
+      if (event.type === "model.stream.started" && event.message.includes("次瞬态失败")) {
+        sawRetry = true;
+        controller.abort("CANCELLED");
+      }
+    },
+    fetch: async () => { requests++; throw new Error("Transient Provider transport failure"); },
+  })).rejects.toMatchObject({ code: "CANCELLED" });
+  expect(sawRetry).toBe(true);
+  expect(requests).toBe(1);
+}, 30_000);
+
 test("a deterministic provider rejection is not retried", async () => {
   let attempts = 0;
   await expect(builder({ budget: createRunTokenBudget(), fetch: async () => {
