@@ -7,7 +7,7 @@ import type { TSchema } from '@earendil-works/pi-ai';
 import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, type ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { HandoffSchema, ReviewResultSchema, ReviewItemSchema, type ReviewItem, type Handoff, type ReviewResult, type ReviewBinding, type CheckArtifact } from '@pivloom/contracts';
 import { createServiceModel } from './pi.js';
-import { RuntimeError, type ModelConfig, type ProbeEventSink } from './types.js';
+import { RuntimeError, type ModelConfig, type ProbeEvent, type ProbeEventSink } from './types.js';
 import { createRoleTokenTracker, type RunTokenBudget, type TokenUsage } from './token-budget.js';
 import { MODEL_REQUEST_TIMEOUT_MS, REVIEW_ATTEMPT_TIMEOUT_MS, providerRetrySettings } from './budgets.js';
 import type { BrowserAction, BrowserObservation } from './browser.js';
@@ -138,6 +138,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   let fatal: RuntimeError | undefined, isolated: string | undefined;
   let session: Awaited<ReturnType<typeof createAgentSession>>['session'] | undefined;
   let aborting: Promise<void> | undefined, decision: ReviewResult | undefined;
+  let eventTail = Promise.resolve();
   let invalidReports = 0, toolCount = 0, latestObservationId: string | undefined;
   let latestUrl: string | undefined, hasOpenedPage = false;
   let latestRefs: BrowserObservation['refs'] = {};
@@ -167,12 +168,20 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     try { await input.assertActive(); } catch { check(); throw fail(new RuntimeError('ROLE_NOT_ACTIVE','检查角色或任务已失效')); }
     check();
   };
-  const emit = async (type: 'tool.start'|'tool.end', name: ToolName, id: string, success?: boolean) => {
-    try { await input.onEvent?.({ id: randomUUID(), at: new Date().toISOString(), roleRunId: binding.roleRunId, sessionId: input.sessionId,
+  const appendEvent = (event: ProbeEvent) => {
+    const operation = eventTail.then(async () => {
+      if (fatal) throw fatal;
+      try { await input.onEvent?.(event); }
+      catch { throw fail(new RuntimeError('EVENT_APPEND_FAILED','检查活动保存失败')); }
+    });
+    eventTail = operation.catch(() => {});
+    return operation;
+  };
+  const emit = (type: 'tool.start'|'tool.end', name: ToolName, id: string, success?: boolean) => {
+    return appendEvent({ id: randomUUID(), at: new Date().toISOString(), roleRunId: binding.roleRunId, sessionId: input.sessionId,
       type, toolName:name,toolCallId:`review-${createHash('sha256').update(id).digest('hex').slice(0,24)}`,success,
       message: type === 'tool.start' ? `检查者执行 ${name}` : success ? '检查工具已完成'
-        : lastRejection ? `检查工具未完成（${lastRejection}）` : '检查工具未完成' }); }
-    catch { throw fail(new RuntimeError('EVENT_APPEND_FAILED','检查活动保存失败')); }
+        : lastRejection ? `检查工具未完成（${lastRejection}）` : '检查工具未完成' });
   };
   const observe = (observation: BrowserObservation) => {
     if (observation.sessionId !== binding.browserSessionId || new URL(observation.url).origin !== 'http://127.0.0.1:4173')
@@ -452,9 +461,9 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     session.subscribe(event=>{
       if(event.type!=='auto_retry_start')return;
       if(Date.now()>=expiresAt)return;
-      void input.onEvent?.({id:randomUUID(),at:new Date().toISOString(),roleRunId:binding.roleRunId,sessionId:input.sessionId,
+      void appendEvent({id:randomUUID(),at:new Date().toISOString(),roleRunId:binding.roleRunId,sessionId:input.sessionId,
         type:'model.stream.started',message:`检查者请求第 ${event.attempt}/${event.maxAttempts} 次瞬态失败，${event.delayMs}ms 后重试`,
-        requestNumber:event.attempt})?.catch(()=>{});
+        requestNumber:event.attempt}).catch(()=>{});
     });
     session.agent.subscribe(event=>{
       if(event.type==='tool_execution_start'){
@@ -479,8 +488,10 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
       const artifact=await input.saveScreenshot(await input.browser.screenshot());
       await active();artifacts.push(artifact);
     }
+    await eventTail;check();
     completed={result:decision,evidence,artifacts,usage:tokens.usage(),chromeClosed:true};
   }catch(error){
+    await eventTail;
     try{check();}catch(failure){error=failure;}
     const failure=error instanceof RuntimeError?error:new RuntimeError('CHECK_BLOCKED','检查者无法完成检查');
     throw new RuntimeError(failure.code,failure.message,undefined,tokens.usage(),failure.diagnosticCode);
@@ -489,6 +500,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     signal.removeEventListener('abort',abort);
     if(aborting)await aborting.catch(()=>{});
     await session?.waitForIdle();
+    await eventTail;
     session?.dispose();
     if(isolated)await rm(isolated,{recursive:true,force:true});
     const closed=await input.browser.close().catch(()=>({confirmed:false}));

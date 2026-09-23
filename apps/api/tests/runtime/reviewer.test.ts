@@ -127,6 +127,21 @@ test('a transient provider failure is retried with bounded backoff and still rea
   expect(Date.now()-started).toBeGreaterThanOrEqual(900);
 });
 
+test('a failed retry event append prevents Reviewer from accepting a passing report',{timeout:90_000},async()=>{
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)throw new Error('503 service unavailable');
+    if(n===2)return {name:'browser_open',args:{path:'/'}};
+    if(n===3)return {name:'browser_click',args:{behaviorId:'B01',observationId:data.observationId,ref:'e1'}};
+    return {name:'submit_review',args:report([data.id])};
+  });
+  await expect(runReviewer({...f.input,onEvent:async(event)=>{
+    if(event.type==='model.stream.started')throw new Error('Fixture event store unavailable');
+  }})).rejects.toMatchObject({code:'EVENT_APPEND_FAILED'});
+  expect(f.stats().closes).toBe(1);
+});
+
 test('an authentication failure fails fast instead of consuming the retry budget',async()=>{
   const f=setup(()=>({name:'browser_open',args:{}}));
   let attempts=0;
