@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from 'vitest';
 import { runReviewer, assertReviewerResult, type ReviewBrowser } from '../../src/runtime/reviewer.js';
+import type { ModelConfig } from '../../src/runtime/types.js';
 import { classifyReviewerModelFailure } from '../../src/runtime/reviewer.js';
 import { MODEL_REQUEST_TIMEOUT_MS, PROVIDER_RETRY_POLICY, REVIEW_ATTEMPT_TIMEOUT_MS, RUN_DEADLINE_MS } from '../../src/runtime/budgets.js';
 
@@ -32,7 +33,7 @@ test('only an in-budget provider failure is reported as a provider error',()=>{
 const revisionId = randomUUID(), sourceHash = 'a'.repeat(64);
 const plan = { schemaVersion: 1 as const, goal: '新增书籍', changeSummary: '新增书籍', assumptions: [], outOfScope: ['不发送邮件'],
   behaviors: [{ id: 'B01', title: '添加', precondition: '空书单', action: '填写并添加', expected: '出现书名', required: true }] };
-function setup(turn: (request: { messages: Array<{ role: string; content: string }> }, n: number) => { name: string; args: unknown }) {
+function setup(turn: (request: { messages: Array<{ role: string; content: string }> }, n: number) => { name: string; args: unknown }, usageForCall: (n: number) => { prompt_tokens: number; completion_tokens: number; total_tokens: number } = () => ({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 })) {
   let calls = 0, actions = 0, closes = 0;
   const observation = () => ({ id: randomUUID(), sessionId: 'pivloom-'+revisionId, url:'http://127.0.0.1:4173/', tree:'button 添加 [ref=e1]', text: actions ? '测试书名' : '空书单', refs:{ e1:{ role:'button', name:'添加' } }, truncated: false });
   const browser: ReviewBrowser = { sessionId:'pivloom-'+revisionId, open:async()=>observation(), observe:async()=>observation(),
@@ -42,12 +43,13 @@ function setup(turn: (request: { messages: Array<{ role: string; content: string
   const fetch: typeof globalThis.fetch = async (_url, init) => {
     const choice = turn(JSON.parse(String(init?.body)), ++calls);
     const chunk = { id:'fixture-'+calls,object:'chat.completion.chunk',created:1,model:'fixture',choices:[{index:0,delta:{role:'assistant',reasoning_content:'PRIVATE_HIDDEN_REASONING',tool_calls:[{index:0,id:'call-'+calls,type:'function',function:{name:choice.name,arguments:JSON.stringify(choice.args)}}]},finish_reason:null}] };
-    return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({...chunk,choices:[{index:0,delta:{},finish_reason:'tool_calls'}],usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15}})}\n\ndata: [DONE]\n\n`,{headers:{'content-type':'text/event-stream'}});
+    return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({...chunk,choices:[{index:0,delta:{},finish_reason:'tool_calls'}],usage:usageForCall(calls)})}\n\ndata: [DONE]\n\n`,{headers:{'content-type':'text/event-stream'}});
   };
   const runId = randomUUID(),roleRunId=randomUUID();
+  const modelConfig: ModelConfig & {fetch: typeof globalThis.fetch} = {provider:'review-fixture',id:'fixture',api:'openai-completions',baseUrl:'https://fixture.invalid/v1',apiKey:'private-review-key',fetch};
   const input = { binding:{runId,roleRunId,attempt:0,revisionId,sourceHash,sandboxId:'fixture-sandbox',browserSessionId:browser.sessionId},
     sessionId:randomUUID(), handoff:{runId,fromRoleRunId:randomUUID(),toRole:'reviewer' as const,attempt:0,baseRevisionId:null,expectedRevisionId:revisionId,sourceHash,plan,task:'检查新增书籍',artifactIds:[]},
-    browser,files:[{path:'src/App.tsx',content:'export default function App() {}'}],modelConfig:{provider:'review-fixture',id:'fixture',api:'openai-completions' as const,baseUrl:'https://fixture.invalid/v1',apiKey:'private-review-key',fetch},
+    browser,files:[{path:'src/App.tsx',content:'export default function App() {}'}],modelConfig,
     signal:new AbortController().signal,assertActive:async()=>{},saveScreenshot:async()=>({id:randomUUID(),mimeType:'image/png' as const,sha256:'b'.repeat(64)}) };
   return { input, stats:()=>({calls,actions,closes}) };
 }
@@ -355,7 +357,7 @@ test('expiry while persisting tool.start prevents starting the browser operation
   expect(f.stats().closes).toBe(1);
 });
 
-test('historical browser observations are compact on the model wire while saved evidence stays complete',async()=>{
+test('earlier browser observations remain in Pi context until native compaction and saved evidence stays complete',async()=>{
   let history: Array<Record<string,unknown>>=[];
   let memory: {observations:Array<Record<string,unknown>>}|undefined;
   const f=setup((request,n)=>{
@@ -371,14 +373,76 @@ test('historical browser observations are compact on the model wire while saved 
   f.input.browser.open=async()=>({...await open(),text:'initial '.repeat(1000)});
   f.input.browser.act=async(action)=>({...await act(action),text:'result '.repeat(1000)});
   const result=await runReviewer(f.input);
-  expect(history).toHaveLength(2);
-  expect(history[0]).not.toHaveProperty('tree');
-  expect(history[0]).not.toHaveProperty('refs');
-  expect(String(history[0].text).length).toBeLessThanOrEqual(800);
-  expect(memory?.observations[0]).toMatchObject({contextCompacted:true,truncated:true,id:result.evidence[0].id});
+  expect(history).toHaveLength(3);
+  expect(history[0]).toMatchObject({id:result.evidence[0].id,tree:'button 添加 [ref=e1]'});
+  expect(String(history[0].text).length).toBeGreaterThan(1000);
+  expect(memory).toBeUndefined();
   expect(history.at(-1)).toMatchObject({tree:'button 添加 [ref=e1]',refs:{e1:{role:'button',name:'添加'}}});
   expect(result.evidence[0].text).toBe('initial '.repeat(1000));
   expect(result.evidence.at(-1)?.text).toBe('result '.repeat(1000));
+});
+
+test('native Pi compaction keeps a long review running and old observations remain readable by ID',{timeout:90_000},async()=>{
+  let firstObservationId='', lastActionId='', reread=false, summaries=0;
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)firstObservationId=data.id;
+    if(n<=7){lastActionId=data.id;return {name:'browser_click',args:{behaviorId:'B01',observationId:data.observationId,ref:'e1'}};}
+    if(n===8){lastActionId=data.id;return {name:'observation_read',args:{id:firstObservationId}};}
+    reread=data?.id===firstObservationId && String(data?.text).length>=10_000;
+    return {name:'submit_review',args:report([lastActionId])};
+  },n=>n===5?{prompt_tokens:13_000,completion_tokens:5,total_tokens:13_005}:{prompt_tokens:10,completion_tokens:5,total_tokens:15});
+  const originalFetch=f.input.modelConfig.fetch!;
+  f.input.modelConfig.contextWindow=16_000;
+  f.input.modelConfig.fetch=async(url,init)=>{
+    const request=JSON.parse(String(init?.body));
+    if(Array.isArray(request.tools)&&request.tools.length)return originalFetch(url,init);
+    summaries++;
+    const chunk={id:'compaction-fixture',object:'chat.completion.chunk',created:1,model:'fixture',choices:[{index:0,delta:{role:'assistant',content:'Earlier browser evidence is retained by observation ID. Continue checking B01.'},finish_reason:null}]};
+    return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({...chunk,choices:[{index:0,delta:{},finish_reason:'stop'}],usage:{prompt_tokens:200,completion_tokens:20,total_tokens:220}})}\n\ndata: [DONE]\n\n`,{headers:{'content-type':'text/event-stream'}});
+  };
+  const observe=f.input.browser.open,act=f.input.browser.act;
+  f.input.browser.open=async(path)=>({...await observe(path),text:'早期观察'.repeat(2500)});
+  f.input.browser.act=async(action)=>({...await act(action),text:'后续观察'.repeat(2500)});
+  const result=await runReviewer(f.input);
+  expect(summaries).toBeGreaterThan(0);
+  expect(reread).toBe(true);
+  expect(result.result.items[0].verdict).toBe('passed');
+  expect(result.evidence[0].id).toBe(firstObservationId);
+});
+
+test('cancelling native Pi compaction stops Reviewer and closes its browser',{timeout:30_000},async()=>{
+  const controller=new AbortController();
+  let compactionStarted=false,compactionAborted=false;
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n<=5)return {name:'browser_click',args:{behaviorId:'B01',observationId:data.observationId,ref:'e1'}};
+    throw Error('A cancelled compaction must not start another Reviewer turn');
+  },n=>n===5?{prompt_tokens:13_000,completion_tokens:5,total_tokens:13_005}:{prompt_tokens:10,completion_tokens:5,total_tokens:15});
+  f.input.modelConfig.contextWindow=16_000;
+  const observe=f.input.browser.open,act=f.input.browser.act;
+  f.input.browser.open=async(path)=>({...await observe(path),text:'早期观察'.repeat(2500)});
+  f.input.browser.act=async(action)=>({...await act(action),text:'后续观察'.repeat(2500)});
+  const originalFetch=f.input.modelConfig.fetch;
+  f.input.modelConfig.fetch=async(url,init)=>{
+    const request=JSON.parse(String(init?.body));
+    if(Array.isArray(request.tools)&&request.tools.length)return originalFetch(url,init);
+    compactionStarted=true;
+    return new Promise<Response>((_resolve,reject)=>{
+      const stop=()=>{compactionAborted=true;reject(new DOMException('Compaction request stopped','AbortError'));};
+      if(init?.signal?.aborted)stop();
+      else init?.signal?.addEventListener('abort',stop,{once:true});
+      queueMicrotask(()=>controller.abort('CANCELLED'));
+    });
+  };
+  await expect(runReviewer({...f.input,signal:controller.signal})).rejects.toMatchObject({code:'CANCELLED'});
+  expect(compactionStarted).toBe(true);
+  expect(compactionAborted).toBe(true);
+  expect(f.stats().closes).toBe(1);
 });
 
 test('Reviewer can retrieve an older complete observation without redoing its action',async()=>{
@@ -400,23 +464,23 @@ test('Reviewer can retrieve an older complete observation without redoing its ac
   expect(f.stats()).toEqual({calls:4,actions:1,closes:1});
 });
 
-test('validated behavior progress survives context rotation and completes without replaying actions',async()=>{
+test('validated behavior progress remains available and completes without replaying actions',async()=>{
   let remembered:unknown;
   const second={...plan.behaviors[0],id:'B02',title:'再次检查',expected:'仍有书名'};
   const f=setup((request,n)=>{
     const data=JSON.parse(request.messages.filter(m=>m.role==='tool').at(-1)?.content??'null');
-    const memory=request.messages.filter(m=>m.role==='user').map(m=>{try{return JSON.parse(m.content);}catch{return null;}}).find(m=>m?.type==='review_memory');
+    const recorded=request.messages.filter(m=>m.role==='tool').map(m=>{try{return JSON.parse(m.content);}catch{return null;}}).find(m=>m?.recorded===true);
     if(n===1)return {name:'browser_open',args:{}};
     if(n===2)return {name:'browser_click',args:{behaviorId:'B01',observationId:data.observationId,ref:'e1'}};
     if(n===3)return {name:'record_behavior',args:report([data.id]).items[0]};
     if(n===4)return {name:'browser_observe',args:{}};
-    if(n===5){remembered=memory?.completedBehaviors;return {name:'browser_click',args:{behaviorId:'B02',observationId:data.observationId,ref:'e1'}};}
+    if(n===5){remembered=recorded;return {name:'browser_click',args:{behaviorId:'B02',observationId:data.observationId,ref:'e1'}};}
     if(n===6)return {name:'record_behavior',args:{...report([data.id]).items[0],behaviorId:'B02',expected:second.expected}};
     throw Error('Unexpected model turn after all behaviors recorded');
   });
   f.input.handoff.plan={...plan,behaviors:[...plan.behaviors,second]};
   const result=await runReviewer(f.input);
-  expect(remembered).toMatchObject([{behaviorId:'B01',verdict:'passed',actual:'已出现'}]);
+  expect(remembered).toMatchObject({recorded:true,remainingBehaviorIds:['B02']});
   expect(result.result.items.map(i=>i.behaviorId)).toEqual(['B01','B02']);
   expect(f.stats()).toEqual({calls:6,actions:2,closes:1});
   assertReviewerResult(result);

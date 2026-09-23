@@ -15,7 +15,7 @@ import {
 import { createServiceModel } from "./pi.js";
 import { RuntimeError, type ModelConfig, type ProbeEvent, type ProbeEventSink } from "./types.js";
 import { createRoleTokenTracker, type RunTokenBudget, type TokenUsage } from "./token-budget.js";
-import { MODEL_REQUEST_TIMEOUT_MS, RUN_DEADLINE_MS, providerRetrySettings } from "./budgets.js";
+import { MODEL_REQUEST_TIMEOUT_MS, RUN_DEADLINE_MS, piCompactionSettings, providerRetrySettings } from "./budgets.js";
 
 export type CoordinatorDecision = { kind: "plan"; plan: Plan } | { kind: "clarification"; question: string };
 export interface CoordinatorMetadata {
@@ -163,7 +163,7 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
     await active();
     isolated = await mkdtemp(join(tmpdir(), "pivloom-coordinator-"));
     const { runtime, model } = await createServiceModel(input.modelConfig, signal);
-    const settings = SettingsManager.inMemory({ compaction: { enabled: false }, retry: providerRetrySettings(), cacheWarming: "off", defaultProjectTrust: "never" });
+    const settings = SettingsManager.inMemory({ compaction: piCompactionSettings(model.contextWindow), retry: providerRetrySettings(), cacheWarming: "off", defaultProjectTrust: "never" });
     const loader = new DefaultResourceLoader({
       cwd: isolated, agentDir: isolated, settingsManager: settings, noExtensions: true, noSkills: true,
       noPromptTemplates: true, noThemes: true, noContextFiles: true,

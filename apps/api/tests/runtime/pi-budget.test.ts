@@ -182,6 +182,24 @@ test("a transient transport failure is retried within the policy and every attem
   expect(attempts.count).toBe(PROVIDER_RETRY_POLICY.maxRetries + 1);
 }, 90_000);
 
+test("a successful tool turn resets Pi's consecutive provider retry attempt before the next turn", async () => {
+  let requests = 0;
+  const retryMessages: string[] = [];
+  const result = await builder({ budget: createRunTokenBudget(), onEvent: (event) => {
+    if (event.type === "model.stream.started" && event.message.includes("次瞬态失败")) retryMessages.push(event.message);
+  }, fetch: async () => {
+    requests++;
+    if (requests === 1 || requests === 3) throw new Error("Transient transport unavailable");
+    if (requests === 2) return response({ role: "assistant", tool_calls: [{ index: 0, id: "command", type: "function", function: { name: "bash", arguments: '{"command":"true"}' } }] });
+    return response({ role: "assistant", content: "两轮都已完成" });
+  } });
+  expect(result.text).toContain("两轮都已完成");
+  expect(requests).toBe(4);
+  expect(result.usage.modelCalls).toBe(4);
+  expect(retryMessages).toHaveLength(2);
+  expect(retryMessages.every((message) => message.includes(`第 1/${PROVIDER_RETRY_POLICY.maxRetries} 次瞬态失败`))).toBe(true);
+}, 30_000);
+
 test("a deterministic provider rejection is not retried", async () => {
   let attempts = 0;
   await expect(builder({ budget: createRunTokenBudget(), fetch: async () => {

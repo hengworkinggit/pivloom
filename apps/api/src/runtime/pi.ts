@@ -25,7 +25,7 @@ import {
 } from "./types.js";
 import { createToolOutput } from "./tool-output.js";
 import { createRoleTokenTracker, type RunTokenBudget, type TokenUsage } from "./token-budget.js";
-import { MODEL_REQUEST_TIMEOUT_MS, providerRetrySettings } from "./budgets.js";
+import { MODEL_REQUEST_TIMEOUT_MS, piCompactionSettings, providerRetrySettings } from "./budgets.js";
 
 export interface BuilderInput {
   workspace: WorkspacePort;
@@ -391,7 +391,7 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
       signal,
     );
     const settings = SettingsManager.inMemory({
-      compaction: { enabled: false },
+      compaction: piCompactionSettings(model.contextWindow),
       retry: providerRetrySettings(),
       cacheWarming: "off",
       defaultProjectTrust: "never",

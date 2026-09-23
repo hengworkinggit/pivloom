@@ -80,3 +80,13 @@ export function providerRetrySettings() {
     provider: { timeoutMs: MODEL_REQUEST_TIMEOUT_MS, maxRetries: 0 },
   };
 }
+
+/** Pi's native compaction adapts its retained context to smaller BYOK windows. */
+export function piCompactionSettings(contextWindow: number) {
+  const quarter = Math.max(1, Math.floor(contextWindow / 4));
+  return {
+    enabled: true,
+    reserveTokens: Math.min(16_384, quarter),
+    keepRecentTokens: Math.min(20_000, quarter),
+  };
+}
