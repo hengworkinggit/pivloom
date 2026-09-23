@@ -36,8 +36,6 @@ export const REVIEW_ATTEMPT_TIMEOUT_MS = 1_200_000;
  * usage is ~9.6k tokens per Reviewer turn at ~10k context resend, so a long
  * check plus a repair round lands well inside this ceiling.
  */
-export const RUN_TOKEN_LIMIT = 400_000;
-
 /** Total tool calls per run, including failed and retried calls. */
 export const RUN_TOOL_LIMIT = 80;
 

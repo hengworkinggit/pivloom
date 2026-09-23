@@ -1,7 +1,6 @@
 import type { AssistantMessage, AssistantMessageEventStream, Usage } from "@earendil-works/pi-ai";
 import type { RoleUsage } from "@pivloom/contracts";
 import { RuntimeError } from "./types.js";
-import { RUN_TOKEN_LIMIT } from "./budgets.js";
 
 type ProviderUsage = Pick<Usage, "input" | "output" | "cacheRead" | "cacheWrite" | "totalTokens">;
 interface TokenSample { input: number | null; output: number | null; total: number | null; cachedTokens: number | null }
@@ -13,20 +12,20 @@ export interface TokenUsage extends TokenSample {
 }
 export interface RunTokenBudget {
   reserve(estimatedInputTokens: number, maxOutputTokens: number): { settle(usage?: ProviderUsage, final?: boolean): TokenSample };
-  snapshot(): { limitTokens: number; accountedTokens: number; remainingTokens: number; requests: number; pendingRequests: number; unreportedRequests: number };
+  snapshot(): { limitTokens: number | null; accountedTokens: number; remainingTokens: number | null; requests: number; pendingRequests: number; unreportedRequests: number };
 }
 
 /** One ledger per run, shared by every role and correction request. */
-export function createRunTokenBudget(limitTokens = RUN_TOKEN_LIMIT): RunTokenBudget {
-  if (!Number.isSafeInteger(limitTokens) || limitTokens < 1 || limitTokens > RUN_TOKEN_LIMIT)
-    throw new RuntimeError("TOKEN_BUDGET_INVALID", `Token 预算必须在 1 到 ${RUN_TOKEN_LIMIT.toLocaleString("en-US")} 之间`);
+export function createRunTokenBudget(limitTokens?: number): RunTokenBudget {
+  if (limitTokens !== undefined && (!Number.isSafeInteger(limitTokens) || limitTokens < 1))
+    throw new RuntimeError("TOKEN_BUDGET_INVALID", "显式 Token 预算必须为正整数");
   let accountedTokens = 0, requests = 0, pendingRequests = 0, unreportedRequests = 0;
   return {
     reserve(estimatedInputTokens, maxOutputTokens) {
       if (![estimatedInputTokens, maxOutputTokens].every((value) => Number.isSafeInteger(value) && value > 0))
         throw new RuntimeError("TOKEN_BUDGET_INVALID", "Token 请求预留无效");
       const reserved = estimatedInputTokens + maxOutputTokens;
-      if (!Number.isSafeInteger(reserved) || accountedTokens + reserved > limitTokens)
+      if (!Number.isSafeInteger(reserved) || (limitTokens !== undefined && accountedTokens + reserved > limitTokens))
         throw new RuntimeError("TOKEN_BUDGET_EXCEEDED", "本次任务 Token 预算不足，已停止新的模型请求");
       accountedTokens += reserved; requests++; pendingRequests++;
       let settled: TokenSample | undefined;
@@ -51,7 +50,7 @@ export function createRunTokenBudget(limitTokens = RUN_TOKEN_LIMIT): RunTokenBud
         return settled;
       } };
     },
-    snapshot: () => ({ limitTokens, accountedTokens, remainingTokens: Math.max(0, limitTokens - accountedTokens), requests, pendingRequests, unreportedRequests }),
+    snapshot: () => ({ limitTokens: limitTokens ?? null, accountedTokens, remainingTokens: limitTokens === undefined ? null : Math.max(0, limitTokens - accountedTokens), requests, pendingRequests, unreportedRequests }),
   };
 }
 
