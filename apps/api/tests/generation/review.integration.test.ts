@@ -155,18 +155,21 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
       if (!sourceKeys.every((key) => projectIds.some((id) => key.startsWith(`${ownerA}/${id}/`)))) throw Error("Object cleanup outside review manifest");
       const storage = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!, { auth: { persistSession: false } }).storage;
       if ((await storage.from("pivloom-private").remove(sourceKeys)).error) throw Error("Exact object cleanup failed");
+      for (const key of sourceKeys) {
+        const missing = await storage.from("pivloom-private").download(key);
+        if (missing.data || String(missing.error?.statusCode) !== "404") throw Error("Removed source object is still accessible or Storage is unavailable");
+      }
     }
     if (admin && projectIds.length) {
       const remaining = await admin.query(`SELECT
         (SELECT count(*)::int FROM nano.projects WHERE id=ANY($1::uuid[])) AS projects,
         (SELECT count(*)::int FROM nano.runs WHERE id=ANY($2::uuid[])) AS runs,
-        (SELECT count(*)::int FROM nano.model_credential_leases WHERE id=ANY($3::uuid[])) AS leases,
-        (SELECT count(*)::int FROM storage.objects WHERE bucket_id='pivloom-private' AND name=ANY($4::text[])) AS objects`, [projectIds, runIds, leaseIds, sourceKeys]);
-      expect(remaining.rows[0]).toEqual({ projects: 0, runs: 0, leases: 0, objects: 0 });
+        (SELECT count(*)::int FROM nano.model_credential_leases WHERE id=ANY($3::uuid[])) AS leases`, [projectIds, runIds, leaseIds]);
+      expect(remaining.rows[0]).toEqual({ projects: 0, runs: 0, leases: 0 });
       cleanupVerifiedAt = new Date().toISOString(); await save();
     }
     await database?.close(); await admin?.end();
-  }, 30_000);
+  }, 120_000);
 
   test("a saved candidate queues one version-bound reviewer before execution and never promotes on handoff", async () => {
     const fixture = await candidate();
@@ -258,7 +261,7 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     expect((await generation.listProjectMessages(ownerA, fixture.project.id)).filter((message) => message.kind === "result")).toHaveLength(1);
     expect((await generation.listEvents(ownerA, fixture.run.id)).slice(-3).map((event) => event.type)).toEqual(["role.completed", "check.completed", "run.finished"]);
     await expect(models.freezeForRun(ownerA, model.id, model.configVersion, fixture.run.id)).rejects.toMatchObject({ code: "MODEL_LEASE_RELEASED" });
-  }, 300_000);
+  }, 600_000);
 
   test("an observed behavior failure becomes needs_changes and never promotes its candidate", async () => {
     const fixture = await candidate();

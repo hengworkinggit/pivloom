@@ -223,7 +223,8 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
       expect(pending).toMatchObject({ state: "cancelled", cleanupState: "pending" });
       const confirmed = await repo.confirmCleanup(runOwner, run.id);
       expect(confirmed).toMatchObject({ state: "cancelled", cleanupState: "confirmed",
-        summary: "任务已停止，远端模型调用与沙箱已确认回收。" });
+        summary: "任务已停止，远端模型调用与沙箱已确认回收。",
+        error: { code: "CANCELLED", message: "任务已停止，远端模型调用与沙箱已确认回收。" } });
       const message = await admin.query("SELECT content FROM nano.messages WHERE run_id=$1 AND kind='result'", [run.id]);
       expect(message.rows.map((row) => row.content)).toEqual(["任务已停止，远端模型调用与沙箱已确认回收。"]);
       expect((await repo.confirmCleanup(runOwner, run.id)).summary).toBe(confirmed.summary);

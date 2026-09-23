@@ -1,0 +1,27 @@
+{
+  "case": "RC-02 real Provider and OpenSandbox cancellation",
+  "runId": "fca9c684-f905-4d34-ad38-6d54a07bd051",
+  "startedAt": "2026-09-23T15:37:50.833Z",
+  "finishedAt": "2026-09-23T15:39:11.213Z",
+  "runtime": { "node": "v24.19.0", "pi": "0.86.1", "opensandboxSdk": "1.1.0" },
+  "realProviderStream": {
+    "status": "PASS",
+    "cancelledAfterActualStreamContent": true,
+    "transportObservedAbort": true,
+    "piAbortSettled": true,
+    "noAdditionalBytesAfterSettlement": true,
+    "sandboxCleanupConfirmed": true
+  },
+  "realRemoteLongCommand": {
+    "status": "PASS",
+    "waitSettled": true,
+    "cleanupConfirmed": true
+  },
+  "lateSandboxCreate": {
+    "status": "PASS",
+    "resultCode": "CANCELLED",
+    "resourceStates": ["destroyed"]
+  },
+  "secretsIncluded": false,
+  "boundary": "G0 probe calls a real configured Provider and OpenSandbox; isolated workbench E13/E14 checks are recorded separately."
+}

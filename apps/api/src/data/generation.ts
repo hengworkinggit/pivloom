@@ -839,7 +839,8 @@ export function createGenerationRepository(
       if (parent.operation_id !== runId) throw new ApiFailure(409, "RUN_NOT_ACTIVE", "项目操作与待清理任务不一致。");
       const confirmedSummary = "任务已停止，远端模型调用与沙箱已确认回收。";
       const result = await client.query(`UPDATE nano.runs SET cleanup_state='confirmed',
-        summary=CASE WHEN state='cancelled' THEN $3 ELSE summary END
+        summary=CASE WHEN state='cancelled' THEN $3 ELSE summary END,
+        error_message=CASE WHEN state='cancelled' AND error_code='CANCELLED' THEN $3 ELSE error_message END
         WHERE owner_id=$1 AND id=$2 RETURNING *`, [ownerId, runId, confirmedSummary]);
       if (current.state === "cancelled") {
         await client.query("UPDATE nano.messages SET content=$4 WHERE owner_id=$1 AND project_id=$2 AND run_id=$3 AND kind='result'",

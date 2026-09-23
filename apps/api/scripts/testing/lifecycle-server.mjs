@@ -14,7 +14,7 @@ if (!process.env.LIFECYCLE_PROFILE || !process.env.LIFECYCLE_GATE)
 const profileSchema = z.strictObject({
   ownerId: z.uuid(), projectId: z.uuid(), createdAfter: z.iso.datetime(),
   expiresAt: z.iso.datetime(),
-  scenario: z.enum(['SLOW_COORDINATOR', 'SLOW_BUILDER', 'SLOW_REVIEWER', 'LONG_REMOTE_COMMAND']),
+  scenario: z.enum(['SLOW_COORDINATOR', 'SLOW_BUILDER', 'SLOW_REVIEWER', 'LONG_REMOTE_COMMAND', 'BASELINE_ACCEPT']),
 });
 const pool = new Pool({ connectionString: process.env.MIGRATION_DATABASE_URL, max: 2 });
 const environment = await pool.query('SELECT environment_id FROM nano.environment_identity WHERE id=true');
@@ -74,7 +74,18 @@ const modelFetch = async (_url, init) => {
   }
   if (names.includes('browser_open')) {
     if (profile.scenario === 'SLOW_REVIEWER') return stalled(init?.signal, 'reviewer', runId);
-    throw Error('Reviewer fixture is only defined for the cancellation stage');
+    if (profile.scenario !== 'BASELINE_ACCEPT') throw Error('Reviewer fixture is outside its scenario');
+    const calls = request.messages.flatMap((message) => message.tool_calls ?? []).map((call) => call.function.name);
+    const last = request.messages.filter((message) => message.role === 'tool').at(-1);
+    const observed = last ? JSON.parse(last.content) : null;
+    if (!calls.includes('browser_open')) return response('browser_open', { path: '/' });
+    if (!calls.includes('browser_click')) {
+      const target = Object.entries(observed?.refs ?? {}).find(([, value]) => value?.role === 'button' && value?.name === '加一')?.[0];
+      if (!target) throw Error('Fixture cannot find its real counter button');
+      return response('browser_click', { behaviorId: 'B01', observationId: observed.observationId, ref: target });
+    }
+    return response('record_behavior', { behaviorId: 'B01', verdict: 'passed', expected: plan.behaviors[0].expected,
+      actual: '点击加一后实际页面数字显示一', observationEventIds: [observed.id], screenshotIds: [], reproSteps: ['点击加一'] });
   }
   throw Error('Unexpected Provider tool declaration in lifecycle fixture');
 };
