@@ -13,4 +13,6 @@
 
 视觉布局参考 [Atoms 模板目录](https://atoms.dev/zh/templates) 的分类、预览画面和卡片网格；模板画面由本仓库 HTML/CSS 绘制。[手机模板页](../../artifacts/dev-15-2026-09-23/templates-mobile.png)、[会话模型菜单](../../artifacts/dev-15-2026-09-23/model-menu.png)。
 
-Web 75/75 测试、TypeScript、lint、生产构建通过；API 身份边界专项 2/2、TypeScript、lint、构建通过。网页和 API 使用同一授权服务器发布，原站点回归 HTTP 200。发布版本与最终 CI 以本任务最后的服务器及 GitHub 检查为准。
+最终公网发布：Web `dev15-20260923-account-feedback`（Build ID `5Mm_qeXjoI0nf-dU9-3hO`）、API `dev15-20260923-account-quota`，自助注册开关在运行中的 Auth 容器已确认启用。提交 `625a69d` 的 [CI 35831001601](https://github.com/hengworkinggit/pivloom/actions/runs/35831001601) 两个 job 均 SUCCESS。Web 75/75 测试、TypeScript、lint、生产构建通过；API 身份边界专项 2/2、TypeScript、lint、构建通过。公网匿名读取额度返回401；新账户不创建项目仍获得服务端准确余额 0/20。原站点回归 HTTP 200。
+
+另对两个隔离注册账号做了称呼刷新保留、密码变更后重新登录、游客选择模板→登录→草稿带入、模型切换后刷新保留并恢复原模型，以及深色模型设置页的实际颜色检查。两个临时账号已用 Auth 管理接口按 ID 删除，剩余0。邮箱变更请求在 Auth 数据库中处于待确认，未验证邮件投递或最终邮箱变更；页面现在保留确认提示。**一小时截止未达成**，这里记录实际完成状态，不改写期限。
