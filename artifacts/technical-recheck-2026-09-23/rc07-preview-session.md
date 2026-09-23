@@ -29,6 +29,12 @@
 
 验证：API 全套 283 passed、58 个需显式环境的用例默认 skipped；Web 全套 81 passed；API/Web typecheck 与 lint 通过。真实会话撤销集成 1 passed；隔离恢复服务 3 passed；恢复清理三项分别通过。临时 B 账号已精确删除，A1/A2/全新 A 已退出，QA 浏览器均关闭。隔离项目由总体验收统一清理。
 
-边界：现有离线退出分支在 Supabase signOut 失败时只清本地存储；服务器不可达时无法保证 Auth session 即时移除。本轮只把**在线 signOut 成功**的服务端撤销判为通过，不声称离线失败时旧凭证立即失效。E25/I09 的回滚目标等 #25 接口尚未完成，完整跨模块矩阵留待 #25 和最终 RC；本票已测现存资源及新 Preview grant 的 owner/session 边界。此轮尚未发布生产。
+边界：离线退出时无法确认 Auth session 即时移除，后续 `9aea161` 已改为明确显示 `LOGOUT_UNCONFIRMED`，不再向用户宣称退出成功。本轮只把**在线 signOut 成功**的服务端撤销判为通过。E25/I09 中涉及未来回滚目标的部分留待 #25 和最终 RC；本票已测现存资源及新 Preview grant 的 owner/session 边界。
 
 生产迁移顺序：先确认 /etc/pivloom/maintenance.env 的 MIGRATION_DATABASE_URL 指向含 auth.sessions 与 nano.projects 的 postgres 库，以维护身份事务执行 migrations/014_preview_sessions.sql；验证 nano_api 有执行权限，anon/authenticated 无权限，随机不存在的 owner/session 查询为 false。现有 /etc/pivloom/api.env 的 DATABASE_URL 也指向 postgres 库，AUTH_SESSION_DATABASE_URL 可以默认不填。infra/release/deploy.sh api **不会自动运行迁移**，只做空闲检查；迁移后再发布 API，验证 version/readiness 与真实会话，最后发布 Web 并复测匿名正式发布地址。
+
+## 生产同一 SHA 补证（2026-09-24）
+
+- Web/API 均部署 `55845117176f706b14e1c3f9e23ec8f97e11905e`，生产迁移 014 已登记且 `nano.preview_session_active` 的权限检查通过。使用 A 的全新真实计算器项目 `bfbbe5cc-4207-4d3e-9620-84df5035e1bc` 的候选 Revision `610ad910-53dd-4fef-84fa-8606de06d6a7`，在私有 Preview 尚存活时建立两条独立的 Supabase A 会话；这只验证 Preview 会话授权，不把尚在 Reviewer 阶段的候选版当已验收应用。
+- [脱敏原始 HTTP 矩阵](rc07-production-session-5584511.json)：A1、A2 分别交换专用 grant 后 HTML 200；A1 的构建资源和 revision marker 200。A1 正常 local signOut 后，复用旧 Cookie 新请求 HTML/JS/marker 均 403，旧 grant 再交换也 403；A2 同一 Preview 的 HTML/marker 仍 200。A1 重新登录取得新授权后 HTML 200。仅携 Preview Cookie/grant 访问普通平台 API 得 401；永久发布地址匿名 200。脚本在结束时退出所有新建会话，未打印或保存凭据、grant 或 Cookie。
+- 生产测试没有新建 B，以保留“生产只有 A 测试账号”的交付约束。同浏览器 B、独立 B 和匿名访客越权拒绝由上面的同构隔离环境实测矩阵提供。生产候选 Preview 自然过期不影响已保存源码或公开发布。
