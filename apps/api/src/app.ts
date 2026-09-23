@@ -135,7 +135,8 @@ export function createApp(options: CreateAppOptions = {}) {
       }
       const service = generation;
       await registerIdentityRoutes(configured, { database, verifyIdentity: verifier.verify,
-        loadProjectDetail: service ? (ownerId, projectId) => service.projectDetail(ownerId, projectId) : undefined });
+        loadProjectDetail: service ? (ownerId, projectId) => service.projectDetail(ownerId, projectId) : undefined,
+        loadQuota: service ? (ownerId) => service.repository.quota(ownerId) : undefined });
       await registerGenerationRoutes(configured, { generation, verifyIdentity: verifier.verify });
     });
   }

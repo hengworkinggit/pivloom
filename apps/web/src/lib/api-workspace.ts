@@ -5,6 +5,7 @@ import {
   MeResponseSchema,
   ProjectDetailResponseSchema,
   ProjectListResponseSchema,
+  ProjectQuotaSchema,
   type MeResponse,
 } from "@pivloom/contracts";
 import { clearDrafts } from "./drafts";
@@ -205,6 +206,7 @@ export function createApiWorkspace(identity: IdentityPort, transport: typeof fet
     login,
     logout,
     request, requestStream, requestBlob,
+    getQuota: async () => ProjectQuotaSchema.parse(await request("/me/quota")),
     listProjects: async (cursor?: string) => ProjectListResponseSchema.parse(await request(`/projects${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`)),
     createProject: async (title?: string) => {
       const body = CreateProjectRequestSchema.parse(title ? { title } : {});

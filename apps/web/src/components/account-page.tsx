@@ -15,10 +15,7 @@ function AccountContent() {
   const ui = useUiPreferences();
   const { user } = useWorkspaceAuth();
   const api = getApiWorkspace();
-  const loadQuota = useCallback(async () => {
-    const list = await api.listProjects();
-    return list.projects[0] ? (await api.getProject(list.projects[0].id)).quota ?? null : null;
-  }, [api]);
+  const loadQuota = useCallback(() => api.getQuota(), [api]);
   const quota = usePrivateQuery(loadQuota);
   const [name, setName] = useState(user?.name ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
@@ -51,9 +48,9 @@ function AccountContent() {
       <section className="account-panel quota-panel" aria-labelledby="account-quota-title">
         <div className="account-panel-heading"><Sparkles size={20} /><div><h2 id="account-quota-title">{ui.text("今日额度", "Today's usage")}</h2><p>{ui.text("按账户计算，所有项目共用。", "Shared by all your projects.")}</p></div></div>
         {quota.error && <p className="inline-error" role="alert">{quota.error}</p>}
-        {quota.data ? <><div className="quota-large"><strong>{remaining}</strong><span>/ {quota.data.dailyLimit}</span></div><p>{ui.text("今日剩余可创建任务", "Runs remaining today")}</p><div className="quota-track" role="progressbar" aria-label={ui.text("今日额度使用", "Daily usage")} aria-valuenow={quota.data.dailyAccepted} aria-valuemin={0} aria-valuemax={quota.data.dailyLimit}><span style={{ width: `${quota.data.dailyLimit ? quota.data.dailyAccepted / quota.data.dailyLimit * 100 : 0}%` }} /></div><div className="quota-details"><span>{ui.text("已使用", "Used")} {quota.data.dailyAccepted}</span><span>{ui.text("总额度", "Limit")} {quota.data.dailyLimit}</span></div></>
+        {quota.data ? <><div className="quota-large"><strong>{remaining}</strong><span>/ {quota.data.dailyLimit}</span></div><p>{ui.text("未来 24 小时剩余可创建任务", "Runs remaining in the rolling 24-hour window")}</p><div className="quota-track" role="progressbar" aria-label={ui.text("额度使用", "Usage")} aria-valuenow={quota.data.dailyAccepted} aria-valuemin={0} aria-valuemax={quota.data.dailyLimit}><span style={{ width: `${quota.data.dailyLimit ? quota.data.dailyAccepted / quota.data.dailyLimit * 100 : 0}%` }} /></div><div className="quota-details"><span>{ui.text("已使用", "Used")} {quota.data.dailyAccepted}</span><span>{ui.text("总额度", "Limit")} {quota.data.dailyLimit}</span></div></>
           : quota.error ? <Button variant="outline" size="sm" onClick={quota.refresh}>{ui.text("重新读取", "Try again")}</Button>
-          : <div className="quota-empty"><strong>—</strong><p>{ui.text("创建首个项目后，这里会显示服务端提供的准确额度。", "Create your first project to see your exact server-reported balance.")}</p></div>}
+          : <div className="quota-empty"><strong>—</strong><p>{ui.text("正在读取服务端额度…", "Loading your server-reported balance…")}</p></div>}
         <Link className="quota-link" href="/projects">{ui.text("回到项目", "Go to projects")} →</Link>
       </section>
     </div>

@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   CreateProjectRequestSchema, CreateProjectResponseSchema,
   MeResponseSchema, ProjectDetailResponseSchema, ProjectListResponseSchema,
+  ProjectQuotaSchema,
 } from "@pivloom/contracts";
 import type { PivloomDatabase } from "../data/database.js";
 import { createProjectRepository } from "../data/projects.js";
@@ -12,6 +13,7 @@ export interface IdentityRoutesOptions {
   database: PivloomDatabase;
   verifyIdentity: (request: FastifyRequest) => Promise<void>;
   loadProjectDetail?: (ownerId: string, id: string) => Promise<unknown>;
+  loadQuota?: (ownerId: string) => Promise<unknown>;
 }
 
 export function requireOwner(request: FastifyRequest) {
@@ -30,6 +32,10 @@ export async function registerIdentityRoutes(app: FastifyInstance, options: Iden
   await app.register(async (secured) => {
     secured.addHook("preHandler", options.verifyIdentity);
     secured.get("/api/v1/me", async (request) => MeResponseSchema.parse({ user: request.identity }));
+    secured.get("/api/v1/me/quota", async (request) => {
+      if (!options.loadQuota) throw new ApiFailure(503, "QUOTA_UNAVAILABLE", "额度暂时不可用，请稍后重试。", true);
+      return ProjectQuotaSchema.parse(await options.loadQuota(requireOwner(request)));
+    });
     secured.get("/api/v1/projects", async (request) => {
       const query = parseInput(z.strictObject({
         cursor: z.string().max(256).optional(),
