@@ -17,4 +17,10 @@
 - 原有 API 全套曾为 278 PASS、1 FAIL、58 SKIP；失败是同时开发 #20 时误将 DOM-only Reviewer 长上下文用例设成必须图像证据，#20 已修正，需在合并后重跑。旧 HTTP Auth/Postgres/Storage 集成入口的 B 登录夹具已失效，原持久化用例的模型配置也不满足新 vision gate；这两套旧入口**不计 PASS**。新历史/差异端点的 A/B 真实身份隔离由独立 B 请求及 A 浏览器/API 补证。
 - 新端点把当前指针和所有 revision 在一条 owner-scoped PostgreSQL 查询中读取；diff 在验证两个 revision 都属于该项目后加载并校验完整不可变 Storage bundle。页面清楚区分“当前”和“正在查看”，历史选择只读，后续生成仍从服务端 current 取基线。U07 Dyad 与 U09 OpenCode 复用的是版本完整性/快照竞态问题集和测试思路；实现适配现有 PostgreSQL/Supabase 快照，没有引入影子 Git 或复制受限制代码。
 
-尚需生产同一 Web/API SHA 部署与正式浏览器复核；#25 回滚后沙箱无多余文件由回滚模块另验，不能把本次历史查看算作回滚 PASS。
+## 生产复核补充（2026-09-24）
+
+- 干净提交 `55845117176f706b14e1c3f9e23ec8f97e11905e` 的 Web/API 已共同部署；GitHub CI [35920078312](https://github.com/hengworkinggit/pivloom/actions/runs/35920078312) 两项作业通过。公开 `/version` 与 `/api/v1/version` 均返回该完整 SHA；测试账号 A 登录、项目读取、已发布作品及原站点探针通过。
+- A 的正式项目 `3c866a6a-26e9-4af4-89d4-d84127b7d430` 在独立生产浏览器中显示 17 个版本、当前 v16、7 文件完整源码。v15→v16 的只读比较实际得到 5 文件未变、`src/App.tsx` 和 `src/style.css` 2 文件修改。当前指针未受只读浏览影响。[桌面比较](rc04-rc08-production-diff-desktop.png) · [生产 UI 记录](rc04-rc08-production-ui.md)。
+- 曾发现 390px 下“比较完整源码”入口落到高度受限历史面板外并被检查结果盖住。修复后在生产 `5584511` 运行独立浏览器脚本 `apps/web/tests/e2e/version-history-mobile.mjs`：登录 A、打开上述项目、设 390×844、展开来源和源码比较，两级入口均可点击，hit-test 为 PASS，未调用模型或修改项目。[生产复测截图](rc08-production-mobile-5584511.png)。
+
+本票 E38 只读差异与完整 manifest 子集已复核；E38 的回滚后沙箱文件集合归 #25，不能把本票历史查看算作回滚 PASS。
