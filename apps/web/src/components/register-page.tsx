@@ -25,18 +25,23 @@ export function RegisterPage() {
   const [pendingEmail, setPendingEmail] = useState("");
   const submitting = useRef(false);
   const problem = configurationProblem();
-  useEffect(() => { if (status === "authenticated") router.replace("/projects"); }, [status, router]);
+  function destination() {
+    const next = new URLSearchParams(window.location.search).get("next");
+    return next?.startsWith("/") && !next.startsWith("//") ? next : "/projects";
+  }
+  useEffect(() => { if (status === "authenticated") router.replace(destination()); }, [status, router]);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (submitting.current || problem || isDemoMode) return;
     if (password.length < 8) { setError(ui.text("密码至少需要 8 位。", "Use at least 8 characters for your password.")); return; }
     if (password !== confirm) { setError(ui.text("两次输入的密码不一致。", "The passwords do not match.")); return; }
     submitting.current = true; setBusy(true); setError("");
+    const target = destination();
     try {
       const result = await registerAccount({ name, email, password });
       setPassword(""); setConfirm("");
       if (result.requiresConfirmation) setPendingEmail(email.trim());
-      else router.replace("/projects");
+      else router.replace(target);
     } catch (cause) { setError(errorMessage(cause)); }
     finally { submitting.current = false; setBusy(false); }
   }

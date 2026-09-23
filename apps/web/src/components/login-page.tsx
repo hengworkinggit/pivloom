@@ -35,10 +35,11 @@ function ApiLoginPage() {
     if (submitting.current || problem) return;
     submitting.current = true;
     setError(""); setBusy(true);
+    const target = destination();
     try {
       await auth.login(email, password);
       setPassword("");
-      router.replace(destination());
+      router.replace(target);
     } catch (error) { setError(errorMessage(error)); }
     finally { submitting.current = false; setBusy(false); }
   }
@@ -64,7 +65,7 @@ function ApiLoginPage() {
             {busy ? ui.text("正在登录", "Signing in") : ui.text("进入工作空间", "Enter workspace")}<ArrowRight size={17} />
           </Button>
         </form>
-        <div className="auth-switch">{ui.text("还没有账户？", "New here?")} <Link href="/register">{ui.text("创建账户", "Create account")}</Link></div>
+        <div className="auth-switch">{ui.text("还没有账户？", "New here?")} <Link href="/register" onClick={(event) => { const next = new URLSearchParams(window.location.search).get("next"); if (next?.startsWith("/") && !next.startsWith("//")) { event.preventDefault(); router.push(`/register?next=${encodeURIComponent(next)}`); } }}>{ui.text("创建账户", "Create account")}</Link></div>
         <div className="login-demo-note"><small>{ui.text("首次进入后，在模型设置中连接你的模型。", "After signing in, connect your model in Settings.")}</small></div>
       </div>
       <p className="login-footer">{ui.text("把想法，织成应用。", "Weave your ideas into apps.")}</p>
