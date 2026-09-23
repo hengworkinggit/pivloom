@@ -13,3 +13,11 @@
 验证：新增五组/旧项/聚合契约测试 3/3，Coordinator 34/34（包括严格工具声明、纠正预算与旧平铺提交拒绝），Web 模块测试 13/13、Web 全套 85/85，API 全套 289 PASS / 59 SKIP，API/Web typecheck 与 lint 通过。初次全套中的旧 `pi-budget` 夹具仍提交 schemaVersion1 导致失败；改成五组夹具后重新完整执行，全部通过。隔离数据库集成测试须显式开启，已另行执行 1/1 PASS；默认全套会跳过它。
 
 U01 直接使用固定 Pi SDK 的 ToolDefinition/prepareArguments；U03 图像结果链和 U04 原生压缩沿用前序模块，本票没有复制或重做该机制。E39 的真实计算器两轮增量、全旧功能回归、相同部署 SHA 的浏览器演示与长上下文真实检查仍待 #26/#28 联动执行，不能用此诊断夹具替代。
+
+## 生产同一 SHA 补证（2026-09-24）
+
+- Web/API 均为 `083c22d1c72664ed61b12508aefd0954b614d65c`，[CI](https://github.com/hengworkinggit/pivloom/actions/runs/35926896205) 的全量构建与独立 PostgreSQL 作业均通过。A 全新计算器项目的关联重试 Run `4d43a018-9ce0-4c16-9b8a-5935a6895d1c` 已从真实模型取得 [原始 schema v2 Plan](rc10-a0-retry-plan.json)：G1–G5 分别有 6/10/3/4/2 项，B01–B25 共 25 项全为 required，25 个 ID 完整且唯一归组。
+- 独立生产浏览器在工作台展开五组与子项，逐个核对 B01–B25 均可读，并显示每项的条件、操作、可观察结果及“必需”；没有把 25 项裁成最多 5 条。[首组](rc10-a0-retry-plan-ui-top.png) · [末组 B25](rc10-a0-retry-plan-ui-g5-end.png)。这只是计划与展示子集，Reviewer 与最终 Check 当时仍在执行，不能据此判该计算器已通过。
+- A 的既有 v16 历史项目原始 Check `groupResults=null`、5 条旧平铺结果；同一生产浏览器只读展示“历史平铺 5/5”和原始 5 项，没有伪造为五个新组。[摘要](rc06-historical-flat-ui.png) · [明细](rc06-historical-flat-detail-ui.png)。
+
+本票的五组结构、旧 required 保留、服务端聚合与历史只读兼容已由隔离数据库和生产界面分别证明；真实计算器 A1/A2 的需求覆盖、逐轮 Check 与完整回归仍归 #26，不能用本票的模块结果替代。
