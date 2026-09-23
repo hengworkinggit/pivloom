@@ -2992,4 +2992,9 @@ svg {
 .version-history-change .diff-add { color: #24734b; background: #e5f5e9; }
 .version-history-change .diff-remove { color: #a33d3d; background: #fbe9e7; }
 .version-history-change .diff-hunk { color: #536daa; }
-@media (max-width: 640px) { .version-history { max-height: 32vh; } .version-history-current { display: none; } .version-history-details li > button { flex-wrap: wrap; } }
+@media (max-width: 640px) {
+  .version-history { max-height: 32vh; }
+  .version-history:has(.version-history-provenance[open]) { max-height: 50vh; }
+  .version-history-current { display: none; }
+  .version-history-details li > button { flex-wrap: wrap; }
+}
