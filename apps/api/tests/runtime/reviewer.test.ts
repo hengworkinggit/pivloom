@@ -221,6 +221,49 @@ test('a failed Canvas input cannot pass and is reported blocked after the one co
   expect(result.evidence.find(event=>event.id===batchEventId)?.batch?.steps.map(step=>step.success)).toEqual([true,false]);
 });
 
+test('a screenshot from before an action cannot prove that action even if its image reached the Provider',async()=>{
+  let oldArtifactId='',actionEventId='';
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    let data:Record<string,unknown>|null=null;
+    try{data=last?JSON.parse(last.content) as Record<string,unknown>:null;}catch{ /* Rejected report tool output. */ }
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_screenshot',args:{}};
+    if(n===3){oldArtifactId=String(data?.artifactId);return {name:'browser_click',args:{behaviorId:'B01',observationId:data?.observationId,ref:'e1'}};}
+    if(n===4)actionEventId=String(data?.id);
+    return {name:'submit_review',args:{...report([actionEventId]),items:[{...report([actionEventId]).items[0],screenshotIds:[oldArtifactId]}]}};
+  });
+  await expect(runReviewer({...f.input,requireVisionEvidence:true})).rejects.toMatchObject({
+    code:'AGENT_OUTPUT_INVALID',message:expect.stringContaining('IMAGE_EVIDENCE_REQUIRED'),
+  });
+  expect(f.stats().actions).toBe(1);
+});
+
+test('one successful key cannot clear a failed multi-key Canvas sequence',async()=>{
+  let lastEventId='',attempt=0;
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    let data:Record<string,unknown>|null=null;
+    try{data=last?JSON.parse(last.content) as Record<string,unknown>:null;}catch{ /* Rejected report tool output. */ }
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_key_batch',args:{behaviorId:'B01',observationId:data?.observationId,
+      steps:[{key:'ArrowUp',waitMs:100},{key:'ArrowRight',waitMs:100}]}};
+    if(n===3)return {name:'browser_key_batch',args:{behaviorId:'B01',observationId:data?.observationId,
+      steps:[{key:'ArrowUp',waitMs:100}]}};
+    if(n===4)lastEventId=String(data?.id);
+    return {name:'record_behavior',args:report([lastEventId]).items[0]};
+  });
+  f.input.browser.keyBatch=async({steps})=>{
+    attempt++;
+    return {observation:await f.input.browser.observe(),startedAt:'2026-09-23T18:00:00.000Z',
+      finishedAt:'2026-09-23T18:00:00.200Z',steps:steps.map((step,index)=>({index,...step,success:attempt!==1||index===0}))};
+  };
+  await expect(runReviewer(f.input)).rejects.toMatchObject({
+    code:'AGENT_OUTPUT_INVALID',message:expect.stringContaining('INPUT_FAILED'),
+  });
+  expect(attempt).toBe(2);
+});
+
 test('a transient provider failure is retried with bounded backoff and still reaches a real check',{timeout:90_000},async()=>{
   const f=setup((request,n)=>{
     const last=request.messages.filter(m=>m.role==='tool').at(-1);

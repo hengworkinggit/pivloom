@@ -106,11 +106,15 @@ export function getApiWorkspace() {
     async signOut() {
       const { error } = await supabase.auth.signOut({ scope: "local" });
       if (error) {
-        // Offline sign-out must still remove the local session, not restore it on reload.
+        // Clear this browser's session, but do not claim the server revoked it.
+        // A previously opened private Preview can remain accessible until Auth
+        // confirms sign-out, so the UI must show an explicit unconfirmed state.
         await supabase.auth.stopAutoRefresh();
         localStorage.removeItem(storageKey);
       }
       void clearVisitedPrivatePreviews();
+      if (error) throw new WorkspaceError("LOGOUT_UNCONFIRMED",
+        "已清除本机登录，但服务器退出未确认；旧预览可能暂时仍可访问，请稍后重试。");
     },
     subscribe(listener) {
       const { data } = supabase.auth.onAuthStateChange((event, session) => {

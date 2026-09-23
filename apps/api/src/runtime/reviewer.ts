@@ -115,7 +115,7 @@ const reportProblems = {
   RUNTIME_ERROR: '已观察到页面运行错误，不能记录为通过',
   ARTIFACT_SCOPE: '截图必须来自本次检查保存的工件',
   IMAGE_EVIDENCE_REQUIRED: '通过检查前须调用 browser_screenshot，并在下一轮模型请求中实际接收图片；仅有工件 ID 或截图文件不算视觉观察',
-  INPUT_FAILED: '键盘动作未全部执行成功，不能判定游戏行为；请重新观察后重试，仍不可操作则标记 blocked',
+  INPUT_FAILED: '键盘动作未全部执行成功，不能判定游戏行为；请重新观察后完整重试同一序列，仍不可操作则标记 blocked',
   REPORT_SCOPE: '报告须匹配当前版本，并且恰好覆盖计划中的全部行为',
   SECRET_OUTPUT: '报告不得包含受保护的凭据',
   SCHEMA_INVALID: '字段不符合报告格式，请依工具声明修正',
@@ -168,7 +168,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   const screenshots = new Map<string, { image: ImageContent; observationId: string | null }>();
   const imageDelivered = new Set<string>();
   const completedBehaviors = new Map<string, ReviewItem>();
-  const failedInputBehaviors = new Set<string>();
+  const failedInputBehaviors = new Map<string, string>();
   const redact = (text: string) => text.replaceAll(input.modelConfig.apiKey, '[REDACTED]').replace(/Bearer\s+[^\s"']+/gi,'Bearer [REDACTED]');
   const fail = (error: RuntimeError) => { fatal ??= error; abortController.abort(); return error; };
   const check = () => {
@@ -236,7 +236,12 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     // scope violation.
     if(!observations.every(e=>e))return 'OBSERVATION_SCOPE';
     if(failedInputBehaviors.has(item.behaviorId) && item.verdict!=='blocked')return 'INPUT_FAILED';
-    const actionEvidence=observations.some(e=>e?.action && e.action !== 'scroll' && !(e.action === 'press' && e.key === 'Tab') && e.behaviorId===item.behaviorId);
+    const validAction=(event:ReviewObservationEvent|undefined)=>Boolean(event?.action && event.action !== 'scroll'
+      && !(event.action === 'press' && event.key === 'Tab') && event.behaviorId===item.behaviorId
+      && (event.action!=='key_batch'||event.batch?.steps.every(step=>step.success)));
+    const actionEvidence=observations.some(validAction);
+    if(item.verdict!=='blocked' && observations.some(event=>event?.action==='key_batch'&&event.behaviorId===item.behaviorId
+      && event.batch?.steps.some(step=>!step.success)) && !actionEvidence)return 'INPUT_FAILED';
     // A static page has no interactive element to act on: observing the
     // rendered page (at least one check observation) plus a captured screenshot
     // is legitimate render/content verification. Interactive behaviors still
@@ -244,7 +249,17 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     const renderedEvidence=observations.length>=1 && item.screenshotIds.length>0;
     if(!observations.some(e=>e?.behaviorId===item.behaviorId) && !renderedEvidence)return 'OBSERVATION_NOT_BOUND';
     if(item.verdict!=='blocked' && !actionEvidence && !renderedEvidence)return 'ACTION_EVIDENCE_REQUIRED';
-    if(input.requireVisionEvidence !== false && item.verdict==='passed' && imageDelivered.size===0)return 'IMAGE_EVIDENCE_REQUIRED';
+    if(input.requireVisionEvidence !== false && item.verdict==='passed'){
+      const actionObservationIds=new Set(observations.filter(validAction).map(event=>event!.observationId));
+      const referencedObservationIds=new Set(observations.map(event=>event!.observationId));
+      const imageAfterRelevantObservation=item.screenshotIds.some(id=>{
+        const captured=screenshots.get(id);
+        return captured?.observationId && imageDelivered.has(id)
+          && (actionObservationIds.size ? actionObservationIds.has(captured.observationId)
+            : referencedObservationIds.has(captured.observationId));
+      });
+      if(!imageAfterRelevantObservation)return 'IMAGE_EVIDENCE_REQUIRED';
+    }
     if(fatalPageError&&item.verdict==='passed')return 'RUNTIME_ERROR';
   };
   const reportProblem=(report:ReviewResult):{problem:ReportProblem;behaviorId?:string}|undefined=>{
@@ -358,11 +373,12 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             lastAction=undefined;latestObservationId=undefined;
             const result=await input.browser.keyBatch({observationId:batch.observationId,steps:batch.steps});
             await active();
-            if(result.steps.some(step=>!step.success))failedInputBehaviors.add(batch.behaviorId);
-            else failedInputBehaviors.delete(batch.behaviorId);
+            const sequence=JSON.stringify(batch.steps);
+            if(result.steps.some(step=>!step.success))failedInputBehaviors.set(batch.behaviorId,sequence);
+            else if(failedInputBehaviors.get(batch.behaviorId)===sequence)failedInputBehaviors.delete(batch.behaviorId);
             lastAction={behaviorId:batch.behaviorId,action:'key_batch'};
-            const sequence={startedAt:result.startedAt,finishedAt:result.finishedAt,steps:result.steps};
-            value={...observe(result.observation,sequence),batch:sequence,revisionId:binding.revisionId,
+            const batchEvidence={startedAt:result.startedAt,finishedAt:result.finishedAt,steps:result.steps};
+            value={...observe(result.observation,batchEvidence),batch:batchEvidence,revisionId:binding.revisionId,
               sourceHash:binding.sourceHash,browserSessionId:binding.browserSessionId};
           } else if(name==='browser_form'){
             const form=schemas.browser_form.parse(params);

@@ -148,8 +148,16 @@ export function createApiWorkspace(identity: IdentityPort, transport: typeof fet
   async function logout() {
     // Clear the page and invalidate pending requests before network sign-out finishes.
     if (snapshot.user) clearDrafts(snapshot.user.id);
-    invalidate("anonymous");
-    await endSession();
+    invalidate("loading");
+    try {
+      await endSession();
+      invalidate("anonymous");
+    } catch (error) {
+      const message = error instanceof WorkspaceError && error.code === "LOGOUT_UNCONFIRMED"
+        ? error.message : "退出尚未得到服务器确认；旧预览可能暂时仍可访问，请稍后重试。";
+      invalidate("error", message);
+      throw error;
+    }
   }
   async function authorizedRequest<T>(path: string, init: RequestInit, consume: (response: Response, signal: AbortSignal) => Promise<T>): Promise<T> {
     if (snapshot.status !== "authenticated" || !snapshot.user) throw signedOut();

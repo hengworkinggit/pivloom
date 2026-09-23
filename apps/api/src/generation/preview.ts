@@ -67,6 +67,8 @@ export function createPreviewGateway(options: { publicOrigin: string; appOrigin:
     };
   }
   function find(revisionId: string) { return uuid.test(revisionId) ? entries.get(revisionId) : undefined; }
+  const previewCookie = (header: string | undefined) => (header ?? "").split(";").map((value) => value.trim())
+    .find((value) => value.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1) ?? "";
   app.options<{ Params: { revisionId: string } }>("/p/:revisionId/session", async (request, reply) => {
     if (!allowWorkbench(request, reply)) return reply.code(403).send();
     return reply.header("access-control-allow-methods", "POST")
@@ -86,6 +88,7 @@ export function createPreviewGateway(options: { publicOrigin: string; appOrigin:
   // browser hygiene; revocation is the live auth.sessions check below.
   app.post<{ Params: { revisionId: string } }>("/p/:revisionId/session/clear", async (request, reply) => {
     if (!allowWorkbench(request, reply)) return reply.code(403).send();
+    find(request.params.revisionId)?.grants.delete(previewCookie(request.headers.cookie));
     return reply.header("set-cookie", `${cookieName}=; ${cookieAttributes(request.params.revisionId, 0)}`).code(204).send();
   });
   app.route<{ Params: { revisionId: string; "*": string } }>({
@@ -94,7 +97,7 @@ export function createPreviewGateway(options: { publicOrigin: string; appOrigin:
       const entry = find(request.params.revisionId);
       if (!entry) return reply.code(404).send("找不到预览。");
       if (view(entry).state !== "ready") return reply.code(410).send("预览已到期，源码仍已保存。");
-      const cookie = (request.headers.cookie ?? "").split(";").map((value) => value.trim()).find((value) => value.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1) ?? "";
+      const cookie = previewCookie(request.headers.cookie);
       const sessionId = entry.grants.get(cookie);
       if (!sessionId || !await options.isSessionActive(entry.ownerId, sessionId)) return reply.code(403).send("请从工作台打开预览。");
       const tail = request.params["*"];
@@ -143,6 +146,14 @@ export function createPreviewGateway(options: { publicOrigin: string; appOrigin:
       const entry = entries.get(revisionId);
       if (!entry || entry.ownerId !== ownerId || view(entry).state !== "ready"
         || !uuid.test(sessionId) || !await options.isSessionActive(ownerId, sessionId)) return null;
+      // One grant per live session and revision. Reopening Preview must not grow
+      // the in-memory map, and sessions revoked by Auth are pruned on issuance.
+      for (const [grant, boundSession] of entry.grants) {
+        if (boundSession !== sessionId && !await options.isSessionActive(ownerId, boundSession)) entry.grants.delete(grant);
+      }
+      // Recheck after awaits: concurrent exchanges may have installed this
+      // session's grant while the stale-session scan was in progress.
+      for (const [grant, boundSession] of entry.grants) if (boundSession === sessionId) return grant;
       const token = randomBytes(32).toString("hex");
       entry.grants.set(token, sessionId);
       return token;

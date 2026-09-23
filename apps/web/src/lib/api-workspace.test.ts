@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createApiWorkspace, type IdentityPort, type TokenSession } from "./api-workspace";
+import { createApiWorkspace, WorkspaceError, type IdentityPort, type TokenSession } from "./api-workspace";
 import { readDraft, saveDraft } from "./drafts";
 
 afterEach(() => { sessionStorage.clear(); });
@@ -109,6 +109,18 @@ describe("real workspace HTTP/auth boundary (fixtures, not cloud E2E)", () => {
     await oldSignOut;
     await newLogin;
     expect(workspace.getSnapshot().status).toBe("authenticated");
+    workspace.dispose();
+  });
+
+  it("does not report a server-revoked logout when the identity service cannot confirm it", async () => {
+    const workspace = createApiWorkspace({ ...identityFixture(),
+      signOut: async () => { throw new WorkspaceError("LOGOUT_UNCONFIRMED", "服务器退出未确认；旧预览可能仍可访问。"); },
+    }, async () => Response.json({ user: profile }));
+    await workspace.initialize();
+    await expect(workspace.logout()).rejects.toMatchObject({ code: "LOGOUT_UNCONFIRMED" });
+    expect(workspace.getSnapshot()).toMatchObject({ status: "error", user: null,
+      error: expect.stringContaining("旧预览可能仍可访问") });
+    await expect(workspace.listProjects()).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
     workspace.dispose();
   });
 

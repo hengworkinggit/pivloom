@@ -34,6 +34,9 @@ test("private Preview is bound to owner, revision and a live Supabase session wi
   const second = await gateway.issueGrant(owner, revision, a2);
   if (!first || !second) throw new Error("live owner sessions must receive Preview grants");
   expect(first).not.toBe(second);
+  expect(await gateway.issueGrant(owner, revision, a1)).toBe(first);
+  expect(await gateway.issueGrant(owner, revision, a2)).toBe(second);
+  expect(await Promise.all([gateway.issueGrant(owner, revision, a2), gateway.issueGrant(owner, revision, a2)])).toEqual([second, second]);
   const exchange = async (grant: string) => gateway.app.inject({ method: "POST", url: `/p/${revision}/session`,
     headers: { host: url.host, origin: "https://app.example.com", authorization: `Preview ${grant}` } });
   expect((await exchange("invalid")).statusCode).toBe(403);
@@ -67,4 +70,10 @@ test("private Preview is bound to owner, revision and a live Supabase session wi
   expect(cleared.statusCode).toBe(204);
   expect(String(cleared.headers["set-cookie"])).toContain(`Path=/p/${revision}/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`);
   expect(String(cleared.headers["set-cookie"])).not.toMatch(/(?:^|;)\s*Domain=/i);
+  const clearedSecond = await gateway.app.inject({ method: "POST", url: `/p/${revision}/session/clear`,
+    headers: { host: url.host, origin: "https://app.example.com", cookie: cookie2 } });
+  expect(clearedSecond.statusCode).toBe(204);
+  expect((await exchange(second)).statusCode).toBe(403);
+  const renewedSecond = await gateway.issueGrant(owner, revision, a2);
+  expect(renewedSecond).not.toBe(second);
 });
