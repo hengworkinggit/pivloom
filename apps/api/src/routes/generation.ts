@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
   CancelRunResponseSchema, CreateRunRequestSchema, CreateRunResponseSchema, PreviewResponseSchema, PreviewAccessResponseSchema,
-  RestorePreviewRequestSchema,
+  RestorePreviewRequestSchema, RollbackRequestSchema,
 } from "@pivloom/contracts";
 import type { GenerationService } from "../generation/service.js";
 import { ApiFailure } from "./errors.js";
@@ -57,6 +57,23 @@ export async function registerGenerationRoutes(app: FastifyInstance, options: {
       const body = parseInput(RestorePreviewRequestSchema, request.body);
       const key = parseInput(z.uuid(), request.headers["idempotency-key"]);
       return service().restorePreview(ownerId, projectId, { revisionId: body.revisionId, idempotencyKey: key });
+    });
+    secured.post("/api/v1/projects/:id/rollback", async (request, reply) => {
+      const ownerId = requireOwner(request), projectId = id(request);
+      const body = parseInput(RollbackRequestSchema, request.body);
+      const idempotencyKey = parseInput(z.uuid(), request.headers["idempotency-key"]);
+      const result = await service().rollback(ownerId, projectId, { ...body, idempotencyKey });
+      return reply.header("cache-control", "private, no-store").code(result.replayed ? 200 : 202).send(result);
+    });
+    secured.get("/api/v1/projects/:id/rollback/:operationId", async (request, reply) => {
+      const ownerId = requireOwner(request), projectId = id(request);
+      const operationId = parseInput(z.uuid(), (request.params as { operationId: string }).operationId);
+      return reply.header("cache-control", "private, no-store").send(await service().rollbackStatus(ownerId, projectId, operationId));
+    });
+    secured.post("/api/v1/projects/:id/rollback/:operationId/cancel", async (request, reply) => {
+      const ownerId = requireOwner(request), projectId = id(request);
+      const operationId = parseInput(z.uuid(), (request.params as { operationId: string }).operationId);
+      return reply.header("cache-control", "private, no-store").send(await service().cancelRollback(ownerId, projectId, operationId));
     });
     secured.get("/api/v1/projects/:id/publication", async (request) =>
       service().publication(requireOwner(request), id(request)));

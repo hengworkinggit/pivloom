@@ -25,6 +25,7 @@ export interface RestorePreviewResult {
   handle: WorkspaceHandle;
   trustedBuild: TrustedBuildRecord;
   sourceHash: string;
+  files: SourceFile[];
   upstreamUrl: string;
   headers: Record<string, string>;
 }
@@ -74,6 +75,7 @@ export async function restorePreview(
       handle,
       trustedBuild: built.trustedBuild,
       sourceHash: built.sourceHash,
+      files: built.files,
       upstreamUrl: built.upstreamUrl,
       headers: built.headers,
     };

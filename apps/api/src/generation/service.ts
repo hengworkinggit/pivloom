@@ -1,6 +1,6 @@
 import {
   RevisionCheckResponseSchema, ProjectDetailResponseSchema, RunDetailResponseSchema, RevisionFileResponseSchema,
-  RevisionFilesResponseSchema, TerminalRunStates, RestorePreviewResponseSchema,
+  RevisionFilesResponseSchema, TerminalRunStates, RestorePreviewResponseSchema, RollbackResponseSchema,
   type Preview, type CreateRunRequest,
 } from "@pivloom/contracts";
 import type { PivloomDatabase } from "../data/database.js";
@@ -15,6 +15,8 @@ import type { IdentityConfig } from "../config/identity.js";
 import type { SandboxConfig } from "../runtime/types.js";
 import { ApiFailure, unauthenticated } from "../routes/errors.js";
 import { createGenerationExecutor } from "./executor.js";
+import { createRollbackRepository } from "../data/rollback.js";
+import { createRollbackExecutor } from "./rollback.js";
 import { destroyCandidateSandbox } from "./candidate.js";
 import { createPreviewGateway } from "./preview.js";
 import { createRunEventHub, openRunEventStream, type RunEventLimits } from "./events.js";
@@ -39,6 +41,7 @@ export function createGenerationService(options: {
     dailyLimitByOwner: options.dailyLimitByOwner,
     onCommittedEvent: eventHub.publish,
   });
+  const rollbacks = createRollbackRepository(options.database);
   const sources = createSourceStore({ url: options.identity.supabaseUrl, secret: options.identity.supabaseSecretKey, objects: options.sourceObjects });
   const artifacts = createArtifactStore({ url: options.identity.supabaseUrl, secret: options.identity.supabaseSecretKey, objects: options.artifactObjects });
   const previews = createPreviewGateway({ publicOrigin: options.previewOrigin, appOrigin: options.identity.appOrigin,
@@ -49,6 +52,8 @@ export function createGenerationService(options: {
     }),
   });
   const executor = createGenerationExecutor({ repository, models: options.models, sources, artifacts, previews, sandbox: options.sandbox, maxSandboxes: options.maxSandboxes }, options.generationBoundaries);
+  const rollbackExecutor = createRollbackExecutor({ repository: rollbacks, generation: repository, sources, previews,
+    sandbox: options.sandbox }, options.generationBoundaries);
   const publications = options.publishedBaseUrl ? createPublicationStore({
     root: options.publishedRoot ?? "/opt/pivloom/published", baseUrl: options.publishedBaseUrl, sandbox: options.sandbox,
   }) : null;
@@ -56,6 +61,7 @@ export function createGenerationService(options: {
   let recovering: Promise<number> | undefined;
   const bootRestoreClaims = new Map<string, { ownerId: string; projectId: string; sandboxId: string }>();
   let bootRestoreScanComplete = false;
+  let bootRollbackScanComplete = false;
   const recoverySweepMs = options.recoverySweepMs ?? 30_000;
   if (!Number.isInteger(recoverySweepMs) || recoverySweepMs < 1) throw new Error("Recovery sweep interval must be positive");
 
@@ -76,14 +82,21 @@ export function createGenerationService(options: {
         : failure?.message ?? "预览暂时不可用，源码仍已保存。" };
   }
 
+  async function rehydrateRollbackPreview(ownerId: string, projectId: string, revisionId: string, binding: StoredSandboxBinding | null) {
+    if (!binding || binding.state !== "active" || previews.get(ownerId, revisionId)?.state === "ready") return;
+    const committed = await rollbacks.committedForBinding(ownerId, projectId, revisionId, binding.sandboxId);
+    if (committed) await rollbackExecutor.rehydrate(committed).catch(() => {});
+  }
+
   async function preview(ownerId: string, projectId: string, revisionId?: string): Promise<Preview | null> {
     const project = await projects.get(ownerId, projectId);
     const selected = revisionId ?? project.currentRevisionId;
     if (!selected) return null;
     const revision = await repository.getRevision(ownerId, selected);
     if (revision.projectId !== projectId) throw new ApiFailure(404, "NOT_FOUND", "找不到这个项目资源。");
-    return previewView(ownerId, revision, await repository.getPreviewBinding(ownerId, projectId, selected),
-      await repository.getActiveRestore(ownerId, projectId, selected));
+    const binding = await repository.getPreviewBinding(ownerId, projectId, selected);
+    await rehydrateRollbackPreview(ownerId, projectId, selected, binding);
+    return previewView(ownerId, revision, binding, await repository.getActiveRestore(ownerId, projectId, selected));
   }
 
   async function retryBootRestoreClaims() {
@@ -127,6 +140,12 @@ export function createGenerationService(options: {
     } else {
       await retryBootRestoreClaims();
     }
+    if (!bootRollbackScanComplete) {
+      await rollbackExecutor.recoverAtBoot();
+      bootRollbackScanComplete = true;
+    } else {
+      await rollbackExecutor.retryClaims();
+    }
     return claim.rows.length;
   }
 
@@ -150,6 +169,7 @@ export function createGenerationService(options: {
 
   return {
     repository,
+    rollbacks,
     previews,
     recover,
     openEvents(ownerId: string, runId: string, after: string, signal: AbortSignal) {
@@ -160,17 +180,29 @@ export function createGenerationService(options: {
     },
     start(run: StoredRun) { executor.start(run); },
     async projectDetail(ownerId: string, projectId: string) {
-      const { project, messages, latestRun, currentRevision, latestCandidate, binding } = await repository.readProjectSnapshot(ownerId, projectId);
-      const selected = latestCandidate ?? currentRevision;
+      const { project, messages, latestRun, currentRevision, latestCandidate, binding, lastRollbackAt } = await repository.readProjectSnapshot(ownerId, projectId);
+      const selected = latestCandidate && (!lastRollbackAt || Date.parse(latestCandidate.createdAt) > Date.parse(lastRollbackAt))
+        ? latestCandidate : currentRevision ?? latestCandidate;
+      const visibleCandidate = selected?.id === latestCandidate?.id ? latestCandidate : null;
+      // Earlier Runs remain in history, but an old v3 Run cannot be the live
+      // conversational baseline after the project has switched back to v1.
+      const visibleLatestRun = latestRun && (!lastRollbackAt || Date.parse(latestRun.createdAt) >= Date.parse(lastRollbackAt))
+        ? latestRun : null;
+      const selectedBinding = selected && binding?.revisionId !== selected.id
+        ? await repository.getPreviewBinding(ownerId, projectId, selected.id) : binding;
+      if (selected) await rehydrateRollbackPreview(ownerId, projectId, selected.id, selectedBinding);
       const quota = await repository.quota(ownerId);
-      return ProjectDetailResponseSchema.parse({ project, messages, latestRun, currentRevision, latestCandidate,
-        latestCheck: selected ? await repository.getRunCheck(ownerId, selected.runId) : null,
-        activeRun: latestRun && (!TerminalRunStates.has(latestRun.state) || latestRun.cleanupState === "pending") ? latestRun : null,
-        preview: selected ? previewView(ownerId, selected, binding, await repository.getActiveRestore(ownerId, projectId, selected.id)) : null,
+      const latestCheck = selected ? await repository.getRunCheck(ownerId, selected.runId) : null;
+      return ProjectDetailResponseSchema.parse({ project, messages, latestRun: visibleLatestRun, currentRevision, latestCandidate: visibleCandidate,
+        latestCheck, latestCheckHistorical: Boolean(latestCheck && lastRollbackAt
+          && Date.parse(latestCheck.createdAt) <= Date.parse(lastRollbackAt) && selected?.id === currentRevision?.id),
+        activeRun: visibleLatestRun && (!TerminalRunStates.has(visibleLatestRun.state) || visibleLatestRun.cleanupState === "pending") ? visibleLatestRun : null,
+        preview: selected ? previewView(ownerId, selected, selectedBinding, await repository.getActiveRestore(ownerId, projectId, selected.id)) : null,
         quota });
     },
     async runDetail(ownerId: string, runId: string) {
       const { run, revision, events, binding, roles } = await repository.readRunSnapshot(ownerId, runId);
+      if (revision) await rehydrateRollbackPreview(ownerId, revision.projectId, revision.id, binding);
       return RunDetailResponseSchema.parse({ run, revision, events, roles,
         preview: revision ? previewView(ownerId, revision, binding) : null });
     },
@@ -237,6 +269,21 @@ export function createGenerationService(options: {
       return RestorePreviewResponseSchema.parse({ operationId: restore.id,
         preview: previewView(ownerId, revision, binding, restore) });
     },
+    async rollback(ownerId: string, projectId: string, input: {
+      targetRevisionId: string; expectedCurrentRevisionId: string; idempotencyKey: string;
+    }) {
+      const accepted = await rollbacks.begin(ownerId, projectId, input);
+      if (!accepted.replayed) rollbackExecutor.start(accepted.operation);
+      return RollbackResponseSchema.parse(accepted);
+    },
+    async rollbackStatus(ownerId: string, projectId: string, operationId: string) {
+      return RollbackResponseSchema.parse({ operation: await rollbacks.get(ownerId, projectId, operationId), replayed: true });
+    },
+    async cancelRollback(ownerId: string, projectId: string, operationId: string) {
+      const operation = await rollbacks.cancel(ownerId, projectId, operationId);
+      if (operation.status === "cancel_requested") rollbackExecutor.cancel(operation);
+      return RollbackResponseSchema.parse({ operation, replayed: true });
+    },
     async check(ownerId: string, revisionId: string) {
       const revision = await repository.getRevision(ownerId, revisionId);
       const check = await repository.getRunCheck(ownerId, revision.runId);
@@ -264,6 +311,7 @@ export function createGenerationService(options: {
       clearInterval(recoveryTimer);
       await recovering?.catch(() => {});
       await executor.close();
+      await rollbackExecutor.close();
       await previews.close();
     },
   };

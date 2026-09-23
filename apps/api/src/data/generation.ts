@@ -39,6 +39,7 @@ export interface RunReadSnapshot {
 export interface ProjectReadSnapshot {
   project: ProjectSummary; messages: ProjectMessage[]; currentRevision: StoredRevision | null;
   latestCandidate: StoredRevision | null; latestRun: StoredRun | null; binding: StoredSandboxBinding | null;
+  lastRollbackAt: string | null;
 }
 export type AcceptRunInput = Omit<CreateRunRequest, "retryOfRunId" | "parentRunId"> & {
   idempotencyKey: string; retryOfRunId?: string | null; parentRunId?: string | null;
@@ -132,6 +133,7 @@ function storedProject(row: Row): ProjectSummary {
 }
 function storedMessage(row: Row): ProjectMessage {
   return ProjectMessageSchema.parse({ id: row.id, projectId: row.project_id, runId: row.run_id,
+    rollbackId: row.rollback_id ?? null,
     kind: row.kind, content: row.content, createdAt: date(row.created_at).toISOString() });
 }
 function storedRun(row: Row): StoredRun {
@@ -317,6 +319,7 @@ export function createGenerationRepository(
     readProjectSnapshot: (ownerId, projectId) => owned(ownerId, async (client) => {
       const result = await client.query(`SELECT p.*, to_jsonb(latest) AS latest_run_json, to_jsonb(current) AS current_revision_json,
         to_jsonb(candidate) AS latest_candidate_json, to_jsonb(binding) AS binding_json,
+        (SELECT max(rb.finished_at) FROM nano.rollbacks rb WHERE rb.owner_id=p.owner_id AND rb.project_id=p.id AND rb.status='committed') AS last_rollback_at,
         coalesce((SELECT jsonb_agg(to_jsonb(m) ORDER BY m.created_at,m.id) FROM nano.messages m
           WHERE m.owner_id=p.owner_id AND m.project_id=p.id),'[]'::jsonb) AS messages_json
         FROM nano.projects p
@@ -335,7 +338,8 @@ export function createGenerationRepository(
         currentRevision: row.current_revision_json ? storedRevision(row.current_revision_json) : null,
         latestCandidate: row.latest_candidate_json ? storedRevision(row.latest_candidate_json) : null,
         latestRun: row.latest_run_json ? storedRun(row.latest_run_json) : null,
-        binding: row.binding_json ? storedSandbox(row.binding_json) : null };
+        binding: row.binding_json ? storedSandbox(row.binding_json) : null,
+        lastRollbackAt: row.last_rollback_at ? date(row.last_rollback_at).toISOString() : null };
     }),
     async accept(ownerId, projectId, input) {
       const { idempotencyKey, ...body } = input;

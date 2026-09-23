@@ -34,6 +34,9 @@ export const ProjectDetailResponseSchema = z.object({
   latestRun: RunSchema.nullable().default(null),
   latestCandidate: RevisionSchema.nullable().default(null),
   latestCheck: CheckSchema.nullable().default(null),
+  // An accepted revision restored by rollback carries its original Check. No
+  // new browser verification is implied by rebuilding the Preview.
+  latestCheckHistorical: z.boolean().optional(),
   preview: PreviewSchema.nullable(),
   // Optional so older stored snapshots and test fixtures stay valid.
   quota: ProjectQuotaSchema.nullish(),

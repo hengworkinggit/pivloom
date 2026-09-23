@@ -47,7 +47,8 @@ export const CreateRunResponseSchema = z.object({
 export type CreateRunResponse = z.infer<typeof CreateRunResponseSchema>;
 
 export const ProjectMessageSchema = z.object({
-  id: z.uuid(), projectId: z.uuid(), runId: z.uuid(), kind: z.enum(["user", "result", "question"]),
+  id: z.uuid(), projectId: z.uuid(), runId: z.uuid().nullable(), rollbackId: z.uuid().nullable().optional(),
+  kind: z.enum(["user", "result", "question", "rollback"]),
   content: z.string().max(8000), createdAt: z.iso.datetime(),
 });
 export type ProjectMessage = z.infer<typeof ProjectMessageSchema>;
@@ -133,6 +134,21 @@ export const RestorePreviewResponseSchema = z.object({
   preview: PreviewSchema,
 });
 export type RestorePreviewResponse = z.infer<typeof RestorePreviewResponseSchema>;
+
+export const RollbackRequestSchema = z.strictObject({
+  targetRevisionId: z.uuid(), expectedCurrentRevisionId: z.uuid(),
+});
+export type RollbackRequest = z.infer<typeof RollbackRequestSchema>;
+export const RollbackOperationSchema = z.object({
+  id: z.uuid(), projectId: z.uuid(), fromRevisionId: z.uuid(), targetRevisionId: z.uuid(),
+  sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+  status: z.enum(["preparing", "prepared", "cancel_requested", "cleanup_pending", "committed", "failed", "cancelled"]),
+  error: z.object({ code: z.string(), message: z.string() }).nullable(),
+  createdAt: z.iso.datetime(), finishedAt: z.iso.datetime().nullable(),
+});
+export type RollbackOperation = z.infer<typeof RollbackOperationSchema>;
+export const RollbackResponseSchema = z.object({ operation: RollbackOperationSchema, replayed: z.boolean() });
+export type RollbackResponse = z.infer<typeof RollbackResponseSchema>;
 
 export const ProjectQuotaSchema = z.object({
   dailyLimit: z.number().int().nonnegative(),

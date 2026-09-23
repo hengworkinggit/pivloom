@@ -81,15 +81,17 @@ jobs:
           npm test --workspace @pivloom/api --
           tests/generation/build-repair.integration.test.ts
           tests/generation/recovery-service.integration.test.ts
+          tests/generation/rollback.integration.test.ts
         env:
           PIVLOOM_REPAIR_INTEGRATION: '1'
+          PIVLOOM_ROLLBACK_INTEGRATION: '1'
       - name: State the verification boundary
         if: always()
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
           This job uses real PostgreSQL 17.6, all repository migrations, and two separate CI databases.
           The minimal `auth.users` table is an FK fixture, not a running Supabase Auth service.
-          The repair suite supplies persistence fixtures; recovery uses an external sandbox HTTP fixture.
+          The repair and rollback suites supply persistence fixtures; recovery uses an external sandbox HTTP fixture.
           Test encryption keys are generated randomly inside each suite. No user, provider or SSH secrets are used.
           Real model generation and Codex browser E2E remain separate release gates; this workflow does not deploy.
           SUMMARY
