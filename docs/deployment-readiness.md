@@ -51,3 +51,18 @@ Supabase DB/Auth/REST/私有 Storage 四个服务已运行并验收。API 使用
 沙箱采用已实测OpenSandbox Docker + gVisor systrap，无需KVM或E2B账号。E2B Embed可裁剪内存配置，但仍依赖本机未暴露的硬件虚拟化，故本轮不采用；推荐12GiB不是硬性最低值。方案比较见[轻量沙箱评估](sandbox-options.md)，E2B依据见[Embed](https://github.com/e2b-dev/runtime/blob/main/embed/compose/README.md)。
 
 真实 API、自托管服务、模型/沙箱连接、迁移与测试身份已完成基础验收。后续仍需完成 Reviewer、版本迭代等产品模块、最终部署配置及公网 E2E；当前本地前端与远端 API 的开发组合不能被描述为完整产品上线。
+
+## 公网部署现状（2026-09-23，dev07-16 / web-20260922-dev07-02）
+
+前端已迁入宿主并与既有站点共存。工作台、API、SSE 与身份同源，预览每版本独立 origin：
+
+| 入口 | 地址 | 回环端口 |
+|---|---|---|
+| 工作台（含同源 API/SSE/身份路径） | https://pivloom-69-5-7-187.sslip.io | Web 18012 → API 18010 / 身份网关 54321 |
+| 预览（每版本一个 hostname） | `https://<revisionId>.preview-pivloom-69-5-7-187.sslip.io` | 预览网关 18011 |
+| 原站点（未改动） | https://beats-steps-69-5-7-187.sslip.io | 3000 |
+
+- Caddy 采用「命名站点各自管理证书 + 兜底 `:443` 站点按需签发」；按需签发前向 `GET /api/v1/preview/tls-check?domain=` 询问，只有真实存在的 revision 子域返回 200，其余 403，避免共享后缀被用来消耗证书签发配额。
+- 验收结果与逐项证据见 `artifacts/dev-07-2026-09-23/public-acceptance.md`；可复跑的探针为 `.cache/development/verify-public.sh <workbench-host> <preview-host> [revisionId]`。
+- 域名切换脚本：`.cache/development/switch-domain.sh <workbench-host> <preview-host>`（备份配置 → 改写来源 → 用新预览源重建前端 → 校验并 reload 代理 → 切换发布 → 自动回归）。
+- 仍待落实：正式公网域名与 DNS（工作台主机 + 预览主机，预览需 `<revisionId>.<preview-host>` 泛解析）。当前 sslip.io 派生名已完成全部功能验收，但正式域名切换后需按本文前述条目复验 DNS、TLS 覆盖、Caddy 保留 Host、CSP、iframe cookie 与跨版本 localStorage 隔离。

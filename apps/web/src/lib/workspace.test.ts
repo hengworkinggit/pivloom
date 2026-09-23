@@ -48,3 +48,41 @@ it("reports an identity rate limit as temporary unavailability instead of incorr
   expect(workspace.getSnapshot().user).toBeNull();
   workspace.dispose();
 });
+
+// The product rule is that production never silently degrades to the bundled
+// demo service: a missing or unusable configuration must surface as an error,
+// and only the explicit demo mode may wire up the mock implementation.
+it("never falls back to the demo service when api mode is misconfigured", async () => {
+  vi.stubEnv("NEXT_PUBLIC_APP_MODE", "api");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "");
+  const { getWorkspaceAuth, getApiWorkspace } = await import("./workspace");
+  const auth = getWorkspaceAuth();
+  expect(auth.mode).toBe("api");
+  await auth.initialize();
+  expect(auth.getSnapshot().status).toBe("error");
+  expect(auth.getSnapshot().error).toContain("NEXT_PUBLIC_SUPABASE_URL");
+  await expect(auth.login("owner@example.test", "fixture-password"))
+    .rejects.toMatchObject({ code: "CONFIGURATION_ERROR" });
+  // A misconfigured api workspace refuses to hand out a client at all, so no
+  // request can be answered by local fixture data.
+  expect(() => getApiWorkspace()).toThrowError(/CONFIGURATION_ERROR|工作空间尚未配置/);
+});
+
+it("wires the demo service only when demo mode is explicitly requested", async () => {
+  vi.stubEnv("NEXT_PUBLIC_APP_MODE", "demo");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "");
+  const { getWorkspaceAuth, getApiWorkspace } = await import("./workspace");
+  expect(getWorkspaceAuth().mode).toBe("demo");
+  // The demo mode is the only place the mock workspace is reachable, and the
+  // api client stays unavailable there.
+  expect(() => getApiWorkspace()).toThrowError(/演示模式|MODE_MISMATCH/);
+});
+
+it("rejects an unknown app mode instead of picking one", async () => {
+  vi.stubEnv("NEXT_PUBLIC_APP_MODE", "staging");
+  const { getWorkspaceAuth, configurationProblem } = await import("./workspace");
+  expect(configurationProblem()).toContain("NEXT_PUBLIC_APP_MODE");
+  expect(getWorkspaceAuth().getSnapshot().status).toBe("error");
+});
