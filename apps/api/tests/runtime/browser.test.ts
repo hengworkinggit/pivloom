@@ -106,6 +106,22 @@ async function fixture(sessionId?: string) {
   };
 }
 
+test('a lost blank document is recoverable without allowing any external origin',async()=>{
+  const f=await fixture();
+  try{
+    await f.browser.open();
+    f.state.url='about:blank';
+    await expect(f.browser.observe()).rejects.toMatchObject({code:'BROWSER_SESSION_LOST'});
+    expect((await f.browser.close()).confirmed).toBe(true);
+  }finally{await f.cleanup();}
+  const external=await fixture();
+  try{
+    await external.browser.open();
+    external.state.url='https://example.invalid/';
+    await expect(external.browser.observe()).rejects.toMatchObject({code:'BROWSER_ORIGIN_REJECTED'});
+  }finally{await external.cleanup();}
+});
+
 function browser() {
   return new RemoteBrowser(
     new OpenSandboxWorkspace({

@@ -168,6 +168,7 @@ const browserFailureDiagnostics = new Map([
   ['BROWSER_TIMEOUT','BROWSER_TIMEOUT'],
   ['COMMAND_TIMEOUT','BROWSER_TIMEOUT'],
   ['BROWSER_ORIGIN_REJECTED','BROWSER_ORIGIN_REJECTED'],
+  ['BROWSER_SESSION_LOST','BROWSER_SESSION_LOST'],
   ['BROWSER_BLOCKED','BROWSER_BLOCKED'],
 ]);
 const schemaIssuePath = (issues: ReadonlyArray<{path:PropertyKey[]}>, fields = reportFields, fallback = 'report') => {

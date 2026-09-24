@@ -372,6 +372,10 @@ export class RemoteBrowser {
     } catch {
       /* Malformed URL is treated like an origin escape. */
     }
+    if (url?.href === "about:blank") {
+      await this.close();
+      throw new RuntimeError("BROWSER_SESSION_LOST", "检查浏览器已丢失候选页面，需要新会话重新检查");
+    }
     if (
       !url ||
       url.origin !== "http://127.0.0.1:4173" ||

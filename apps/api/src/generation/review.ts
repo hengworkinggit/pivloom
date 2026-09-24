@@ -24,6 +24,7 @@ const blockedReasons=new Map([
   ['BROWSER_TIMEOUT','浏览器操作超时，已停止后续操作，当前候选尚未通过检查。'],
   ['COMMAND_TIMEOUT','浏览器操作超时，已停止后续操作，当前候选尚未通过检查。'],
   ['BROWSER_ORIGIN_REJECTED','浏览器离开了绑定的候选预览，已停止检查。'],
+  ['BROWSER_SESSION_LOST','检查浏览器丢失了候选页面，需在新浏览器会话重新检查。'],
   ['BROWSER_BLOCKED','浏览器无法访问或完成页面操作，当前候选尚未通过检查。'],
   ['REVIEWER_TOOL_FAILED','浏览器无法访问或完成页面操作，当前候选尚未通过检查。'],
   ['VISION_NOT_VERIFIED','当前模型的图像能力未通过实际图片测试，请在模型设置中验证支持图像的配置；当前候选尚未完成视觉检查。'],
@@ -111,8 +112,8 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     if(error instanceof RuntimeError&&error.usage)usage=error.usage;
     if(reviewerStarted && error instanceof RuntimeError){
       const code=error.diagnosticCode??error.code;
-      if(code==='BROWSER_BLOCKED'||code==='BROWSER_TIMEOUT'||code==='COMMAND_TIMEOUT')
-        recoverableInfrastructureCode=code==='COMMAND_TIMEOUT'?'BROWSER_TIMEOUT':code;
+      if(code==='BROWSER_BLOCKED'||code==='BROWSER_TIMEOUT'||code==='COMMAND_TIMEOUT'||code==='BROWSER_SESSION_LOST')
+        recoverableInfrastructureCode=code==='BROWSER_SESSION_LOST'?'BROWSER_BLOCKED':code==='COMMAND_TIMEOUT'?'BROWSER_TIMEOUT':code;
     }
     const versionMismatch=error instanceof RuntimeError&&error.code==='CHECK_VERSION_MISMATCH';
     const reason=error instanceof RuntimeError?blockedReasons.get(error.code)??blockedReasons.get(error.diagnosticCode??''):undefined;
