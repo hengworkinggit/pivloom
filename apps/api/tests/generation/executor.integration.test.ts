@@ -120,7 +120,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     await database?.close(); await admin?.end();
   }, 30_000);
 
-  async function fixture(mode: "normal" | "build-once" | "tool-budget" | "cleanup-fails" | "restore-cleanup-fails" | "restore-build-fails" | "cancel-builder" | "cancel-builder-cleanup-fails" | "model-fails",
+  async function fixture(mode: "normal" | "review-blocked" | "build-once" | "tool-budget" | "cleanup-fails" | "restore-cleanup-fails" | "restore-build-fails" | "cancel-builder" | "cancel-builder-cleanup-fails" | "model-fails",
     options: { failCancelledWrites?: number; failFailedWrites?: number; failRestoreWrites?: number; settlementRetryMs?: number; cleanupSweepMs?: number;
       observeTerminalWrites?: boolean;
       beforeModelFailure?: () => Promise<void> } = {}) {
@@ -243,8 +243,9 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
             && message.content.some((part: { type: string; image_url?: { url: string } }) => part.type === "image_url"
               && part.image_url?.url.startsWith("data:image/png;base64,")))).toBe(true);
           const failed = completed === 0 && (mode === "tool-budget" || mode === "cleanup-fails") && builderSessions === 1;
-          calls = [{ name: "record_behavior", args: { behaviorId: current.id, verdict: failed ? "failed" : "passed",
-            expected: current.expected, actual: failed ? "点击后仍为0" : `点击后观察 ${current.id}`,
+          const blocked = mode === "review-blocked" && completed === 0;
+          calls = [{ name: "record_behavior", args: { behaviorId: current.id, verdict: blocked ? "blocked" : failed ? "failed" : "passed",
+            expected: current.expected, actual: blocked ? "隔离夹具无法确认计数行为" : failed ? "点击后仍为0" : `点击后观察 ${current.id}`,
             observationEventIds: [observation.id], screenshotIds: [screenshot.artifactId], reproSteps: [`点击加一检查 ${current.id}`] } }];
         }
       }
@@ -319,6 +320,34 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     expect(bundle.files.find((file) => file.path === "README.md")?.content).toBe("preserve this existing file across modifications");
     expect(repair.builderPrompts[1]).toContain("TS1005");
     expect((await repository.getRevision(owner, before.id)).sourceHash).toBe(before.sourceHash);
+  }, 900_000);
+
+  test("a terminal blocked Reviewer preserves source and Check but destroys its candidate sandbox and frees the slot", async () => {
+    const remote = await fixture("review-blocked");
+    const result = await run(remote);
+    expect(result.run.state).toBe("failed");
+    expect(result.revision?.sourceHash).toMatch(/^[a-f0-9]{64}$/);
+    expect((await sources.load(result.revision!.source)).files.find((file) => file.path === "src/App.tsx")?.content)
+      .toContain("加一");
+    const checks = await admin.query("SELECT verdict FROM nano.checks WHERE run_id=$1", [result.run.id]);
+    expect(checks.rows.map((row: { verdict: string }) => row.verdict)).toEqual(["blocked"]);
+    expect([...remote.remotes.values()].map((sandbox) => sandbox.live)).toEqual([false]);
+    expect(result.binding?.state).toBe("destroyed");
+    const occupied = await admin.query("SELECT count(*)::int AS n FROM nano.sandboxes WHERE run_id=$1 AND state NOT IN ('destroyed','expired')", [result.run.id]);
+    expect(occupied.rows[0].n).toBe(0);
+    const next = await repository.accept(owner, result.projectId, { idempotencyKey: randomUUID(), text: "修复后再试",
+      expectedCurrentRevisionId: null, modelProfileId: model.id, modelConfigVersion: model.configVersion });
+    leases.push(next.run.credentialLeaseId);
+    expect(next.run.state).toBe("accepted");
+    await repository.finishCancelled(owner, next.run.id, { cleanupState: "confirmed", summary: "隔离夹具已结束" });
+  }, 900_000);
+
+  test("only an accepted Reviewer result retains the current candidate preview", async () => {
+    const remote = await fixture("normal");
+    const result = await run(remote);
+    expect(result.run.state).toBe("completed");
+    expect(result.binding?.state).toBe("active");
+    expect([...remote.remotes.values()].map((sandbox) => sandbox.live)).toEqual([true]);
   }, 900_000);
 
   test("Reviewer actions consume the same tool allowance as the next repair Builder", async () => {

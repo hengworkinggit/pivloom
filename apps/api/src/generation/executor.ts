@@ -283,7 +283,13 @@ export function createGenerationExecutor(options: {
         task.commitUnknown = true;
         const completion = await repository.finishReview(run.ownerId, run.id, { receipt: checked.receipt, usage: activeUsage });
         task.commitUnknown = false;
-        if (completion.repairNextAttempt === null) { retained = true; task.retained = true; break; }
+        if (completion.repairNextAttempt === null) {
+          // A terminal blocked or rejected Check keeps its saved source and
+          // evidence, but must release the candidate sandbox immediately.
+          // Only the accepted current revision keeps a live Preview.
+          if (completion.run.state === "completed") { retained = true; task.retained = true; }
+          break;
+        }
         // The rejected candidate keeps its saved source for inspection, but its
         // sandbox is released so one project never holds two live candidates.
         failedChecks = completion.check.items.filter((item) => item.verdict !== "passed")
@@ -308,8 +314,8 @@ export function createGenerationExecutor(options: {
         // If the DB cannot answer yet, retain the remote until retrySettlement.
         const persisted = await repository.getRun(run.ownerId, run.id);
         if (TerminalRunStates.has(persisted.state)) {
-          retained = true;
-          task.retained = true;
+          task.commitUnknown = false;
+          if (persisted.state === "completed") { retained = true; task.retained = true; }
           return;
         }
         task.commitUnknown = false;
@@ -367,7 +373,7 @@ export function createGenerationExecutor(options: {
     if (task.settling) return task.settling;
     const attempt = (async () => {
       let saved = await repository.getRun(run.ownerId, run.id);
-      if (saved.state === "completed" || (task.commitUnknown && TerminalRunStates.has(saved.state))) task.retained = true;
+      if (saved.state === "completed") task.retained = true;
       if (!task.retained) {
         for (const resource of [...resources.values()].filter((item) => !item.restore && item.runId === run.id))
           await destroy(resource).catch(() => false);
