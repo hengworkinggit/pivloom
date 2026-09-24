@@ -1,0 +1,26 @@
+{
+  "failed": {
+    "runId": "5aa0e14c-bfdd-4327-8552-9c2473f63f8c",
+    "state": "failed",
+    "cleanupState": "confirmed",
+    "errorCode": "MODEL_FAILED",
+    "providerCalls": 1,
+    "projectUnlocked": true,
+    "terminalDbFailures": 1,
+    "terminalWriteAttempts": 2,
+    "outage": "actual local PostgreSQL service stopped for at least 600ms"
+  },
+  "cancelled": {
+    "runId": "a79c3da6-0570-4a58-b00e-a894af12907c",
+    "state": "cancelled",
+    "cleanupState": "confirmed",
+    "errorCode": "CANCELLED",
+    "providerCalls": 2,
+    "projectUnlocked": true,
+    "terminalDbFailures": 2,
+    "terminalWriteAttempts": 3,
+    "remoteFixtureDestroyed": true,
+    "cleanupConfirmationMsAfterDbRestart": 123,
+    "outage": "actual local PostgreSQL service stopped for at least 600ms"
+  }
+}

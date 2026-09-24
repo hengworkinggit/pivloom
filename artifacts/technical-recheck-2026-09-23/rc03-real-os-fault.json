@@ -1,0 +1,62 @@
+{
+  "environmentId": "rc03-real-os-local",
+  "projectId": "b6b24f26-45ff-434f-a820-dfed12b798f9",
+  "runId": "9f81dc13-ca6f-41dc-abdc-13b526895106",
+  "sandboxId": "bab0f914-d472-43b4-b06a-a42fbbc41b98",
+  "provider": "fixture",
+  "sandbox": "real OpenSandbox",
+  "pending": {
+    "state": "cancelled",
+    "cleanupState": "pending",
+    "errorCode": "CANCELLED",
+    "projectLock": "9f81dc13-ca6f-41dc-abdc-13b526895106",
+    "remoteRunning": true,
+    "deniedDeletes": 8,
+    "terminalWriteAttempts": 2,
+    "providerCalls": 2
+  },
+  "settled": {
+    "state": "cancelled",
+    "cleanupState": "confirmed",
+    "errorCode": "CANCELLED",
+    "projectLock": null,
+    "remoteRunning": false,
+    "forwardedDeletes": 1,
+    "providerCalls": 2
+  },
+  "independentRemote": {
+    "getInfoStatus": "404",
+    "activeSandboxes": 0
+  },
+  "database": {
+    "runs": [
+      {
+        "id": "9f81dc13-ca6f-41dc-abdc-13b526895106",
+        "state": "cancelled",
+        "phase": "cleanup",
+        "cleanup_state": "confirmed",
+        "error_code": "CANCELLED",
+        "retry_of": null
+      },
+      {
+        "id": "47e28001-b8a6-4e9e-9b81-2ab7eb4e0759",
+        "state": "failed",
+        "phase": "cleanup",
+        "cleanup_state": "confirmed",
+        "error_code": "MODEL_FAILED",
+        "retry_of": "9f81dc13-ca6f-41dc-abdc-13b526895106"
+      }
+    ],
+    "sandboxes": [
+      {
+        "remote_id": "bab0f914-d472-43b4-b06a-a42fbbc41b98",
+        "state": "destroyed",
+        "run_id": "9f81dc13-ca6f-41dc-abdc-13b526895106"
+      }
+    ],
+    "project": {
+      "current_revision_id": null,
+      "operation_id": null
+    }
+  }
+}

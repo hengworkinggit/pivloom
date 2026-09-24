@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -57,6 +58,9 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       || !new URL(process.env.DATABASE_URL).pathname.startsWith("/pivloom_executor_test_"))
       throw Error("Executor tests require an explicit isolated environment");
     admin = new Pool({ connectionString: process.env.MIGRATION_DATABASE_URL, max: 1 });
+    // Opt-in local service-failure tests stop this disposable PostgreSQL process.
+    // An idle admin connection can then emit an expected pool error while down.
+    admin.on("error", () => {});
     if ((await admin.query("SELECT environment_id FROM nano.environment_identity WHERE id=true")).rows[0]?.environment_id !== environment)
       throw Error("Isolated database identity mismatch");
     if ((await admin.query("SELECT 1 FROM information_schema.columns WHERE table_schema='nano' AND table_name='checks' AND column_name='group_results_json'")).rowCount !== 1)
@@ -117,7 +121,9 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
   }, 30_000);
 
   async function fixture(mode: "normal" | "build-once" | "tool-budget" | "cleanup-fails" | "restore-cleanup-fails" | "restore-build-fails" | "cancel-builder" | "cancel-builder-cleanup-fails" | "model-fails",
-    options: { failCancelledWrites?: number; failFailedWrites?: number; failRestoreWrites?: number; settlementRetryMs?: number; cleanupSweepMs?: number } = {}) {
+    options: { failCancelledWrites?: number; failFailedWrites?: number; failRestoreWrites?: number; settlementRetryMs?: number; cleanupSweepMs?: number;
+      observeTerminalWrites?: boolean;
+      beforeModelFailure?: () => Promise<void> } = {}) {
     const remotes = new Map<string, { files: Map<string, Buffer>; live: boolean; actions: number; url: string; index: number }>();
     let builderSessions = 0;
     let signalBuilderStarted = () => {};
@@ -190,8 +196,11 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     let providerRequests = 0;
     const modelFetch: typeof fetch = async (_url, init) => {
       providerRequests++;
-      if (mode === "model-fails") return new Response(JSON.stringify({ error: { message: "Fixture invalid credential", type: "invalid_api_key" } }),
-        { status: 401, headers: { "content-type": "application/json" } });
+      if (mode === "model-fails") {
+        await options.beforeModelFailure?.();
+        return new Response(JSON.stringify({ error: { message: "Fixture invalid credential", type: "invalid_api_key" } }),
+          { status: 401, headers: { "content-type": "application/json" } });
+      }
       const request = JSON.parse(String(init?.body));
       const tools: string[] = request.tools.map((tool: { function: { name: string } }) => tool.function.name);
       const messages: Array<{ role: string; content: string; tool_calls?: Array<{ function: { name: string } }> }> = request.messages;
@@ -248,18 +257,21 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       isSessionActive: async () => true });
     let cancelledWrites = 0;
     let failedWrites = 0;
+    let terminalDbFailures = 0;
     let restoreWrites = 0;
-    const executionRepository = options.failCancelledWrites || options.failFailedWrites || options.failRestoreWrites ? {
+    const executionRepository = options.failCancelledWrites || options.failFailedWrites || options.failRestoreWrites || options.observeTerminalWrites ? {
       ...repository,
       async finishCancelled(...args: Parameters<typeof repository.finishCancelled>) {
         cancelledWrites++;
         if (cancelledWrites <= (options.failCancelledWrites ?? 0)) throw new Error("Synthetic terminal transaction outage");
-        return repository.finishCancelled(...args);
+        try { return await repository.finishCancelled(...args); }
+        catch (error) { terminalDbFailures++; throw error; }
       },
       async finishFailed(...args: Parameters<typeof repository.finishFailed>) {
         failedWrites++;
         if (failedWrites <= (options.failFailedWrites ?? 0)) throw new Error("Synthetic failure transaction outage");
-        return repository.finishFailed(...args);
+        try { return await repository.finishFailed(...args); }
+        catch (error) { terminalDbFailures++; throw error; }
       },
       async failRestore(...args: Parameters<typeof repository.failRestore>) {
         restoreWrites++;
@@ -275,7 +287,8 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
         ...(options.cleanupSweepMs ? { cleanupSweepMs: options.cleanupSweepMs } : {}) });
     closers.push(async () => { await executor.close(); await previews.close(); });
     return { executor, remotes, builderPrompts, builderStarted, cancelledWrites: () => cancelledWrites,
-      failedWrites: () => failedWrites, restoreWrites: () => restoreWrites, providerRequests: () => providerRequests,
+      failedWrites: () => failedWrites, terminalDbFailures: () => terminalDbFailures,
+      restoreWrites: () => restoreWrites, providerRequests: () => providerRequests,
       allowCleanup() { cleanupUnavailable = false; }, onRelease(hook: () => Promise<void>) { closeHook = hook; } };
   }
 
@@ -561,6 +574,112 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     await repository.finishCancelled(owner, retried.run.id, { cleanupState: "confirmed", summary: "隔离夹具已结束。" });
     await models.releaseForRun(owner, retried.run.credentialLeaseId);
   }, 60_000);
+
+  function controlDisposablePostgres(action: "stop" | "start") {
+    const url = new URL(process.env.DATABASE_URL ?? "");
+    const directory = process.env.PIVLOOM_RC03_PGDATA ?? "";
+    const ctl = process.env.PIVLOOM_RC03_PG_CTL ?? "";
+    if (process.env.PIVLOOM_RC03_DB_OUTAGE !== "1" || process.env.PIVLOOM_ENVIRONMENT_ID !== "rc03-local-fault-e2e"
+      || url.hostname !== "127.0.0.1" || url.port !== "55439" || url.pathname !== "/pivloom_executor_test_rc03"
+      || !directory.endsWith("/.cache/rc03-fault-e2e/pgdata") || !ctl.endsWith("/pg_ctl"))
+      throw Error("Refusing to control any database other than the explicit disposable RC03 local PostgreSQL");
+    const args = action === "stop" ? ["-D", directory, "-m", "fast", "stop"]
+      : ["-D", directory, "-o", "-p 55439 -h 127.0.0.1", "-l", resolve(directory, "../postgres.log"), "start"];
+    execFileSync(ctl, args, { stdio: "ignore", timeout: 30_000 });
+  }
+
+  test.skipIf(process.env.PIVLOOM_RC03_DB_OUTAGE !== "1")(
+    "a real local PostgreSQL outage retains a failed terminal transition until the service returns", async () => {
+      let stopped = false;
+      let markStopped!: () => void;
+      const outageStarted = new Promise<void>((resolve) => { markStopped = resolve; });
+      const remote = await fixture("model-fails", { settlementRetryMs: 50, observeTerminalWrites: true,
+        beforeModelFailure: async () => { controlDisposablePostgres("stop"); stopped = true; markStopped(); } });
+      const project = await createProjectRepository(database).create(owner, prefix);
+      projects.push(project.id);
+      const accepted = await repository.accept(owner, project.id, {
+        idempotencyKey: randomUUID(), text: "故障后仍能保存失败", expectedCurrentRevisionId: null,
+        modelProfileId: model.id, modelConfigVersion: model.configVersion,
+      });
+      leases.push(accepted.run.credentialLeaseId);
+      try {
+        remote.executor.start(accepted.run);
+        await outageStarted;
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        expect(remote.providerRequests()).toBe(1);
+        expect(remote.remotes.size).toBe(0);
+        controlDisposablePostgres("start"); stopped = false;
+        const by = Date.now() + 30_000;
+        let settled = await repository.getRun(owner, accepted.run.id);
+        while (settled.state !== "failed" && Date.now() < by) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          settled = await repository.getRun(owner, accepted.run.id);
+        }
+        expect(settled).toMatchObject({ state: "failed", cleanupState: "confirmed",
+          error: { code: "MODEL_FAILED" } });
+        expect(remote.terminalDbFailures()).toBeGreaterThanOrEqual(1);
+        expect(remote.failedWrites()).toBeGreaterThanOrEqual(2);
+        expect(remote.providerRequests()).toBe(1);
+        expect((await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [project.id])).rows[0].operation_id).toBeNull();
+        if (process.env.PIVLOOM_RC03_EVIDENCE_FILE) {
+          const row = { runId: accepted.run.id, state: settled.state, cleanupState: settled.cleanupState,
+            errorCode: settled.error?.code, providerCalls: remote.providerRequests(), projectUnlocked: true,
+            terminalDbFailures: remote.terminalDbFailures(), terminalWriteAttempts: remote.failedWrites(),
+            outage: "actual local PostgreSQL service stopped for at least 600ms" };
+          await writeFile(process.env.PIVLOOM_RC03_EVIDENCE_FILE, JSON.stringify({ failed: row }, null, 2) + "\n", { mode: 0o600 });
+        }
+      } finally { if (stopped) controlDisposablePostgres("start"); }
+    }, 60_000);
+
+  test.skipIf(process.env.PIVLOOM_RC03_DB_OUTAGE !== "1")(
+    "a real local PostgreSQL outage retains cancellation and does not replay the Builder", async () => {
+      let stopped = false;
+      const remote = await fixture("cancel-builder", { settlementRetryMs: 50, cleanupSweepMs: 100,
+        observeTerminalWrites: true });
+      const project = await createProjectRepository(database).create(owner, prefix);
+      projects.push(project.id);
+      const accepted = await repository.accept(owner, project.id, {
+        idempotencyKey: randomUUID(), text: "取消后仍能保存终态", expectedCurrentRevisionId: null,
+        modelProfileId: model.id, modelConfigVersion: model.configVersion,
+      });
+      leases.push(accepted.run.credentialLeaseId);
+      try {
+        remote.executor.start(accepted.run);
+        await remote.builderStarted;
+        expect((await repository.cancel(owner, accepted.run.id)).state).toBe("cancel_requested");
+        const callsAtStop = remote.providerRequests();
+        controlDisposablePostgres("stop"); stopped = true;
+        expect(remote.executor.cancel(accepted.run.id)).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        expect(remote.providerRequests()).toBe(callsAtStop);
+        controlDisposablePostgres("start"); stopped = false;
+        const recoveredAt = Date.now();
+        const by = Date.now() + 30_000;
+        let settled = await repository.getRun(owner, accepted.run.id);
+        while ((settled.state !== "cancelled" || settled.cleanupState !== "confirmed") && Date.now() < by) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          settled = await repository.getRun(owner, accepted.run.id);
+        }
+        expect(settled).toMatchObject({ state: "cancelled", cleanupState: "confirmed",
+          error: { code: "CANCELLED" } });
+        expect(remote.terminalDbFailures()).toBeGreaterThanOrEqual(1);
+        expect(remote.cancelledWrites()).toBeGreaterThanOrEqual(2);
+        expect(remote.providerRequests()).toBe(callsAtStop);
+        expect(Date.now() - recoveredAt).toBeLessThan(5_000);
+        expect([...remote.remotes.values()].map((sandbox) => sandbox.live)).toEqual([false]);
+        expect((await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [project.id])).rows[0].operation_id).toBeNull();
+        if (process.env.PIVLOOM_RC03_EVIDENCE_FILE) {
+          const prior = JSON.parse(await readFile(process.env.PIVLOOM_RC03_EVIDENCE_FILE, "utf8"));
+          const row = { runId: accepted.run.id, state: settled.state, cleanupState: settled.cleanupState,
+            errorCode: settled.error?.code, providerCalls: remote.providerRequests(), projectUnlocked: true,
+            terminalDbFailures: remote.terminalDbFailures(), terminalWriteAttempts: remote.cancelledWrites(),
+            remoteFixtureDestroyed: true, cleanupConfirmationMsAfterDbRestart: Date.now() - recoveredAt,
+            outage: "actual local PostgreSQL service stopped for at least 600ms" };
+          await writeFile(process.env.PIVLOOM_RC03_EVIDENCE_FILE,
+            JSON.stringify({ ...prior, cancelled: row }, null, 2) + "\n", { mode: 0o600 });
+        }
+      } finally { if (stopped) controlDisposablePostgres("start"); }
+    }, 60_000);
 
   test("restore failure transaction is retried without rebuilding the Preview", async () => {
     const initial = await run(await fixture("normal"));
