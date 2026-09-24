@@ -32,7 +32,7 @@ export interface SandboxConnection {
   run(
     command: string,
     options: {
-      timeoutMs: number;
+      timeoutMs?: number;
       uid: number;
       cwd: string;
       onOutput?: (chunk: string) => void;
@@ -126,7 +126,7 @@ function adaptSandbox(
       const start = await sandbox.commands.run(command, {
         background: true,
         workingDirectory: options.cwd,
-        timeoutSeconds: Math.ceil(options.timeoutMs / 1000),
+        ...(options.timeoutMs === undefined ? {} : { timeoutSeconds: Math.ceil(options.timeoutMs / 1000) }),
         uid: options.uid,
         gid: options.uid,
         envs: {},
@@ -138,7 +138,7 @@ function adaptSandbox(
         id,
         interrupt: () => sandbox.commands.interrupt(id),
         async wait() {
-          const deadline = Date.now() + options.timeoutMs + 5000;
+          const deadline = options.timeoutMs === undefined ? null : Date.now() + options.timeoutMs + 5000;
           let cursor: number | undefined;
           let output = "";
           for (;;) {
@@ -169,7 +169,7 @@ function adaptSandbox(
                 stderrTail: status.error ?? "",
               };
             }
-            if (Date.now() > deadline)
+            if (deadline !== null && Date.now() > deadline)
               throw new RuntimeError(
                 "COMMAND_TIMEOUT",
                 "远程命令超时，必须清理候选沙箱",
@@ -461,13 +461,17 @@ export class OpenSandboxWorkspace implements WorkspacePort {
   async executeService(
     handle: WorkspaceHandle,
     command: string,
-    options: { uid?: number; timeoutMs?: number; background?: boolean; signal?: AbortSignal } = {},
+    options: { uid?: number; timeoutMs?: number | null; background?: boolean; signal?: AbortSignal } = {},
   ): Promise<CommandResult> {
     options.signal?.throwIfAborted();
+    // Only an intentionally long-lived background service may omit the remote
+    // process deadline. Sandbox leases and explicit cleanup bound its lifetime.
+    if (options.timeoutMs === null && !options.background)
+      throw new RuntimeError("COMMAND_TIMEOUT_REQUIRED", "前台服务命令必须设置执行时限");
     const p = await this.requireResource(handle).connection.run(command, {
       uid: options.uid ?? 1000,
       cwd: "/workspace",
-      timeoutMs: options.timeoutMs ?? 60_000,
+      ...(options.timeoutMs === null ? {} : { timeoutMs: options.timeoutMs ?? 60_000 }),
     });
     if (options.signal?.aborted) {
       await p.interrupt();

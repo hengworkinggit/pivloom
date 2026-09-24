@@ -26,6 +26,7 @@ async function remoteFixture(
   let live = true;
   const renewals: number[] = [];
   const commands: string[] = [];
+  const commandOptions: Array<{ command: string; timeoutMs?: number }> = [];
   const server = createServer((_request, response) => {
     response.setHeader("Content-Type", "application/json");
     response.end(files.get("/opt/pivloom/marker.json") ?? "{}");
@@ -55,8 +56,9 @@ async function remoteFixture(
       url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
       headers: {},
     }),
-    run: async (command) => {
+    run: async (command, runOptions) => {
       commands.push(command);
+      commandOptions.push({ command, timeoutMs: runOptions.timeoutMs });
       let stdoutTail = "",
         stderrTail = "",
         exitCode = 0;
@@ -117,7 +119,7 @@ async function remoteFixture(
     },
   };
   const connector: SandboxConnector = { create: async () => connection, connect: async () => connection };
-  return { connector, files, commands, renewals, isLive: () => live };
+  return { connector, files, commands, commandOptions, renewals, isLive: () => live };
 }
 
 function modelFixture(content: string, reportedUsage = { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 }) {
@@ -182,6 +184,20 @@ test("a bound fake sandbox is actually killed and independently absent after fai
     sandboxConnector: remote.connector });
   expect(result).toEqual({ confirmed: true });
   expect(remote.isLive()).toBe(false);
+});
+
+test("static Preview has no process deadline while build and ordinary service commands stay bounded", async () => {
+  const remote = await remoteFixture();
+  const model = modelFixture("export default function App(){return <main>preview</main>}");
+  const result = await runCandidate({ runId: randomUUID(), revisionId: randomUUID(), prompt: "preview",
+    modelConfig: model.config, sandboxConfig, signal: new AbortController().signal },
+  { sandboxConnector: remote.connector });
+  expect(result.status).toBe("candidate");
+  const preview = remote.commandOptions.filter(({ command }) => command.includes("node /opt/pivloom/preview.mjs"));
+  expect(preview).toEqual([expect.objectContaining({ timeoutMs: undefined })]);
+  expect(remote.commandOptions.find(({ command }) => command.includes("typescript/bin/tsc"))?.timeoutMs).toBe(90_000);
+  expect(remote.commandOptions.find(({ command }) => command.includes("vite.js build"))?.timeoutMs).toBe(90_000);
+  expect(remote.commandOptions.find(({ command }) => command.includes("chmod 644") && command.includes("preview.mjs"))?.timeoutMs).toBe(60_000);
 });
 
 test("a saved candidate rebuilds for review with identical source and zero new Builder model calls", async () => {

@@ -169,7 +169,12 @@ export async function buildAndPreview(
       {
         uid: 0,
         background: true,
-        timeoutMs: 900000,
+        // OpenSandbox terminates a background command when timeoutSeconds is
+        // reached. Reviewer sessions can outlive 15 minutes while the loaded
+        // page still responds; a later reload then loses its origin. Omit only
+        // this static server's command deadline and use the renewable sandbox
+        // lease plus Run cancellation for lifecycle control.
+        timeoutMs: null,
       },
     );
     const endpoint = await workspace.endpoint(handle, 4173);

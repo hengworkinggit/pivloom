@@ -8,7 +8,7 @@ import {
 // External sandbox transport fixture: the real Workspace and Browser APIs run,
 // while no shell, Chromium, cloud sandbox, or model is started by these tests.
 async function fixture(sessionId?: string) {
-  const commands: { command: string; timeoutMs: number }[] = [];
+  const commands: { command: string; timeoutMs: number | undefined }[] = [];
   const state = {
     url: "http://127.0.0.1:4173/",
     text: "计费结果：200 元",
@@ -248,7 +248,7 @@ test("scroll and press use fresh observations and a fixed action timeout", async
       f.commands.some(
         ({ command, timeoutMs }) =>
           command.endsWith("'scroll' 'down' '600'") &&
-          timeoutMs > 0 &&
+          typeof timeoutMs === "number" && timeoutMs > 0 &&
           timeoutMs <= 15000,
       ),
     ).toBe(true);
