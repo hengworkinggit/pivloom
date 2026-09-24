@@ -304,7 +304,17 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
       await state.generation.publish(projectId);
       publicationQuery.refresh();
       await state.refresh();
-    } catch (reason) { setPublicationError(errorMessage(reason)); }
+    } catch (reason) {
+      // Each refusal has one thing the user can actually do about it; a raw
+      // message leaves them guessing which.
+      const code = reason instanceof WorkspaceError ? reason.code : "";
+      setPublicationError({
+        PUBLICATION_UNAVAILABLE: "永久发布尚未在这台服务器上配置；请联系维护者，或继续使用临时预览。",
+        NO_ACCEPTED_REVISION: "项目还没有通过检查的版本，先完成一次通过检查的生成再发布。",
+        REVISION_NOT_VERIFIED: "当前版本尚未通过检查，不能发布。请在检查抽屉确认结论后重试。",
+        PREVIEW_NOT_READY: "发布前需要当前版本有一个可用预览。请点击「重新启动预览」，等它就绪后再发布。",
+      }[code] ?? errorMessage(reason));
+    }
     finally { setPublishing(false); }
   }
   async function copySourceHash() {
@@ -420,8 +430,18 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
     </WorkbenchDrawer>}
     {drawer === "publish" && <WorkbenchDrawer key="publish" title="发布作品" onClose={() => setDrawer(null)}>
       {project.currentRevision && <div className="a-publish-panel"><div className="a-publish-icon"><ExternalLink size={26} /></div><h3>让作品拥有自己的地址</h3>
-        <p>{publicationQuery.data?.revisionId === project.currentRevision.id ? "当前版本已永久发布。" : publicationQuery.data ? "已发布作品仍是之前的版本；回滚不会自动更新它。" : "预览会到期，正式发布后可用独立域名长期访问。"}</p>
+        <p>{publicationQuery.data?.revisionId === project.currentRevision.id ? "当前版本已永久发布；工作台上的预览仍是会到期的临时预览。" : publicationQuery.data ? "已发布作品仍是之前的版本；回滚不会自动更新它。" : "工作台上的预览是会到期的临时预览；正式发布后可用独立域名长期访问。"}</p>
         <div className="a-publish-version"><span>当前源码版本</span><strong>v{project.currentRevision.revisionNo}<code>{project.currentRevision.sourceHash.slice(0, 8)}</code></strong></div>
+        {/* Which revision the permanent site actually serves. It is not always
+            the current one, and the user cannot tell them apart otherwise. */}
+        {publicationQuery.data && (() => {
+          const published = revisions.find((item) => item.id === publicationQuery.data!.revisionId);
+          return <div className="a-publish-version" data-testid="published-version">
+            <span>已发布版本</span>
+            <strong>{published ? `v${published.revisionNo}` : "已发布"}<code>{publicationQuery.data!.sourceHash.slice(0, 8)}</code></strong>
+            {published && published.id !== project.currentRevision!.id ? <em>与当前版本不同</em> : null}
+          </div>;
+        })()}
         {publicationQuery.data && <a className="a-published-link" href={publicationQuery.data.url} target="_blank" rel="noopener noreferrer">访问已发布作品<ExternalLink size={15} /></a>}
         {publicationQuery.data?.revisionId !== project.currentRevision.id && <Button disabled={publishing || busy} onClick={() => void publish()}>{publishing ? <><LoaderCircle className="spin" size={14} />正在发布…</> : publicationQuery.data ? "发布当前新版本" : "永久发布当前版本"}</Button>}
         {(publicationError || publicationQuery.error) && <p className="inline-error" role="alert">{publicationError || publicationQuery.error}</p>}

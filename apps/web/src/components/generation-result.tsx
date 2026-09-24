@@ -190,6 +190,6 @@ export function GenerationResult({ projectId, revision, preview, generation, act
           <Button onClick={onRestore} disabled={restoring}>{restoring ? <><LoaderCircle className="spin" size={14} />{ui.text("正在重建…", "Restoring…")}</> : ui.text("重新启动预览", "Restart preview")}</Button>}
       </div>}
     </div>
-    <footer className="result-footer"><span>{revision ? `${ui.text("版本", "Version")} ${revision.revisionNo} · ${revision.id.slice(0, 8)}` : ui.text("尚无版本", "No version yet")}</span><span>{device === "mobile" ? ui.text("窄屏布局 · 非移动设备模拟", "Narrow layout · not a device emulator") : ui.text("独立应用预览", "Isolated app preview")}</span></footer>
+    <footer className="result-footer"><span>{revision ? `${ui.text("版本", "Version")} ${revision.revisionNo} · ${revision.id.slice(0, 8)}` : ui.text("尚无版本", "No version yet")}</span><span>{device === "mobile" ? ui.text("窄屏布局 · 非移动设备模拟", "Narrow layout · not a device emulator") : ui.text("临时预览 · 会到期，可在发布抽屉永久发布", "Temporary preview · expires; publish permanently from the publish drawer")}</span></footer>
   </section>;
 }
