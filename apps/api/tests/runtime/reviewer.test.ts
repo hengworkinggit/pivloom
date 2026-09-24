@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
 import { runReviewer, assertReviewerResult, deliveredScreenshotIdsFromRequest, type ReviewBrowser } from '../../src/runtime/reviewer.js';
-import { RuntimeError, type ModelConfig } from '../../src/runtime/types.js';
+import { RuntimeError, type ModelConfig, type ProbeEvent } from '../../src/runtime/types.js';
 import { classifyReviewerModelFailure } from '../../src/runtime/reviewer.js';
 import { MODEL_REQUEST_TIMEOUT_MS, PROVIDER_RETRY_POLICY, REVIEW_ATTEMPT_TIMEOUT_MS, RUN_DEADLINE_MS } from '../../src/runtime/budgets.js';
 
@@ -34,7 +34,8 @@ test('only an in-budget provider failure is reported as a provider error',()=>{
 const revisionId = randomUUID(), sourceHash = 'a'.repeat(64);
 const plan = { schemaVersion: 1 as const, goal: '新增书籍', changeSummary: '新增书籍', assumptions: [], outOfScope: ['不发送邮件'],
   behaviors: [{ id: 'B01', title: '添加', precondition: '空书单', action: '填写并添加', expected: '出现书名', required: true }] };
-function setup(turn: (request: { messages: Array<{ role: string; content: string }> }, n: number) => { name: string; args: unknown }, usageForCall: (n: number) => { prompt_tokens: number; completion_tokens: number; total_tokens: number } = () => ({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 })) {
+type ToolChoice = { name: string; args: unknown };
+function setup(turn: (request: { messages: Array<{ role: string; content: string }> }, n: number) => ToolChoice | ToolChoice[], usageForCall: (n: number) => { prompt_tokens: number; completion_tokens: number; total_tokens: number } = () => ({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 })) {
   let calls = 0, actions = 0, closes = 0;
   const observation = () => ({ id: randomUUID(), sessionId: 'pivloom-'+revisionId, url:'http://127.0.0.1:4173/', tree:'button 添加 [ref=e1]', text: actions ? '测试书名' : '空书单', refs:{ e1:{ role:'button', name:'添加' } }, truncated: false });
   const browser: ReviewBrowser = { sessionId:'pivloom-'+revisionId, open:async()=>observation(), observe:async()=>observation(),
@@ -42,8 +43,9 @@ function setup(turn: (request: { messages: Array<{ role: string; content: string
     act:async()=>{actions++; return observation();}, logs:async()=>({errors:[]}), close:async()=>{closes++; return {confirmed:true};},
     screenshot:async()=>({base64:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL0KAAAAABJRU5ErkJggg==',sha256:'b'.repeat(64),mimeType:'image/png'}) };
   const fetch: typeof globalThis.fetch = async (_url, init) => {
-    const choice = turn(JSON.parse(String(init?.body)), ++calls);
-    const chunk = { id:'fixture-'+calls,object:'chat.completion.chunk',created:1,model:'fixture',choices:[{index:0,delta:{role:'assistant',reasoning_content:'PRIVATE_HIDDEN_REASONING',tool_calls:[{index:0,id:'call-'+calls,type:'function',function:{name:choice.name,arguments:JSON.stringify(choice.args)}}]},finish_reason:null}] };
+    const choices = turn(JSON.parse(String(init?.body)), ++calls);
+    const toolCalls = (Array.isArray(choices) ? choices : [choices]).map((choice,index)=>({index,id:`call-${calls}-${index}`,type:'function',function:{name:choice.name,arguments:JSON.stringify(choice.args)}}));
+    const chunk = { id:'fixture-'+calls,object:'chat.completion.chunk',created:1,model:'fixture',choices:[{index:0,delta:{role:'assistant',reasoning_content:'PRIVATE_HIDDEN_REASONING',tool_calls:toolCalls},finish_reason:null}] };
     return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({...chunk,choices:[{index:0,delta:{},finish_reason:'tool_calls'}],usage:usageForCall(calls)})}\n\ndata: [DONE]\n\n`,{headers:{'content-type':'text/event-stream'}});
   };
   const runId = randomUUID(),roleRunId=randomUUID();
@@ -74,6 +76,35 @@ test('real Pi accepts only a report linked to an action and its subsequent obser
   expect(result.result.items[0].verdict).toBe('passed');
   expect(result.evidence.at(-1)).toMatchObject({behaviorId:'B01',action:'click',text:'测试书名'});
   expect(f.stats()).toEqual({calls:3,actions:1,closes:1});
+});
+
+test('two unbound records in one model response spend one correction turn, then require a new action',async()=>{
+  let observedId='',unboundEventId='';
+  const rejected:string[]=[];
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    let data:{observationId?:string;id?:string}|null=null;
+    try{data=last?JSON.parse(last.content):null;}catch{ /* rejected reports are tool errors */ }
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_observe',args:{}};
+    if(n===3){
+      observedId=String(data?.observationId);unboundEventId=String(data?.id);
+      const item=report([unboundEventId]).items[0];
+      return [{name:'record_behavior',args:item},{name:'record_behavior',args:item}];
+    }
+    if(n===4)return {name:'browser_click',args:{behaviorId:'B01',observationId:observedId,ref:'e1'}};
+    return {name:'record_behavior',args:report([String(data?.id)]).items[0]};
+  });
+  const onEvent=async (event:ProbeEvent)=>{
+    if(event.type==='tool.end'&&event.toolName==='record_behavior'&&event.success===false)
+      rejected.push(event.message);
+  };
+  const result=await runReviewer({...f.input,onEvent});
+  expect(rejected).toHaveLength(2);
+  expect(rejected.every(message=>message.includes('OBSERVATION_NOT_BOUND'))).toBe(true);
+  expect(result.result.items[0]).toMatchObject({behaviorId:'B01',verdict:'passed'});
+  expect(result.result.items[0].observationEventIds).not.toContain(unboundEventId);
+  expect(f.stats()).toEqual({calls:5,actions:1,closes:1});
 });
 
 test('a vanished live-game control lets the Reviewer observe again and continue',async()=>{

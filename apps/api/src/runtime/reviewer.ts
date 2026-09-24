@@ -181,6 +181,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   let aborting: Promise<void> | undefined, decision: ReviewResult | undefined;
   let eventTail = Promise.resolve();
   let invalidReports = 0, toolCount = 0, latestObservationId: string | undefined;
+  let modelTurn = 0, lastInvalidTurn = -1;
   let latestUrl: string | undefined, hasOpenedPage = false;
   let latestRefs: BrowserObservation['refs'] = {};
   let latestRefsComplete = false;
@@ -249,7 +250,11 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     // single correction turn instead of re-submitting the same evidence.
     const scope = path ? `:${path}` : '';
     const error = new RuntimeError('AGENT_OUTPUT_INVALID', `检查报告校验失败 [${reason}${scope}]：${reportProblems[reason]}；仅允许纠正一次`);
-    return ++invalidReports >= 2 ? fail(error) : error;
+    // Pi may execute two tool calls from the same model response before the
+    // model can read the first rejection. Both remain rejected, but together
+    // spend one correction turn; a bad report in the next model turn is fatal.
+    if (lastInvalidTurn !== modelTurn) { invalidReports++; lastInvalidTurn = modelTurn; }
+    return invalidReports >= 2 ? fail(error) : error;
   };
   const requireRecordBeforeAction = (behaviorId: string, actionCount = 1) => {
     if (pendingBehaviorId && pendingBehaviorId !== behaviorId)
@@ -344,7 +349,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
         'Use browser_resize after opening the page to set an exact CSS viewport (for example width 390, height 844). Its observation includes measured width, height and scrollWidth; scrollWidth greater than width means horizontal overflow. Resizing itself is not a business action: use fresh refs for the required interaction and take a screenshot for layout verification.',
         'For Canvas games, use browser_press or browser_key_batch with ArrowUp/ArrowRight/ArrowDown/ArrowLeft/Space. A batch accepts up to eight short press/wait steps, stops at the first failed input, and returns each step result plus a fresh observation. If any input failed, observe and retry the full sequence or mark blocked; never call that a game failure or claim the key was held down. A real-time game can change while the model thinks: use normal Space to pause when needed, keep action batches short, and observe again before clicking a transient control. Screenshot the actual Canvas and HUD after interaction; do not inject hidden score or coordinates.',
         'Prefer browser_form for related fields and optional submit in one turn; give refs from the latest observation. The service executes and observes every step, rebinding only uniquely named controls. Never batch a destructive action or repeat submission without observing its result.',
-        'Reuse observations returned by actions. If asynchronous content has not appeared, browser_observe again; do not repeat submission blindly. A stale ref requires a fresh observation.',
+        'Reuse observations returned by actions. If asynchronous content has not appeared, browser_observe again; do not repeat submission blindly. After a stale ref, observe again, then perform a new action for the same behaviorId before recording it; observation alone is not behavior evidence. Submit only one record_behavior per model response so you can read any rejection before proceeding.',
         'Historical observations are compacted for context: their event IDs and short text remain, but only the latest observation carries actionable refs. Complete evidence is retained by the server. A truncated historical excerpt is not proof of absence; observe again when needed.',
         'Pi may summarize older turns when the context window fills. Complete evidence remains available through observation_read(id), screenshot_read(artifactId), and source_read. Reread the current revision’s screenshot after compaction instead of assuming the image survived the summary.',
         'Read relevant source to check unsupported capability promises, fake success, persistence and plan outOfScope. Mark failed if UI promises real email/payment/backend that source does not implement. Do not accept build success as behavioral correctness.',
@@ -404,7 +409,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             // Each validated behavior completes its draft. A corrected earlier
             // item must not spend the next item's single correction opportunity.
             // Browser actions alone never reset consecutive report rejections.
-            invalidReports=0;
+            invalidReports=0; lastInvalidTurn=-1;
             value={recorded:true,accepted:Boolean(decision),remainingBehaviorIds:handoff.plan.behaviors.filter(b=>!completedBehaviors.has(b.id)).map(b=>b.id)};
           } else if(name==='source_read'){
             const {path}=schemas.source_read.parse(params),file=input.files.find(f=>f.path===path);
@@ -553,6 +558,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     session.agent.toolExecution='sequential';
     session.agent.streamFunction=(selected,context,options)=>{
       check();
+      modelTurn++;
       const providerContext={...context,messages:context.messages.map(message=>{
         if(message.role==='system'&&message.toolsAdded)
           return {...message,toolsAdded:message.toolsAdded.map(tool=>({...tool,parameters:z.toJSONSchema(schemas[tool.name as ToolName]) as TSchema}))};
