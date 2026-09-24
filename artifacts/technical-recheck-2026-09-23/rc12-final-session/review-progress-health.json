@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "checkedAt": "2026-09-24T14:22:58.553Z",
+  "checks": [
+    {"name": "workbench_https", "ok": true, "detail": "200"},
+    {"name": "api_ready", "ok": true, "detail": "200"},
+    {"name": "original_site", "ok": true, "detail": "200"},
+    {"name": "published_app", "ok": true, "detail": "200/200"},
+    {"name": "published_marker", "ok": true, "detail": "200"},
+    {"name": "test_account_login", "ok": true, "detail": ""},
+    {"name": "test_project", "ok": true, "detail": "200"},
+    {"name": "test_model_profile", "ok": true, "detail": "200"},
+    {"name": "project_publication", "ok": true, "detail": "200"}
+  ]
+}

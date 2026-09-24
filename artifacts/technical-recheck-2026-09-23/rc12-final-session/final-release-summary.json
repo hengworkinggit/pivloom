@@ -1,0 +1,40 @@
+{
+  "checkedAt": "2026-09-24T12:39:07.816043+00:00",
+  "publicApiVersion": {
+    "component": "api",
+    "commit": "cedc7b70f68bf6b3fddafa410a17950f8a3cfc75",
+    "builtAt": "2026-09-24T12:19:00.048268Z"
+  },
+  "publicWebVersion": {
+    "component": "web",
+    "commit": "cedc7b70f68bf6b3fddafa410a17950f8a3cfc75",
+    "builtAt": "2026-09-24T12:19:00.048268Z",
+    "buildId": "cedc7b70f68bf6b3fddafa410a17950f8a3cfc75",
+    "deploymentId": null
+  },
+  "archives": [
+    {
+      "component": "api",
+      "release": "cedc7b7-20260924-native-keys",
+      "commit": "cedc7b70f68bf6b3fddafa410a17950f8a3cfc75",
+      "builtAt": "2026-09-24T12:19:00.048268Z",
+      "worktreeDirty": false,
+      "createdAt": "2026-09-24T12:21:14.688082+00:00",
+      "archiveSha256": "2cf0b115cca1e16248b2bdefd383ef5f3dcdf4e68b9807eaef7729db2cd3f626",
+      "files": 127
+    },
+    {
+      "component": "web",
+      "release": "cedc7b7-20260924-native-keys",
+      "commit": "cedc7b70f68bf6b3fddafa410a17950f8a3cfc75",
+      "builtAt": "2026-09-24T12:19:00.048268Z",
+      "worktreeDirty": false,
+      "createdAt": "2026-09-24T12:21:17.042023+00:00",
+      "archiveSha256": "09372d4d02657aa4e04d5a18083509af12dbb2eb7c1a660ccfa34a3ad36e11d7",
+      "files": 1775,
+      "buildId": "cedc7b70f68bf6b3fddafa410a17950f8a3cfc75"
+    }
+  ],
+  "ci": "https://github.com/hengworkinggit/pivloom/actions/runs/35998292965",
+  "ciConclusion": "success"
+}

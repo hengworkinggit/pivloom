@@ -1,6 +1,6 @@
 # RC-12 最终证据覆盖草稿（待 #27 与最终健康补齐）
 
-基准：生产 Web/API 成对提交 `2e6f917449a7c2b80d3a2897c9dd27d1acec3bc3`，构建时间 `2026-09-24T11:15:48.326149Z`，由主任务已核对两个公网 `/version`。本稿只整合已有模块验收，不再次生成应用、注入故障或占用沙箱；#27 的正式产品 Check 仍待其独立任务给出原始终态，最终部署健康由主任务补。它覆盖 [E/I/D 契约](../../docs/E2E.md)的每个 ID，但**不把过去某个 SHA 的模块证据伪装为本 SHA 新执行**。
+基准：生产 Web/API 成对提交 `241b71637bd08a65703a9a4819a9233e4637855e`，构建时间 `2026-09-24T14:09:44.955790Z`，两个公网 `/version`、干净构建包和 CI 均已核对，见[部署原件](rc12-final-session/review-progress-release-summary.json)。本稿整合已有模块验收，不再次生成计算器、注入故障或占用另一沙箱；#27 的正式产品 Check 仍待当前运行给出原始终态。它覆盖 [E/I/D 契约](../../docs/E2E.md)的每个 ID，但**不把过去某个 SHA 的模块证据伪装为本 SHA 新执行**。
 
 记号：**P**＝当前真实作品/生产操作已覆盖本轮采用的简化范围；**R**＝可复用的已执行模块测试或明确标注的隔离 fixture，未在最终 SHA 重跑全用例；**Q**＝已有部分观察，但原契约仍缺子步骤；**W**＝等待 #27、最终部署或另一代理本轮取证；**F**＝既成未达成。只有 P 可写作本轮对应范围通过；R 需要引用既有原件和代码影响判断，Q/W/F 均不得写为完整 PASS。用户允许复用未变模块的有效证据，故不为每个 R 重做一次 UI 运行。
 
@@ -41,7 +41,7 @@
 | E29 | Q | Coordinator 澄清/范围外说明旧模块已有；本版未用无业务公式 Prompt 走完整 UI 父子 Run。 |
 | E30 | R | [短截止/清理](rc03-e30-e40-local-fault.md)加[真远端首次销毁失败](rc03-real-opensandbox-fault.md)的 pending→confirmed/404。 |
 | E31 | Q | [生产 BYOK UI/真实连接](rc04-production-e31-4733.md)已核对模型、掩码/390px；A/B 全 CRUD、轮换和错连更正没有同轮完整 UI 原件。 |
-| E32 | P | [RC-01 来源机制](rc01-deployment-sha.md)已有；最终双 `/version`、[工作台实际徽标和干净构建产物记录](rc12-final-session/report.md)均为 `2e6f9174…`。复制行为沿用未变组件测试，不把这次屏幕读取说成新执行复制测试。 |
+| E32 | P | [RC-01 来源机制](rc01-deployment-sha.md)已有；`241b716` 的[双 `/version` 与干净构建包](rc12-final-session/review-progress-release-summary.json)一致。工作台徽标的实图保留 `2e6f917`/`cedc7b7` 原始归属；前端组件未变，复制行为沿用组件测试，不将旧实图重标为新部署。 |
 | E33 | R | [真实图像探针](rc04-reviewer-image.md)和[Canvas 正反例](rc05-real-reviewer.md)证明 PNG 入成功模型请求；#27 自然生成蛇另列。 |
 | E34 | R | [远端七键](rc05-e34-seven-key-cancel.md)、[首键取消](rc05-real-cancel-925.md)与本轮计算器键盘输入；不是全套最终 SHA 重跑。 |
 | E35 | P（简化范围） | 真实 UI v7→v6→v7：current、七文件 manifest、Preview marker、对话、零模型调用一致；A2 确从恢复的 v7 base/plan 修改。原契约“第三版→第一版”未做，按用户后续简化授权记录。 |
@@ -67,12 +67,12 @@
 | I08 | R | [Pi 三角色](rc02-lifecycle.md)、[五组/旧项](rc06-five-groups.md)和真实 12/17/21 项，角色预算/澄清负例复用。 |
 | I09 | R | [A/B 生产 404 矩阵](rc12-account-matrix/rc12-account-matrix.md)及路径越界单测；取消/重试负例无需在生产B重做。 |
 | I10 | R | [真实远端按键/取消](rc05-real-cancel-925.md)与 browser adapter 来源/ref/命令参数测试。 |
-| I11 | W | [RC-01](rc01-deployment-sha.md)和旧部署模块已验；最终 `2e6f9174…` 生产健康/资源/SSE/隔离由主任务补。 |
+| I11 | R | [RC-01](rc01-deployment-sha.md)和部署模块已验；`241b716` 的[生产九项健康](rc12-final-session/review-progress-health.json)通过，SSE 与隔离复用未变模块的专项证据，不称本轮重做故障注入。 |
 | I12 | Q | BYOK 加密/冻结/网络边界测试及[旧生产 UI](rc04-production-e31-4733.md)；完整 A/B 配置 CRUD 实测未齐。 |
 | I13 | R | [真 Provider PNG](rc04-reviewer-image.md)及[Canvas正反例](rc05-real-reviewer.md)。 |
 | I14 | R | [A1旧grant403/A2新grant200](rc12-account-matrix/rc12-account-matrix.md)，与公开发布分域。 |
 | I15 | P（简化范围） | [同构 PG 回滚/幂等/CAS](rc09-isolated-e2e.md) + [生产两版本往返](rc09-live-roundtrip/report.md)；不宣称线上注入提交响应丢失。 |
-| I16 | P | [最终干净构建的 API/Web 包摘要](rc12-final-session/release-summary.json)、公网版本和[工作台徽标](rc12-final-session/fresh-a-v8-preview.png)一致，代码 SHA `2e6f9174…`。 |
+| I16 | P | [最终干净构建的 API/Web 包摘要与公网版本](rc12-final-session/review-progress-release-summary.json)一致，代码 SHA `241b716…`；[报告](rc12-final-session/report.md)保留前次工作台实图和影响范围，不将旧截图作为新版本截图。 |
 | I17 | R | [真实 PG 失败终态](rc03-real-postgres-outage.md)、事件 drain 与首次远端销毁失败。 |
 | I18 | P（简化范围） | [Unicode/新增/删除/残留隔离测试](rc09-isolated-e2e.md) + 真实三版七文件 hash/diff + 往返 marker。 |
 | I19 | R | [Pi retry/abort/settled](rc02-lifecycle.md)与真 Provider 错误/成功边界，版本仍固定0.86.1。 |
@@ -84,14 +84,24 @@
 
 | ID | 状态 | 实际情况 |
 | --- | --- | --- |
-| D01 | W | HTTPS 工作台与测试账号/公开仓库可用，最终成对 SHA 已读；等主任务最后健康、评审入口与作品可达性复核。 |
-| D02 | R | README、本地启动/迁移说明及干净 CI 构建测试已有；最终代码 SHA `2e6f9174…` 的 [CI](https://github.com/hengworkinggit/pivloom/actions/runs/35992009113)与[干净构建包摘要](rc12-final-session/release-summary.json)已通过；不称 CI 绿等于完整本地生成。 |
+| D01 | P | [生产九项健康](rc12-final-session/review-progress-health.json)确认 HTTPS、账号 A 登录、项目/配置和已有永久作品可达；最终 API/Web 均 `241b716`。蛇正式结果仍归 E12/E42，不由健康检查代替。 |
+| D02 | R | README、本地启动/迁移说明及干净 CI 构建测试已有；最终代码 SHA `241b716…` 的 [CI](https://github.com/hengworkinggit/pivloom/actions/runs/36010554851)与[干净构建包摘要](rc12-final-session/review-progress-release-summary.json)已通过；不称 CI 绿等于完整本地生成。 |
 | D03 | P | README 与另建的同标题交付文档说明当前功能、两层持久化、临时预览/主动永久发布和蛇待验收边界；无凭据写入仓库。 |
 | D04 | P（待归档） | 仓库公开；主任务已 fresh 查新交付文档任何人可读/外部开放/可评论，并有两张实图。测试账号只在交付文档，不在仓库。实际对外发送另列 D05。 |
 | D05 | F（历史时限） | 用户要求的 2026-09-24 17:30 CST“全部真实完成”未达成，不能倒填 PASS；后来用户允许先交文档、继续慢慢验证 #27。最终实际完成/发送时间和适用范围由主任务如实填写。 |
 
 ## 关闭判断与最小余项
 
-**实质运行阻塞仍是 #27 自然生成蛇的正式产品 Check，以及主任务最后同 SHA 健康/产物复核。** E11 最终 v8 的新浏览器五类数据是一个小而有价值的只读补证，主任务已在执行；不需重生成计算器。D05 的旧期限失败属于无法事后修复的事实，交付记录须注明。原版 #28 逐字阅读时，E03/E07/E17/E19/E24/E29/E31 和 I12 等仍有上述 `Q` 子步骤；它们是**未执行证据**，并非观察到当前产品故障。若仍要求原契约所有行严格 PASS，就不能把这些 Q/R 改写成 PASS 或关闭 #28；若按用户后续简化授权以现有模块证据验收，则在最终报告中明确采纳范围、链接原件及剩余限制，避免制造 68 次重复运行。
+**实质运行阻塞仍是 #27 自然生成蛇的正式产品 Check。** E11 最终 v8 的新浏览器五类数据已补齐；`241b716` 的[九项生产健康检查](rc12-final-session/review-progress-health.json)也已通过，不需重生成计算器。D05 的旧期限失败属于无法事后修复的事实，交付记录须注明。原版 #28 逐字阅读时，E03/E19/E24/E29/E31 和 I12 等仍有上述 `Q` 子步骤；它们是**未执行证据**，并非观察到当前产品故障。不能把这些 Q/R 改写成完整新执行的 PASS。
 
-最后冻结 SHA、真实蛇结果、E11 最终 v8 补证、最终健康与 D05 真实时间由主任务追加；本草稿没有执行这些动作或替其判断结果。
+### 本轮采用的收尾范围
+
+按用户后续“简化验收流程”、先提交文档并继续完成 #27 的要求，以五项技术复核目标作为最终交付门槛，复用未受此次修改影响的模块证据；保留上表的部分覆盖和历史时限记录，不将它们改写为全量通过：
+
+1. 两个空项目真实生成不同应用：计算器已完成，贪吃蛇仍须有本轮正式 15/15、五组 5/5 的 Check，并与实际 Preview/源码绑定。
+2. 同项目两轮增量：A0/A1/A2 已分别 12/12、17/17、21/21，完整七文件 manifest 和 diff、Preview、旧功能保留均有原件。
+3. 会话恢复与账号隔离：复用已完成的生产 A/B/匿名矩阵，补充最终计算器 v8 的全新会话五类数据；Reviewer 专项改动没有改变身份或读取路径。
+4. 实际版本回滚：采用已完成的生产 v7→v6→v7 往返及 A2 正确继承基线，三版本、并发及故障窗口由真实 PostgreSQL 隔离测试覆盖。
+5. 任务可靠性与部署可核对：复用各阶段取消、失败落库、清理及重试证据，新增本轮 Reviewer 持久化进度、有界 Provider 重试与超时候选复检测试；最终部署 SHA、CI、账号和永久作品健康均有记录。
+
+剩余动作是补齐真实蛇终态、精确清理本轮临时资源并记录实际完成时间；在这些完成前，本稿不宣告 #27/#28 通过。无需重跑未变模块的全部历史 UI 子步骤。评审文档由用户自行提交，不代发、不自动回复评论。
