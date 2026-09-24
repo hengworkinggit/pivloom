@@ -14,6 +14,9 @@
 /** Wall-clock ceiling for one run, including every role and repair attempt. */
 export const RUN_DEADLINE_MS = 1_800_000;
 
+/** Rolling deadline for lack of real Run progress, never a total Run duration. */
+export const RUN_IDLE_TIMEOUT_MS = 360_000;
+
 /**
  * Ceiling for a single provider request. It stays well below the run ceiling so
  * a dead request cannot consume the whole run, but it must sit above the slowest

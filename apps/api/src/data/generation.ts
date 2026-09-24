@@ -14,7 +14,7 @@ import { ApiFailure } from "../routes/errors.js";
 import { assertVerifiedSourceSnapshot, type SourceReference, type VerifiedSourceSnapshot } from "../storage/source.js";
 import { assertVerifiedReviewReceipt, type VerifiedReviewReceipt } from "../generation/review.js";
 import type { StoredArtifact } from "../storage/artifacts.js";
-import { DAILY_ACCEPTED_LIMIT, MODEL_REQUEST_TIMEOUT_MS, RUN_DEADLINE_MS, RUN_TOOL_LIMIT } from "../runtime/budgets.js";
+import { DAILY_ACCEPTED_LIMIT, MODEL_REQUEST_TIMEOUT_MS, RUN_IDLE_TIMEOUT_MS, RUN_TOOL_LIMIT } from "../runtime/budgets.js";
 
 export interface StoredRun extends Run {
   ownerId: string;
@@ -49,7 +49,7 @@ export interface FinishFailedInput {
   resultRevisionId?: string | null; cleanupState: Run["cleanupState"];
   roleUsage?: { roleRunId: string; usage: RoleUsage };
 }
-export interface AppendEventInput { type: RunEventType; payload: Record<string, unknown>; roleRunId?: string | null; attempt?: number }
+export interface AppendEventInput { type: RunEventType; payload: Record<string, unknown>; roleRunId?: string | null; attempt?: number; progress?: boolean }
 export interface RoleReference { roleRunId: string; attempt: number; role: Role }
 export interface SubmitPlanInput { roleRunId: string; attempt: number; plan: Plan; usage?: RoleUsage }
 export interface ClarificationInput { roleRunId: string; attempt: number; question: string; usage?: RoleUsage }
@@ -287,7 +287,7 @@ export function createGenerationRepository(
     return context.data;
   }
   function assertRole(current: Row, role: Row | undefined, input: RoleReference) {
-    if (date(current.deadline_at).getTime() <= Date.now()) throw new ApiFailure(409, "RUN_TIMEOUT", "任务已达到时间上限。");
+    if (date(current.deadline_at).getTime() <= Date.now()) throw new ApiFailure(409, "RUN_TIMEOUT", "任务长时间没有进展，已停止执行。");
     if (input.attempt !== current.attempt) throw new ApiFailure(409, "STALE_ATTEMPT", "执行结果来自旧的尝试。");
     if (!role || role.id !== input.roleRunId || role.role !== input.role || role.attempt !== input.attempt) throw new ApiFailure(409, "STALE_ROLE", "执行结果来自其它角色或尝试。");
     const currentId = input.role === "coordinator" ? current.coordinator_role_run_id : input.role === "builder" ? current.builder_role_run_id : current.reviewer_role_run_id;
@@ -420,8 +420,8 @@ export function createGenerationRepository(
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,$11,$12,$13,'accepted','plan',$14,now()+make_interval(secs=>$19),$15,$16,$17,$18) RETURNING *`,
           [id, ownerId, projectId, idempotencyKey, requestHash, requestText, runKind,
             baseRevisionId, normalized.modelProfileId, normalized.modelConfigVersion, normalized.modelId ?? null, lease.id, roleId,
-            { deadlineMs: RUN_DEADLINE_MS, modelTimeoutMs: MODEL_REQUEST_TIMEOUT_MS, maxToolCalls: RUN_TOOL_LIMIT },
-            options.executorBootId, context, normalized.parentRunId, retryOfRunId, RUN_DEADLINE_MS / 1000]);
+            { idleTimeoutMs: RUN_IDLE_TIMEOUT_MS, modelTimeoutMs: MODEL_REQUEST_TIMEOUT_MS, maxToolCalls: RUN_TOOL_LIMIT },
+            options.executorBootId, context, normalized.parentRunId, retryOfRunId, RUN_IDLE_TIMEOUT_MS / 1000]);
           await client.query(`INSERT INTO nano.role_runs (id,owner_id,project_id,run_id,role,attempt,session_id,state,input_json)
             VALUES ($1,$2,$3,$4,'coordinator',0,$5,'queued',$6)`, [roleId, ownerId, projectId, id, randomUUID(), context]);
           await client.query("INSERT INTO nano.messages (owner_id,project_id,run_id,kind,content) VALUES ($1,$2,$3,'user',$4)", [ownerId, projectId, id, requestText]);
@@ -439,7 +439,7 @@ export function createGenerationRepository(
     getPlanningContext: (ownerId, runId) => owned(ownerId, async (client) => planningContext(await run(client, ownerId, runId))),
     startCoordinator: (ownerId, runId) => owned(ownerId, async (client) => {
       const { current } = await lockedRun(client, ownerId, runId);
-      if (date(current.deadline_at).getTime() <= Date.now()) throw new ApiFailure(409, "RUN_TIMEOUT", "任务已达到时间上限。");
+      if (date(current.deadline_at).getTime() <= Date.now()) throw new ApiFailure(409, "RUN_TIMEOUT", "任务长时间没有进展，已停止执行。");
       const prior = await client.query("SELECT * FROM nano.role_runs WHERE owner_id=$1 AND run_id=$2 AND id=$3 AND role='coordinator' AND attempt=$4", [ownerId, runId, current.coordinator_role_run_id, current.attempt]);
       if (prior.rows[0]?.state === "running" && current.state === "planning") return storedRole(prior.rows[0]);
       if (prior.rows[0]?.state !== "queued" || current.state !== "accepted") throw new ApiFailure(409, "ROLE_NOT_ACTIVE", "协调者角色尚未排入或已经结束。");
@@ -539,7 +539,18 @@ export function createGenerationRepository(
     }),
     appendEvent: (ownerId, runId, input) => owned(ownerId, async (client) => {
       const { current } = await lockedRun(client, ownerId, runId);
-      return event(client, current, input);
+      if (!input.progress) return event(client, current, input);
+      const trusted = input.type === "tool.completed" && input.payload.success === true
+        || input.type === "tool.output" && input.payload.progressKind === "model_stream" && input.payload.success === true;
+      if (!trusted || !input.roleRunId) throw new ApiFailure(422, "INVALID_PROGRESS", "无效的运行进展事件。");
+      if (current.executor_boot_id !== options.executorBootId) throw new ApiFailure(409, "RUN_NOT_ACTIVE", "任务执行者已变化。");
+      const role = (await client.query("SELECT * FROM nano.role_runs WHERE owner_id=$1 AND run_id=$2 AND id=$3",
+        [ownerId, runId, input.roleRunId])).rows[0];
+      if (!role) throw new ApiFailure(409, "STALE_ROLE", "执行结果来自其它角色或尝试。");
+      assertRole(current, role, { roleRunId: role.id, attempt: role.attempt, role: role.role });
+      const changed = (await client.query(`UPDATE nano.runs SET deadline_at=greatest(deadline_at,now()+make_interval(secs=>$3))
+        WHERE owner_id=$1 AND id=$2 RETURNING *`, [ownerId, runId, RUN_IDLE_TIMEOUT_MS / 1000])).rows[0];
+      return event(client, changed, input);
     }),
     async finishFailed(ownerId, runId, input) {
       return owned(ownerId, async (client) => {
@@ -578,7 +589,9 @@ export function createGenerationRepository(
       const permitted: Record<string, string[]> = { accepted: ["accepted", "building"], building: ["building", "verifying"], verifying: ["verifying"] };
       if (!permitted[current.state]?.includes(state)) throw new ApiFailure(409, "INVALID_RUN_TRANSITION", "当前阶段不能进行这个状态切换。");
       if (state === current.state && input.phase === current.phase) return storedRun(current);
-      const changed = await client.query("UPDATE nano.runs SET state=$3,phase=$4 WHERE owner_id=$1 AND id=$2 RETURNING *", [ownerId, runId, state, input.phase]);
+      const changed = await client.query(`UPDATE nano.runs SET state=$3,phase=$4,
+        deadline_at=greatest(deadline_at,now()+make_interval(secs=>$5)) WHERE owner_id=$1 AND id=$2 RETURNING *`,
+      [ownerId, runId, state, input.phase, RUN_IDLE_TIMEOUT_MS / 1000]);
       await event(client, changed.rows[0], { type: "run.phase", payload: { state, phase: input.phase } });
       return storedRun(changed.rows[0]);
     }),
@@ -605,7 +618,7 @@ export function createGenerationRepository(
     }),
     queueReviewer: (ownerId, runId, input) => owned(ownerId, async (client) => {
       const { current, parent } = await lockedRun(client, ownerId, runId);
-      if (date(current.deadline_at).getTime() <= Date.now()) throw new ApiFailure(409, "RUN_TIMEOUT", "任务已达到时间上限。");
+      if (date(current.deadline_at).getTime() <= Date.now()) throw new ApiFailure(409, "RUN_TIMEOUT", "任务长时间没有进展，已停止执行。");
       if (parent.current_revision_id !== current.expected_current_revision_id) throw new ApiFailure(409, "STALE_BASE", "当前版本已经变化，不能继续检查。");
       const saved = await revision(client, ownerId, input.revisionId);
       if (saved.run_id !== runId || saved.project_id !== current.project_id || saved.attempt !== current.attempt
@@ -640,7 +653,7 @@ export function createGenerationRepository(
     }),
     startReviewer: (ownerId, runId) => owned(ownerId, async (client) => {
       const { current } = await lockedRun(client, ownerId, runId);
-      if (date(current.deadline_at).getTime() <= Date.now()) throw new ApiFailure(409, "RUN_TIMEOUT", "任务已达到时间上限。");
+      if (date(current.deadline_at).getTime() <= Date.now()) throw new ApiFailure(409, "RUN_TIMEOUT", "任务长时间没有进展，已停止执行。");
       const prior = (await client.query("SELECT * FROM nano.role_runs WHERE owner_id=$1 AND run_id=$2 AND id=$3 AND role='reviewer' AND attempt=$4", [ownerId, runId, current.reviewer_role_run_id, current.attempt])).rows[0];
       if (current.state !== "verifying" || !prior || !["queued", "running"].includes(prior.state)) throw new ApiFailure(409, "ROLE_NOT_ACTIVE", "检查者尚未排入或已经结束。");
       const execution = reviewerExecution(prior);
@@ -977,7 +990,7 @@ export function createGenerationRepository(
       if (current.state !== "repairing") throw new ApiFailure(409, "ROLE_NOT_ACTIVE", "这个任务当前不在可修复状态。");
       if (!Number.isInteger(input.attempt) || input.attempt !== current.attempt + 1 || input.attempt > 2)
         throw new ApiFailure(409, "STALE_ATTEMPT", "修复轮次与当前尝试不匹配。");
-      if (date(current.deadline_at).getTime() <= Date.now()) throw new ApiFailure(409, "RUN_TIMEOUT", "任务已达到时间上限。");
+      if (date(current.deadline_at).getTime() <= Date.now()) throw new ApiFailure(409, "RUN_TIMEOUT", "任务长时间没有进展，已停止执行。");
       const previous = await revision(client, ownerId, input.previousRevisionId);
       if (previous.run_id !== runId || previous.project_id !== current.project_id || previous.attempt !== current.attempt)
         throw new ApiFailure(409, "SNAPSHOT_CONFLICT", "待修复候选与当前任务不匹配。");
