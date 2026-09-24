@@ -484,7 +484,19 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             const url=new URL(latestUrl);
             if(url.origin!=='http://127.0.0.1:4173')throw fail(new RuntimeError('CHECK_BLOCKED','只能刷新本次候选预览'));
             lastAction=undefined;latestObservationId=undefined;
-            const observation=await input.browser.open(url.pathname+url.search+url.hash);
+            const path=url.pathname+url.search+url.hash;
+            let observation: BrowserObservation;
+            try { observation=await input.browser.open(path); }
+            catch(error){
+              // A single transient browser navigation failure may leave this
+              // preview intact. Retry the actual navigation once, never reuse
+              // an old observation as evidence of a reload.
+              if(!(error instanceof RuntimeError && ['BROWSER_BLOCKED','BROWSER_TIMEOUT'].includes(error.code)))throw error;
+              await active();
+              observation=await input.browser.open(path);
+            }
+            if(observation.id===reload.observationId||observation.url!==url.href)
+              throw new RuntimeError('BROWSER_OBSERVATION_CHANGED','刷新后页面与原观察不一致');
             await active();lastAction={behaviorId:reload.behaviorId,action:'reload'};
             noteBehaviorAction(reload.behaviorId);
             value=observe(observation);

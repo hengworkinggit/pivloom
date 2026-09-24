@@ -585,6 +585,79 @@ test('a persistence reload preserves the observed path, query and hash route wit
   expect(f.stats()).toEqual({calls:4,actions:1,closes:1});
 });
 
+test('a transient blocked reload retries the same path once and records only the new observation',async()=>{
+  const openedPaths:Array<string|undefined>=[];
+  const f=setup((request,n)=>{
+    if(n===1)return {name:'browser_open',args:{path:'/reading?tab=all'}};
+    const data=JSON.parse(request.messages.filter(m=>m.role==='tool').at(-1)!.content);
+    if(n===2)return {name:'browser_click',args:{behaviorId:'B01',observationId:data.observationId,ref:'e1'}};
+    if(n===3)return {name:'browser_reload',args:{behaviorId:'B01',observationId:data.observationId}};
+    return {name:'submit_review',args:report([data.id])};
+  });
+  const open=f.input.browser.open;
+  f.input.browser.open=async(path)=>{
+    openedPaths.push(path);
+    if(openedPaths.length===2)throw new RuntimeError('BROWSER_BLOCKED','private CLI failure');
+    return open(path);
+  };
+  const result=await runReviewer(f.input);
+  expect(openedPaths).toEqual(['/reading?tab=all','/','/']);
+  expect(result.evidence.filter(entry=>entry.action==='reload')).toHaveLength(1);
+  expect(result.evidence.at(-1)).toMatchObject({behaviorId:'B01',action:'reload',text:'测试书名'});
+  expect(result.result.items[0].observationEventIds).toEqual([result.evidence.at(-1)?.id]);
+  expect(result.usage.toolCalls).toBe(4);
+  expect(f.stats()).toEqual({calls:4,actions:1,closes:1});
+});
+
+test('two blocked reload navigations still fail the check without a report turn',async()=>{
+  const f=setup((request,n)=>{
+    if(n===1)return {name:'browser_open',args:{path:'/'}};
+    const data=JSON.parse(request.messages.filter(m=>m.role==='tool').at(-1)!.content);
+    return {name:'browser_reload',args:{behaviorId:'B01',observationId:data.observationId}};
+  });
+  const open=f.input.browser.open;let opens=0;
+  f.input.browser.open=async(path)=>{
+    if(++opens>1)throw new RuntimeError('BROWSER_BLOCKED','private CLI failure');
+    return open(path);
+  };
+  await expect(runReviewer(f.input)).rejects.toMatchObject({code:'CHECK_BLOCKED'});
+  expect(opens).toBe(3);
+  expect(f.stats()).toEqual({calls:2,actions:0,closes:1});
+});
+
+test('cancellation after the first blocked reload prevents the second navigation',async()=>{
+  const controller=new AbortController();
+  const f=setup((request,n)=>{
+    if(n===1)return {name:'browser_open',args:{path:'/'}};
+    const data=JSON.parse(request.messages.filter(m=>m.role==='tool').at(-1)!.content);
+    return {name:'browser_reload',args:{behaviorId:'B01',observationId:data.observationId}};
+  });
+  const open=f.input.browser.open;let opens=0;
+  f.input.browser.open=async(path)=>{
+    if(++opens>1){controller.abort('CANCELLED');throw new RuntimeError('BROWSER_BLOCKED','private CLI failure');}
+    return open(path);
+  };
+  await expect(runReviewer({...f.input,signal:controller.signal})).rejects.toMatchObject({code:'CANCELLED'});
+  expect(opens).toBe(2);
+});
+
+test('a retry that returns the old observation cannot count as reload evidence',async()=>{
+  let original:Awaited<ReturnType<ReviewBrowser['open']>>|undefined;let opens=0;
+  const f=setup((request,n)=>{
+    if(n===1)return {name:'browser_open',args:{path:'/'}};
+    const data=JSON.parse(request.messages.filter(m=>m.role==='tool').at(-1)!.content);
+    return {name:'browser_reload',args:{behaviorId:'B01',observationId:data.observationId}};
+  });
+  const open=f.input.browser.open;
+  f.input.browser.open=async(path)=>{
+    if(++opens===1)return original=await open(path);
+    if(opens===2)throw new RuntimeError('BROWSER_BLOCKED','private CLI failure');
+    return original!;
+  };
+  await expect(runReviewer(f.input)).rejects.toMatchObject({code:'CHECK_BLOCKED'});
+  expect(opens).toBe(3);
+});
+
 test.each(['not-opened','observe-before-open','stale','wrong-behavior'])('reload refuses %s without reopening the page',async(mode)=>{
   let firstObservationId='',opens=0;
   const maxTools=mode==='not-opened'?1:mode==='stale'?3:2;
