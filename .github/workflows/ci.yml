@@ -109,6 +109,14 @@ jobs:
           # This selected case uses in-memory object storage, never a live Supabase service.
           SUPABASE_URL: https://fixture.invalid
           SUPABASE_SECRET_KEY: fixture-ci-only
+      - name: Run the durable queue against its own PostgreSQL database
+        run: |
+          export DATABASE_URL="$PIVLOOM_QUEUE_DATABASE_URL"
+          export MIGRATION_DATABASE_URL="$PIVLOOM_QUEUE_DATABASE_URL"
+          export PIVLOOM_ENVIRONMENT_ID="$PIVLOOM_QUEUE_ENVIRONMENT_ID"
+          npm test --workspace @pivloom/api -- tests/generation/queue.integration.test.ts
+        env:
+          PIVLOOM_QUEUE_INTEGRATION: '1'
       - name: State the verification boundary
         if: always()
         run: |

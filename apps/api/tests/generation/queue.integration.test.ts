@@ -424,22 +424,31 @@ describe.skipIf(process.env.PIVLOOM_QUEUE_INTEGRATION !== "1")("durable generati
     const backlogA = await project();
     const otherB = await project(ownerB);
     const firstA = await capacity.accept(ownerA, backlogA, request("第一个账号的排队需求"));
-    const secondA = await capacity.accept(ownerA, backlogA, request("第一个账号的后续需求"));
-    const firstB = await capacity.accept(ownerB, otherB, request("第二个账号的需求", ownerB));
     // Accounts only ever see their own tasks.
-    expect((await capacity.listTasks(ownerB)).map((task) => task.runId)).toContain(firstB.run.id);
     expect((await capacity.listTasks(ownerB)).map((task) => task.runId)).not.toContain(firstA.run.id);
     await admin.query("UPDATE nano.sandboxes SET state='destroyed' WHERE remote_id=$1", [sandboxIds.at(-1)]);
-    // Three dispatch rounds: the other account's task must be served before the
-    // backlog account's second task, whichever account happens to start.
+    // The backlog account is served once; a second task it queues afterwards must
+    // then yield to the account that has been waiting. Queuing the second task
+    // after the first dispatch is what makes this a starvation case: a task
+    // queued before anyone was served simply keeps submission order, and holding
+    // that order is not unfairness.
+    const servedFirst = await capacity.claimNextQueuedRun();
+    expect(servedFirst?.id).toBe(firstA.run.id);
+    await capacity.finishCancelled(ownerA, servedFirst!.id, { cleanupState: "confirmed", summary: "queue fixture complete" });
+    const secondA = await capacity.accept(ownerA, backlogA, request("第一个账号的后续需求"));
+    const firstB = await capacity.accept(ownerB, otherB, request("第二个账号的需求", ownerB));
+    expect((await capacity.listTasks(ownerB)).map((task) => task.runId)).toContain(firstB.run.id);
+    expect((await capacity.listTasks(ownerB)).map((task) => task.runId)).not.toContain(secondA.run.id);
     const order: string[] = [];
-    for (let round = 0; round < 3; round += 1) {
+    for (let round = 0; round < 2; round += 1) {
       const served = await capacity.claimNextQueuedRun();
       expect(served).not.toBeNull();
       order.push(served!.id);
       await capacity.finishCancelled(served!.ownerId, served!.id, { cleanupState: "confirmed", summary: "queue fixture complete" });
     }
-    expect(new Set(order)).toEqual(new Set([firstA.run.id, secondA.run.id, firstB.run.id]));
+    expect(new Set(order)).toEqual(new Set([secondA.run.id, firstB.run.id]));
+    // The account that has already been served goes last, so one account's
+    // backlog cannot keep another account waiting indefinitely.
     expect(order.indexOf(firstB.run.id)).toBeLessThan(order.indexOf(secondA.run.id));
   }, 120_000);
 
