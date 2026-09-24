@@ -12,7 +12,8 @@ import type { SandboxConnection } from '../../src/runtime/workspace.js';
 // sandbox transport and provider SSE are explicit external fixtures.
 async function fixture(fault?:string){
   const blobs=new Map<string,Uint8Array>();
-  const sources=createSourceStore({url:'http://fixture.invalid',secret:'fixture',objects:{upload:async(k,b)=>{blobs.set(k,b);},download:async(k)=>blobs.get(k)!,list:async()=>[]}});
+  const objects={upload:async(k:string,b:Uint8Array)=>{blobs.set(k,b);},download:async(k:string)=>blobs.get(k)!,list:async()=>[]};
+  const sources=createSourceStore({url:'http://fixture.invalid',secret:'fixture',objects});
   const files=[{path:'src/App.tsx',content:Buffer.from('export default function App(){return null}'),sha256:''}];
   files[0].sha256=createHash('sha256').update(files[0].content).digest('hex');
   const snapshot=createSourceSnapshot(files);
@@ -21,7 +22,9 @@ async function fixture(fault?:string){
   const binding={runId:randomUUID(),roleRunId:randomUUID(),attempt:0,revisionId:source.revisionId,sourceHash:source.sourceHash,sandboxId:'fixture',browserSessionId:'pivloom-'+randomUUID()};
   const staging=new Map<string,Uint8Array>();let calls=0,remoteActions=0,actions=0;
   const connection:SandboxConnection={sandboxId:'fixture',kill:async()=>{},isRunning:async()=>true,renew:async()=>{},close:async()=>{},
-    endpoint:async()=>({url:'http://preview-fixture.invalid',headers:{}}),read:async()=>new Uint8Array(),write:async(p,b)=>{staging.set(p,b);},
+    endpoint:async()=>({url:'http://preview-fixture.invalid',headers:{}}),
+    read:async()=>Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL0KAAAAABJRU5ErkJggg==','base64'),
+    write:async(p,b)=>{staging.set(p,b);},
     run:async(command)=>{
       let stdoutTail='';
       if(command.startsWith('node /opt/pivloom/source-io.mjs')){
@@ -45,19 +48,20 @@ async function fixture(fault?:string){
   const modelFetch:typeof fetch=async(_url,init)=>{
     calls++;
     const request=JSON.parse(String(init?.body));
-    const last=request.messages.filter((message:{role:string})=>message.role==='tool').at(-1);
-    let observed:null|{observationId:string}=null;
-    if(last){try{observed=JSON.parse(last.content);}catch{ /* Invalid reports return a static tool error string. */ }}
-    const choice=calls===1?{name:'browser_open',args:{}}:fault==='FORM_TARGET_CHANGED'
-      ?{name:'browser_form',args:{observationId:observed?.observationId,behaviorId:'B01',fields:[{ref:'e1',type:'fill',text:'测试书名'}],submitRef:'e2'}}
-      :{name:'browser_click',args:{observationId:observed?.observationId,behaviorId:'B01',ref:'e2'}};
+    const firstUser=request.messages.find((message:{role:string})=>message.role==='user');
+    const text=Array.isArray(firstUser?.content)
+      ? firstUser.content.find((part:{type:string})=>part.type==='text')?.text : firstUser?.content;
+    const initial=JSON.parse(text).initialReview as {observationId:string;artifactId:string;reportEvidenceId:string};
+    const choice=fault==='FORM_TARGET_CHANGED'
+      ?{name:'browser_form',args:{observationId:initial.observationId,behaviorId:'B01',fields:[{ref:'e1',type:'fill',text:'测试书名'}],submitRef:'e2'}}
+      :{name:'browser_click',args:{observationId:initial.observationId,behaviorId:'B01',ref:'e2'}};
     const delta=fault?{role:'assistant',tool_calls:[{index:0,id:'call-'+calls,type:'function',function:{name:choice.name,arguments:JSON.stringify(choice.args)}}]}:{role:'assistant',content:'Completed'};
     const chunk={id:'fixture',object:'chat.completion.chunk',created:1,model:'fixture',choices:[{index:0,delta,finish_reason:null}]};
     return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({...chunk,choices:[{index:0,delta:{},finish_reason:fault?'tool_calls':'stop'}],usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15}})}\n\ndata: [DONE]\n\n`,{headers:{'content-type':'text/event-stream'}});
   };
   const plan={schemaVersion:1 as const,goal:'添加书名',changeSummary:'添加书名',assumptions:[],outOfScope:[],behaviors:[{id:'B01',title:'添加',precondition:'空列表',action:'添加书名',expected:'书名显示',required:true}]};
   const input:Parameters<typeof runReview>[0]={binding,sessionId:randomUUID(),expiresAt:new Date(Date.now()+600000).toISOString(),source,sources,
-    artifacts:createArtifactStore({url:'http://fixture.invalid',secret:'fixture'}),
+    artifacts:createArtifactStore({url:'http://fixture.invalid',secret:'fixture',objects}),
     handoff:{runId:binding.runId,fromRoleRunId:randomUUID(),toRole:'reviewer',attempt:0,baseRevisionId:null,expectedRevisionId:binding.revisionId,sourceHash:binding.sourceHash,plan,task:'检查书名',artifactIds:[]},
     sandboxConfig:{baseUrl:'http://fixture.invalid',apiKey:'fixture',image:'fixture'},
     modelConfig:{provider:'fixture',id:'fixture',api:'openai-completions',baseUrl:'https://model-fixture.invalid/v1',apiKey:'fixture-key',fetch:modelFetch,supportsImages:true},
@@ -71,7 +75,9 @@ test.each(['TOOL_BUDGET_EXCEEDED','TOKEN_BUDGET_EXCEEDED','AGENT_OUTPUT_INVALID'
   const f=await fixture();
   await expect(runReview({...f.input,...(code==='TOOL_BUDGET_EXCEEDED'?{maxToolCalls:0}:{}),...(code==='TOKEN_BUDGET_EXCEEDED'?{tokenBudget:createRunTokenBudget(1)}:{})},f.boundaries)).rejects.toMatchObject({code});
   expect(f.stats().calls).toBe(code==='AGENT_OUTPUT_INVALID'?2:0);
-  expect(f.stats().remoteActions).toBe(0);
+  expect(f.stats().actions).toBe(0);
+  if(code==='TOOL_BUDGET_EXCEEDED')expect(f.stats().remoteActions).toBe(0);
+  else expect(f.stats().remoteActions).toBeGreaterThan(0);
 });
 
 test.each([
@@ -89,7 +95,7 @@ test.each([
   expect(receipt.markerVerified).toBe(false);
   expect(receipt.chromeClosed).toBe(true);
   expect(receipt.recoverableInfrastructureCode).toBe(code==='COMMAND_TIMEOUT'?'BROWSER_TIMEOUT':undefined);
-  expect(f.stats()).toMatchObject({calls:2,actions:1});
+  expect(f.stats()).toMatchObject({calls:1,actions:1});
   expect(JSON.stringify(receipt)).not.toMatch(/RAW_SECRET|fixture-key|private-argument|UNRECOGNIZED_REMOTE_ERROR/);
 });
 
