@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { TerminalRunStates, type RoleUsage, type RunPhase } from "@pivloom/contracts";
+import { TerminalRunStates, type RoleUsage, type RunPhase, type RunState } from "@pivloom/contracts";
 import type { GenerationRepository, StoredRestore, StoredRevision, StoredRun } from "../data/generation.js";
 import type { ModelProfileService } from "../models/service.js";
 import { sourceBundleFiles, type SourceStore } from "../storage/source.js";
@@ -35,6 +35,22 @@ function storedUsage(usage: TokenUsage): RoleUsage {
     inputTokens: usage.input, outputTokens: usage.output, cachedTokens: usage.cachedTokens,
     totalTokens: usage.total, elapsedMs: usage.elapsedMs, source: usage.source,
   };
+}
+
+export function retainsAcceptedPreview(state: RunState): boolean {
+  return state === "completed";
+}
+
+/** The repository commits the Check first; failed candidates then release their sandbox. */
+export async function settleTerminalReview<T extends { run: { state: RunState }; repairNextAttempt: number | null }>(
+  finishReview: () => Promise<T>,
+  destroyRejected: () => Promise<unknown>,
+): Promise<{ completion: T; retained: boolean }> {
+  const completion = await finishReview();
+  if (completion.repairNextAttempt !== null) return { completion, retained: false };
+  const retained = retainsAcceptedPreview(completion.run.state);
+  if (!retained) await destroyRejected().catch(() => {});
+  return { completion, retained };
 }
 
 /** Single-process dispatcher. Only persisted, newly accepted runs enter here. */
@@ -281,13 +297,20 @@ export function createGenerationExecutor(options: {
         // A lost transaction response is ambiguous: the accepted Preview might
         // already be current. Reconcile the DB state before deleting its sandbox.
         task.commitUnknown = true;
-        const completion = await repository.finishReview(run.ownerId, run.id, { receipt: checked.receipt, usage: activeUsage });
+        const settledReview = await settleTerminalReview(
+          () => repository.finishReview(run.ownerId, run.id, { receipt: checked.receipt, usage: activeUsage }),
+          async () => {
+            const rejected = currentResource();
+            if (rejected && resources.has(rejected.sandboxId)) await destroy(rejected);
+          },
+        );
+        const { completion } = settledReview;
         task.commitUnknown = false;
         if (completion.repairNextAttempt === null) {
           // A terminal blocked or rejected Check keeps its saved source and
           // evidence, but must release the candidate sandbox immediately.
           // Only the accepted current revision keeps a live Preview.
-          if (completion.run.state === "completed") { retained = true; task.retained = true; }
+          if (settledReview.retained) { retained = true; task.retained = true; }
           break;
         }
         // The rejected candidate keeps its saved source for inspection, but its
@@ -315,7 +338,7 @@ export function createGenerationExecutor(options: {
         const persisted = await repository.getRun(run.ownerId, run.id);
         if (TerminalRunStates.has(persisted.state)) {
           task.commitUnknown = false;
-          if (persisted.state === "completed") { retained = true; task.retained = true; }
+          if (retainsAcceptedPreview(persisted.state)) { retained = true; task.retained = true; }
           return;
         }
         task.commitUnknown = false;
@@ -373,7 +396,7 @@ export function createGenerationExecutor(options: {
     if (task.settling) return task.settling;
     const attempt = (async () => {
       let saved = await repository.getRun(run.ownerId, run.id);
-      if (saved.state === "completed") task.retained = true;
+      if (retainsAcceptedPreview(saved.state)) task.retained = true;
       if (!task.retained) {
         for (const resource of [...resources.values()].filter((item) => !item.restore && item.runId === run.id))
           await destroy(resource).catch(() => false);
