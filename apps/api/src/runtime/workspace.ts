@@ -441,16 +441,37 @@ export class OpenSandboxWorkspace implements WorkspacePort {
   async executeService(
     handle: WorkspaceHandle,
     command: string,
-    options: { uid?: number; timeoutMs?: number; background?: boolean } = {},
+    options: { uid?: number; timeoutMs?: number; background?: boolean; signal?: AbortSignal } = {},
   ): Promise<CommandResult> {
+    options.signal?.throwIfAborted();
     const p = await this.requireResource(handle).connection.run(command, {
       uid: options.uid ?? 1000,
       cwd: "/workspace",
       timeoutMs: options.timeoutMs ?? 60_000,
     });
-    return options.background
-      ? { exitCode: 0, stdoutTail: p.id, stderrTail: "" }
-      : p.wait();
+    if (options.signal?.aborted) {
+      await p.interrupt();
+      throw new RuntimeError("CANCELLED", "服务命令已取消");
+    }
+    if (options.background) return { exitCode: 0, stdoutTail: p.id, stderrTail: "" };
+    if (!options.signal) return p.wait();
+    const signal = options.signal;
+    let onAbort: (() => void) | undefined;
+    const interrupted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => {
+        void p.interrupt().then(
+          () => reject(new RuntimeError("CANCELLED", "服务命令已取消")),
+          () => reject(new RuntimeError("COMMAND_INTERRUPT_FAILED", "服务命令中断未确认")),
+        );
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+    if (signal.aborted) onAbort?.();
+    try {
+      return await Promise.race([p.wait(), interrupted]);
+    } finally {
+      if (onAbort) signal.removeEventListener("abort", onAbort);
+    }
   }
   endpoint(
     handle: WorkspaceHandle,

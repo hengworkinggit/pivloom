@@ -59,6 +59,7 @@ export class RemoteBrowser {
   private observation?: { id: string; url: string; refs: Set<string> };
   private closed = false;
   private stopped = false;
+  private readonly stopController = new AbortController();
   private started = false;
   private operating = false;
   private commandsInFlight = 0;
@@ -333,6 +334,7 @@ export class RemoteBrowser {
   }
   async close(): Promise<{ confirmed: boolean }> {
     this.stopped = true;
+    this.stopController.abort();
     this.observation = undefined;
     if (this.closed || !this.started) {
       this.closed = true;
@@ -441,7 +443,12 @@ export class RemoteBrowser {
       result = await this.workspace.executeService(this.handle, command, {
         uid: 0,
         timeoutMs: closing ? 15000 : this.remainingTime(),
+        ...(closing ? {} : { signal: this.stopController.signal }),
       });
+    } catch (error) {
+      if (this.stopped && !closing)
+        throw new RuntimeError("BROWSER_CLOSED", "浏览器已关闭");
+      throw error;
     } finally {
       if (!closing) this.commandsInFlight--;
     }
@@ -481,7 +488,12 @@ export class RemoteBrowser {
     this.commandsInFlight++;
     let result;
     try {
-      result = await this.workspace.executeService(this.handle, command, { uid: 0, timeoutMs: this.remainingTime() });
+      result = await this.workspace.executeService(this.handle, command, {
+        uid: 0, timeoutMs: this.remainingTime(), signal: this.stopController.signal,
+      });
+    } catch (error) {
+      if (this.stopped) throw new RuntimeError("BROWSER_CLOSED", "浏览器已关闭");
+      throw error;
     } finally {
       this.commandsInFlight--;
     }

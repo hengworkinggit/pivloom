@@ -26,6 +26,10 @@ async function fixture(sessionId?: string) {
     response: undefined as unknown,
     batchResponse: undefined as unknown,
     viewport: { width: 1280, height: 720, scrollWidth: 1280 },
+    batchWait: undefined as Promise<void> | undefined,
+    batchStarted: undefined as (() => void) | undefined,
+    onBatchInterrupt: undefined as (() => void) | undefined,
+    batchOrder: [] as string[],
   };
   let live = true;
   const connection: SandboxConnection = {
@@ -59,15 +63,25 @@ async function fixture(sessionId?: string) {
         !state.failCommand || !command.includes(state.failCommand);
       state.afterCommand?.(command);
       const batched = command.includes("'batch' '--bail'");
+      if (command.endsWith("'close'")) state.batchOrder.push("close");
+      if (batched) state.batchStarted?.();
       const batchResult = batched ? state.batchResponse : undefined;
       return {
         id: "fixture-command",
-        interrupt: async () => {},
-        wait: async () => ({
+        interrupt: async () => {
+          if (batched) {
+            state.batchOrder.push("interrupt");
+            state.onBatchInterrupt?.();
+          }
+        },
+        wait: async () => {
+          if (batched) await state.batchWait;
+          return {
           exitCode: batched && Array.isArray(batchResult) && batchResult.some((item) => item.success === false) ? 1 : 0,
           stdoutTail: JSON.stringify(batched ? batchResult : state.response ?? { success, data }),
           stderrTail: "",
-        }),
+          };
+        },
       };
     },
   };
@@ -698,6 +712,40 @@ test("closing a browser that was never used does not start a CLI or Chromium ses
     expect(await f.browser.close()).toEqual({ confirmed: true });
     expect(f.commands).toHaveLength(0);
   } finally {
+    await f.cleanup();
+  }
+});
+
+test("closing during a hanging native key batch interrupts it before closing and never schedules later keys", async () => {
+  const f = await fixture();
+  let started!: () => void;
+  let releaseWait!: () => void;
+  const batchStarted = new Promise<void>((resolve) => { started = resolve; });
+  const waitGate = new Promise<void>((resolve) => { releaseWait = resolve; });
+  let pending: Promise<unknown> | undefined;
+  try {
+    const observed = await f.browser.open();
+    f.state.batchWait = waitGate;
+    f.state.batchStarted = started;
+    f.state.onBatchInterrupt = releaseWait;
+    pending = f.browser.keyBatch({ observationId: observed.id, steps: [
+      { key: "ArrowUp", waitMs: 1000 }, { key: "ArrowRight", waitMs: 1000 },
+      { key: "ArrowDown", waitMs: 1000 },
+    ] }).then(() => null, (error: { code?: string }) => error);
+    await batchStarted;
+    const close = await f.browser.close();
+    expect(f.state.batchOrder[0]).toBe("interrupt");
+    expect(f.state.batchOrder[1]).toBe("close");
+    expect(close).toEqual({ confirmed: false });
+    expect(await pending).toMatchObject({ code: "BROWSER_CLOSED" });
+    expect(await f.browser.close()).toEqual({ confirmed: true });
+    expect(f.commands.filter(({ command }) => command.includes("'batch' '--bail'"))).toHaveLength(1);
+    await expect(f.browser.keyBatch({ observationId: observed.id, steps: [{ key: "Space", waitMs: 0 }] }))
+      .rejects.toMatchObject({ code: "BROWSER_CLOSED" });
+    await expect(f.browser.observe()).rejects.toMatchObject({ code: "BROWSER_CLOSED" });
+  } finally {
+    releaseWait?.();
+    await pending;
     await f.cleanup();
   }
 });
