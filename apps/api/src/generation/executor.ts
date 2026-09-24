@@ -608,6 +608,19 @@ export function createGenerationExecutor(options: {
   return {
     hasCapacity() { return !closing && resources.size + [...tasks.values()].filter((task) => !task.sandboxId).length < options.maxSandboxes; },
     /**
+     * Puts an idle preview to sleep so a waiting task can use its slot. Reuses
+     * the normal destroy path, so the preview capability is revoked, the remote
+     * sandbox is really gone and the durable row records it; source, versions,
+     * checks and the saved screenshot are untouched and the preview reports the
+     * same restartable state as an expired one. Returns false when this process
+     * does not own the sandbox, which means someone else still has work on it.
+     */
+    async sleepPreview(target: { ownerId: string; runId: string; revisionId: string; sandboxId: string }) {
+      const resource = resources.get(target.sandboxId);
+      if (!resource || resource.runId !== target.runId) return false;
+      return destroy(resource);
+    },
+    /**
      * Requests a stop for a run this process is executing. Returns false when no
      * live task owns the run, so the caller can settle the state immediately
      * instead of waiting for a task that will never observe the signal.

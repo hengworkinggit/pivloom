@@ -125,6 +125,18 @@ describe.skipIf(process.env.PIVLOOM_QUEUE_INTEGRATION !== "1")("durable generati
     await saveManifest();
   }
 
+  /** A saved revision for a project's existing run, so a sandbox can point at it. */
+  async function savedRevision(projectId: string, revisionNo = 1) {
+    const revisionId = randomUUID();
+    const run = (await admin.query("SELECT id FROM nano.runs WHERE project_id=$1 ORDER BY created_at, id LIMIT 1", [projectId])).rows[0];
+    if (!run) throw Error("fixture project has no run to attach a revision to");
+    await admin.query(`INSERT INTO nano.revisions(id,owner_id,project_id,run_id,revision_no,attempt,source_key,source_hash,
+        template_version,manifest_json,source_bytes,compressed_bytes,build_status,build_json,status)
+      VALUES($1,$2,$3,$4,$5,0,$6,$7,'fixture','[]'::jsonb,10,10,'passed','{}'::jsonb,'accepted')`,
+    [revisionId, ownerA, projectId, run.id, revisionNo, `${ownerA}/${projectId}/${revisionId}`, "d".repeat(64)]);
+    return revisionId;
+  }
+
   /** Exactly what nano.reserve_generation_capacity counts as an occupied slot. */
   async function occupiedSlots() {
     const row = (await admin.query(`SELECT
@@ -350,6 +362,54 @@ describe.skipIf(process.env.PIVLOOM_QUEUE_INTEGRATION !== "1")("durable generati
     // Release the slot this case took, so the next case starts from the ceiling
     // it expects.
     await capacity.failRestore(ownerA, target, requested.restore.id, { code: "FIXTURE_DONE", message: "queue fixture complete" });
+  }, 120_000);
+
+  test("a waiting queue reclaims an idle preview, preferring a superseded one, and never touches work in flight", async () => {
+    const idle = await project();
+    // A finished run whose sandbox is still retained as its preview: this is
+    // exactly the slot that used to be unavailable until its lease lapsed.
+    await occupy(ownerA, idle, 1);
+    const supersededRevision = await savedRevision(idle);
+    await admin.query(`UPDATE nano.sandboxes SET revision_id=$2 WHERE project_id=$1 AND state='active'`, [idle, supersededRevision]);
+    // A ceiling of one while that one slot is already taken: nothing else can be
+    // admitted, which is what makes the queue actually wait.
+    const capacity = repository(1);
+    const live = await project();
+    await occupy(ownerA, live, 1);
+    const currentRevision = await savedRevision(live);
+    await admin.query(`UPDATE nano.projects SET current_revision_id=$2 WHERE id=$1`, [live, currentRevision]);
+    await admin.query(`UPDATE nano.sandboxes SET revision_id=$2 WHERE project_id=$1 AND state='active'`, [live, currentRevision]);
+
+    const queued = await capacity.accept(ownerA, await project(), request("等待名额"));
+    expect(await capacity.claimNextQueuedRun(queued.run.id)).toBeNull();
+    expect(await capacity.hasQueuedWork()).toBe(true);
+    expect(await capacity.hasCapacityFree()).toBe(false);
+
+    const first = await capacity.selectReclaimablePreview();
+    expect(first).not.toBeNull();
+    // The revision the project has already moved past goes first: sleeping it
+    // costs the least visible state.
+    expect(first?.projectId).toBe(idle);
+    expect(first?.superseded).toBe(true);
+
+    // A project with an operation in flight is never a candidate, so a build, a
+    // rollback preparation or a publication read cannot lose its sandbox.
+    await admin.query("UPDATE nano.projects SET operation_kind='generate',operation_id=$2 WHERE id=$1", [live, queued.run.id]);
+    const candidates = await admin.query("SELECT project_id FROM nano.preview_reclaim_candidates()");
+    expect(candidates.rows.map((row) => row.project_id)).not.toContain(live);
+    await admin.query("UPDATE nano.projects SET operation_kind=NULL,operation_id=NULL WHERE id=$1", [live]);
+
+    // Sleeping that preview is what frees the slot the queue was waiting for.
+    const occupiedBefore = Number((await admin.query("SELECT nano.generation_capacity_occupied() AS n")).rows[0].n);
+    await admin.query("UPDATE nano.sandboxes SET state='destroyed' WHERE project_id=$1", [idle]);
+    const occupiedAfter = Number((await admin.query("SELECT nano.generation_capacity_occupied() AS n")).rows[0].n);
+    expect(occupiedAfter).toBe(occupiedBefore - 1);
+    // With a ceiling of exactly the remaining occupancy, the queue now has room
+    // and the task that was refused before is admitted.
+    const afterReclaim = repository(occupiedAfter + 1);
+    const claimed = await afterReclaim.claimNextQueuedRun(queued.run.id);
+    expect(claimed?.state).toBe("accepted");
+    await capacity.finishCancelled(ownerA, queued.run.id, { cleanupState: "confirmed", summary: "queue fixture complete" });
   }, 120_000);
 
   test("a claim publishes a durable dispatch event so a waiting client stops reading queued", async () => {

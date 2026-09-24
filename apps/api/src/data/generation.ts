@@ -143,6 +143,17 @@ export interface GenerationRepository {
    */
   reserveCapacity(ownerId: string): Promise<void>;
   /**
+   * The idle preview that may be put to sleep so a waiting task can start.
+   * Excludes anything with an operation in flight, so a build, a rollback
+   * preparation or a publication read is never reclaimed. Null when nothing is
+   * reclaimable.
+   */
+  selectReclaimablePreview(): Promise<{ sandboxId: string; ownerId: string; projectId: string; revisionId: string; runId: string; superseded: boolean } | null>;
+  /** Whether any queued task can be dispatched right now. Read-only. */
+  hasQueuedWork(): Promise<boolean>;
+  /** Whether the capacity ceiling still has room. Read-only. */
+  hasCapacityFree(): Promise<boolean>;
+  /**
    * Freezes the dispatch-time baseline and model configuration for a claimed
    * task. Returns "parked" when the request was preserved but cannot start.
    */
@@ -1320,6 +1331,26 @@ export function createGenerationRepository(
     }),
     parkQueuedRun: (ownerId, runId, input) => owned(ownerId, async (client) =>
       parkClaim(client, await run(client, ownerId, runId), input)),
+    hasQueuedWork: async () => {
+      if (!database.system) throw new Error("Queue inspection requires the system connection");
+      const row = (await database.system(async (client) =>
+        client.query("SELECT 1 AS queued FROM nano.queue_candidates() WHERE NOT blocked LIMIT 1"))).rows[0];
+      return Boolean(row);
+    },
+    hasCapacityFree: async () => {
+      const result = await owned("00000000-0000-4000-8000-000000000000", async (client) =>
+        client.query("SELECT nano.generation_capacity_occupied() < $1 AS free", [options.maxSandboxes ?? 1]));
+      return result.rows[0]?.free === true;
+    },
+    selectReclaimablePreview: async () => {
+      if (!database.system) throw new Error("Preview reclaim requires the system connection");
+      const rows = (await database.system(async (client) =>
+        client.query("SELECT * FROM nano.preview_reclaim_candidates() LIMIT 1"))).rows;
+      const row = rows[0];
+      return row ? { sandboxId: row.sandbox_id as string, ownerId: row.owner_id as string,
+        projectId: row.project_id as string, revisionId: row.revision_id as string,
+        runId: row.run_id as string, superseded: row.superseded === true } : null;
+    },
     /**
      * Preview restore and rollback create their own sandbox, so they must take a
      * slot from the same ledger the generation queue reserves from. Without this

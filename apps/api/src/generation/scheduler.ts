@@ -23,6 +23,12 @@ export function createGenerationScheduler(options: {
    * whether one was claimed, so the sweep can count it.
    */
   startRollback?: () => Promise<boolean>;
+  /**
+   * Puts one idle preview to sleep so a waiting task can use its slot. Called
+   * only when something is actually waiting and no capacity is free, so a
+   * preview is never reclaimed while the instance has room.
+   */
+  sleepIdlePreview?: () => Promise<boolean>;
   /** Safety-net interval; accepted tasks and settled runs wake the queue directly. */
   sweepMs?: number;
   /** Ceiling on claims per wake-up so one backlog cannot starve the event loop. */
@@ -86,6 +92,16 @@ export function createGenerationScheduler(options: {
       // per sweep: it either gets a slot or leaves capacity for a run.
       await dispatchRestoreOnce().catch(report);
       await dispatchRollbackOnce().catch(report);
+      // Something is waiting and nothing could start: the ceiling is held by
+      // previews whose lease has not lapsed. Putting one to sleep lets the queue
+      // move instead of waiting for wall-clock expiry, but only when a task
+      // really is waiting and no capacity was free — an idle instance never
+      // loses a preview to this.
+      if (options.sleepIdlePreview && !(await options.repository.hasCapacityFree().catch(() => true))) {
+        if (await options.repository.hasQueuedWork().catch(() => false)) {
+          await options.sleepIdlePreview().catch(report);
+        }
+      }
       let dispatched = 0;
       while (!closing && dispatched < maxPerTick) {
         let claimed = 0;

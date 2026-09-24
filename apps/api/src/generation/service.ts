@@ -69,6 +69,16 @@ export function createGenerationService(options: {
       if (!claimed) return false;
       rollbackExecutor.start(claimed);
       return true;
+    },
+    // Puts one idle preview to sleep so a waiting task can use its slot. The
+    // executor destroys the sandbox through its normal path, so the preview
+    // capability is revoked and the durable row says destroyed; the source,
+    // versions, checks and saved screenshot were never in that sandbox.
+    sleepIdlePreview: async () => {
+      const target = await repository.selectReclaimablePreview();
+      if (!target) return false;
+      return executor.sleepPreview({ ownerId: target.ownerId, runId: target.runId,
+        revisionId: target.revisionId, sandboxId: target.sandboxId });
     } });
   wakeQueue = () => scheduler.wake();
   const rollbackExecutor = createRollbackExecutor({ repository: rollbacks, generation: repository, sources, previews,
