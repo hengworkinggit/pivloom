@@ -27,8 +27,12 @@ export type ReviewItem = z.infer<typeof ReviewItemSchema>;
 /** A screenshot can substitute for an action only when the sealed target asks
  * solely to inspect a rendered page. Ambiguous plans require interaction. */
 export function allowsRenderOnlyEvidence(target: Pick<BehaviorTarget, "action">) {
-  const action = target.action.trim();
-  return /^(?:直接)?(?:查看|观察|浏览|目视|阅读|打开页面|打开界面)|^(?:directly\s+)?(?:view|observe|inspect|look at|open\s+(?:the\s+)?(?:page|screen))/iu.test(action)
+  // An explicit instruction not to click or press any control still describes
+  // observing the initial render. Strip only this terminal negative clause;
+  // later positive actions must remain visible to the interaction guard.
+  const action = target.action.trim().replace(/[，,]\s*(?:不点击任何按钮|不按(?:任何)?键)[。.]?$/u, "");
+  const firstRender = /^(?:首次|初次)(?:加载|打开)(?:页面|界面)[。.]?$/u.test(action);
+  return (firstRender || /^(?:直接)?(?:查看|观察|浏览|目视|阅读|打开页面|打开界面)|^(?:directly\s+)?(?:view|observe|inspect|look at|open\s+(?:the\s+)?(?:page|screen))/iu.test(action))
     && !/(点击|按下|按键|按动|按住|按按钮|输入|填写|提交|选择|切换|拖拽|滚动|刷新|重载|重启|发送|移动|控制|开始游戏|click|press|type|fill|submit|select|toggle|drag|scroll|reload|restart|send|move|control|start\s+(?:the\s+)?game)/iu.test(action);
 }
 const reviewItems = z.array(ReviewItemSchema).max(80)

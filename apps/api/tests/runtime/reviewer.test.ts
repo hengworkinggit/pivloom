@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
+import { allowsRenderOnlyEvidence } from '@pivloom/contracts';
 import { runReviewer, assertReviewerResult, deliveredScreenshotIdsFromRequest, type ReviewBrowser } from '../../src/runtime/reviewer.js';
 import { RuntimeError, type ModelConfig, type ProbeEvent } from '../../src/runtime/types.js';
 import { classifyReviewerModelFailure } from '../../src/runtime/reviewer.js';
@@ -61,7 +62,7 @@ const report=(ids:string[])=>({revisionId,sourceHash,items:[{behaviorId:'B01',ve
 test('a fabricated passing report cannot replace actual browser actions and observations',async()=>{
   const f=setup(()=>({name:'submit_review',args:report([randomUUID()])}));
   await expect(runReviewer(f.input)).rejects.toMatchObject({code:'AGENT_OUTPUT_INVALID'});
-  expect(f.stats()).toEqual({calls:2,actions:0,closes:1});
+  expect(f.stats()).toEqual({calls:3,actions:0,closes:1});
 });
 
 test('real Pi accepts only a report linked to an action and its subsequent observation',async()=>{
@@ -76,6 +77,87 @@ test('real Pi accepts only a report linked to an action and its subsequent obser
   expect(result.result.items[0].verdict).toBe('passed');
   expect(result.evidence.at(-1)).toMatchObject({behaviorId:'B01',action:'click',text:'测试书名'});
   expect(f.stats()).toEqual({calls:3,actions:1,closes:1});
+});
+
+test.each([
+  ['首次加载页面，不点击任何按钮',true],
+  ['初次打开页面，不按任何键',true],
+  ['观察游戏画布',true],
+  ['查看页面文字说明区域',true],
+  ['游戏进行中不点击重新开始，仅使用方向键和空格',false],
+  ['开始游戏并观察画布',false],
+  ['首次加载页面，不点击任何按钮，随后点击开始游戏',false],
+  ['初次打开页面，不按任何键，然后按下空格',false],
+])('render-only plan action %s is %s', (action,expected)=>{
+  expect(allowsRenderOnlyEvidence({action})).toBe(expected);
+});
+
+test('initial Canvas plan can record a screenshot of first load without clicking',async()=>{
+  let firstEventId='';
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2){firstEventId=data.id;return {name:'browser_screenshot',args:{}};}
+    return {name:'record_behavior',args:{...report([firstEventId]).items[0],
+      screenshotIds:[data.artifactId],reproSteps:['首次加载页面观察初始画面，未点击按钮']}};
+  });
+  f.input.handoff.plan={...plan,behaviors:[{...plan.behaviors[0],
+    action:'首次加载页面，不点击任何按钮',expected:'Canvas 初始棋盘、分数和说明可见'}]};
+  const result=await runReviewer({...f.input,requireVisionEvidence:true});
+  expect(result.result.items[0].verdict).toBe('passed');
+  expect(result.evidence[0]).toMatchObject({behaviorId:null,action:null});
+  expect(f.stats()).toEqual({calls:3,actions:0,closes:1});
+});
+
+test('interactive report can correct unbound observation then missing post-action image',async()=>{
+  let openedObservationId='',openedEventId='',firstScreenshotId='',clickEventId='';
+  const rejected:string[]=[];
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    let data:{observationId?:string;id?:string;artifactId?:string}|null=null;
+    try{data=last?JSON.parse(last.content):null;}catch{ /* rejected record is a tool error */ }
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2){openedObservationId=String(data?.observationId);openedEventId=String(data?.id);
+      return {name:'browser_screenshot',args:{}};}
+    if(n===3){firstScreenshotId=String(data?.artifactId);
+      return {name:'record_behavior',args:{...report([openedEventId]).items[0],screenshotIds:[firstScreenshotId]}};}
+    if(n===4)return {name:'browser_click',args:{behaviorId:'B01',observationId:openedObservationId,ref:'e1'}};
+    if(n===5){clickEventId=String(data?.id);
+      return {name:'record_behavior',args:{...report([clickEventId]).items[0],screenshotIds:[firstScreenshotId]}};}
+    if(n===6)return {name:'browser_screenshot',args:{}};
+    return {name:'record_behavior',args:{...report([clickEventId]).items[0],screenshotIds:[String(data?.artifactId)]}};
+  });
+  const onEvent=async(event:ProbeEvent)=>{
+    if(event.type==='tool.end'&&event.toolName==='record_behavior'&&event.success===false)
+      rejected.push(event.message);
+  };
+  const result=await runReviewer({...f.input,requireVisionEvidence:true,onEvent});
+  expect(rejected).toHaveLength(2);
+  expect(rejected[0]).toContain('OBSERVATION_NOT_BOUND');
+  expect(rejected[1]).toContain('IMAGE_EVIDENCE_REQUIRED');
+  expect(result.result.items[0].observationEventIds).toEqual([clickEventId]);
+  expect(result.result.items[0].screenshotIds).not.toContain(firstScreenshotId);
+  expect(f.stats()).toEqual({calls:7,actions:1,closes:1});
+});
+
+test('third invalid model turn remains fatal and persists its static rejection code',async()=>{
+  const rejected:string[]=[];
+  let observationId='';
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2){const data=last?JSON.parse(last.content):null;observationId=String(data?.id);}
+    return {name:'record_behavior',args:report([observationId]).items[0]};
+  });
+  const onEvent=async(event:ProbeEvent)=>{
+    if(event.type==='tool.end'&&event.toolName==='record_behavior'&&event.success===false)
+      rejected.push(event.message);
+  };
+  await expect(runReviewer({...f.input,onEvent})).rejects.toMatchObject({code:'AGENT_OUTPUT_INVALID'});
+  expect(rejected).toHaveLength(3);
+  expect(rejected.every(message=>message.includes('OBSERVATION_NOT_BOUND'))).toBe(true);
+  expect(f.stats()).toEqual({calls:4,actions:0,closes:1});
 });
 
 test('two unbound records in one model response spend one correction turn, then require a new action',async()=>{
@@ -300,7 +382,7 @@ test('a passing DOM report is rejected when no image entered a later Provider re
   await expect(runReviewer({...f.input,requireVisionEvidence:true})).rejects.toMatchObject({
     code:'AGENT_OUTPUT_INVALID',message:expect.stringContaining('IMAGE_EVIDENCE_REQUIRED'),
   });
-  expect(f.stats()).toEqual({calls:4,actions:1,closes:1});
+  expect(f.stats()).toEqual({calls:5,actions:1,closes:1});
 });
 
 test('Canvas key batch binds every input result, fresh observation and delivered image to the current revision',async()=>{
@@ -524,7 +606,7 @@ test('a page title alone cannot satisfy a required behavior',async()=>{
     return {name:'submit_review',args:report([observations[0].id])};
   });
   await expect(runReviewer(f.input)).rejects.toMatchObject({code:'AGENT_OUTPUT_INVALID'});
-  expect(f.stats()).toEqual({calls:3,actions:0,closes:1});
+  expect(f.stats()).toEqual({calls:4,actions:0,closes:1});
 });
 
 test('Reviewer cannot call a write or shell tool and hidden reasoning stays outside public evidence',async()=>{
@@ -977,7 +1059,7 @@ test('exhausting the screenshot quota is recoverable and cannot fail an otherwis
 test('progress cannot fabricate evidence or complete a behavior outside the plan',async()=>{
   const f=setup(()=>({name:'record_behavior',args:report([randomUUID()]).items[0]}));
   await expect(runReviewer(f.input)).rejects.toMatchObject({code:'AGENT_OUTPUT_INVALID'});
-  expect(f.stats()).toEqual({calls:2,actions:0,closes:1});
+  expect(f.stats()).toEqual({calls:3,actions:0,closes:1});
 });
 
 test('the recorded expectation comes from the sealed plan, never from the model restating it',async()=>{
@@ -1052,7 +1134,7 @@ test.each([
   {code:'ARTIFACT_SCOPE',change:{screenshotIds:[randomUUID()]}},
   {code:'SCHEMA_INVALID:expected',change:{expected:42}},
   {code:'SCHEMA_INVALID:report',change:{PRIVATE_FIELD_NAME:'PRIVATE_FIELD_VALUE'}},
-])('invalid report reason $code is static and still allows only one correction',async({code,change})=>{
+])('invalid report reason $code is static and still allows only two correction turns',async({code,change})=>{
   let actionId='',firstRejection='';
   const f=setup((request,n)=>{
     const last=request.messages.filter(m=>m.role==='tool').at(-1);
@@ -1066,7 +1148,7 @@ test.each([
   expect(firstRejection).toContain(code);
   expect(firstRejection).not.toContain('PRIVATE_FIELD');
   expect(firstRejection).not.toContain('private-review-key');
-  expect(f.stats()).toEqual({calls:4,actions:1,closes:1});
+  expect(f.stats()).toEqual({calls:5,actions:1,closes:1});
 });
 
 test('malformed form arguments perform no actions and can be corrected before one real submission',async()=>{

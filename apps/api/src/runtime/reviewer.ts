@@ -217,20 +217,20 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     try { await input.assertActive(); } catch { check(); throw fail(new RuntimeError('ROLE_NOT_ACTIVE','检查角色或任务已失效')); }
     check();
   };
-  const appendEvent = (event: ProbeEvent) => {
+  const appendEvent = (event: ProbeEvent, allowFatal = false) => {
     const operation = eventTail.then(async () => {
-      if (fatal) throw fatal;
+      if (fatal && !allowFatal) throw fatal;
       try { await input.onEvent?.(event); }
       catch { throw fail(new RuntimeError('EVENT_APPEND_FAILED','检查活动保存失败')); }
     });
     eventTail = operation.catch(() => {});
     return operation;
   };
-  const emit = (type: 'tool.start'|'tool.end', name: ToolName, id: string, success?: boolean) => {
+  const emit = (type: 'tool.start'|'tool.end', name: ToolName, id: string, success?: boolean, allowFatal = false) => {
     return appendEvent({ id: randomUUID(), at: new Date().toISOString(), roleRunId: binding.roleRunId, sessionId: input.sessionId,
       type, toolName:name,toolCallId:`review-${createHash('sha256').update(id).digest('hex').slice(0,24)}`,success,
       message: type === 'tool.start' ? `检查者执行 ${name}` : success ? '检查工具已完成'
-        : lastRejection ? `检查工具未完成（${lastRejection}）` : '检查工具未完成' });
+        : lastRejection ? `检查工具未完成（${lastRejection}）` : '检查工具未完成' }, allowFatal);
   };
   const observe = (observation: BrowserObservation, batch?: ReviewObservationEvent['batch']) => {
     if (observation.sessionId !== binding.browserSessionId || new URL(observation.url).origin !== 'http://127.0.0.1:4173')
@@ -246,15 +246,15 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   };
   const invalid = (reason:ReportProblem, path?:string) => {
     lastRejection = path ? `${reason}:${path}` : reason;
-    // Naming the offending behavior lets the model fix exactly that item in its
-    // single correction turn instead of re-submitting the same evidence.
+    // Naming the offending behavior lets the model fix exactly that item in
+    // bounded correction turns instead of re-submitting the same evidence.
     const scope = path ? `:${path}` : '';
-    const error = new RuntimeError('AGENT_OUTPUT_INVALID', `检查报告校验失败 [${reason}${scope}]：${reportProblems[reason]}；仅允许纠正一次`);
+    const error = new RuntimeError('AGENT_OUTPUT_INVALID', `检查报告校验失败 [${reason}${scope}]：${reportProblems[reason]}；最多允许两轮纠正`);
     // Pi may execute two tool calls from the same model response before the
     // model can read the first rejection. Both remain rejected, but together
-    // spend one correction turn; a bad report in the next model turn is fatal.
+    // spend one correction turn; the third bad model turn is fatal.
     if (lastInvalidTurn !== modelTurn) { invalidReports++; lastInvalidTurn = modelTurn; }
-    return invalidReports >= 2 ? fail(error) : error;
+    return invalidReports >= 3 ? fail(error) : error;
   };
   const requireRecordBeforeAction = (behaviorId: string, actionCount = 1) => {
     if (pendingBehaviorId && pendingBehaviorId !== behaviorId)
@@ -534,6 +534,12 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
           await active();success=true;
           return imageContent ? {content:[{type:'text' as const,text:JSON.stringify(value)},imageContent],details:{}} : output(value);
         } catch(error){
+          if(fatal && error===fatal && fatal.code==='AGENT_OUTPUT_INVALID'){
+            // The terminal report rejection itself must remain auditable. The
+            // ordinary event queue stops after fatal; persist only this static,
+            // allowlisted code, never the model's rejected item or tool args.
+            await emit('tool.end',name,id,false,true);
+          }
           check();
           // Only a locally rejected argument set is known to have performed no
           // browser I/O. An adapter error with the same code is still fatal.
