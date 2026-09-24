@@ -1,0 +1,10 @@
+{
+  "component": "api",
+  "release": "rc03-e18-4733",
+  "commit": "4733d3a2c860418f6c71a95535c800887d055be2",
+  "builtAt": "2026-09-24T00:16:42.230628Z",
+  "worktreeDirty": false,
+  "createdAt": "2026-09-24T00:17:38.782515+00:00",
+  "archiveSha256": "dba3cbeb4e8351c813bbd2af8c3b5fd1d816e19b38894a13a209d3b59bc00942",
+  "files": 125
+}

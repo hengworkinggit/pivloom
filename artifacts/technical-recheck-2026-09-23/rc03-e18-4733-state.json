@@ -1,0 +1,167 @@
+{
+  "environmentId": "rc03-e18-local",
+  "projectId": "a6c823f2-6056-459d-a1e5-65cf0404acca",
+  "webVersion": {
+    "component": "web",
+    "commit": "4733d3a2c860418f6c71a95535c800887d055be2",
+    "builtAt": "2026-09-24T00:16:42.230628Z",
+    "buildId": "4733d3a2c860418f6c71a95535c800887d055be2",
+    "deploymentId": null
+  },
+  "apiVersion": {
+    "component": "api",
+    "commit": "4733d3a2c860418f6c71a95535c800887d055be2",
+    "builtAt": "2026-09-24T00:16:42.230628Z"
+  },
+  "apiBootIdAfterRestart": "62076397-b95b-4d55-be3f-da038e810e3f",
+  "baseline": {
+    "revisionId": "c320aa36-a95b-4d8a-a007-91c9a9b72a86",
+    "sourceHash": "5aafea032c70542d9e332d4c2b8407e7aff87d542afd79b451dc394d8f5f076b",
+    "files": 7,
+    "oldTitlePreserved": true
+  },
+  "project": {
+    "id": "a6c823f2-6056-459d-a1e5-65cf0404acca",
+    "current_revision_id": "c320aa36-a95b-4d8a-a007-91c9a9b72a86",
+    "operation_id": null
+  },
+  "runs": [
+    {
+      "id": "3ccef73c-2b9f-4a8f-91d2-8af41aa993b3",
+      "kind": "generate",
+      "state": "completed",
+      "phase": "persist",
+      "cleanup_state": "clear",
+      "error_code": null,
+      "retry_of": null,
+      "parent_run_id": null,
+      "base_revision_id": null,
+      "result_revision_id": "c320aa36-a95b-4d8a-a007-91c9a9b72a86",
+      "executor_boot_id": "81d1e759-9f6d-4974-95ca-b30ffcad4b8a"
+    },
+    {
+      "id": "35b70119-6fdc-44e4-88e1-8c3a8808f1c9",
+      "kind": "modify",
+      "state": "interrupted",
+      "phase": "cleanup",
+      "cleanup_state": "confirmed",
+      "error_code": "SERVICE_RESTARTED",
+      "retry_of": null,
+      "parent_run_id": null,
+      "base_revision_id": "c320aa36-a95b-4d8a-a007-91c9a9b72a86",
+      "result_revision_id": null,
+      "executor_boot_id": "3dcb58ae-343c-4caf-8edc-b9d235afee5a"
+    },
+    {
+      "id": "1a5b60da-8890-461a-837b-4e95709095b3",
+      "kind": "retry",
+      "state": "failed",
+      "phase": "cleanup",
+      "cleanup_state": "confirmed",
+      "error_code": "MODEL_FAILED",
+      "retry_of": "35b70119-6fdc-44e4-88e1-8c3a8808f1c9",
+      "parent_run_id": null,
+      "base_revision_id": "c320aa36-a95b-4d8a-a007-91c9a9b72a86",
+      "result_revision_id": null,
+      "executor_boot_id": "62076397-b95b-4d55-be3f-da038e810e3f"
+    }
+  ],
+  "revisions": [
+    {
+      "id": "c320aa36-a95b-4d8a-a007-91c9a9b72a86",
+      "revision_no": 1,
+      "source_hash": "5aafea032c70542d9e332d4c2b8407e7aff87d542afd79b451dc394d8f5f076b",
+      "manifest_json": [
+        {
+          "path": "index.html",
+          "bytes": 263,
+          "sha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42"
+        },
+        {
+          "path": "package-lock.json",
+          "bytes": 83,
+          "sha256": "d06a59663bacf0d2a60364d0eef6afdc88b1fd49708d895a1bd13d1fef04337a"
+        },
+        {
+          "path": "package.json",
+          "bytes": 478,
+          "sha256": "5e886052077ca114e6f1234d52289e03e885d1e995a855425b43ced052f3b215"
+        },
+        {
+          "path": "src/App.tsx",
+          "bytes": 191,
+          "sha256": "cbb8170eec051c0292537ac9491606c9a8ce119f9c52593bab4a3d1a2c834ac6"
+        },
+        {
+          "path": "src/main.tsx",
+          "bytes": 153,
+          "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c"
+        },
+        {
+          "path": "src/style.css",
+          "bytes": 292,
+          "sha256": "c890470f782db22b3bef534573e7b70b96cf1acce9ba9995cdd486db92820084"
+        },
+        {
+          "path": "tsconfig.json",
+          "bytes": 331,
+          "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837"
+        }
+      ],
+      "status": "accepted",
+      "run_id": "3ccef73c-2b9f-4a8f-91d2-8af41aa993b3"
+    }
+  ],
+  "sandboxes": [
+    {
+      "remote_id": "28f95304-294c-49fe-980e-280aa11be10a",
+      "run_id": "35b70119-6fdc-44e4-88e1-8c3a8808f1c9",
+      "state": "destroyed",
+      "purpose": "candidate"
+    },
+    {
+      "remote_id": "6fa053f8-ab39-451f-be64-e0f9267eaf18",
+      "run_id": "1a5b60da-8890-461a-837b-4e95709095b3",
+      "state": "destroyed",
+      "purpose": "candidate"
+    }
+  ],
+  "managerEvents": [
+    {
+      "method": "REGISTER",
+      "path": "/__fixture__/register",
+      "sandboxId": "28f95304-294c-49fe-980e-280aa11be10a",
+      "status": 201
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/sandboxes/28f95304-294c-49fe-980e-280aa11be10a",
+      "sandboxId": "28f95304-294c-49fe-980e-280aa11be10a",
+      "status": 204
+    },
+    {
+      "method": "GET",
+      "path": "/v1/sandboxes/28f95304-294c-49fe-980e-280aa11be10a",
+      "sandboxId": "28f95304-294c-49fe-980e-280aa11be10a",
+      "status": 404
+    },
+    {
+      "method": "REGISTER",
+      "path": "/__fixture__/register",
+      "sandboxId": "6fa053f8-ab39-451f-be64-e0f9267eaf18",
+      "status": 201
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/sandboxes/6fa053f8-ab39-451f-be64-e0f9267eaf18",
+      "sandboxId": "6fa053f8-ab39-451f-be64-e0f9267eaf18",
+      "status": 204
+    },
+    {
+      "method": "GET",
+      "path": "/v1/sandboxes/6fa053f8-ab39-451f-be64-e0f9267eaf18",
+      "sandboxId": "6fa053f8-ab39-451f-be64-e0f9267eaf18",
+      "status": 404
+    }
+  ]
+}
