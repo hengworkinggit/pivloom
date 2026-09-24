@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowUp, Check, ChevronDown, Copy, ExternalLink, History, LoaderCircle, MessageSquare, Monitor, PanelLeftClose, PanelLeftOpen, RotateCcw, TriangleAlert, X } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, Copy, ExternalLink, History, ListChecks, LoaderCircle, MessageSquare, Monitor, PanelLeftClose, PanelLeftOpen, RotateCcw, TriangleAlert, X } from "lucide-react";
 import { getApiWorkspace } from "@/lib/workspace";
 import { WorkspaceError } from "@/lib/api-workspace";
 import { usePrivateQuery, useWorkspaceAuth } from "@/lib/use-workspace";
@@ -17,6 +17,7 @@ import { Button } from "./ui/button";
 import { useGenerationState } from "./generation-state";
 import { GenerationActivity, GenerationOutcome } from "./generation-activity";
 import { GenerationResult } from "./generation-result";
+import { TaskQueuePanel } from "./task-queue-panel";
 import { SessionModelPicker } from "./session-model-picker";
 import { useUiPreferences } from "@/lib/ui-preferences";
 import { useCancellationRequestLatch } from "@/lib/use-cancellation-request-latch";
@@ -25,7 +26,8 @@ import { checkMatchesRevision, GenerationReview } from "./generation-review";
 import { createVersionHistoryApi } from "@/lib/version-history-api";
 import { useRollback } from "@/lib/use-rollback";
 import { VersionHistoryPanel } from "./version-history";
-import type { Revision } from "@pivloom/contracts";
+import { summarizeTasks } from "@/lib/task-queue";
+import type { Revision, TaskListItem } from "@pivloom/contracts";
 
 const rejectedSubmissions = new Set(["INVALID_INPUT", "PROJECT_BUSY", "CLEANUP_PENDING", "STALE_BASE", "IDEMPOTENCY_CONFLICT", "SERVICE_BUSY", "QUOTA_EXCEEDED", "NOT_FOUND", "UNAUTHENTICATED", "MODEL_PROFILE_NOT_FOUND", "MODEL_CONFIG_CHANGED", "MODEL_NOT_VERIFIED", "MODEL_CONFIGURATION_MISSING"]);
 
@@ -52,6 +54,11 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const ownerId = user!.id;
   const state = useGenerationState(projectId);
   const models = useMemo(() => createModelsApi(api), [api]);
+  const tasksLoader = useCallback(() => state.generation.listTasks(), [state.generation]);
+  const tasksQuery = usePrivateQuery(tasksLoader);
+  const refreshTasks = tasksQuery.refresh;
+  const tasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data]);
+  const taskSummary = useMemo(() => summarizeTasks(tasks), [tasks]);
   const modelsLoader = useCallback(() => models.list(), [models]);
   const modelQuery = usePrivateQuery(modelsLoader);
   const [selectedModelId, setSelectedModelId] = useState(() => readSessionModel(ownerId, projectId)?.profileId ?? "");
@@ -86,11 +93,12 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const autoStart = useRef(typeof window !== "undefined" && new URLSearchParams(window.location.search).get("start") === "1");
   const [submitError, setSubmitError] = useState("");
   const [stopping, setStopping] = useState(false);
+  const [stoppingTaskId, setStoppingTaskId] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publicationError, setPublicationError] = useState("");
   const [actionError, setActionError] = useState("");
-  const [drawer, setDrawer] = useState<"history" | "checks" | "publish" | null>(null);
+  const [drawer, setDrawer] = useState<"history" | "checks" | "publish" | "tasks" | null>(null);
   const [hashNotice, setHashNotice] = useState("");
   const [mobileTab, setMobileTab] = useState<"chat" | "result">("chat");
   const [collapsed, setCollapsed] = useState(false);
@@ -105,6 +113,14 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const historyCurrentId = project?.project.currentRevisionId;
   const historyCandidateId = project?.latestCandidate?.id;
   useEffect(() => { if (historyCurrentId !== undefined) refreshHistory(); }, [historyCurrentId, historyCandidateId, run?.state, refreshHistory]);
+  // The owner task list is the single source for real queue positions: re-read it
+  // when the visible run changes state, and poll only while work is still open.
+  useEffect(() => { refreshTasks(); }, [run?.state, refreshTasks]);
+  useEffect(() => {
+    if (!taskSummary.open) return;
+    const timer = setInterval(() => refreshTasks(), 4000);
+    return () => clearInterval(timer);
+  }, [taskSummary.open, refreshTasks]);
   const diffLoader = useCallback(() => comparisonTarget
     ? historyApi.compare(projectId, comparisonTarget.from, comparisonTarget.to) : Promise.resolve(null),
   [historyApi, projectId, comparisonTarget]);
@@ -155,6 +171,17 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   }, [refreshProject, refreshHistory, refreshPreview, refreshPublication]);
   const rollback = useRollback({ api, ownerId, projectId, onCommitted: onRollbackCommitted });
   const busy = pending || state.active || run?.cleanupState === "pending" || rollback.busy;
+  const queued = run?.state === "queued";
+  const queuedTask = tasks.find((task) => task.runId === run?.id && task.state === "queued");
+  const queuedPosition = queuedTask?.queuePosition ?? null;
+  // Queueing is a capability of the deployed API: without the owner task list
+  // the composer keeps the old rule and waits for the executing task.
+  const queueEnabled = !!tasksQuery.data;
+  // A task that is already executing no longer blocks the next request: the new
+  // one is persisted and queued. Only an unconfirmed submission, a pending
+  // cleanup or a rollback in flight keeps the composer closed.
+  const submissionBlocked = pending || !!unknownSubmission || run?.cleanupState === "pending" || rollback.busy
+    || (!queueEnabled && state.active);
   const tooLong = draft.trim().length > promptLimit;
   const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => { bottom.current?.scrollIntoView?.({ block: "nearest" }); }, [project?.messages.length, run?.state]);
@@ -163,7 +190,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
     draftRef.current = value; setDraft(value); setDraftStored(saveDraft(ownerId, projectId, value));
   }
   async function send(replay?: RunSubmission) {
-    if (sending.current || (!replay && (busy || unknownSubmission || !draft.trim() || tooLong || !modelReady || !selectedModel || !project))) return;
+    if (sending.current || (!replay && (submissionBlocked || !draft.trim() || tooLong || !modelReady || !selectedModel || !project))) return;
     // The run freezes (profileId, configVersion, modelId). The model override is
     // only serialized when it differs from the credential's default; otherwise
     // the frozen version row already pins the default model.
@@ -208,7 +235,8 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const composerStatus = cancellation.isCancellationRequested || stopping
     ? ui.text("正在停止：等待远端模型与沙箱清理确认", "Stopping: waiting for the model and sandbox to finish cleanup")
     : run?.state === "repairing" ? ui.text(`检查未通过，正在自动修复（第 ${run.attempt + 1} 轮）`, `Fixing checks automatically (attempt ${run.attempt + 1})`)
-      : state.active ? ui.text("正在执行，可以继续写草稿", "Running · You can keep drafting")
+      : queued ? ui.text(queuedPosition ? `已排队（第 ${queuedPosition} 位），资源可用后自动开始` : "已排队，资源可用后自动开始", queuedPosition ? `Queued (position ${queuedPosition}) · starts automatically` : "Queued · starts automatically")
+      : state.active ? ui.text(queueEnabled ? "正在执行；下一条需求会加入队列" : "正在执行，可以继续写草稿", queueEnabled ? "Running · The next request joins the queue" : "Running · You can keep drafting")
         : run?.cleanupState === "pending" ? ui.text("正在清理执行资源", "Cleaning up execution resources")
           : clarification ? ui.text("回答后继续原需求", "Answer to continue your request") : ui.text("准备好你的下一个想法", "Ready for your next idea");
   const quotaFull = !!project?.quota && project.quota.dailyAccepted >= project.quota.dailyLimit;
@@ -218,6 +246,15 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
     try { await state.generation.cancel(run.id); await state.refresh(); }
     catch (reason) { cancellation.releaseRejectedRequest(); setActionError(errorMessage(reason)); }
     finally { setStopping(false); }
+  }
+  /** The same cancel endpoint, driven from the owner task list instead of the
+   * run currently shown in the workbench. */
+  async function cancelTask(task: TaskListItem) {
+    if (stoppingTaskId) return;
+    setStoppingTaskId(task.runId); setActionError("");
+    try { await state.generation.cancel(task.runId); await state.refresh(); refreshTasks(); }
+    catch (reason) { setActionError(errorMessage(reason)); }
+    finally { setStoppingTaskId(null); }
   }
   /** Retry creates a new run that links to the failed one; the old record stays. */
   async function retry() {
@@ -289,7 +326,12 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
     {hashNotice && <span className="a-toolbar-notice" role="status">{hashNotice}</span>}
   </>;
   return <div className="workbench-page a-workbench-page">
-    <AppHeader title={project.project.title} saving={state.active} />
+    <AppHeader title={project.project.title} saving={state.active}>
+      {tasksQuery.data && <button type="button" className="settings-header-link a-header-tasks" onClick={() => setDrawer("tasks")} aria-label={ui.text("我的任务", "My tasks")}>
+        <ListChecks size={15} /><span className="a-header-tasks-label">{ui.text("任务", "Tasks")}</span>
+        {taskSummary.open + taskSummary.attention > 0 && <span className="a-header-task-count" data-testid="header-task-count">{taskSummary.open + taskSummary.attention}</span>}
+      </button>}
+    </AppHeader>
     <nav className="mobile-workbench-tabs" aria-label={ui.text("工作区", "Workspace")}><button aria-pressed={mobileTab === "chat"} onClick={() => setMobileTab("chat")}><MessageSquare size={15} />{ui.text("对话", "Chat")}{state.active && <span className="mini-dot" />}</button><button aria-pressed={mobileTab === "result"} onClick={() => setMobileTab("result")}><Monitor size={15} />{ui.text("结果", "Result")}{revision && <span>v{revision.revisionNo}</span>}</button></nav>
     <main className={cn("workbench-layout", `mobile-show-${mobileTab}`, collapsed && "chat-collapsed")}>
       <section className="chat-panel" aria-label={ui.text("与 Pivloom 对话", "Chat with Pivloom")}>
@@ -306,6 +348,11 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
         <div className="chat-bottom">
           {state.active && <p className={cn("generation-connection", (state.connection === "polling" || state.connection === "unavailable") && "generation-connection-warning")} role="status">{state.connection === "awaiting_snapshot" ? "需求已接收，正在读取任务状态。" : state.connection === "unavailable" ? "任务不存在或无权访问，已停止重连。" : state.connection === "polling" ? "实时连接暂不可用，正在定时读取任务状态。" : state.connection === "connected" ? "已连接实时执行记录" : "正在连接实时执行记录…"}{state.connection === "unavailable" && <button className="generation-inline-retry" onClick={() => void state.refresh()}>重新读取任务</button>}</p>}
           {state.error && <p className="inline-error" role="alert">{state.error}<button className="generation-inline-retry" onClick={() => void state.refresh()}>重新读取</button></p>}
+          {taskSummary.open > 1 && <p className="generation-queue-note" role="status">
+            {ui.text(`另有 ${taskSummary.open - 1} 个任务在执行或排队${taskSummary.position ? `（最近的排队位置 ${taskSummary.position}）` : ""}。`,
+              `${taskSummary.open - 1} more task(s) running or queued${taskSummary.position ? ` (position ${taskSummary.position})` : ""}.`)}
+            <button type="button" className="generation-inline-retry" onClick={() => setDrawer("tasks")}>{ui.text("查看任务", "View tasks")}</button>
+          </p>}
           {actionError && <p className="inline-error" role="alert">{actionError}</p>}
           {!state.active && run && run.error?.retryable && <p className="generation-retry-row" role="status">{run.error.message}<Button variant="outline" size="sm" disabled={pending || !modelReady} onClick={() => void retry()}>以新任务重试</Button></p>}
           {submitError && <p className="inline-error" role="alert">{submitError}</p>}
@@ -313,7 +360,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
           {!state.active && (modelQuery.error || modelQuery.data && !modelReady) && <p className="generation-model-help" role="status">{modelQuery.error || (selectedModel ? "此配置尚未通过流式和工具调用测试。" : "先连接并测试你要使用的模型。")}{" "}<Link href="/settings/models">前往模型设置</Link></p>}
           <form className={cn("chat-composer", state.active && "composer-running")} onSubmit={(event) => { event.preventDefault(); void send(); }}>
             <label className="sr-only" htmlFor="followup-prompt">{clarification ? ui.text("回答澄清问题", "Answer clarification") : ui.text("应用需求", "App request")}</label>
-            <textarea id="followup-prompt" value={draft} onChange={(event) => editDraft(event.target.value)} placeholder={busy ? ui.text("可以先写下一条需求，任务结束后再发送…", "Draft the next request while this run finishes…") : clarification ? ui.text("回答上面的问题，继续原需求…", "Answer the question to continue…") : ui.text("描述你想实现或修改的功能…", "Describe what you want to build or change…")} aria-invalid={tooLong} aria-describedby={[tooLong ? "draft-error" : "", clarification ? "clarification-question" : ""].filter(Boolean).join(" ") || undefined} onKeyDown={(event) => {
+            <textarea id="followup-prompt" value={draft} onChange={(event) => editDraft(event.target.value)} placeholder={state.active && !clarification ? ui.text(queueEnabled ? "继续写下一条需求，提交后会加入队列…" : "可以先写下一条需求，任务结束后再发送…", queueEnabled ? "Describe the next change; it joins the queue…" : "Draft the next request while this run finishes…") : clarification ? ui.text("回答上面的问题，继续原需求…", "Answer the question to continue…") : ui.text("描述你想实现或修改的功能…", "Describe what you want to build or change…")} aria-invalid={tooLong} aria-describedby={[tooLong ? "draft-error" : "", clarification ? "clarification-question" : ""].filter(Boolean).join(" ") || undefined} onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); void send(); }
             }} />
             <div className="chat-composer-controls generation-composer-controls">
@@ -323,7 +370,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
               </div>
               <div className="composer-toolbar">
                 <div className="composer-model"><SessionModelPicker profiles={modelQuery.data} selectedProfileId={selectedModel?.id} catalog={credentialModels} effectiveModelId={effectiveModelId} lockedLabel={state.active && run ? `${lockedProfile?.name ?? "已保存配置"} · ${run.modelId ?? lockedProfile?.modelId ?? "模型"} · v${run.modelConfigVersion}` : undefined} disabled={pending || state.active} onProfile={(id) => { const next = modelQuery.data?.find((profile) => profile.id === id); setSelectedModelId(id); setModelOverrideId(null); setCustomModelMode(false); if (next) saveSessionModel(ownerId, projectId, id, next.modelId); }} onModel={(id) => { if (!selectedModel) return; setCustomModelMode(false); setModelOverrideId(id); saveSessionModel(ownerId, projectId, selectedModel.id, id); }} onCustom={(id) => { if (!selectedModel) return; setCustomModelMode(true); setModelOverrideId(id); saveSessionModel(ownerId, projectId, selectedModel.id, id); }} onRefresh={modelQuery.refresh} /></div>
-                <div className="composer-actions">{canStop && <Button type="button" variant="outline" size="sm" disabled={stopping || cancellation.isCancellationRequested} onClick={() => void stop()} aria-label={ui.text("停止任务", "Stop run")}>{stopping || cancellation.isCancellationRequested ? <><LoaderCircle className="spin" size={14} />{ui.text("正在停止", "Stopping")}</> : ui.text("停止", "Stop")}</Button>}<Button type="submit" size="icon" disabled={busy || !!unknownSubmission || !draft.trim() || tooLong || !modelReady} aria-label={clarification ? ui.text("发送回答", "Send answer") : ui.text("发送需求", "Send request")}>{pending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</Button></div>
+                <div className="composer-actions">{canStop && <Button type="button" variant="outline" size="sm" disabled={stopping || cancellation.isCancellationRequested} onClick={() => void stop()} aria-label={ui.text(queued ? "取消排队" : "停止任务", queued ? "Cancel queued task" : "Stop run")}>{stopping || cancellation.isCancellationRequested ? <><LoaderCircle className="spin" size={14} />{ui.text("正在停止", "Stopping")}</> : ui.text(queued ? "取消排队" : "停止", queued ? "Cancel" : "Stop")}</Button>}<Button type="submit" size="icon" disabled={submissionBlocked || !draft.trim() || tooLong || !modelReady} aria-label={clarification ? ui.text("发送回答", "Send answer") : ui.text("发送需求", "Send request")}>{pending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</Button></div>
               </div>
             </div>
           </form>
@@ -335,7 +382,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
       <div className="generation-result-shell">
         {collapsed && <button className="generation-expand-chat icon-button" aria-label={ui.text("展开对话", "Expand chat")} onClick={() => setCollapsed(false)}><PanelLeftOpen size={16} /></button>}
         {previewQuery.error && <p className="inline-error" role="alert">{previewQuery.error}</p>}
-        <GenerationResult projectId={projectId} revision={revision} preview={hasSnapshotPreview ? snapshotPreview! : previewQuery.data ?? null} generation={state.generation} active={state.active} latestCheck={project.latestCheck} historicalCheck={revision?.status === "accepted" && (revision.id !== project.project.currentRevisionId || !!project.latestCheckHistorical)} checking={state.active && run?.phase === "review" && revision?.runId === run.id} restoring={restoring || (previewQuery.data?.state === "restoring" && previewQuery.data.revisionId === revision?.id)} onRestore={busy ? undefined : () => void restore()} toolbarExtras={toolbarExtras} showReview={false} />
+        <GenerationResult projectId={projectId} revision={revision} preview={hasSnapshotPreview ? snapshotPreview! : previewQuery.data ?? null} generation={state.generation} active={state.active} queued={queued} latestCheck={project.latestCheck} historicalCheck={revision?.status === "accepted" && (revision.id !== project.project.currentRevisionId || !!project.latestCheckHistorical)} checking={state.active && run?.phase === "review" && revision?.runId === run.id} restoring={restoring || (previewQuery.data?.state === "restoring" && previewQuery.data.revisionId === revision?.id)} onRestore={busy ? undefined : () => void restore()} toolbarExtras={toolbarExtras} showReview={false} />
       </div>
     </main>
     <DeploymentVersion />
@@ -367,6 +414,12 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
         {publicationQuery.data?.revisionId !== project.currentRevision.id && <Button disabled={publishing || busy} onClick={() => void publish()}>{publishing ? <><LoaderCircle className="spin" size={14} />正在发布…</> : publicationQuery.data ? "发布当前新版本" : "永久发布当前版本"}</Button>}
         {(publicationError || publicationQuery.error) && <p className="inline-error" role="alert">{publicationError || publicationQuery.error}</p>}
       </div>}
+    </WorkbenchDrawer>}
+    {drawer === "tasks" && <WorkbenchDrawer key="tasks" title={ui.text("我的任务", "My tasks")} onClose={() => setDrawer(null)}>
+      <p className="a-drawer-context">{ui.text("这里只显示你自己的任务。排队中的任务不占用沙箱，取消后不会执行。",
+        "Only your own tasks appear here. Queued tasks hold no sandbox and cancelling never starts them.")}</p>
+      {tasksQuery.error ? <p className="inline-error" role="alert">{tasksQuery.error}</p>
+        : <TaskQueuePanel tasks={tasks} stoppingId={stoppingTaskId} onCancel={(task) => void cancelTask(task)} />}
     </WorkbenchDrawer>}
   </div>;
 }

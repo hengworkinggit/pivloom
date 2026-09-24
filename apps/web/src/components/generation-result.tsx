@@ -75,8 +75,9 @@ function previewUrl(preview: Preview | null, revision: Revision | null, origin: 
   } catch { return null; }
 }
 
-export function GenerationResult({ projectId, revision, preview, generation, active, latestCheck, historicalCheck = false, checking = false, restoring = false, onRestore, toolbarExtras, showReview = true }: {
+export function GenerationResult({ projectId, revision, preview, generation, active, queued = false, latestCheck, historicalCheck = false, checking = false, restoring = false, onRestore, toolbarExtras, showReview = true }: {
   projectId: string; revision: Revision | null; preview: Preview | null; generation: GenerationApi; active: boolean; latestCheck?: Check | null; checking?: boolean;
+  queued?: boolean;
   historicalCheck?: boolean; restoring?: boolean; onRestore?: () => void; toolbarExtras?: ReactNode; showReview?: boolean;
 }) {
   const ui = useUiPreferences();
@@ -165,7 +166,7 @@ export function GenerationResult({ projectId, revision, preview, generation, act
       </div>}
       {toolbarExtras && <div className="a-result-toolbar-extras">{toolbarExtras}</div>}
     </div>
-    {revision && <><div className="previous-version-note">{candidate ? ui.text("候选已保存", "Candidate saved") : ui.text("已保存版本", "Saved version")}{active ? ui.text(" · 新任务正在执行，当前显示此版本", " · New run in progress; showing this version") : ""}</div>
+    {revision && <><div className="previous-version-note">{candidate ? ui.text("候选已保存", "Candidate saved") : ui.text("已保存版本", "Saved version")}{active ? ui.text(queued ? " · 新任务已排队，当前显示此版本" : " · 新任务正在执行，当前显示此版本", queued ? " · New task queued; showing this version" : " · New run in progress; showing this version") : ""}</div>
       {showReview && historicalCheck && <p className="historical-check-note" data-testid="historical-check-note">{ui.text(
         `以下是 v${revision.revisionNo} 原 Run ${revision.runId.slice(0, 8)} 的历史验收记录；回滚重建后的预览尚未重新验收。`,
         `The check below belongs to the original v${revision.revisionNo} run ${revision.runId.slice(0, 8)}. The preview rebuilt by rollback has not been reverified.`)}</p>}

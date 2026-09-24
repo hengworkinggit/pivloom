@@ -142,6 +142,13 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
   await act(async () => { accept(Response.json({ runId, state: "accepted", eventsUrl: `/api/v1/runs/${runId}/events`, replayed: false }, { status: 202 })); });
   expect(input.value).toBe("下一条：增加作者筛选");
   expect(readDraft(ownerId, projectId)).toBe("下一条：增加作者筛选");
+  // An executing task no longer locks the composer, but a submission that is
+  // still unconfirmed over a held read does: the next queued request is only
+  // accepted once this one is settled (queue behavior in task-queue.test.tsx).
+  // This fixture does not serve the owner task list, so queueing is not
+  // available: an executing task still keeps the composer closed until the
+  // accepted submission is confirmed. The queue path is covered in
+  // task-queue.test.tsx against an API that does serve /tasks.
   expect(submit()?.disabled).toBe(true);
   expect(input.disabled).toBe(false);
   if (scenario === "accepted after newer run") {

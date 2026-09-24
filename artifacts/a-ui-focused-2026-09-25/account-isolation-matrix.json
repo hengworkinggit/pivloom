@@ -1,0 +1,288 @@
+{
+  "recordedAt": "2026-09-24T20:49:01.910Z",
+  "apiBase": "https://pivloom-69-5-7-187.sslip.io",
+  "accountA": {
+    "id": "82024654-478f-4c61-8960-8f2025b6eeb0",
+    "projects": 20
+  },
+  "accountB": {
+    "id": "b1d7d738-bb82-44d4-aa51-fdb1ce26c88c",
+    "projects": 0,
+    "seesAccountAProject": false
+  },
+  "resources": {
+    "calculatorProjectId": "bfbbe5cc-4207-4d3e-9620-84df5035e1bc",
+    "calculatorRevisionId": "36b6a2eb-4852-4cc0-8292-a24a63456cba",
+    "snakeProjectId": "b5031ebf-ec85-4c17-9433-3647d7d81a79",
+    "calculatorRunId": "0b6fe637-740a-466f-bcb1-835788e11121",
+    "previewHost": null
+  },
+  "matrix": [
+    {
+      "probe": "GET /projects/:projectId",
+      "path": "/api/v1/projects/bfbbe5cc-4207-4d3e-9620-84df5035e1bc",
+      "accountA": {
+        "status": 200,
+        "code": null
+      },
+      "accountB": {
+        "status": 404,
+        "code": {
+          "code": "NOT_FOUND",
+          "message": "找不到这个项目资源。",
+          "retryable": false,
+          "requestId": "99885e6c-3e8f-426a-8882-2faae2cf2ee9"
+        }
+      },
+      "anonymous": {
+        "status": 401,
+        "code": {
+          "code": "UNAUTHENTICATED",
+          "message": "登录已失效，请重新登录。",
+          "retryable": false,
+          "requestId": "8afe7912-c903-440f-acdf-1d271bde3fc0"
+        }
+      }
+    },
+    {
+      "probe": "GET /projects/:projectId/revisions",
+      "path": "/api/v1/projects/bfbbe5cc-4207-4d3e-9620-84df5035e1bc/revisions",
+      "accountA": {
+        "status": 200,
+        "code": null
+      },
+      "accountB": {
+        "status": 404,
+        "code": {
+          "code": "NOT_FOUND",
+          "message": "找不到这个项目资源。",
+          "retryable": false,
+          "requestId": "324e0d4f-dfbe-4ec5-902d-6a5b57972b23"
+        }
+      },
+      "anonymous": {
+        "status": 401,
+        "code": {
+          "code": "UNAUTHENTICATED",
+          "message": "登录已失效，请重新登录。",
+          "retryable": false,
+          "requestId": "eb8a7945-c94f-4702-bf9d-72bcdb12922f"
+        }
+      }
+    },
+    {
+      "probe": "GET /revisions/:revisionId/files",
+      "path": "/api/v1/revisions/36b6a2eb-4852-4cc0-8292-a24a63456cba/files",
+      "accountA": {
+        "status": 200,
+        "code": null
+      },
+      "accountB": {
+        "status": 404,
+        "code": {
+          "code": "NOT_FOUND",
+          "message": "找不到这个项目资源。",
+          "retryable": false,
+          "requestId": "0e29f563-d9aa-4212-b82d-95c8b4126489"
+        }
+      },
+      "anonymous": {
+        "status": 401,
+        "code": {
+          "code": "UNAUTHENTICATED",
+          "message": "登录已失效，请重新登录。",
+          "retryable": false,
+          "requestId": "52cb4ba9-4015-43d3-8403-0c849e70c9cc"
+        }
+      }
+    },
+    {
+      "probe": "GET /revisions/:revisionId/file",
+      "path": "/api/v1/revisions/36b6a2eb-4852-4cc0-8292-a24a63456cba/file",
+      "accountA": {
+        "status": 200,
+        "code": null
+      },
+      "accountB": {
+        "status": 404,
+        "code": {
+          "code": "NOT_FOUND",
+          "message": "找不到这个项目资源。",
+          "retryable": false,
+          "requestId": "6e472d23-c76c-44ca-a3aa-da02579fd039"
+        }
+      },
+      "anonymous": {
+        "status": 401,
+        "code": {
+          "code": "UNAUTHENTICATED",
+          "message": "登录已失效，请重新登录。",
+          "retryable": false,
+          "requestId": "f33201df-99db-40c7-9be8-38e7ebb43d08"
+        }
+      }
+    },
+    {
+      "probe": "GET /revisions/:revisionId/check",
+      "path": "/api/v1/revisions/36b6a2eb-4852-4cc0-8292-a24a63456cba/check",
+      "accountA": {
+        "status": 200,
+        "code": null
+      },
+      "accountB": {
+        "status": 404,
+        "code": {
+          "code": "NOT_FOUND",
+          "message": "找不到这个项目资源。",
+          "retryable": false,
+          "requestId": "1cd9d79d-697b-40b6-84c4-1655171654e1"
+        }
+      },
+      "anonymous": {
+        "status": 401,
+        "code": {
+          "code": "UNAUTHENTICATED",
+          "message": "登录已失效，请重新登录。",
+          "retryable": false,
+          "requestId": "be2fddd7-3d2a-4d93-b752-7753f7645215"
+        }
+      }
+    },
+    {
+      "probe": "GET /projects/:projectId/preview",
+      "path": "/api/v1/projects/bfbbe5cc-4207-4d3e-9620-84df5035e1bc/preview",
+      "accountA": {
+        "status": 200,
+        "code": null
+      },
+      "accountB": {
+        "status": 404,
+        "code": {
+          "code": "NOT_FOUND",
+          "message": "找不到这个项目。",
+          "retryable": false,
+          "requestId": "8480fc34-1e5f-4bbb-a274-682cd262db41"
+        }
+      },
+      "anonymous": {
+        "status": 401,
+        "code": {
+          "code": "UNAUTHENTICATED",
+          "message": "登录已失效，请重新登录。",
+          "retryable": false,
+          "requestId": "2df904ee-5e9f-4bd2-b3d5-24f7bbec1e4b"
+        }
+      }
+    },
+    {
+      "probe": "GET /projects/:projectId/publication",
+      "path": "/api/v1/projects/bfbbe5cc-4207-4d3e-9620-84df5035e1bc/publication",
+      "accountA": {
+        "status": 200,
+        "code": null
+      },
+      "accountB": {
+        "status": 404,
+        "code": {
+          "code": "NOT_FOUND",
+          "message": "找不到这个项目。",
+          "retryable": false,
+          "requestId": "8b50de91-b66f-45d6-be17-1c8f59824119"
+        }
+      },
+      "anonymous": {
+        "status": 401,
+        "code": {
+          "code": "UNAUTHENTICATED",
+          "message": "登录已失效，请重新登录。",
+          "retryable": false,
+          "requestId": "50617cf2-0c71-449d-a0b8-621803f356e8"
+        }
+      }
+    },
+    {
+      "probe": "GET /projects/:projectId/rollback/:operationId",
+      "path": "/api/v1/projects/bfbbe5cc-4207-4d3e-9620-84df5035e1bc/rollback/11111111-1111-4111-8111-111111111111",
+      "accountA": {
+        "status": 404,
+        "code": {
+          "code": "NOT_FOUND",
+          "message": "找不到这个项目资源。",
+          "retryable": false,
+          "requestId": "f673f373-c758-45fe-ae05-d29ff577c939"
+        }
+      },
+      "accountB": {
+        "status": 404,
+        "code": {
+          "code": "NOT_FOUND",
+          "message": "找不到这个项目资源。",
+          "retryable": false,
+          "requestId": "0ab47859-58d4-41cb-871d-71081e526798"
+        }
+      },
+      "anonymous": {
+        "status": 401,
+        "code": {
+          "code": "UNAUTHENTICATED",
+          "message": "登录已失效，请重新登录。",
+          "retryable": false,
+          "requestId": "a305fed6-2b42-40ad-a37d-dddec21480f1"
+        }
+      }
+    },
+    {
+      "probe": "GET /runs/:runId",
+      "path": "/api/v1/runs/0b6fe637-740a-466f-bcb1-835788e11121",
+      "accountA": {
+        "status": 200,
+        "code": null
+      },
+      "accountB": {
+        "status": 404,
+        "code": {
+          "code": "NOT_FOUND",
+          "message": "找不到这个项目资源。",
+          "retryable": false,
+          "requestId": "cc3c84d5-2082-49cf-87e1-17dae42a9aae"
+        }
+      },
+      "anonymous": {
+        "status": 401,
+        "code": {
+          "code": "UNAUTHENTICATED",
+          "message": "登录已失效，请重新登录。",
+          "retryable": false,
+          "requestId": "f5e156b4-f4d5-44fc-9a9a-1e82486bb6a8"
+        }
+      }
+    },
+    {
+      "probe": "GET /runs/:runId/events",
+      "path": "/api/v1/runs/0b6fe637-740a-466f-bcb1-835788e11121/events",
+      "accountA": {
+        "status": 200,
+        "code": null
+      },
+      "accountB": {
+        "status": 404,
+        "code": {
+          "code": "NOT_FOUND",
+          "message": "找不到这个项目资源。",
+          "retryable": false,
+          "requestId": "052b0464-3cd8-4d71-bff6-3b01b5b18c08"
+        }
+      },
+      "anonymous": {
+        "status": 401,
+        "code": {
+          "code": "UNAUTHENTICATED",
+          "message": "登录已失效，请重新登录。",
+          "retryable": false,
+          "requestId": "9cd5954c-620d-4d8a-a6fb-c986e0526cf7"
+        }
+      }
+    }
+  ],
+  "previewAnonymous": null
+}

@@ -1,0 +1,22 @@
+/* #29 queue surfaces: one row per task with the position the scheduler reported. */
+.a-header-tasks{position:relative;cursor:pointer;border:0;background:transparent}
+.a-header-task-count{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#5b54c4;color:#fff;font-size:10px;font-weight:600;line-height:1}
+.generation-queue-note{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 11px;margin:0 0 8px;border-radius:8px;background:#f4f3fd;color:#5b5f76;font-size:11px;line-height:1.6}
+.task-queue-list{display:flex;flex-direction:column;gap:10px;margin:0;padding:0;list-style:none}
+.task-queue-item{display:flex;align-items:flex-start;gap:12px;padding:12px 13px;border:1px solid #ecebf4;border-radius:10px;background:#fff}
+.task-queue-item.tone-waiting{background:#faf9ff;border-color:#e4e2fb}
+.task-queue-item.tone-attention{background:#fffaf0;border-color:#f4e6c8}
+.task-queue-item.tone-failed{background:#fff6f6;border-color:#f6dcdc}
+.task-queue-main{flex:1;min-width:0}
+.task-queue-heading{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.task-queue-heading strong{font-size:12px;color:#2f3140;overflow-wrap:anywhere}
+.task-chip{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:20px;background:#f1f0fa;color:#5b5f76;font-size:10px;white-space:nowrap}
+.task-chip.tone-waiting{background:#efedfd;color:#5b54c4}
+.task-chip.tone-running{background:#eef6ff;color:#2f6bb0}
+.task-chip.tone-stopping,.task-chip.tone-done{background:#f2f2f5;color:#6d7080}
+.task-chip.tone-attention{background:#fff3dd;color:#8a6520}
+.task-chip.tone-failed{background:#fdeaea;color:#a2413f}
+.task-queue-detail{margin:6px 0 0;color:#757a8c;font-size:11px;line-height:1.6;overflow-wrap:anywhere}
+.task-queue-meta{margin:4px 0 0;color:#9a9dac;font-size:10px}
+.task-queue-empty{padding:16px;border-radius:10px;background:#fafafc;color:#8b8e9d;font-size:12px;text-align:center}
+@media(max-width:760px){.a-header-tasks-label{display:none}.task-queue-item{flex-direction:column}.task-queue-item>.pv-button{width:100%;justify-content:center}}

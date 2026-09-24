@@ -2,7 +2,8 @@ import {
   CreateRunRequestSchema, CreateRunResponseSchema, RunDetailResponseSchema,
   RevisionFilesResponseSchema, RevisionFileResponseSchema, PreviewResponseSchema, RevisionCheckResponseSchema,
   CancelRunResponseSchema, RestorePreviewResponseSchema, PreviewAccessResponseSchema,
-  type CreateRunRequest, type RunEvent, type ReviewArtifact,
+  TaskListResponseSchema,
+  type CreateRunRequest, type RunEvent, type ReviewArtifact, type TaskListItem,
 } from "@pivloom/contracts";
 import { WorkspaceError, type ApiWorkspace } from "./api-workspace";
 import { z } from "zod";
@@ -49,6 +50,9 @@ export function createGenerationApi(api: Pick<ApiWorkspace, "request" | "request
     publish: async (projectId: string) => PublicationResponse.parse(
       await api.request(`/projects/${encodeURIComponent(projectId)}/publication`, { method: "POST" })).publication,
     getRun: async (runId: string) => RunDetailResponseSchema.parse(await api.request(`/runs/${encodeURIComponent(runId)}`)),
+    /** Owner-scoped task list: queued, running and recently finished tasks the
+     * caller owns, with real queue positions from the scheduler. */
+    listTasks: async () => TaskListResponseSchema.parse(await api.request("/tasks")).tasks as TaskListItem[],
     getCheck: async (revisionId: string) => {
       const result = RevisionCheckResponseSchema.safeParse(await api.request(`/revisions/${encodeURIComponent(revisionId)}/check`));
       if (!result.success) throw new WorkspaceError("INVALID_CHECK", "检查记录格式不正确，请重新读取。");

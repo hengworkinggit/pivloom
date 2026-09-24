@@ -4,6 +4,7 @@ import "./a-interface.css";
 import "./a-model-settings.css";
 import "./a-templates.css";
 import "./a-auth-account.css";
+import "./a-task-queue.css";
 
 export const metadata: Metadata = {
   title: "Pivloom · 派织",
