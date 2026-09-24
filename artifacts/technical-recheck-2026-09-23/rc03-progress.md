@@ -20,3 +20,11 @@
 | E30/E40 · 截止时间、清理和终态 DB 故障 | 上述取消/失败事务与首次 destroy 的隔离集成用例通过；页面尚未执行短 deadline、真实 OpenSandbox 首次销毁失败及 DB 短时故障场景。 | **NOT_RUN**（完整页面用例）。 |
 
 #23/#24 验收后已清理本轮测试项目。7 条沙箱记录在数据库中均为 `destroyed`；一次 API 强杀留下的旧 v1 Preview 由官方 OpenSandbox kill/get 补回收并确认 404，#23 最后一次恢复沙箱也独立确认远端不存在。随后以精确 owner/project 前缀删除 4 个 Run、2 个 Revision、2 个 Check 和 4 个私有 Storage 对象；下载复核为 404，剩余项目 0。生产 Web/API 尚未部署 `bc6ab97`，旧正式作品未变更。
+
+## 最终补证（2026-09-24）
+
+上表是当时的隔离阶段结果，不能覆盖后来执行的真实补测。E30/E40 已在[短 deadline 与清理页面](rc03-e30-e40-local-fault.md)、[真实 OpenSandbox scoped 首次 destroy 失败→pending→近期 confirmed/独立404](rc03-real-opensandbox-fault.md)及[真实本机 PostgreSQL 断线后 failed/cancelled 终态幂等落库](rc03-real-postgres-outage.md)分别补齐。未重新调用模型来对账，故障范围只限合成 owner/Run/sandbox。
+
+E18 按[原始契约的固定 SHA API SIGKILL 复核](rc03-e18-4733-acceptance.md)判 PASS：旧 accepted v1/7文件源码/current 不变，候选精确回收，浏览器显示中断并允许创建关联新 Run；新 Run 以明确模型 401 夹具结束，不将其写作成功 v2。E20 的断线自动重连与同一 Run 唯一事件仍沿用上表通过的独立浏览器/数据库原始记录。
+
+E15 则另以[同一 9255399 Web/API 构建的真实 Provider 成功重试](rc03-e15-925-real-provider.md)完成：受控首轮 401 恰好一次、无沙箱；页面点击关联重试后，真实 Pi 三角色/真实 OpenSandbox 完成 5/5 组、7/7 子项、8 个 PNG 工件的 passed Check，Preview 实际点击 0→1→2→重置0。旧失败 Run 保留、唯一沙箱精确销毁并由新 SDK 查得404，合成身份/对象按清单清理。两个样本的 SHA、真实/fixture边界分别记录，不混作同一项目。这些补证满足 #19 直接验收；最终跨模块整链仍归 #28。
