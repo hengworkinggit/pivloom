@@ -106,3 +106,21 @@ it("never reuses another project or API session's grant for the same Preview URL
   expect(container.querySelector("iframe")).toBeNull();
   expect(posted).toHaveBeenCalledTimes(1);
 });
+
+it("shows a restore that is waiting for capacity as its own state instead of an unavailable preview", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const generation = { openPreview: vi.fn(), getCheck: async () => null } as unknown as GenerationApi;
+  const container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  const queued: Preview = { state: "queued", revisionId, sourceHash: hash, url: null, expiresAt: null,
+    error: "沙箱容量已满，已排队等待；资源可用后会自动开始重建预览，不会调用模型。" };
+  await act(async () => root?.render(<GenerationResult projectId={projectId} revision={revision("accepted")}
+    preview={queued} generation={generation} active={false} />));
+  // Waiting for a slot is not a failure and offers no restart button: the
+  // scheduler starts it, so the page must not ask the user to do anything.
+  expect(container.textContent).toContain("已排队等待沙箱容量");
+  expect(container.textContent).toContain("资源可用后会自动开始重建预览");
+  expect(container.querySelector("iframe")).toBeNull();
+  expect(Array.from(container.querySelectorAll("button")).some((button) => button.textContent?.includes("重新启动预览"))).toBe(false);
+});
