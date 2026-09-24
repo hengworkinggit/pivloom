@@ -1,0 +1,290 @@
+{
+  "environmentId": "rc09-local",
+  "webCommit": "16deb75b12392dab3f92628d3a9de501f600cc20",
+  "apiCommit": "16deb75b12392dab3f92628d3a9de501f600cc20",
+  "project": {
+    "id": "40e35d70-1a0f-460d-b57d-93afdc9ecb08",
+    "current_revision_id": "befa8ec0-1a81-4cc0-98e5-f994dfa7e814",
+    "next_revision_no": 4,
+    "operation_id": null
+  },
+  "rollback": {
+    "id": "6e8f2440-ae71-4abb-b836-ab1be6b088c8",
+    "status": "committed",
+    "fromRevisionId": "c89becfd-11a7-4e7f-a1da-f4e252f66575",
+    "targetRevisionId": "befa8ec0-1a81-4cc0-98e5-f994dfa7e814",
+    "sourceHash": "52386076c720dc3f156c59e3bbe02f0c5b6f54ba42c85c945214b67ea4e49b08",
+    "sandboxId": "aec46dba-4060-40c1-97e9-4697a56bed9c"
+  },
+  "marker": {
+    "http": 200,
+    "revisionId": "befa8ec0-1a81-4cc0-98e5-f994dfa7e814",
+    "sourceHash": "52386076c720dc3f156c59e3bbe02f0c5b6f54ba42c85c945214b67ea4e49b08",
+    "matchesTarget": true
+  },
+  "projectView": {
+    "currentRevisionId": "befa8ec0-1a81-4cc0-98e5-f994dfa7e814",
+    "latestCheckHistorical": true,
+    "previewState": "ready",
+    "previewRevisionId": "befa8ec0-1a81-4cc0-98e5-f994dfa7e814",
+    "previewSourceHash": "52386076c720dc3f156c59e3bbe02f0c5b6f54ba42c85c945214b67ea4e49b08"
+  },
+  "trees": [
+    {
+      "revisionId": "befa8ec0-1a81-4cc0-98e5-f994dfa7e814",
+      "revisionNo": 1,
+      "sourceHash": "52386076c720dc3f156c59e3bbe02f0c5b6f54ba42c85c945214b67ea4e49b08",
+      "paths": [
+        "index.html",
+        "package-lock.json",
+        "package.json",
+        "src/App.tsx",
+        "src/main.tsx",
+        "src/style.css",
+        "tsconfig.json"
+      ],
+      "fileHashes": [
+        {
+          "path": "index.html",
+          "sha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42"
+        },
+        {
+          "path": "package-lock.json",
+          "sha256": "a0bfd22b375d8a9583b7bca4128e00d951eaf1e3de6567bcb6fb14c48e1e8347"
+        },
+        {
+          "path": "package.json",
+          "sha256": "5e886052077ca114e6f1234d52289e03e885d1e995a855425b43ced052f3b215"
+        },
+        {
+          "path": "src/App.tsx",
+          "sha256": "9760b6eb20f10d5af3c9d7137d482d84ca9c26f20969c211a32b961169515942"
+        },
+        {
+          "path": "src/main.tsx",
+          "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c"
+        },
+        {
+          "path": "src/style.css",
+          "sha256": "c890470f782db22b3bef534573e7b70b96cf1acce9ba9995cdd486db92820084"
+        },
+        {
+          "path": "tsconfig.json",
+          "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837"
+        }
+      ],
+      "appTitle": "计数器 v1"
+    },
+    {
+      "revisionId": "bce98389-fe28-4719-8c31-0b937452321c",
+      "revisionNo": 2,
+      "sourceHash": "6a07470f2734ed17f693f5b4aa216f5c830c825283d069c433427638306ac090",
+      "paths": [
+        "index.html",
+        "package-lock.json",
+        "package.json",
+        "src/App.tsx",
+        "src/extra.ts",
+        "src/main.tsx",
+        "src/style.css",
+        "tsconfig.json"
+      ],
+      "fileHashes": [
+        {
+          "path": "index.html",
+          "sha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42"
+        },
+        {
+          "path": "package-lock.json",
+          "sha256": "a0bfd22b375d8a9583b7bca4128e00d951eaf1e3de6567bcb6fb14c48e1e8347"
+        },
+        {
+          "path": "package.json",
+          "sha256": "5e886052077ca114e6f1234d52289e03e885d1e995a855425b43ced052f3b215"
+        },
+        {
+          "path": "src/App.tsx",
+          "sha256": "83a37ac7067c412af111570566645f1d3044a25949692638fccac5394230c88e"
+        },
+        {
+          "path": "src/extra.ts",
+          "sha256": "6732a3995342c7e0c592c4bf12d2ada5459481fa6c73ac99658dbf7e80a06d63"
+        },
+        {
+          "path": "src/main.tsx",
+          "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c"
+        },
+        {
+          "path": "src/style.css",
+          "sha256": "c890470f782db22b3bef534573e7b70b96cf1acce9ba9995cdd486db92820084"
+        },
+        {
+          "path": "tsconfig.json",
+          "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837"
+        }
+      ],
+      "appTitle": "计数器 v2"
+    },
+    {
+      "revisionId": "c89becfd-11a7-4e7f-a1da-f4e252f66575",
+      "revisionNo": 3,
+      "sourceHash": "64fffcc275870db7cd90285a69b7edf538eb5039e30c3326b9f441679e638ac1",
+      "paths": [
+        "index.html",
+        "package-lock.json",
+        "package.json",
+        "src/App.tsx",
+        "src/main.tsx",
+        "src/style.css",
+        "src/界面.tsx",
+        "tsconfig.json"
+      ],
+      "fileHashes": [
+        {
+          "path": "index.html",
+          "sha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42"
+        },
+        {
+          "path": "package-lock.json",
+          "sha256": "a0bfd22b375d8a9583b7bca4128e00d951eaf1e3de6567bcb6fb14c48e1e8347"
+        },
+        {
+          "path": "package.json",
+          "sha256": "5e886052077ca114e6f1234d52289e03e885d1e995a855425b43ced052f3b215"
+        },
+        {
+          "path": "src/App.tsx",
+          "sha256": "4ecbe0981757b4fdb13e43ed4b75348b74bdc9a773467f9cf7881add608f29ef"
+        },
+        {
+          "path": "src/main.tsx",
+          "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c"
+        },
+        {
+          "path": "src/style.css",
+          "sha256": "c890470f782db22b3bef534573e7b70b96cf1acce9ba9995cdd486db92820084"
+        },
+        {
+          "path": "src/界面.tsx",
+          "sha256": "e0c8c18c4ac20eceb387791254c0728223771936dc5f89b9f664361b6f7ec7ec"
+        },
+        {
+          "path": "tsconfig.json",
+          "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837"
+        }
+      ],
+      "appTitle": "计数器 v3"
+    }
+  ],
+  "checkRefs": [
+    {
+      "revision_id": "befa8ec0-1a81-4cc0-98e5-f994dfa7e814",
+      "verdict": "passed"
+    },
+    {
+      "revision_id": "bce98389-fe28-4719-8c31-0b937452321c",
+      "verdict": "passed"
+    },
+    {
+      "revision_id": "c89becfd-11a7-4e7f-a1da-f4e252f66575",
+      "verdict": "passed"
+    }
+  ],
+  "rollbackMessage": {
+    "run_id": null,
+    "rollback_id": "6e8f2440-ae71-4abb-b836-ab1be6b088c8",
+    "kind": "rollback",
+    "content": "已从 v3 回滚到 v1。后续修改将以 v1 为基线。"
+  },
+  "runs": [
+    {
+      "id": "d4c88d6c-dae0-474b-8fc4-c36a9a8f7d4c",
+      "kind": "generate",
+      "state": "completed",
+      "base_revision_id": null,
+      "expected_current_revision_id": null,
+      "retry_of": null,
+      "result_revision_id": "befa8ec0-1a81-4cc0-98e5-f994dfa7e814",
+      "error_code": null
+    },
+    {
+      "id": "3be6d51a-8b40-45ff-9aec-cf73b511b4f6",
+      "kind": "generate",
+      "state": "completed",
+      "base_revision_id": null,
+      "expected_current_revision_id": null,
+      "retry_of": null,
+      "result_revision_id": "bce98389-fe28-4719-8c31-0b937452321c",
+      "error_code": null
+    },
+    {
+      "id": "695de25b-18d1-4824-8df6-5bd13703edff",
+      "kind": "generate",
+      "state": "completed",
+      "base_revision_id": null,
+      "expected_current_revision_id": null,
+      "retry_of": null,
+      "result_revision_id": "c89becfd-11a7-4e7f-a1da-f4e252f66575",
+      "error_code": null
+    },
+    {
+      "id": "0041f54e-c220-46b4-a646-0b78e60a2c9a",
+      "kind": "modify",
+      "state": "failed",
+      "base_revision_id": "befa8ec0-1a81-4cc0-98e5-f994dfa7e814",
+      "expected_current_revision_id": "befa8ec0-1a81-4cc0-98e5-f994dfa7e814",
+      "retry_of": null,
+      "result_revision_id": null,
+      "error_code": "MODEL_FAILED"
+    }
+  ],
+  "followup": {
+    "id": "0041f54e-c220-46b4-a646-0b78e60a2c9a",
+    "state": "failed",
+    "baseRevisionId": "befa8ec0-1a81-4cc0-98e5-f994dfa7e814",
+    "previousPlanGoal": "计数器 v1"
+  },
+  "sandbox": [
+    {
+      "remote_id": "aec46dba-4060-40c1-97e9-4697a56bed9c",
+      "revision_id": "befa8ec0-1a81-4cc0-98e5-f994dfa7e814",
+      "source_hash": "52386076c720dc3f156c59e3bbe02f0c5b6f54ba42c85c945214b67ea4e49b08",
+      "state": "active",
+      "purpose": "preview"
+    }
+  ],
+  "countsAfterFollowup": {
+    "sandboxCreates": 1,
+    "modelCalls": 1
+  },
+  "modelCallsDuringRollback": 0,
+  "historyCount": 3,
+  "httpAssertions": {
+    "sameKeyReplay": {
+      "http": 200,
+      "replayed": true,
+      "sameOperation": true
+    },
+    "staleBase": {
+      "http": 409,
+      "errorCode": "STALE_BASE"
+    },
+    "diff": {
+      "unchangedCount": 6,
+      "changes": [
+        {
+          "kind": "modified",
+          "from": "src/App.tsx",
+          "to": "src/App.tsx",
+          "patchLines": 10
+        },
+        {
+          "kind": "removed",
+          "from": "src/界面.tsx",
+          "to": null,
+          "patchLines": 6
+        }
+      ]
+    }
+  }
+}

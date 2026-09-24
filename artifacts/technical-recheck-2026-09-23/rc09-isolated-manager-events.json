@@ -1,0 +1,62 @@
+[
+  {
+    "method": "REGISTER",
+    "path": "/__fixture__/register",
+    "sandboxId": "aec46dba-4060-40c1-97e9-4697a56bed9c",
+    "status": 201
+  },
+  {
+    "method": "MARKER",
+    "path": "/__fixture__/marker/aec46dba-4060-40c1-97e9-4697a56bed9c",
+    "sandboxId": "aec46dba-4060-40c1-97e9-4697a56bed9c",
+    "status": 200
+  },
+  {
+    "method": "MARKER_GET",
+    "path": "/v1/sandboxes/aec46dba-4060-40c1-97e9-4697a56bed9c/proxy/4173/pivloom-revision.json",
+    "sandboxId": "aec46dba-4060-40c1-97e9-4697a56bed9c",
+    "status": 200
+  },
+  {
+    "method": "PREVIEW_GET",
+    "path": "/v1/sandboxes/aec46dba-4060-40c1-97e9-4697a56bed9c/proxy/4173/p/befa8ec0-1a81-4cc0-98e5-f994dfa7e814/",
+    "sandboxId": "aec46dba-4060-40c1-97e9-4697a56bed9c",
+    "status": 200
+  },
+  {
+    "method": "PREVIEW_GET",
+    "path": "/v1/sandboxes/aec46dba-4060-40c1-97e9-4697a56bed9c/proxy/4173/p/befa8ec0-1a81-4cc0-98e5-f994dfa7e814/",
+    "sandboxId": "aec46dba-4060-40c1-97e9-4697a56bed9c",
+    "status": 200
+  },
+  {
+    "method": "MARKER_GET",
+    "path": "/v1/sandboxes/aec46dba-4060-40c1-97e9-4697a56bed9c/proxy/4173/pivloom-revision.json",
+    "sandboxId": "aec46dba-4060-40c1-97e9-4697a56bed9c",
+    "status": 200
+  },
+  {
+    "method": "GET",
+    "path": "/v1/sandboxes/aec46dba-4060-40c1-97e9-4697a56bed9c",
+    "sandboxId": "aec46dba-4060-40c1-97e9-4697a56bed9c",
+    "status": 200
+  },
+  {
+    "method": "DELETE",
+    "path": "/v1/sandboxes/aec46dba-4060-40c1-97e9-4697a56bed9c",
+    "sandboxId": "aec46dba-4060-40c1-97e9-4697a56bed9c",
+    "status": 204
+  },
+  {
+    "method": "GET",
+    "path": "/v1/sandboxes/aec46dba-4060-40c1-97e9-4697a56bed9c",
+    "sandboxId": "aec46dba-4060-40c1-97e9-4697a56bed9c",
+    "status": 404
+  },
+  {
+    "method": "GET",
+    "path": "/v1/sandboxes/aec46dba-4060-40c1-97e9-4697a56bed9c",
+    "sandboxId": "aec46dba-4060-40c1-97e9-4697a56bed9c",
+    "status": 404
+  }
+]

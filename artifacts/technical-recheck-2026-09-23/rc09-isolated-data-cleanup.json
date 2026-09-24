@@ -1,0 +1,24 @@
+{
+  "environmentId": "rc09-local",
+  "exactOwnerProjectCleanup": true,
+  "deleted": {
+    "users": 2,
+    "projects": 1,
+    "runs": 4,
+    "revisions": 3,
+    "checks": 3,
+    "rollbacks": 1,
+    "sandboxes": 1,
+    "sourceObjects": 3
+  },
+  "residual": {
+    "users": 0,
+    "projects": 0,
+    "runs": 0,
+    "revisions": 0,
+    "checks": 0,
+    "rollbacks": 0,
+    "sandboxes": 0
+  },
+  "remoteFreshGetInfo": "404"
+}
