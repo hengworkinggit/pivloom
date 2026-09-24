@@ -12,9 +12,10 @@ async function main() {
   if (connection.protocol !== 'postgres:' || connection.hostname !== '127.0.0.1' || connection.port !== '5432'
     || connection.pathname !== '/postgres' || connection.search || connection.hash)
     throw Error('Only the runner-local disposable postgres service is supported');
-  const databases = ['pivloom_repair_test_ci', 'pivloom_recovery_test_ci', 'pivloom_rollback_test_ci', 'pivloom_executor_test_ci'];
+  const databases = ['pivloom_repair_test_ci', 'pivloom_recovery_test_ci', 'pivloom_rollback_test_ci', 'pivloom_executor_test_ci', 'pivloom_e2e_test_ci_review'];
   const executorOwnerId = randomUUID();
   const executorEnvironmentId = `pivloom-ci-executor-${randomUUID()}`;
+  const reviewEnvironmentId = `pivloom-ci-review-${randomUUID()}`;
   const admin = new Pool({ connectionString: connection.href, max: 1, connectionTimeoutMillis: 5000 });
   try {
     stage = 'fresh service check';
@@ -48,11 +49,12 @@ async function main() {
             throw error;
           }
         }
-        if (name === 'pivloom_executor_test_ci') {
+        if (name === 'pivloom_executor_test_ci' || name === 'pivloom_e2e_test_ci_review') {
           await pool.query(`CREATE TABLE nano.environment_identity
             (id boolean PRIMARY KEY DEFAULT true CHECK(id), environment_id text NOT NULL)`);
-          await pool.query('INSERT INTO nano.environment_identity(id,environment_id) VALUES(true,$1)', [executorEnvironmentId]);
-          await pool.query('INSERT INTO auth.users(id) VALUES($1)', [executorOwnerId]);
+          await pool.query('INSERT INTO nano.environment_identity(id,environment_id) VALUES(true,$1)',
+            [name === 'pivloom_executor_test_ci' ? executorEnvironmentId : reviewEnvironmentId]);
+          if (name === 'pivloom_executor_test_ci') await pool.query('INSERT INTO auth.users(id) VALUES($1)', [executorOwnerId]);
         }
         urls.push(url.href);
         console.info(`Prepared ${name}: ${names.length} repository migrations; no application data`);
@@ -63,7 +65,9 @@ async function main() {
     await appendFile(process.env.GITHUB_ENV,
       `DATABASE_URL=${urls[0]}\nMIGRATION_DATABASE_URL=${urls[0]}\nPIVLOOM_RECOVERY_DATABASE_URL=${urls[1]}\nPIVLOOM_ROLLBACK_DATABASE_URL=${urls[2]}\n`
       + `PIVLOOM_EXECUTOR_DATABASE_URL=${urls[3]}\nPIVLOOM_EXECUTOR_OWNER_ID=${executorOwnerId}\n`
-      + `PIVLOOM_EXECUTOR_ENVIRONMENT_ID=${executorEnvironmentId}\nMODEL_CREDENTIALS_ENCRYPTION_KEY=${randomBytes(32).toString('base64')}\n`);
+      + `PIVLOOM_EXECUTOR_ENVIRONMENT_ID=${executorEnvironmentId}\n`
+      + `PIVLOOM_REVIEW_DATABASE_URL=${urls[4]}\nPIVLOOM_REVIEW_ENVIRONMENT_ID=${reviewEnvironmentId}\n`
+      + `MODEL_CREDENTIALS_ENCRYPTION_KEY=${randomBytes(32).toString('base64')}\n`);
   } finally { await admin.end(); }
 }
 

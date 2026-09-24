@@ -72,7 +72,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:contracts
-      - name: Prepare four empty databases with the actual migrations
+      - name: Prepare five empty databases with the actual migrations
         run: node apps/api/scripts/testing/prepare-ci-database.mjs
         env:
           PIVLOOM_CI_POSTGRES_URL: postgres://postgres:pivloom-ci-only@127.0.0.1:5432/postgres
@@ -98,11 +98,22 @@ jobs:
           npm test --workspace @pivloom/api -- tests/generation/executor.integration.test.ts -t 'linked retry rebuilds a blocked candidate|browser infrastructure failure|capacity atomically admits two different projects'
         env:
           PIVLOOM_EXECUTOR_INTEGRATION: '1'
+      - name: Reuse a timed-out Reviewer candidate on its own PostgreSQL database
+        run: |
+          export DATABASE_URL="$PIVLOOM_REVIEW_DATABASE_URL"
+          export MIGRATION_DATABASE_URL="$PIVLOOM_REVIEW_DATABASE_URL"
+          export PIVLOOM_ENVIRONMENT_ID="$PIVLOOM_REVIEW_ENVIRONMENT_ID"
+          npm test --workspace @pivloom/api -- tests/generation/review.integration.test.ts -t 'a timed-out Reviewer can recheck'
+        env:
+          PIVLOOM_REVIEW_INTEGRATION: '1'
+          # This selected case uses in-memory object storage, never a live Supabase service.
+          SUPABASE_URL: https://fixture.invalid
+          SUPABASE_SECRET_KEY: fixture-ci-only
       - name: State the verification boundary
         if: always()
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
-          This job uses real PostgreSQL 17.6, all repository migrations, and four separate CI databases.
+          This job uses real PostgreSQL 17.6, all repository migrations, and five separate CI databases.
           The minimal `auth.users` table is an FK fixture, not a running Supabase Auth service.
           The repair and rollback suites supply persistence fixtures; recovery uses an external sandbox HTTP fixture.
           Test encryption keys are generated randomly inside each suite. No user, provider or SSH secrets are used.
