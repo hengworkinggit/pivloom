@@ -35,7 +35,8 @@ export function createRollbackExecutor(options: {
     if (retainedCleanup.has(record.id)) return retainedCleanup.get(record.id)!;
     const task = (async () => {
       if (!record.sandboxId || !record.expiresAt || Date.parse(record.expiresAt) > Date.now()) return;
-      const destroyed = await destroyCandidateSandbox({ sandboxConfig: sandbox, sandboxId: record.sandboxId });
+      const destroyed = await destroyCandidateSandbox({ sandboxConfig: sandbox, sandboxId: record.sandboxId,
+        sandboxConnector: boundaries.sandboxConnector });
       if (!destroyed.confirmed) return;
       previews.revoke(record.targetRevisionId, record.sandboxId);
       await repository.markCommittedSandboxDestroyed(record.ownerId, record.projectId, record.id, record.sandboxId);
@@ -74,7 +75,8 @@ export function createRollbackExecutor(options: {
     const failed = await repository.fail(fresh.ownerId, fresh.projectId, fresh.id, { code, message });
     if (failed.status === "committed") { claims.delete(failed.id); return; }
     if (!failed.sandboxId) { claims.delete(failed.id); return; }
-    const destroyed = await destroyCandidateSandbox({ sandboxConfig: sandbox, sandboxId: failed.sandboxId });
+    const destroyed = await destroyCandidateSandbox({ sandboxConfig: sandbox, sandboxId: failed.sandboxId,
+      sandboxConnector: boundaries.sandboxConnector });
     if (!destroyed.confirmed) {
       claims.set(failed.id, { id: failed.id, ownerId: failed.ownerId, projectId: failed.projectId,
         sandboxId: failed.sandboxId, status: failed.status });
@@ -151,7 +153,8 @@ export function createRollbackExecutor(options: {
       if (fresh?.status === "committed") { retained.set(fresh.id, fresh); return; }
       if (createdSandboxId && fresh?.sandboxId !== createdSandboxId) {
         const orphan = createdSandboxId;
-        const destroyed = await destroyCandidateSandbox({ sandboxConfig: sandbox, sandboxId: orphan });
+        const destroyed = await destroyCandidateSandbox({ sandboxConfig: sandbox, sandboxId: orphan,
+          sandboxConnector: boundaries.sandboxConnector });
         if (!destroyed.confirmed) unregistered.add(orphan);
       }
       const code = controller.signal.reason === "ROLLBACK_TIMEOUT" ? "ROLLBACK_TIMEOUT"
@@ -177,7 +180,8 @@ export function createRollbackExecutor(options: {
     for (const claim of claims.values()) if (!tasks.has(claim.id)) void reconcile(claim).catch(() => {});
     for (const record of retained.values()) if (Date.parse(record.expiresAt ?? "") <= Date.now())
       void cleanExpiredCommitted(record).catch(() => {});
-    for (const sandboxId of unregistered) void destroyCandidateSandbox({ sandboxConfig: sandbox, sandboxId })
+    for (const sandboxId of unregistered) void destroyCandidateSandbox({ sandboxConfig: sandbox, sandboxId,
+      sandboxConnector: boundaries.sandboxConnector })
       .then(({ confirmed }) => { if (confirmed) unregistered.delete(sandboxId); }).catch(() => {});
   }, 3_000);
   timer.unref();
@@ -229,7 +233,8 @@ export function createRollbackExecutor(options: {
         new Promise<void>((resolve) => { grace = setTimeout(resolve, 15_000); })]);
       clearTimeout(grace);
       await Promise.allSettled([...unregistered].map(async (sandboxId) => {
-        if ((await destroyCandidateSandbox({ sandboxConfig: sandbox, sandboxId })).confirmed) unregistered.delete(sandboxId);
+        if ((await destroyCandidateSandbox({ sandboxConfig: sandbox, sandboxId,
+          sandboxConnector: boundaries.sandboxConnector })).confirmed) unregistered.delete(sandboxId);
       }));
     },
   };

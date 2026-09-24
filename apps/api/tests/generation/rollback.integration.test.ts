@@ -2,11 +2,15 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { PivloomDatabase } from "../../src/data/database.js";
+import { createGenerationRepository } from "../../src/data/generation.js";
 import { createRollbackRepository } from "../../src/data/rollback.js";
+import { createPreviewGateway } from "../../src/generation/preview.js";
+import { createRollbackExecutor } from "../../src/generation/rollback.js";
 import { createGenerationService } from "../../src/generation/service.js";
 import { createCredentialVault } from "../../src/models/credentials.js";
 import { createModelProfileService } from "../../src/models/service.js";
-import { prepareSourceSnapshot } from "../../src/storage/source.js";
+import type { SandboxConnector } from "../../src/runtime/workspace.js";
+import { createSourceStore, prepareSourceSnapshot } from "../../src/storage/source.js";
 
 // Runs only against the disposable PostgreSQL service prepared by CI or an
 // explicitly named local test DB. No live owner, model or remote sandbox exists.
@@ -185,6 +189,55 @@ describe.skipIf(process.env.PIVLOOM_ROLLBACK_INTEGRATION !== "1")("atomic rollba
       .toMatchObject({ current_revision_id: revisions[2], operation_id: null });
     const later = await repo.begin(owner, projectId, request(revisions[1], revisions[2]));
     await repo.fail(owner, projectId, later.operation.id, { code: "FIXTURE_DONE", message: "No sandbox" });
+  });
+
+  test("boot recovery destroys a pending sandbox through the injected connector and unlocks the project", async () => {
+    const { projectId, revisions } = await fixture();
+    const started = await repo.begin(owner, projectId, request(revisions[0], revisions[2]));
+    const remote = binding();
+    await repo.registerSandbox(owner, projectId, started.operation.id, remote);
+    expect((await repo.fail(owner, projectId, started.operation.id,
+      { code: "RESTORE_FAILED", message: "Fixture preparation failed" })).status).toBe("cleanup_pending");
+
+    let remoteAlive = true;
+    let killCount = 0;
+    const connector: SandboxConnector = {
+      async create() { throw Error("Recovery must not create a sandbox"); },
+      async connect(_config, sandboxId) {
+        expect(sandboxId).toBe(remote.sandboxId);
+        return {
+          sandboxId,
+          async kill() { killCount++; remoteAlive = false; },
+          async isRunning() { return remoteAlive; },
+          async renew() { throw Error("Recovery must not renew a sandbox"); },
+          async close() {},
+          async endpoint() { throw Error("Recovery must not open a preview"); },
+          async run() { throw Error("Recovery must not execute commands"); },
+          async read() { throw Error("Recovery must not read files"); },
+          async write() { throw Error("Recovery must not write files"); },
+        };
+      },
+    };
+    const models = createModelProfileService(database, createCredentialVault(randomBytes(32).toString("base64")));
+    const previews = createPreviewGateway({ publicOrigin: "http://localhost:45311", appOrigin: "http://localhost:45231",
+      sandboxOrigin: "http://localhost:55448", async isSessionActive() { return false; } });
+    const executor = createRollbackExecutor({ repository: repo,
+      generation: createGenerationRepository(database, models, { executorBootId: randomUUID() }),
+      sources: createSourceStore({ url: "http://localhost:55448", secret: "fixture",
+        objects: { async upload() { throw Error("Recovery must not upload"); },
+          async download() { throw Error("Recovery must not download"); }, async list() { return []; } } }),
+      previews, sandbox: { baseUrl: "http://127.0.0.1:55448", apiKey: "fixture", image: "fixture" },
+    }, { sandboxConnector: connector });
+    try {
+      expect(await executor.recoverAtBoot()).toBe(1);
+      expect(killCount).toBe(1);
+      expect(remoteAlive).toBe(false);
+      expect((await repo.get(owner, projectId, started.operation.id)).status).toBe("failed");
+      expect((await admin.query("SELECT state FROM nano.sandboxes WHERE owner_id=$1 AND project_id=$2 AND remote_id=$3",
+        [owner, projectId, remote.sandboxId])).rows[0].state).toBe("destroyed");
+      expect((await admin.query("SELECT current_revision_id, operation_id FROM nano.projects WHERE id=$1", [projectId])).rows[0])
+        .toMatchObject({ current_revision_id: revisions[2], operation_id: null });
+    } finally { await executor.close(); await previews.close(); }
   });
 
   test("cancel wins before commit; boot claim distinguishes prepared and unfinished work", async () => {
