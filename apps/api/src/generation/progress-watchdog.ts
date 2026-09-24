@@ -7,13 +7,15 @@ const meaningfullyCompletedTools = new Set([
   'record_behavior', 'submit_review',
 ]);
 
-/** A role gets one first-stream credit; later liveness needs an actual action. */
+/** Each distinct provider request gets one credit for its first actual stream delta. */
 export function createMeaningfulProgressGate() {
-  const firstStreamSeen = new Set<string>();
-  return (roleRunId: string, event: Pick<ProbeEvent, 'type' | 'toolName' | 'success' | 'message'>): boolean => {
+  const streamedRequests = new Set<string>();
+  return (roleRunId: string, event: Pick<ProbeEvent, 'type' | 'toolName' | 'success' | 'message' | 'requestNumber'>): boolean => {
     if (event.type === 'model.stream.started') {
-      if (event.success !== true || firstStreamSeen.has(roleRunId)) return false;
-      firstStreamSeen.add(roleRunId);
+      if (event.success !== true || !Number.isSafeInteger(event.requestNumber) || (event.requestNumber ?? 0) < 1) return false;
+      const request = `${roleRunId}:${event.requestNumber}`;
+      if (streamedRequests.has(request)) return false;
+      streamedRequests.add(request);
       return true;
     }
     return event.type === 'tool.end' && event.success === true
