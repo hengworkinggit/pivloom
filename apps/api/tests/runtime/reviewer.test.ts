@@ -816,9 +816,9 @@ test.each([
   {code:'BROWSER_ORIGIN_REJECTED',diagnostic:'BROWSER_ORIGIN_REJECTED'},
   {code:'FORM_TARGET_CHANGED',diagnostic:'FORM_TARGET_CHANGED'},
   {code:'INVALID_BROWSER_ACTION',diagnostic:'INVALID_BROWSER_ACTION'},
-  {code:'INVALID_BROWSER_ARGUMENTS',diagnostic:'BROWSER_BLOCKED'},
-  {code:'PRIVATE_UNKNOWN_CODE',diagnostic:'BROWSER_BLOCKED'},
-  {code:undefined,diagnostic:'BROWSER_BLOCKED'},
+  {code:'INVALID_BROWSER_ARGUMENTS',diagnostic:'REVIEWER_TOOL_FAILED'},
+  {code:'PRIVATE_UNKNOWN_CODE',diagnostic:'REVIEWER_TOOL_FAILED'},
+  {code:undefined,diagnostic:'REVIEWER_TOOL_FAILED'},
 ])('$code ends the attempt with a static cause without replaying a side effect',async({code,diagnostic})=>{
   const f=setup((request,n)=>{
     const last=request.messages.filter(m=>m.role==='tool').at(-1);const data=last?JSON.parse(last.content):null;
