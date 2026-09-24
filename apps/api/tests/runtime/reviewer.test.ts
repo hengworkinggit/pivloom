@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
 import { runReviewer, assertReviewerResult, deliveredScreenshotIdsFromRequest, type ReviewBrowser } from '../../src/runtime/reviewer.js';
-import type { ModelConfig } from '../../src/runtime/types.js';
+import { RuntimeError, type ModelConfig } from '../../src/runtime/types.js';
 import { classifyReviewerModelFailure } from '../../src/runtime/reviewer.js';
 import { MODEL_REQUEST_TIMEOUT_MS, PROVIDER_RETRY_POLICY, REVIEW_ATTEMPT_TIMEOUT_MS, RUN_DEADLINE_MS } from '../../src/runtime/budgets.js';
 
@@ -74,6 +74,41 @@ test('real Pi accepts only a report linked to an action and its subsequent obser
   expect(result.result.items[0].verdict).toBe('passed');
   expect(result.evidence.at(-1)).toMatchObject({behaviorId:'B01',action:'click',text:'测试书名'});
   expect(f.stats()).toEqual({calls:3,actions:1,closes:1});
+});
+
+test('a vanished live-game control lets the Reviewer observe again and continue',async()=>{
+  let attempts=0;
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    let data:{observationId?:string;id?:string}|null=null;
+    try{data=last?JSON.parse(last.content):null;}catch{ /* stale-ref tool error */ }
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_click',args:{behaviorId:'B01',observationId:data?.observationId,ref:'e1'}};
+    if(n===3)return {name:'browser_observe',args:{}};
+    if(n===4)return {name:'browser_click',args:{behaviorId:'B01',observationId:data?.observationId,ref:'e1'}};
+    return {name:'record_behavior',args:report([String(data?.id)]).items[0]};
+  });
+  const act=f.input.browser.act;
+  f.input.browser.act=async action=>{
+    if(++attempts===1)throw new RuntimeError('STALE_BROWSER_REF','页面控件已变化，请重新观察');
+    return act(action);
+  };
+  const result=await runReviewer(f.input);
+  expect(result.result.items[0].verdict).toBe('passed');
+  expect(attempts).toBe(2);
+  expect(f.stats()).toEqual({calls:5,actions:1,closes:1});
+});
+
+test('an unrelated browser CLI failure still ends the Reviewer as CHECK_BLOCKED',async()=>{
+  const f=setup((request,n)=>{
+    if(n===1)return {name:'browser_open',args:{}};
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    return {name:'browser_click',args:{behaviorId:'B01',observationId:data?.observationId,ref:'e1'}};
+  });
+  f.input.browser.act=async()=>{throw new RuntimeError('BROWSER_BLOCKED','浏览器动作失败');};
+  await expect(runReviewer(f.input)).rejects.toMatchObject({code:'CHECK_BLOCKED'});
+  expect(f.stats().closes).toBe(1);
 });
 
 test('Reviewer resizes to 390 CSS pixels and receives layout evidence before a real behavior action',async()=>{

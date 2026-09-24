@@ -18,6 +18,7 @@ async function fixture(sessionId?: string) {
       { role?: string; name?: string }
     >,
     failCommand: "",
+    cliFailure: undefined as { command: string; error: string } | undefined,
     afterCommand: undefined as ((command: string) => void) | undefined,
     beforeCommand: undefined as
       | ((command: string) => Promise<void>)
@@ -61,6 +62,8 @@ async function fixture(sessionId?: string) {
       } else if (command.includes("'eval'")) data = { result: state.viewport };
       const success =
         !state.failCommand || !command.includes(state.failCommand);
+      const cliFailure = state.cliFailure && command.includes(state.cliFailure.command)
+        ? state.cliFailure : undefined;
       state.afterCommand?.(command);
       const batched = command.includes("'batch' '--bail'");
       if (command.endsWith("'close'")) state.batchOrder.push("close");
@@ -77,8 +80,10 @@ async function fixture(sessionId?: string) {
         wait: async () => {
           if (batched) await state.batchWait;
           return {
-          exitCode: batched && Array.isArray(batchResult) && batchResult.some((item) => item.success === false) ? 1 : 0,
-          stdoutTail: JSON.stringify(batched ? batchResult : state.response ?? { success, data }),
+          exitCode: cliFailure || batched && Array.isArray(batchResult) && batchResult.some((item) => item.success === false) ? 1 : 0,
+          stdoutTail: JSON.stringify(batched ? batchResult : cliFailure
+            ? { success: false, data: null, error: cliFailure.error }
+            : state.response ?? { success, data }),
           stderrTail: "",
           };
         },
@@ -133,6 +138,36 @@ test("refs from another observation or session cannot be acted on", async () => 
       observationId: "another-session-observation",
     }),
   ).rejects.toMatchObject({ code: "STALE_BROWSER_REF" });
+});
+
+test("a dynamic button removed after observation requires a fresh ref without closing the browser", async () => {
+  const f = await fixture();
+  try {
+    f.state.tree = '- button "暂停" [ref=e1]';
+    f.state.refs = { e1: { role: 'button', name: '暂停' } };
+    const stale = await f.browser.open();
+    f.state.cliFailure = { command: "'click'", error: 'Could not locate element with role=button name=暂停' };
+    await expect(f.browser.act({ type: 'click', ref: 'e1', observationId: stale.id }))
+      .rejects.toMatchObject({ code: 'STALE_BROWSER_REF' });
+    f.state.cliFailure = undefined;
+    f.state.tree = '- button "重新开始" [ref=e2]';
+    f.state.refs = { e2: { role: 'button', name: '重新开始' } };
+    const fresh = await f.browser.observe();
+    expect(fresh.refs).toEqual({ e2: { role: 'button', name: '重新开始' } });
+    expect(fresh.id).not.toBe(stale.id);
+    await f.browser.act({ type: 'click', ref: 'e2', observationId: fresh.id });
+    expect(f.commands.some(({ command }) => command.endsWith("'close'"))).toBe(false);
+  } finally { await f.cleanup(); }
+});
+
+test("unrelated agent-browser CLI failures remain blocked", async () => {
+  const f = await fixture();
+  try {
+    const observed = await f.browser.open();
+    f.state.cliFailure = { command: "'click'", error: 'Browser transport disconnected' };
+    await expect(f.browser.act({ type: 'click', ref: 'e1', observationId: observed.id }))
+      .rejects.toMatchObject({ code: 'BROWSER_BLOCKED' });
+  } finally { await f.cleanup(); }
 });
 
 test("observations report the actual candidate URL, visible body, and bound session", async () => {

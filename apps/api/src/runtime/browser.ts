@@ -456,14 +456,27 @@ export class RemoteBrowser {
       this.assertOpen();
       this.remainingTime();
     }
-    if (result.exitCode !== 0)
-      throw new RuntimeError("BROWSER_BLOCKED", "浏览器命令未完成");
     let raw: unknown;
     try {
       raw = JSON.parse(result.stdoutTail);
     } catch {
+      if (result.exitCode !== 0)
+        throw new RuntimeError("BROWSER_BLOCKED", "浏览器命令未完成");
       throw new RuntimeError("BROWSER_BLOCKED", "浏览器响应格式错误");
     }
+    // A live game can replace a button after the snapshot but before click.
+    // This exact official CLI error means the target vanished; the next model
+    // turn may observe again. Other CLI/transport failures remain fatal.
+    if (
+      ["click", "fill", "select"].includes(args[0]) &&
+      typeof raw === "object" && raw !== null &&
+      "success" in raw && raw.success === false &&
+      "error" in raw && typeof raw.error === "string" &&
+      raw.error.startsWith("Could not locate element with role=")
+    )
+      throw new RuntimeError("STALE_BROWSER_REF", "页面控件已变化，请重新观察");
+    if (result.exitCode !== 0)
+      throw new RuntimeError("BROWSER_BLOCKED", "浏览器命令未完成");
     if (
       typeof raw !== "object" ||
       raw === null ||
