@@ -1,0 +1,12 @@
+{
+  "runId": "25f86a7e-549a-4cab-a89c-9d655afbcc64",
+  "sandboxId": "a3870fbe-00a4-4da7-93cf-8fc2827e90e2",
+  "remoteId": "b0438c99-702b-4b0f-bcc7-cc87e058ea3b",
+  "leaseExpiresAt": "2026-09-24T03:55:55.888Z",
+  "databaseState": "destroyed",
+  "databaseLastCheckedAt": "2026-09-24T03:56:02.410Z",
+  "globalActiveCount": 0,
+  "independentOpenSandboxSdk": "404",
+  "verifiedAt": "2026-09-24T03:57:38Z",
+  "externalKillPerformed": false
+}

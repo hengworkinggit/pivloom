@@ -1,0 +1,373 @@
+{
+  "id": "0bf2f13e-cf2a-4efc-a23b-8e452966dac1",
+  "items": [
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "Canvas 中可见棋盘背景与初始蛇；当前分数显示为 0；最高分有显示值；页面显示中文操作说明；开始按钮可点击",
+      "behaviorId": "B01",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "蛇开始在 Canvas 上按默认方向移动，食物出现在棋盘空格中，当前分数仍为 0",
+      "behaviorId": "B02",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "食物消失并在新位置重新出现；蛇身长度增加一格；当前分数从原值增加",
+      "behaviorId": "B03",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "蛇停止移动，页面显示“游戏结束”及最终分数，重新开始按钮出现或可点击",
+      "behaviorId": "B04",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "游戏停止，显示结束提示与最终分数，并提供重新开始入口",
+      "behaviorId": "B05",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "蛇回到初始位置，当前分数清零，游戏可立即正常开始",
+      "behaviorId": "B06",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "蛇的移动方向按按键相应变为上、右、下、左，Canvas 中可见方向变化",
+      "behaviorId": "B07",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "蛇仍保持向右移动，未立即掉头；按上/下后正常转弯且游戏未结束",
+      "behaviorId": "B08",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "第一次空格后蛇停止移动并显示暂停提示；第二次空格后蛇继续按原方向移动",
+      "behaviorId": "B09",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "每吃一个食物蛇身均增长一格、分数均增加；最终分数为 3 倍单次加分",
+      "behaviorId": "B10",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "暂停期间蛇保持静止；按空格后游戏继续，方向键重新生效",
+      "behaviorId": "B11",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "Canvas 中蛇保持静止，方向键不会重启或移动游戏",
+      "behaviorId": "B12",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "蛇不会立即反向撞到自己，游戏继续运行",
+      "behaviorId": "B13",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "分数在吃到食物的瞬间更新为新的值",
+      "behaviorId": "B14",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "刷新后页面显示的最高分与刷新前一致，当前分数恢复为 0",
+      "behaviorId": "B15",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "没有“加分”“改坐标”“跳过碰撞”或类似用于测试作弊的按钮或输入框",
+      "behaviorId": "B16",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "Canvas 内可见棋盘网格背景、可辨认的蛇身、与蛇颜色不同的食物",
+      "behaviorId": "B17",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "页面中文显示方向键移动、空格暂停/继续、开始/重新开始等操作说明",
+      "behaviorId": "B18",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    },
+    {
+      "actual": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+      "verdict": "blocked",
+      "expected": "当前分数、最高分、Canvas、按钮和操作说明均可见且不重叠",
+      "behaviorId": "B19",
+      "reproSteps": [],
+      "screenshotIds": [],
+      "observationEventIds": []
+    }
+  ],
+  "runId": "25f86a7e-549a-4cab-a89c-9d655afbcc64",
+  "groups": [
+    {
+      "id": "G1",
+      "title": "核心游戏流程",
+      "verdict": "blocked",
+      "behaviorIds": [
+        "B01",
+        "B02",
+        "B03",
+        "B04",
+        "B05",
+        "B06"
+      ],
+      "failedCount": 0,
+      "passedCount": 0,
+      "blockedCount": 6,
+      "requiredCount": 6
+    },
+    {
+      "id": "G2",
+      "title": "输入与控制",
+      "verdict": "blocked",
+      "behaviorIds": [
+        "B07",
+        "B08",
+        "B09"
+      ],
+      "failedCount": 0,
+      "passedCount": 0,
+      "blockedCount": 3,
+      "requiredCount": 3
+    },
+    {
+      "id": "G3",
+      "title": "边界与进阶行为",
+      "verdict": "blocked",
+      "behaviorIds": [
+        "B10",
+        "B11",
+        "B12",
+        "B13"
+      ],
+      "failedCount": 0,
+      "passedCount": 0,
+      "blockedCount": 4,
+      "requiredCount": 4
+    },
+    {
+      "id": "G4",
+      "title": "结果与状态",
+      "verdict": "blocked",
+      "behaviorIds": [
+        "B14",
+        "B15",
+        "B16"
+      ],
+      "failedCount": 0,
+      "passedCount": 0,
+      "blockedCount": 3,
+      "requiredCount": 3
+    },
+    {
+      "id": "G5",
+      "title": "视觉布局与说明",
+      "verdict": "blocked",
+      "behaviorIds": [
+        "B17",
+        "B18",
+        "B19"
+      ],
+      "failedCount": 0,
+      "passedCount": 0,
+      "blockedCount": 3,
+      "requiredCount": 3
+    }
+  ],
+  "summary": "检查超过本轮 20 分钟时限，候选尚未通过检查。",
+  "verdict": "blocked",
+  "evidence": [],
+  "artifacts": [
+    {
+      "id": "d6472800-ea29-4005-aaf5-4c9b86089af5",
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/b5031ebf-ec85-4c17-9433-3647d7d81a79/2e654bc2-dc1f-425c-bd44-69d4b31859de/checks/d6472800-ea29-4005-aaf5-4c9b86089af5.png",
+      "bytes": 23997,
+      "sha256": "19cb28f7e9e1b232f2099cd4b03872565fe50efcf1d5ada04fdc30b9928eba99",
+      "mimeType": "image/png"
+    },
+    {
+      "id": "e252755f-afbc-4fe1-ba7c-40ec43f65b09",
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/b5031ebf-ec85-4c17-9433-3647d7d81a79/2e654bc2-dc1f-425c-bd44-69d4b31859de/checks/e252755f-afbc-4fe1-ba7c-40ec43f65b09.png",
+      "bytes": 25195,
+      "sha256": "be3581e3acf8c91bfefac496874e25f2099a7db8e95b61a80f7a19e51601761b",
+      "mimeType": "image/png"
+    },
+    {
+      "id": "78712be9-b242-4a79-aa3f-aa61b71aff3f",
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/b5031ebf-ec85-4c17-9433-3647d7d81a79/2e654bc2-dc1f-425c-bd44-69d4b31859de/checks/78712be9-b242-4a79-aa3f-aa61b71aff3f.png",
+      "bytes": 26374,
+      "sha256": "b305e116c8f79b33f6f14193233e05c0279bf9b15500271630361af51a3d25ac",
+      "mimeType": "image/png"
+    },
+    {
+      "id": "4f91c2c3-95cc-442e-97d0-26946dce210e",
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/b5031ebf-ec85-4c17-9433-3647d7d81a79/2e654bc2-dc1f-425c-bd44-69d4b31859de/checks/4f91c2c3-95cc-442e-97d0-26946dce210e.png",
+      "bytes": 26373,
+      "sha256": "9200d2420db3ca150b8ba64f527ef96e91969639ae2ccfd9ec0dab71dd0e6be3",
+      "mimeType": "image/png"
+    },
+    {
+      "id": "870fa071-5183-4279-9815-1dd07cfa97bb",
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/b5031ebf-ec85-4c17-9433-3647d7d81a79/2e654bc2-dc1f-425c-bd44-69d4b31859de/checks/870fa071-5183-4279-9815-1dd07cfa97bb.png",
+      "bytes": 26363,
+      "sha256": "f9119e6919c68b6a389c5aa70f5052d2f12346eaaf24234ba849df37c57908da",
+      "mimeType": "image/png"
+    },
+    {
+      "id": "bc441d70-e724-4ea9-a6e5-2b4074f64e59",
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/b5031ebf-ec85-4c17-9433-3647d7d81a79/2e654bc2-dc1f-425c-bd44-69d4b31859de/checks/bc441d70-e724-4ea9-a6e5-2b4074f64e59.png",
+      "bytes": 26978,
+      "sha256": "5d4353bce0a5eb720ddfbbbe0f48905b9a8974386167a2fbe10304b49905b74a",
+      "mimeType": "image/png"
+    },
+    {
+      "id": "c79d9617-0a3c-43f8-85f3-654482b4b77a",
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/b5031ebf-ec85-4c17-9433-3647d7d81a79/2e654bc2-dc1f-425c-bd44-69d4b31859de/checks/c79d9617-0a3c-43f8-85f3-654482b4b77a.png",
+      "bytes": 26947,
+      "sha256": "49f8b0ca18fa5edbfcea4cadc033bc534d2469e03493467197b4c595dc5212db",
+      "mimeType": "image/png"
+    },
+    {
+      "id": "e10e485a-d97d-48d6-b7c5-fad7c2e03c5d",
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/b5031ebf-ec85-4c17-9433-3647d7d81a79/2e654bc2-dc1f-425c-bd44-69d4b31859de/checks/e10e485a-d97d-48d6-b7c5-fad7c2e03c5d.png",
+      "bytes": 26947,
+      "sha256": "fdc99ae87d5829b815a8f9e00cd579bb1b018b4a7f8f89237ff4b0375a10b3f1",
+      "mimeType": "image/png"
+    },
+    {
+      "id": "d0a5c052-9170-478d-9185-7b317acbad29",
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/b5031ebf-ec85-4c17-9433-3647d7d81a79/2e654bc2-dc1f-425c-bd44-69d4b31859de/checks/d0a5c052-9170-478d-9185-7b317acbad29.png",
+      "bytes": 26942,
+      "sha256": "bee46cca5536f400603e3118e22b9c4cdf037aba845163681e0909fd61a1fe94",
+      "mimeType": "image/png"
+    },
+    {
+      "id": "08e3ce67-1f62-40f7-bcdb-28ac5a79bc93",
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/b5031ebf-ec85-4c17-9433-3647d7d81a79/2e654bc2-dc1f-425c-bd44-69d4b31859de/checks/08e3ce67-1f62-40f7-bcdb-28ac5a79bc93.png",
+      "bytes": 26947,
+      "sha256": "b6faad2750ab890becc80ce430be6f726065d03090eae755d2499de413a4cff2",
+      "mimeType": "image/png"
+    },
+    {
+      "id": "d0e0ab1a-bf6b-4fe0-bd88-54ecc3e7a86f",
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/b5031ebf-ec85-4c17-9433-3647d7d81a79/2e654bc2-dc1f-425c-bd44-69d4b31859de/checks/d0e0ab1a-bf6b-4fe0-bd88-54ecc3e7a86f.png",
+      "bytes": 24563,
+      "sha256": "3786160c2f085f2440a9061cd2a5da323555e8042a36b90b521d49148eb19978",
+      "mimeType": "image/png"
+    },
+    {
+      "id": "789b106d-e74f-4c11-99af-7b712080b39b",
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/b5031ebf-ec85-4c17-9433-3647d7d81a79/2e654bc2-dc1f-425c-bd44-69d4b31859de/checks/789b106d-e74f-4c11-99af-7b712080b39b.png",
+      "bytes": 24571,
+      "sha256": "1af727f862465dd6a9851cef5392c21eb1f8196288d72178bcb257a54c7f7f53",
+      "mimeType": "image/png"
+    },
+    {
+      "id": "704a98e2-68c6-48dc-8044-d8798090bb7b",
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/b5031ebf-ec85-4c17-9433-3647d7d81a79/2e654bc2-dc1f-425c-bd44-69d4b31859de/checks/704a98e2-68c6-48dc-8044-d8798090bb7b.png",
+      "bytes": 24464,
+      "sha256": "e3780f06177e86d63e6816421c69d2e909c7b51333f7f6441cf22cff8a374dae",
+      "mimeType": "image/png"
+    },
+    {
+      "id": "ef1a689d-37f4-4afb-8bd2-66a3d7d349b1",
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/b5031ebf-ec85-4c17-9433-3647d7d81a79/2e654bc2-dc1f-425c-bd44-69d4b31859de/checks/ef1a689d-37f4-4afb-8bd2-66a3d7d349b1.png",
+      "bytes": 24222,
+      "sha256": "027dd75cc74c11493a6d2a1a895fbcb08806cd7b7ab52d58c78421df4ca52e93",
+      "mimeType": "image/png"
+    },
+    {
+      "id": "13fafa13-47c8-436d-be9d-1625a62d1de8",
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/b5031ebf-ec85-4c17-9433-3647d7d81a79/2e654bc2-dc1f-425c-bd44-69d4b31859de/checks/13fafa13-47c8-436d-be9d-1625a62d1de8.png",
+      "bytes": 24222,
+      "sha256": "6198e1f6f750a3e3ffeb8258361a62422b39bb397aa074863e892b988b1de279",
+      "mimeType": "image/png"
+    },
+    {
+      "id": "47fac79e-e015-4fbd-aa21-788280a0d1ef",
+      "key": "82024654-478f-4c61-8960-8f2025b6eeb0/b5031ebf-ec85-4c17-9433-3647d7d81a79/2e654bc2-dc1f-425c-bd44-69d4b31859de/checks/47fac79e-e015-4fbd-aa21-788280a0d1ef.png",
+      "bytes": 24225,
+      "sha256": "e5db44501f0d4c233fa35f0c3f2d453ab6315f53aeb1b7489763b46fd206c8ff",
+      "mimeType": "image/png"
+    }
+  ],
+  "createdAt": "2026-09-24T03:48:04.442+00:00",
+  "revisionId": "2e654bc2-dc1f-425c-bd44-69d4b31859de",
+  "sourceHash": "34d810d5a29fe823d525030fbd43097aff5342d8972956daec086ce591dfec06"
+}
