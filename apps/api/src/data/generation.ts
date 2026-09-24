@@ -451,7 +451,7 @@ export function createGenerationRepository(
       if (current.retry_of !== priorRunId || !["accepted", "planning"].includes(current.state)) return null;
       const prior = await run(client, ownerId, priorRunId);
       if (prior.project_id !== current.project_id || prior.state !== "failed"
-        || !["CHECK_BLOCKED", "AGENT_OUTPUT_INVALID", "GENERATION_FAILED"].includes(prior.error_code)
+        || !["CHECK_BLOCKED", "AGENT_OUTPUT_INVALID", "GENERATION_FAILED", "RUN_TIMEOUT"].includes(prior.error_code)
         || prior.expected_current_revision_id !== current.expected_current_revision_id
         || parent.current_revision_id !== current.expected_current_revision_id
         || !prior.result_revision_id || !prior.plan_json) return null;

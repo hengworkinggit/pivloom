@@ -330,6 +330,39 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
       .rows[0].current_revision_id).toBeNull();
   }, 300_000);
 
+  test("a timed-out Reviewer can recheck its sealed candidate, but an earlier timeout cannot", async () => {
+    const reviewedCandidate = await candidate(true);
+    await generation.queueReviewer(ownerA, reviewedCandidate.run.id, { revisionId: reviewedCandidate.revision.id });
+    await generation.startReviewer(ownerA, reviewedCandidate.run.id);
+    await generation.markDestroyed(ownerA, reviewedCandidate.run.id, reviewedCandidate.sandbox.sandboxId);
+    await generation.finishFailed(ownerA, reviewedCandidate.run.id, { code: "RUN_TIMEOUT", message: "Reviewer provider retry timed out",
+      retryable: true, resultRevisionId: reviewedCandidate.revision.id, cleanupState: "confirmed" });
+    expect(await generation.getRunCheck(ownerA, reviewedCandidate.run.id)).toBeNull();
+    const retry = await generation.accept(ownerA, reviewedCandidate.project.id, { idempotencyKey: randomUUID(),
+      text: "client text must not replace the original prompt", expectedCurrentRevisionId: null,
+      modelProfileId: model.id, modelConfigVersion: model.configVersion, retryOfRunId: reviewedCandidate.run.id });
+    runIds.push(retry.run.id); leaseIds.push(retry.run.credentialLeaseId); await save();
+    expect(retry.run.requestText).toBe(reviewedCandidate.run.requestText);
+    await expect(generation.getReviewRetryCandidate(ownerB, retry.run.id, reviewedCandidate.run.id))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
+    const reused = await generation.getReviewRetryCandidate(ownerA, retry.run.id, reviewedCandidate.run.id);
+    expect(reused?.revision).toMatchObject({ id: reviewedCandidate.revision.id,
+      sourceHash: reviewedCandidate.revision.sourceHash, buildStatus: "passed", status: "candidate" });
+    expect(reused?.plan).toEqual(plan);
+    await generation.finishCancelled(ownerA, retry.run.id, { cleanupState: "confirmed", summary: "Fixture retry cancelled" });
+
+    const builderCandidate = await candidate(true);
+    await generation.markDestroyed(ownerA, builderCandidate.run.id, builderCandidate.sandbox.sandboxId);
+    await generation.finishFailed(ownerA, builderCandidate.run.id, { code: "RUN_TIMEOUT", message: "Builder timed out",
+      retryable: true, resultRevisionId: builderCandidate.revision.id, cleanupState: "confirmed" });
+    const builderRetry = await generation.accept(ownerA, builderCandidate.project.id, { idempotencyKey: randomUUID(),
+      text: "retry", expectedCurrentRevisionId: null,
+      modelProfileId: model.id, modelConfigVersion: model.configVersion, retryOfRunId: builderCandidate.run.id });
+    runIds.push(builderRetry.run.id); leaseIds.push(builderRetry.run.credentialLeaseId); await save();
+    expect(await generation.getReviewRetryCandidate(ownerA, builderRetry.run.id, builderCandidate.run.id)).toBeNull();
+    await generation.finishCancelled(ownerA, builderRetry.run.id, { cleanupState: "confirmed", summary: "Fixture retry cancelled" });
+  }, 300_000);
+
   test("only an active exact-version review can atomically promote, with owner-isolated checks and private artifacts", async () => {
     const fixture = await candidate();
     const review = await reviewed(fixture);
