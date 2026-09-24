@@ -95,7 +95,7 @@ jobs:
           export DATABASE_URL="$PIVLOOM_EXECUTOR_DATABASE_URL"
           export MIGRATION_DATABASE_URL="$PIVLOOM_EXECUTOR_DATABASE_URL"
           export PIVLOOM_ENVIRONMENT_ID="$PIVLOOM_EXECUTOR_ENVIRONMENT_ID"
-          npm test --workspace @pivloom/api -- tests/generation/executor.integration.test.ts -t 'linked retry rebuilds a blocked candidate|browser infrastructure failure'
+          npm test --workspace @pivloom/api -- tests/generation/executor.integration.test.ts -t 'linked retry rebuilds a blocked candidate|browser infrastructure failure|capacity atomically admits two different projects'
         env:
           PIVLOOM_EXECUTOR_INTEGRATION: '1'
       - name: State the verification boundary

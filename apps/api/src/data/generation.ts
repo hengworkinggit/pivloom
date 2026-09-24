@@ -371,12 +371,12 @@ export function createGenerationRepository(
           }
           if (parent.current_revision_id !== normalized.expectedCurrentRevisionId) throw new ApiFailure(409, "STALE_BASE", "当前版本已经变化，请刷新项目后重试。");
           if (parent.operation_id) throw new ApiFailure(409, "PROJECT_BUSY", "当前项目仍有执行或清理操作。", true);
-          // Capacity is counted from the durable sandbox registry, so it stays
-          // correct across a restart and never counts a reclaimed sandbox.
-          if (options.maxSandboxes) {
-            const live = (await client.query("SELECT nano.live_sandbox_count() AS live")).rows[0].live as number;
-            if (live >= options.maxSandboxes) throw new ApiFailure(503, "SERVICE_BUSY", "沙箱容量已满，本次需求尚未接受。", true);
-          }
+          // The transaction-scoped advisory lock serializes cross-project
+          // admission. Accepted runs reserve a slot before creating a sandbox;
+          // active candidate sandboxes and retained Previews are counted once.
+          const admitted = (await client.query("SELECT nano.reserve_generation_capacity($1) AS admitted",
+            [options.maxSandboxes ?? 1])).rows[0].admitted as boolean;
+          if (!admitted) throw new ApiFailure(503, "SERVICE_BUSY", "沙箱容量已满，本次需求尚未接受。", true);
           // Replays return above, so a retried idempotency key never consumes quota twice.
           const used = (await client.query("SELECT count(*)::int AS accepted FROM nano.runs WHERE owner_id=$1 AND created_at > now() - interval '24 hours'", [ownerId])).rows[0].accepted as number;
           const dailyLimit = options.dailyLimitByOwner?.[ownerId] ?? DAILY_ACCEPTED_LIMIT;

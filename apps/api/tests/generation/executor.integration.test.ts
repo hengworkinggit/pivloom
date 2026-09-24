@@ -320,6 +320,31 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     return { ...await repository.readRunSnapshot(owner, accepted.run.id), projectId: project.id };
   }
 
+  test("capacity atomically admits two different projects, rejects a third, and keeps each project exclusive", async () => {
+    const capacity = createGenerationRepository(database, models, { executorBootId: randomUUID(), maxSandboxes: 2 });
+    const projectRepository = createProjectRepository(database);
+    const p1 = await projectRepository.create(owner, prefix);
+    const p2 = await projectRepository.create(owner, prefix);
+    const p3 = await projectRepository.create(owner, prefix);
+    projects.push(p1.id, p2.id, p3.id);
+    const request = () => ({ idempotencyKey: randomUUID(), text: "capacity fixture", expectedCurrentRevisionId: null,
+      modelProfileId: model.id, modelConfigVersion: model.configVersion });
+    const [first, second] = await Promise.all([
+      capacity.accept(owner, p1.id, request()), capacity.accept(owner, p2.id, request()),
+    ]);
+    leases.push(first.run.credentialLeaseId, second.run.credentialLeaseId);
+    expect(first.run.state).toBe("accepted");
+    expect(second.run.state).toBe("accepted");
+    await expect(capacity.accept(owner, p3.id, request())).rejects.toMatchObject({ code: "SERVICE_BUSY" });
+    await expect(capacity.accept(owner, p1.id, request())).rejects.toMatchObject({ code: "PROJECT_BUSY" });
+    await capacity.finishCancelled(owner, first.run.id, { cleanupState: "confirmed", summary: "Capacity fixture complete" });
+    await capacity.finishCancelled(owner, second.run.id, { cleanupState: "confirmed", summary: "Capacity fixture complete" });
+    const third = await capacity.accept(owner, p3.id, request());
+    leases.push(third.run.credentialLeaseId);
+    expect(third.run.state).toBe("accepted");
+    await capacity.finishCancelled(owner, third.run.id, { cleanupState: "confirmed", summary: "Capacity fixture complete" });
+  }, 120_000);
+
   test("a build failure repairs the saved candidate and preserves existing project files", async () => {
     const initial = await run(await fixture("normal"));
     expect(initial.run.state, JSON.stringify(initial.run.error)).toBe("completed");
