@@ -311,6 +311,26 @@ export class OpenSandboxWorkspace implements WorkspacePort {
       throw error;
     }
   }
+  async renewLease(
+    handle: WorkspaceHandle,
+    lifetimeMs: number,
+    signal?: AbortSignal,
+  ): Promise<WorkspaceHandle> {
+    signal?.throwIfAborted();
+    if (!Number.isFinite(lifetimeMs) || lifetimeMs < 60_000 || lifetimeMs > 1_800_000)
+      throw new RuntimeError("INVALID_SANDBOX_LEASE", "沙箱续租时长无效");
+    const resource = this.requireResource(handle);
+    // Sandbox.renew accepts a TTL from the renewal request, not an absolute
+    // deadline. Measure before calling so the reported deadline never exceeds
+    // the remote lease when the SDK call is slow.
+    const expiresAt = new Date(Date.now() + lifetimeMs).toISOString();
+    await resource.connection.renew(Math.ceil(lifetimeMs / 1000));
+    signal?.throwIfAborted();
+    this.requireResource(handle);
+    const renewed = { sandboxId: handle.sandboxId, expiresAt };
+    resource.handle = renewed;
+    return { ...renewed };
+  }
   async initialize(
     handle: WorkspaceHandle,
     files: Record<string, string>,

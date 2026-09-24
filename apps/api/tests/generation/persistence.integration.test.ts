@@ -178,6 +178,37 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
     await expect(generation.setPhase(ownerA, accepted.run.id, { phase: "implement" })).rejects.toMatchObject({ code: "RUN_NOT_ACTIVE" });
   }, 90_000);
 
+  test("sandbox lease updates are fenced to the active owner, run, attempt and remote ID", async () => {
+    const id = await project();
+    const accepted = await generation.accept(ownerA, id, request("沙箱租约边界验证"));
+    const runId = accepted.run.id;
+    const remoteId = randomUUID();
+    const firstExpiry = new Date(Date.now() + 300_000).toISOString();
+    const renewedExpiry = new Date(Date.now() + 600_000).toISOString();
+    await generation.registerSandbox(ownerA, runId, { sandboxId: remoteId, expiresAt: firstExpiry, state: "active" });
+    const expiry = async () => (await admin.query("SELECT expires_at FROM nano.sandboxes WHERE owner_id=$1 AND run_id=$2 AND remote_id=$3", [ownerA, runId, remoteId])).rows[0].expires_at.toISOString();
+    expect(await generation.updateSandboxExpiry(ownerA, runId, remoteId, renewedExpiry)).toBe(true);
+    expect(await expiry()).toBe(renewedExpiry);
+    expect(await generation.updateSandboxExpiry(ownerA, runId, randomUUID(), new Date(Date.now() + 900_000).toISOString())).toBe(false);
+    await expect(generation.updateSandboxExpiry(ownerB, runId, remoteId, new Date(Date.now() + 900_000).toISOString())).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await expiry()).toBe(renewedExpiry);
+
+    // Simulate a previous attempt retaining the same external sandbox row.
+    await admin.query("UPDATE nano.sandboxes SET attempt=attempt+1 WHERE owner_id=$1 AND run_id=$2 AND remote_id=$3", [ownerA, runId, remoteId]);
+    expect(await generation.updateSandboxExpiry(ownerA, runId, remoteId, new Date(Date.now() + 900_000).toISOString())).toBe(false);
+    expect(await expiry()).toBe(renewedExpiry);
+    await admin.query("UPDATE nano.sandboxes SET attempt=attempt-1 WHERE owner_id=$1 AND run_id=$2 AND remote_id=$3", [ownerA, runId, remoteId]);
+
+    await generation.markDestroyed(ownerA, runId, remoteId);
+    expect(await generation.updateSandboxExpiry(ownerA, runId, remoteId, new Date(Date.now() + 900_000).toISOString())).toBe(false);
+    await admin.query("UPDATE nano.sandboxes SET state='active' WHERE owner_id=$1 AND run_id=$2 AND remote_id=$3", [ownerA, runId, remoteId]);
+    await generation.cancel(ownerA, runId);
+    expect(await generation.updateSandboxExpiry(ownerA, runId, remoteId, new Date(Date.now() + 900_000).toISOString())).toBe(false);
+    expect(await expiry()).toBe(renewedExpiry);
+    await generation.markDestroyed(ownerA, runId, remoteId);
+    await generation.finishCancelled(ownerA, runId, { cleanupState: "confirmed", summary: "fixture cleanup" });
+  }, 90_000);
+
   test("full sandbox capacity rejects new work without changing an accepted request replay", async () => {
     const id = await project();
     const input = request("容量测试");

@@ -104,6 +104,8 @@ export interface GenerationRepository {
   saveCandidate(ownerId: string, runId: string, input: CandidateInput): Promise<StoredRevision>;
   getRevision(ownerId: string, revisionId: string): Promise<StoredRevision>;
   registerSandbox(ownerId: string, runId: string, input: { sandboxId: string; expiresAt: string; state?: "creating" | "active" }): Promise<StoredSandboxBinding>;
+  /** sandboxId is nano.sandboxes.remote_id. False means the active attempt no longer owns it. */
+  updateSandboxExpiry(ownerId: string, runId: string, sandboxId: string, expiresAt: string): Promise<boolean>;
   bindPreview(ownerId: string, runId: string, input: PreviewBindingInput): Promise<StoredSandboxBinding>;
   getPreviewBinding(ownerId: string, projectId: string, revisionId: string): Promise<StoredSandboxBinding | null>;
   markDestroyed(ownerId: string, runId: string, sandboxId: string): Promise<void>;
@@ -828,6 +830,17 @@ export function createGenerationRepository(
       const result = await client.query(`INSERT INTO nano.sandboxes(owner_id,project_id,run_id,attempt,remote_id,purpose,state,expires_at)
         VALUES($1,$2,$3,$4,$5,'candidate',$6,$7) RETURNING *`, [ownerId, current.project_id, runId, current.attempt, input.sandboxId, input.state ?? "active", input.expiresAt]);
       return storedSandbox(result.rows[0]);
+    }),
+    updateSandboxExpiry: (ownerId, runId, sandboxId, expiresAt) => owned(ownerId, async (client) => {
+      if (!z.iso.datetime().safeParse(expiresAt).success || Date.parse(expiresAt) <= Date.now())
+        throw new ApiFailure(422, "INVALID_SANDBOX_LEASE", "沙箱续租有效期无效。");
+      const { current, parent } = await lockedRun(client, ownerId, runId, false);
+      if (TerminalRunStates.has(current.state) || current.state === "cancel_requested" || parent.operation_id !== runId)
+        return false;
+      const result = await client.query(`UPDATE nano.sandboxes SET expires_at=$5,last_checked_at=now()
+        WHERE owner_id=$1 AND run_id=$2 AND remote_id=$3 AND attempt=$4 AND state='active'
+        RETURNING id`, [ownerId, runId, sandboxId, current.attempt, expiresAt]);
+      return result.rowCount === 1;
     }),
     bindPreview: (ownerId, runId, input) => owned(ownerId, async (client) => {
       const { current } = await lockedRun(client, ownerId, runId);

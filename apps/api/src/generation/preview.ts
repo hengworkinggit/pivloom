@@ -142,6 +142,13 @@ export function createPreviewGateway(options: { publicOrigin: string; appOrigin:
       const entry = entries.get(revisionId);
       return entry?.ownerId === ownerId ? view(entry) : null;
     },
+    async renew(ownerId: string, revisionId: string, sandboxId: string, expiresAt: string): Promise<boolean> {
+      const entry = entries.get(revisionId);
+      if (!entry || entry.ownerId !== ownerId || entry.sandboxId !== sandboxId || entry.revoked
+        || !Number.isFinite(Date.parse(expiresAt)) || Date.parse(expiresAt) <= Date.now()) return false;
+      entry.expiresAt = expiresAt;
+      return true;
+    },
     async issueGrant(ownerId: string, revisionId: string, sessionId: string): Promise<string | null> {
       const entry = entries.get(revisionId);
       if (!entry || entry.ownerId !== ownerId || view(entry).state !== "ready"
