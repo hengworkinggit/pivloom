@@ -5,6 +5,7 @@ import { allowsRenderOnlyEvidence } from '@pivloom/contracts';
 import { runReviewer, assertReviewerResult, deliveredScreenshotIdsFromRequest, type ReviewBrowser } from '../../src/runtime/reviewer.js';
 import { RuntimeError, type ModelConfig, type ProbeEvent } from '../../src/runtime/types.js';
 import { classifyReviewerModelFailure } from '../../src/runtime/reviewer.js';
+import { parseReviewEvidence } from '../../src/data/generation.js';
 import { MODEL_REQUEST_TIMEOUT_MS, PROVIDER_RETRY_POLICY, RUN_IDLE_TIMEOUT_MS, SANDBOX_LEASE_SEGMENT_MS } from '../../src/runtime/budgets.js';
 
 test('a single provider request is bounded below the renewable inactivity and sandbox leases',()=>{
@@ -69,6 +70,7 @@ test('a scenario checks two behaviors with fresh controls and delivered checkpoi
   const result=await runReviewer({...f.input,requireVisionEvidence:true});
   expect(result.result.items.map(item=>item.verdict)).toEqual(['passed','passed']);
   expect(result.evidence.map(item=>item.behaviorId)).toEqual([null,'B01','B02','B02']);
+  expect(parseReviewEvidence(result.evidence)).toEqual(result.evidence);
   expect(f.stats()).toEqual({calls:3,actions:3,closes:1});
 });
 
@@ -86,7 +88,22 @@ test('a real timed observation supplies motion evidence without inventing a clic
   f.input.handoff.plan={...plan,behaviors:[{...plan.behaviors[0],action:'等待若干 tick'}]};
   const result=await runReviewer({...f.input,requireVisionEvidence:true});
   expect(result.evidence.at(-1)).toMatchObject({action:'wait',behaviorId:'B01'});
+  expect(parseReviewEvidence(result.evidence)).toEqual(result.evidence);
   expect(f.stats()).toEqual({calls:3,actions:0,closes:1});
+});
+test('related assertions may share a real observation within the same candidate session',async()=>{
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(m=>m.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_click',args:{behaviorId:'B01',observationId:data.observationId,ref:'e1'}};
+    const item=report([data.id]).items[0];
+    return {name:'submit_review',args:{...report([data.id]),items:[item,{...item,behaviorId:'B02'}]}};
+  });
+  f.input.handoff.plan={...plan,behaviors:[plan.behaviors[0],{...plan.behaviors[0],id:'B02',title:'同一次添加后的列表内容'}]};
+  const result=await runReviewer(f.input);
+  expect(result.result.items.map(item=>item.verdict)).toEqual(['passed','passed']);
+  expect(f.stats()).toEqual({calls:3,actions:1,closes:1});
 });
 test('a fabricated passing report cannot replace actual browser actions and observations',async()=>{
   const f=setup(()=>({name:'submit_review',args:report([randomUUID()])}));
@@ -201,7 +218,7 @@ test('interactive report can correct unbound observation then missing post-actio
   };
   const result=await runReviewer({...f.input,requireVisionEvidence:true,onEvent});
   expect(rejected).toHaveLength(2);
-  expect(rejected[0]).toContain('OBSERVATION_NOT_BOUND');
+  expect(rejected[0]).toContain('ACTION_EVIDENCE_REQUIRED');
   expect(rejected[1]).toContain('IMAGE_EVIDENCE_REQUIRED');
   expect(result.result.items[0].observationEventIds).toEqual([clickEventId]);
   expect(result.result.items[0].screenshotIds).not.toContain(firstScreenshotId);
@@ -223,7 +240,7 @@ test('third invalid model turn remains fatal and persists its static rejection c
   };
   await expect(runReviewer({...f.input,onEvent})).rejects.toMatchObject({code:'AGENT_OUTPUT_INVALID'});
   expect(rejected).toHaveLength(3);
-  expect(rejected.every(message=>message.includes('OBSERVATION_NOT_BOUND'))).toBe(true);
+  expect(rejected.every(message=>message.includes('ACTION_EVIDENCE_REQUIRED'))).toBe(true);
   expect(f.stats()).toEqual({calls:4,actions:0,closes:1});
 });
 
@@ -250,7 +267,7 @@ test('two unbound records in one model response spend one correction turn, then 
   };
   const result=await runReviewer({...f.input,onEvent});
   expect(rejected).toHaveLength(2);
-  expect(rejected.every(message=>message.includes('OBSERVATION_NOT_BOUND'))).toBe(true);
+  expect(rejected.every(message=>message.includes('ACTION_EVIDENCE_REQUIRED'))).toBe(true);
   expect(result.result.items[0]).toMatchObject({behaviorId:'B01',verdict:'passed'});
   expect(result.result.items[0].observationEventIds).not.toContain(unboundEventId);
   expect(f.stats()).toEqual({calls:5,actions:1,closes:1});

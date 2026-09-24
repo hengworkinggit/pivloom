@@ -32,7 +32,7 @@ export function allowsRenderOnlyEvidence(target: Pick<BehaviorTarget, "action">)
   // later positive actions must remain visible to the interaction guard.
   const action = target.action.trim().replace(/[，,]\s*(?:不点击任何按钮|不按(?:任何)?键)[。.]?$/u, "");
   const firstRender = /^(?:首次|初次)(?:加载|打开)(?:页面|界面)[。.]?$/u.test(action);
-  const renderVerb = /(?:查看|观察|浏览|目视|阅读|检查|目测)/u.test(action);
+  const renderVerb = /(?:查看|观察|浏览|目视|阅读|检查|目测|打开|加载)/u.test(action);
   const renderedTarget = /(?:页面|界面|首屏|Canvas|画布|文本|文字|说明|按钮|输入框|控件|分数|最高分|区域|布局|结果|列表|标题)/iu.test(action);
   const renderOnly = firstRender
     || /^(?:直接)?(?:查看|观察|浏览|目视|阅读|打开页面|打开界面)|^(?:directly\s+)?(?:view|observe|inspect|look at|open\s+(?:the\s+)?(?:page|screen))/iu.test(action)

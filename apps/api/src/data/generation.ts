@@ -15,6 +15,7 @@ import { assertVerifiedSourceSnapshot, type SourceReference, type VerifiedSource
 import { assertVerifiedReviewReceipt, type VerifiedReviewReceipt } from "../generation/review.js";
 import type { StoredArtifact } from "../storage/artifacts.js";
 import { DAILY_ACCEPTED_LIMIT, MODEL_REQUEST_TIMEOUT_MS, RUN_IDLE_TIMEOUT_MS, RUN_TOOL_LIMIT } from "../runtime/budgets.js";
+import { BrowserPressKeySchema } from "../runtime/browser.js";
 
 export interface StoredRun extends Run {
   ownerId: string;
@@ -199,14 +200,17 @@ function reviewerExecution(row: Row): ReviewerExecution {
 const storedArtifactSchema = ReviewArtifactSchema.extend({ key: z.string().min(1).max(512), bytes: z.number().int().min(8).max(2 * 1024 * 1024) });
 const reviewEvidenceSchema = z.array(z.strictObject({
   id: z.uuid(), behaviorId: z.string().regex(/^B(?:0[1-9]|[1-9]\d)$/).nullable(),
-  action: z.enum(["click", "fill", "select", "press", "scroll", "reload", "key_batch"]).nullable(), observationId: z.uuid(),
-  key: z.enum(["Enter", "Backspace", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space"]).optional(),
+  action: z.enum(["click", "fill", "select", "press", "scroll", "reload", "key_batch", "wait"]).nullable(), observationId: z.uuid(),
+  key: BrowserPressKeySchema.optional(),
   batch: z.strictObject({ startedAt: z.iso.datetime(), finishedAt: z.iso.datetime(),
     steps: z.array(z.strictObject({ index: z.number().int().min(0).max(7),
-      key: z.enum(["Enter", "Backspace", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space"]),
+      key: BrowserPressKeySchema,
       waitMs: z.number().int().min(0).max(1000), success: z.boolean() })).min(1).max(8) }).optional(),
   url: z.url().max(4000), tree: z.string().max(12000), text: z.string().max(12000), truncated: z.boolean(),
 })).max(256);
+export function parseReviewEvidence(value: unknown) {
+  return reviewEvidenceSchema.parse(value);
+}
 function storedCheck(row: Row): Check {
   return CheckSchema.parse({ id: row.id, runId: row.run_id, roleRunId: row.role_run_id, attempt: row.attempt,
     revisionId: row.revision_id, sourceHash: row.source_hash, sandboxId: row.sandbox_id, browserSessionId: row.browser_session_id,
@@ -447,7 +451,7 @@ export function createGenerationRepository(
       if (current.retry_of !== priorRunId || !["accepted", "planning"].includes(current.state)) return null;
       const prior = await run(client, ownerId, priorRunId);
       if (prior.project_id !== current.project_id || prior.state !== "failed"
-        || !["CHECK_BLOCKED", "AGENT_OUTPUT_INVALID"].includes(prior.error_code)
+        || !["CHECK_BLOCKED", "AGENT_OUTPUT_INVALID", "GENERATION_FAILED"].includes(prior.error_code)
         || prior.expected_current_revision_id !== current.expected_current_revision_id
         || parent.current_revision_id !== current.expected_current_revision_id
         || !prior.result_revision_id || !prior.plan_json) return null;
@@ -757,7 +761,7 @@ export function createGenerationRepository(
       const binding = ReviewBindingSchema.parse(receipt.binding);
       const result = ReviewResultSchema.parse(receipt.result);
       const artifacts = z.array(storedArtifactSchema).max(MAX_CHECK_ARTIFACTS).parse(receipt.artifacts);
-      const evidence = reviewEvidenceSchema.parse(receipt.evidence);
+      const evidence = parseReviewEvidence(receipt.evidence);
       boundedJson({ evidence }, 512 * 1024);
       if (receipt.chromeClosed !== true || binding.runId !== runId || result.revisionId !== binding.revisionId
         || result.sourceHash !== binding.sourceHash) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查结果尚未完成会话关闭或版本校验。");
@@ -794,8 +798,7 @@ export function createGenerationRepository(
         for (const item of result.items) {
           const behavior = byBehavior.get(item.behaviorId);
           const itemObservations = item.observationEventIds.map((id) => observations.get(id));
-          const actionEvidence = itemObservations.some((observation) => observation?.behaviorId === item.behaviorId
-            && observation.action && observation.action !== "scroll"
+          const actionEvidence = itemObservations.some((observation) => observation?.action && observation.action !== "scroll"
             && !(observation.action === "press" && observation.key === "Tab"));
           // Static pages have no interactive element: a real check observation
           // plus a captured screenshot is render/content verification, matching

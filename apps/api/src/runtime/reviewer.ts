@@ -297,15 +297,12 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     if(item.screenshotIds.some(id=>!artifacts.some(a=>a.id===id)))return 'ARTIFACT_SCOPE';
     if(item.observationEventIds.length===0)return 'ACTION_EVIDENCE_REQUIRED';
     const observations=item.observationEventIds.map(id=>evidence.find(e=>e.id===id));
-    // Every reference must exist in this check's evidence, and the behavior's
-    // core evidence must carry its behaviorId. Contextual observations such as
-    // the initial open (behaviorId null) may be referenced alongside the core
-    // action evidence; only a complete absence of behavior-bound evidence is a
-    // scope violation.
+    // A single real scenario can prove multiple related assertions. Scope is
+    // the immutable candidate and browser session, not a model-supplied label.
     if(!observations.every(e=>e))return 'OBSERVATION_SCOPE';
     if(failedInputBehaviors.has(item.behaviorId) && item.verdict!=='blocked')return 'INPUT_FAILED';
     const validAction=(event:ReviewObservationEvent|undefined)=>Boolean(event?.action && event.action !== 'scroll'
-      && !(event.action === 'press' && event.key === 'Tab') && event.behaviorId===item.behaviorId
+      && !(event.action === 'press' && event.key === 'Tab')
       && (event.action!=='key_batch'||event.batch?.steps.every(step=>step.success)));
     const actionEvidence=observations.some(validAction);
     if(item.verdict!=='blocked' && observations.some(event=>event?.action==='key_batch'&&event.behaviorId===item.behaviorId
@@ -313,7 +310,6 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     // A screenshot cannot substitute for input or click merely because a model
     // labels it passed. The Reviewer cannot change the sealed target's action.
     const renderedEvidence=allowsRenderOnlyEvidence(target) && observations.length>=1 && item.screenshotIds.length>0;
-    if(!observations.some(e=>e?.behaviorId===item.behaviorId) && !renderedEvidence)return 'OBSERVATION_NOT_BOUND';
     if(item.verdict!=='blocked' && !actionEvidence && !renderedEvidence)return 'ACTION_EVIDENCE_REQUIRED';
     if(input.requireVisionEvidence !== false && item.verdict==='passed'){
       const actionObservationIds=new Set(observations.filter(validAction).map(event=>event!.observationId));
