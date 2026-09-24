@@ -1,16 +1,15 @@
 {
-  "ok": true,
-  "identity": "user",
-  "data": {
-    "permission_public": {
-      "comment_entity": "anyone_can_view",
-      "copy_entity": "anyone_can_view",
-      "external_access_entity": "open",
-      "link_share_entity": "anyone_readable",
-      "lock_switch": false,
-      "manage_collaborator_entity": "collaborator_can_view",
-      "security_entity": "anyone_can_view",
-      "share_entity": "anyone"
-    }
+  "checkedAt": "2026-09-24T14:35:05.430Z",
+  "document": "https://nx104h5ukl3.feishu.cn/docx/NOvfdT7vXo5gOExr9qScSmc9nNP",
+  "method": "lark-cli drive +permission-get-setting --as user",
+  "permission_public": {
+    "comment_entity": "anyone_can_view",
+    "copy_entity": "anyone_can_view",
+    "external_access_entity": "open",
+    "link_share_entity": "anyone_readable",
+    "lock_switch": false,
+    "manage_collaborator_entity": "collaborator_can_view",
+    "security_entity": "anyone_can_view",
+    "share_entity": "anyone"
   }
 }

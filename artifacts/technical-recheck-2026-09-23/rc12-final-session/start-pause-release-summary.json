@@ -1,0 +1,41 @@
+{
+  "checkedAt": "2026-09-24T15:07:44.477Z",
+  "publicApiVersion": {
+    "component": "api",
+    "commit": "887cd4fa1240b2db6b3abf7106804229c8149b05",
+    "builtAt": "2026-09-24T14:47:52.081713Z"
+  },
+  "publicWebVersion": {
+    "component": "web",
+    "commit": "887cd4fa1240b2db6b3abf7106804229c8149b05",
+    "builtAt": "2026-09-24T14:47:52.081713Z",
+    "buildId": "887cd4fa1240b2db6b3abf7106804229c8149b05",
+    "deploymentId": null
+  },
+  "archives": [
+    {
+      "component": "api",
+      "release": "887cd4f-20260924-start-pause",
+      "commit": "887cd4fa1240b2db6b3abf7106804229c8149b05",
+      "builtAt": "2026-09-24T14:47:52.081713Z",
+      "worktreeDirty": false,
+      "createdAt": "2026-09-24T14:48:07.434358+00:00",
+      "archiveSha256": "0261997d1844d087e7a7a6527779d281b2fc59afca295c18cb38b20032f246b3",
+      "files": 129
+    },
+    {
+      "component": "web",
+      "release": "887cd4f-20260924-start-pause",
+      "commit": "887cd4fa1240b2db6b3abf7106804229c8149b05",
+      "builtAt": "2026-09-24T14:47:52.081713Z",
+      "worktreeDirty": false,
+      "createdAt": "2026-09-24T14:48:09.884889+00:00",
+      "archiveSha256": "dad14677279e0dbb6cc8aac44c26ee85482b93185107c3badc4ffa237b6f7b6e",
+      "files": 1775,
+      "buildId": "887cd4fa1240b2db6b3abf7106804229c8149b05"
+    }
+  ],
+  "ci": "https://github.com/hengworkinggit/pivloom/actions/runs/36015420113",
+  "ciConclusion": "success",
+  "scope": "Deployment provenance. The active Snake Run must independently produce its final Check."
+}
