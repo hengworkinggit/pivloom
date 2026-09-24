@@ -12,6 +12,7 @@ afterEach(async () => {
   root = undefined;
   disposeWorkspace?.(); document.body.replaceChildren(); localStorage.clear(); sessionStorage.clear();
   vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.resetModules();
+  window.history.replaceState(null, "", "/");
 });
 
 const ownerId = "1e5dce44-654d-4352-bb4b-7680138c1135";
@@ -24,6 +25,7 @@ const sse = (events: RunEvent[]) => new Response(events.map((item) => `id: ${ite
 
 async function openWorkbench(stream: (after: string, signal: AbortSignal) => Response | Promise<Response>, options: {
   empty?: boolean;
+  autoStart?: boolean;
   post?: (init: RequestInit, project: ProjectDetailResponse, run: Run) => Response | Promise<Response>;
   cancel?: () => Response | Promise<Response>;
 } = {}) {
@@ -36,6 +38,7 @@ async function openWorkbench(stream: (after: string, signal: AbortSignal) => Res
   const encode = (value: object) => btoa(JSON.stringify(value)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
   localStorage.setItem("pivloom.auth.v1", JSON.stringify({ access_token: `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ sub: ownerId, exp: expiresAt })}.fixture`, refresh_token: "fixture-refresh-token", token_type: "bearer", expires_in: 3600, expires_at: expiresAt, user }));
   saveDraft(ownerId, projectId, "下一条中文需求\n保留换行");
+  if (options.autoStart) window.history.replaceState(null, "", `/projects/${projectId}?start=1`);
   const run: Run = { id: runId, projectId, state: "building", phase: "implement", attempt: 0, requestText: "创建读书清单", modelProfileId: profileId, modelConfigVersion: 3, modelId: null, baseRevisionId: null, resultRevisionId: null, createdAt: now, deadlineAt: "2026-09-22T00:10:00.000Z", finishedAt: null, cleanupState: "clear", error: null, summary: null };
   const project: ProjectDetailResponse = { project: { id: projectId, title: "读书清单", createdAt: now, updatedAt: now, currentRevisionId: null }, messages: [{ id: "ade806dc-49c3-4b16-950d-6f69c46bb4d8", projectId, runId, kind: "user", content: run.requestText, createdAt: now }], currentRevision: null, activeRun: run, latestRun: run, latestCandidate: null, latestCheck: null, preview: null };
   if (options.empty) { project.messages = []; project.activeRun = null; project.latestRun = null; }
@@ -66,6 +69,20 @@ async function openWorkbench(stream: (after: string, signal: AbortSignal) => Res
     reads: () => requests.filter((request) => request.url === `/api/v1/runs/${runId}`),
   };
 }
+
+it("submits a new project's saved first request once after model and project load", async () => {
+  const submitted: unknown[] = [];
+  const view = await openWorkbench(() => sse([]), { empty: true, autoStart: true, post(init, project, run) {
+    submitted.push(JSON.parse(String(init.body)));
+    project.activeRun = run; project.latestRun = run;
+    return Response.json({ runId, state: "building", eventsUrl: `/api/v1/runs/${runId}/events`, replayed: false }, { status: 202 });
+  } });
+  expect(submitted).toHaveLength(1);
+  expect(submitted[0]).toMatchObject({ text: "下一条中文需求\n保留换行", expectedCurrentRevisionId: null, modelProfileId: profileId });
+  expect(window.location.search).toBe("");
+  await view.render();
+  expect(submitted).toHaveLength(1);
+});
 
 it("two rapid Stop clicks submit one cancellation and keep its pending state visible", async () => {
   let resolveCancel!: (response: Response) => void;

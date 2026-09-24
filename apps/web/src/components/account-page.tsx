@@ -36,7 +36,7 @@ function AccountContent() {
     finally { setBusy(null); }
   }
   return <div className="account-page"><AppHeader /><main className="account-main">
-    <Link className="settings-back" href="/projects"><ArrowLeft size={15} />{ui.text("返回项目", "Back to projects")}</Link>
+    <Link className="settings-back" href="/projects?view=list"><ArrowLeft size={15} />{ui.text("返回项目", "Back to projects")}</Link>
     <div className="account-heading"><div className="section-eyebrow">YOUR ACCOUNT</div><h1>{ui.text("账户与额度", "Account & usage")}</h1><p>{ui.text("管理个人信息，查看近 24 小时的可用任务次数。", "Manage your profile and see your available runs in the rolling 24-hour window.")}</p></div>
     <div className="account-layout">
       <section className="account-panel" aria-labelledby="account-profile-title">
@@ -52,7 +52,7 @@ function AccountContent() {
         {quota.data ? <><div className="quota-large"><strong>{remaining}</strong><span>/ {quota.data.dailyLimit}</span></div><p>{ui.text("未来 24 小时剩余可创建任务", "Runs remaining in the rolling 24-hour window")}</p><div className="quota-track" role="progressbar" aria-label={ui.text("额度使用", "Usage")} aria-valuenow={quota.data.dailyAccepted} aria-valuemin={0} aria-valuemax={quota.data.dailyLimit}><span style={{ width: `${quota.data.dailyLimit ? quota.data.dailyAccepted / quota.data.dailyLimit * 100 : 0}%` }} /></div><div className="quota-details"><span>{ui.text("已使用", "Used")} {quota.data.dailyAccepted}</span><span>{ui.text("总额度", "Limit")} {quota.data.dailyLimit}</span></div></>
           : quota.error ? <Button variant="outline" size="sm" onClick={quota.refresh}>{ui.text("重新读取", "Try again")}</Button>
           : <div className="quota-empty"><strong>—</strong><p>{ui.text("正在读取服务端额度…", "Loading your server-reported balance…")}</p></div>}
-        <Link className="quota-link" href="/projects">{ui.text("回到项目", "Go to projects")} →</Link>
+        <Link className="quota-link" href="/projects?view=list">{ui.text("回到项目", "Go to projects")} →</Link>
       </section>
     </div>
   </main></div>;

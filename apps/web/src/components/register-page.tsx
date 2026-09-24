@@ -45,7 +45,7 @@ export function RegisterPage() {
     } catch (cause) { setError(errorMessage(cause)); }
     finally { submitting.current = false; setBusy(false); }
   }
-  return <main className="login-page">
+  return <main className="login-page a-auth-page">
     <div className="login-preferences"><button type="button" className="header-control" aria-label={ui.locale === "zh" ? "切换到英文" : "Switch to Chinese"} onClick={() => ui.setLocale(ui.locale === "zh" ? "en" : "zh")}><Globe2 size={15} />{ui.locale === "zh" ? "EN" : "中文"}</button><button type="button" className="header-control" aria-label={ui.theme === "light" ? ui.text("切换深色模式", "Switch to dark mode") : ui.text("切换浅色模式", "Switch to light mode")} onClick={() => ui.setTheme(ui.theme === "light" ? "dark" : "light")}>{ui.theme === "light" ? <Moon size={16} /> : <Sun size={16} />}</button></div>
     <Brand />
     <div className="login-card register-card">

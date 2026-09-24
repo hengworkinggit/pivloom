@@ -348,6 +348,7 @@ function WorkbenchContent({ projectId }: { projectId: string }) {
   const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [sourceHash, setSourceHash] = useState<{ revision: number; value: string } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const bottom = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
@@ -361,6 +362,19 @@ function WorkbenchContent({ projectId }: { projectId: string }) {
     const timer = setTimeout(() => setNotice(""), 3500);
     return () => clearTimeout(timer);
   }, [notice]);
+  useEffect(() => {
+    let active = true;
+    const subtle = globalThis.crypto?.subtle;
+    if (!project?.files.length || !subtle) return;
+    const source = [...project.files]
+      .sort((a, b) => a.path.localeCompare(b.path))
+      .map((file) => `${file.path}\n${file.content}`)
+      .join("\n\n");
+    void subtle.digest("SHA-256", new TextEncoder().encode(source)).then((digest) => {
+      if (active) setSourceHash({ revision: project.revision, value: Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("") });
+    }).catch(() => { if (active) setSourceHash(null); });
+    return () => { active = false; };
+  }, [project?.files, project?.revision]);
 
   async function perform(action: () => Promise<unknown>) {
     setError("");
@@ -425,11 +439,12 @@ function WorkbenchContent({ projectId }: { projectId: string }) {
     );
   const previewUrl = `/preview/${project.kind}?revision=${project.revision}&features=${encodeURIComponent(project.features.join(","))}`;
   const hasPreview = project.revision > 0;
+  const visibleHash = sourceHash?.revision === project.revision ? sourceHash.value : "";
   const lastPrompt =
     [...project.messages].reverse().find((message) => message.role === "user")
       ?.content ?? project.description;
   return (
-    <div className="workbench-page">
+    <div className="workbench-page a-workbench-page">
       <AppHeader title={project.title} saving={running}>
         <MockControls
           scenario={scenario}
@@ -712,18 +727,27 @@ function WorkbenchContent({ projectId }: { projectId: string }) {
                 </button>
               </div>
             </div>
-            <div className="preview-status">
-              {hasPreview && (
-                <span className="version-badge">v{project.revision}</span>
-              )}
+            <div className="a-result-toolbar-extras">
+              <button className="a-toolbar-version" type="button" onClick={() => setNotice("演示模式只保留当前版本；真实项目可查看和回滚历史版本。")}
+                title="演示模式只保留当前版本">
+                v{project.revision}<span>{hasPreview ? "当前版本" : "等待首版"}</span><ChevronRight size={13} />
+              </button>
+              <button className="a-toolbar-hash" type="button" disabled={!visibleHash} title={visibleHash ? `模拟源码 SHA-256：${visibleHash}` : "生成后显示源码 SHA-256"}
+                aria-label={visibleHash ? `复制模拟源码 SHA-256：${visibleHash}` : "生成后显示模拟源码 SHA-256"}
+                onClick={async () => {
+                  try { await navigator.clipboard.writeText(visibleHash); setNotice("模拟源码 SHA-256 已复制"); }
+                  catch { setNotice("无法读取剪贴板权限，请手动复制源码 hash。"); }
+                }}>
+                <span>源码 SHA</span><code>{visibleHash ? visibleHash.slice(0, 10) : "—"}</code>
+              </button>
               {hasPreview && !running && project.status !== "expired" && (
-                <span className="preview-checked">
+                <span className="a-toolbar-check">
                   <ShieldCheck size={13} />
                   模拟检查通过
                 </span>
               )}
               {running && (
-                <span className="preview-building">
+                <span className="a-toolbar-check">
                   <LoaderCircle size={12} className="spin" />
                   生成中
                 </span>

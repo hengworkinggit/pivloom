@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DropdownMenu } from "radix-ui";
-import { ArrowLeft, ChevronDown, Globe2, LayoutTemplate, LogOut, Moon, Sun, UserCircle } from "lucide-react";
+import { ArrowLeft, ChevronDown, Globe2, LayoutTemplate, LogOut, Moon, Settings2, Sun, UserCircle } from "lucide-react";
 import { useState } from "react";
 import { Brand } from "./brand";
 import { useWorkspaceAuth } from "@/lib/use-workspace";
@@ -39,7 +39,7 @@ export function AppHeader({
         {title && (
           <>
             <span className="header-divider" />
-            <Link href="/projects" className="back-link">
+            <Link href="/projects?view=list" className="back-link">
               <ArrowLeft size={15} />
               <span>{ui.text("我的项目", "My projects")}</span>
             </Link>
@@ -56,10 +56,8 @@ export function AppHeader({
             {saving ? ui.text("生成中", "Generating") : isDemoMode ? ui.text("本地已保存", "Saved locally") : ui.text("已保存", "Saved")}
           </span>
         )}
-        <Link className="settings-header-link" href="/templates"><LayoutTemplate size={14} />{ui.text("模板", "Templates")}</Link>
-        {!isDemoMode && <Link className="settings-header-link" href="/settings/models">{ui.text("模型设置", "Models")}</Link>}
-        <button type="button" className="header-control" onClick={() => ui.setLocale(ui.locale === "zh" ? "en" : "zh")} aria-label={ui.locale === "zh" ? "切换到英文" : "Switch to Chinese"}><Globe2 size={15} /><span>{ui.locale === "zh" ? "EN" : "中文"}</span></button>
-        <button type="button" className="header-control theme-control" onClick={() => ui.setTheme(ui.theme === "light" ? "dark" : "light")} aria-label={ui.theme === "light" ? ui.text("切换深色模式", "Switch to dark mode") : ui.text("切换浅色模式", "Switch to light mode")}>{ui.theme === "light" ? <Moon size={16} /> : <Sun size={16} />}</button>
+        <Link className="settings-header-link" href="/templates" aria-label={ui.text("模板", "Templates")}><LayoutTemplate size={14} />{ui.text("模板", "Templates")}</Link>
+        {!isDemoMode && <Link className="settings-header-link" href="/settings/models" aria-label={ui.text("模型配置", "Models")}><Settings2 size={14} />{ui.text("模型配置", "Models")}</Link>}
         {isDemoMode && <span
           className="demo-badge"
           title="所有接口与生成过程使用模拟数据，不会调用模型"
@@ -86,6 +84,8 @@ export function AppHeader({
               <DropdownMenu.Separator className="menu-separator" />
               {!isDemoMode && <DropdownMenu.Item className="dropdown-item" asChild><Link href="/settings/account"><UserCircle size={15} />{ui.text("账户与额度", "Account & usage")}</Link></DropdownMenu.Item>}
               <DropdownMenu.Item className="dropdown-item" asChild><Link href="/templates"><LayoutTemplate size={15} />{ui.text("浏览模板", "Browse templates")}</Link></DropdownMenu.Item>
+              <DropdownMenu.Item className="dropdown-item" onSelect={() => ui.setLocale(ui.locale === "zh" ? "en" : "zh")}><Globe2 size={15} />{ui.locale === "zh" ? "English" : "中文"}</DropdownMenu.Item>
+              <DropdownMenu.Item className="dropdown-item" onSelect={() => ui.setTheme(ui.theme === "light" ? "dark" : "light")}>{ui.theme === "light" ? <Moon size={15} /> : <Sun size={15} />}{ui.theme === "light" ? ui.text("深色模式", "Dark mode") : ui.text("浅色模式", "Light mode")}</DropdownMenu.Item>
               <DropdownMenu.Item
                 className="dropdown-item"
                 onSelect={() => void logout()}

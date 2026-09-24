@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowUp, LoaderCircle, MessageSquare, Monitor, PanelLeftClose, PanelLeftOpen, RotateCcw, TriangleAlert } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, Copy, ExternalLink, History, LoaderCircle, MessageSquare, Monitor, PanelLeftClose, PanelLeftOpen, RotateCcw, TriangleAlert, X } from "lucide-react";
 import { getApiWorkspace } from "@/lib/workspace";
 import { WorkspaceError } from "@/lib/api-workspace";
 import { usePrivateQuery, useWorkspaceAuth } from "@/lib/use-workspace";
@@ -21,13 +21,29 @@ import { SessionModelPicker } from "./session-model-picker";
 import { useUiPreferences } from "@/lib/ui-preferences";
 import { useCancellationRequestLatch } from "@/lib/use-cancellation-request-latch";
 import { DeploymentVersion } from "./deployment-version";
-import { checkMatchesRevision } from "./generation-review";
+import { checkMatchesRevision, GenerationReview } from "./generation-review";
 import { createVersionHistoryApi } from "@/lib/version-history-api";
 import { useRollback } from "@/lib/use-rollback";
 import { VersionHistoryPanel } from "./version-history";
 import type { Revision } from "@pivloom/contracts";
 
 const rejectedSubmissions = new Set(["INVALID_INPUT", "PROJECT_BUSY", "CLEANUP_PENDING", "STALE_BASE", "IDEMPOTENCY_CONFLICT", "SERVICE_BUSY", "QUOTA_EXCEEDED", "NOT_FOUND", "UNAUTHENTICATED", "MODEL_PROFILE_NOT_FOUND", "MODEL_CONFIG_CHANGED", "MODEL_NOT_VERIFIED", "MODEL_CONFIGURATION_MISSING"]);
+
+function WorkbenchDrawer({ title, onClose, children }: { title: string; onClose(): void; children: ReactNode }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (dialog && typeof dialog.showModal === "function") dialog.showModal();
+    else dialog?.setAttribute("open", "");
+    return () => { if (dialog?.open && typeof dialog.close === "function") dialog.close(); };
+  }, []);
+  return <dialog ref={ref} className="a-workbench-drawer" aria-label={title}
+    onCancel={(event) => { event.preventDefault(); onClose(); }}
+    onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="a-drawer-heading"><h2>{title}</h2><button type="button" autoFocus onClick={onClose} aria-label="关闭面板"><X size={19} /></button></div>
+    <div className="a-drawer-body">{children}</div>
+  </dialog>;
+}
 
 function GenerationWorkspace({ projectId }: { projectId: string }) {
   const api = getApiWorkspace();
@@ -38,7 +54,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const models = useMemo(() => createModelsApi(api), [api]);
   const modelsLoader = useCallback(() => models.list(), [models]);
   const modelQuery = usePrivateQuery(modelsLoader);
-  const [selectedModelId, setSelectedModelId] = useState("");
+  const [selectedModelId, setSelectedModelId] = useState(() => readSessionModel(ownerId, projectId)?.profileId ?? "");
   const selectedModel = modelQuery.data?.find((model) => model.id === selectedModelId)
     ?? modelQuery.data?.find((model) => model.isDefault) ?? modelQuery.data?.[0];
   // Session-level model override: the catalog model the user picked under this
@@ -67,12 +83,15 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const [pending, setPending] = useState(false);
   const sending = useRef(false);
   const [unknownSubmission, setUnknownSubmission] = useState<RunSubmission | null>(() => readPendingSubmission(ownerId, projectId));
+  const autoStart = useRef(typeof window !== "undefined" && new URLSearchParams(window.location.search).get("start") === "1");
   const [submitError, setSubmitError] = useState("");
   const [stopping, setStopping] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publicationError, setPublicationError] = useState("");
   const [actionError, setActionError] = useState("");
+  const [drawer, setDrawer] = useState<"history" | "checks" | "publish" | null>(null);
+  const [hashNotice, setHashNotice] = useState("");
   const [mobileTab, setMobileTab] = useState<"chat" | "result">("chat");
   const [collapsed, setCollapsed] = useState(false);
   const [selectedRevisionId, setSelectedRevisionId] = useState("");
@@ -100,6 +119,19 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const revision = revisions.find((item) => item.id === selectedRevisionId) ?? project?.currentRevision ?? project?.latestCandidate ?? null;
   const runRevision = revisions.find((item) => item.id === run?.resultRevisionId);
   const runCheck = project?.latestCheck && runRevision && project.latestCheck.runId === run?.id && checkMatchesRevision(project.latestCheck, runRevision) ? project.latestCheck : null;
+  const snapshotCheck = project?.latestCheck && revision && checkMatchesRevision(project.latestCheck, revision) ? project.latestCheck : null;
+  const selectedCheckLoader = useCallback(async () => {
+    if (!revision) return null;
+    const check = snapshotCheck ?? await state.generation.getCheck(revision.id);
+    if (check && !checkMatchesRevision(check, revision)) throw new Error("检查记录与所选源码版本不一致，请重新读取。");
+    return check;
+  // A historical selection has its own Check; the latest project Check is only a fast path.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revision?.id, revision?.sourceHash, revision?.runId, revision?.attempt, snapshotCheck?.id, state.generation]);
+  const selectedCheckQuery = usePrivateQuery(selectedCheckLoader);
+  const selectedCheck = snapshotCheck ?? selectedCheckQuery.data;
+  const checkBadge = selectedCheckQuery.error ? "检查异常" : selectedCheck?.groups ? `${selectedCheck.groups.filter((group) => group.verdict === "passed").length}/${selectedCheck.groups.length}`
+    : selectedCheck?.verdict === "passed" ? "已通过" : "检查";
   const snapshotPreview = project?.preview;
   const revisionId = revision?.id;
   const hasSnapshotPreview = !!snapshotPreview && snapshotPreview.revisionId === revisionId && snapshotPreview.sourceHash === revision?.sourceHash;
@@ -160,6 +192,17 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
       if (reason instanceof WorkspaceError && ["PROJECT_BUSY", "STALE_BASE", "CLEANUP_PENDING"].includes(reason.code)) void state.refresh();
     } finally { sending.current = false; setPending(false); }
   }
+
+  useEffect(() => {
+    if (!autoStart.current || !project || run || busy || unknownSubmission || !modelReady || !selectedModel || !draft.trim()) return;
+    autoStart.current = false;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("start");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    void send();
+  // New projects submit their saved initial draft once after project and verified model load.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.project.id, run?.id, busy, unknownSubmission, modelReady, selectedModel?.id, draft]);
 
   const canStop = state.active && !!run && run.state !== "cancel_requested";
   const composerStatus = cancellation.isCancellationRequested || stopping
@@ -223,26 +266,44 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
     } catch (reason) { setPublicationError(errorMessage(reason)); }
     finally { setPublishing(false); }
   }
+  async function copySourceHash() {
+    if (!revision) return;
+    try { await navigator.clipboard.writeText(revision.sourceHash); setHashNotice("源码 hash 已复制"); }
+    catch { setHashNotice("无法自动复制；可在版本历史中查看完整 hash"); }
+  }
 
   if (!project && state.error) return <><AppHeader /><main className="standalone-state"><TriangleAlert size={30} /><h1>{ui.text("暂时无法打开这个项目", "This project is temporarily unavailable")}</h1><p role="alert">{state.error}</p><div className="inline-actions"><Button variant="outline" onClick={() => void state.refresh()}>{ui.text("重新加载", "Reload")}</Button><Button asChild><Link href="/projects">{ui.text("返回我的项目", "Back to projects")}</Link></Button></div></main></>;
   if (!project) return <><AppHeader /><div className="page-loader" aria-label={ui.text("正在打开项目", "Opening project")}><LoaderCircle className="spin" size={24} /></div></>;
-  return <div className="workbench-page">
+  const toolbarExtras = <>
+    {revision && <>
+      <button type="button" className="a-toolbar-version" onClick={() => setDrawer("history")} aria-label={`版本历史，正在查看 v${revision.revisionNo}`}>
+        v{revision.revisionNo}<span>{revision.id === project.project.currentRevisionId ? "当前" : revision.status === "candidate" ? "候选" : "历史"}</span><ChevronDown size={12} />
+      </button>
+      <button type="button" className="a-toolbar-hash" title={revision.sourceHash} onClick={() => void copySourceHash()} aria-label="复制完整源码 hash">
+        <span>hash</span><code data-testid="workbench-source-hash-short">{revision.sourceHash.slice(0, 8)}</code><Copy size={12} />
+      </button>
+      <button type="button" className="a-toolbar-icon" title="版本历史" aria-label="版本历史" onClick={() => setDrawer("history")}><History size={16} /></button>
+      <button type="button" className="a-toolbar-check" aria-label={`检查结果 ${checkBadge}`} onClick={() => setDrawer("checks")}><Check size={14} />{project.latestCheckHistorical && revision.id === project.project.currentRevisionId ? "历史检查" : checkBadge}</button>
+    </>}
+    {project.currentRevision && <button type="button" className="a-toolbar-publish" onClick={() => setDrawer("publish")}>发布<ChevronDown size={12} /></button>}
+    {hashNotice && <span className="a-toolbar-notice" role="status">{hashNotice}</span>}
+  </>;
+  return <div className="workbench-page a-workbench-page">
     <AppHeader title={project.project.title} saving={state.active} />
-    <DeploymentVersion />
     <nav className="mobile-workbench-tabs" aria-label={ui.text("工作区", "Workspace")}><button aria-pressed={mobileTab === "chat"} onClick={() => setMobileTab("chat")}><MessageSquare size={15} />{ui.text("对话", "Chat")}{state.active && <span className="mini-dot" />}</button><button aria-pressed={mobileTab === "result"} onClick={() => setMobileTab("result")}><Monitor size={15} />{ui.text("结果", "Result")}{revision && <span>v{revision.revisionNo}</span>}</button></nav>
     <main className={cn("workbench-layout", `mobile-show-${mobileTab}`, collapsed && "chat-collapsed")}>
       <section className="chat-panel" aria-label={ui.text("与 Pivloom 对话", "Chat with Pivloom")}>
-        <div className="chat-panel-heading"><div><span className="chat-heading-icon"><MessageSquare size={15} /></span><strong>{ui.text("构建你的想法", "Build your idea")}</strong><span className="conversation-badge">{ui.text("对话", "Chat")}</span></div><button className="icon-button collapse-button" onClick={() => setCollapsed(true)} aria-label={ui.text("收起对话", "Collapse chat")}><PanelLeftClose size={16} /></button></div>
+        <div className="chat-panel-heading"><div><strong>{ui.text("对话", "Chat")}</strong><span className="conversation-badge">{ui.text("让想法继续生长", "Let ideas grow")}</span></div><button className="icon-button collapse-button" onClick={() => setCollapsed(true)} aria-label={ui.text("收起对话", "Collapse chat")}><PanelLeftClose size={16} /></button></div>
         <div className="chat-scroll">
           {project.messages.length === 0 ? <div className="chat-welcome"><LoomMark /><h2>{ui.text("想法已经就位", "Your idea starts here")}</h2><p>{ui.text("描述你想实现的功能，用自己的模型开始构建。", "Describe what you want and build it with your model.")}</p></div>
             : project.messages.filter((message) => !(clarification && message.kind === "question" && message.runId === run?.id)).map((message) => message.kind === "user" ? <article className="user-message" key={message.id}><div>{message.content}</div></article>
               : message.kind === "rollback" ? <article className="rollback-message" data-testid="rollback-conversation-event" key={message.id}><RotateCcw size={15} aria-hidden="true" /><div><strong>{ui.text("版本回滚", "Version rollback")}</strong><p>{message.content}</p></div></article>
               : <article className="assistant-message" key={message.id}><div className="assistant-message-heading"><LoomMark /><strong>{message.kind === "question" ? ui.text("协调者", "Coordinator") : "Pivloom"}</strong></div><div className="assistant-message-body"><p className="message-content">{message.content}</p></div></article>)}
           {run && <GenerationActivity run={run} events={state.view!.events} roles={state.view!.roles} />}
+          {run && <GenerationOutcome run={run} candidateSaved={project.latestCandidate?.runId === run.id && project.latestCandidate.id === run.resultRevisionId} check={runCheck} />}
           <div ref={bottom} />
         </div>
         <div className="chat-bottom">
-          {run && <GenerationOutcome run={run} candidateSaved={project.latestCandidate?.runId === run.id && project.latestCandidate.id === run.resultRevisionId} check={runCheck} />}
           {state.active && <p className={cn("generation-connection", (state.connection === "polling" || state.connection === "unavailable") && "generation-connection-warning")} role="status">{state.connection === "awaiting_snapshot" ? "需求已接收，正在读取任务状态。" : state.connection === "unavailable" ? "任务不存在或无权访问，已停止重连。" : state.connection === "polling" ? "实时连接暂不可用，正在定时读取任务状态。" : state.connection === "connected" ? "已连接实时执行记录" : "正在连接实时执行记录…"}{state.connection === "unavailable" && <button className="generation-inline-retry" onClick={() => void state.refresh()}>重新读取任务</button>}</p>}
           {state.error && <p className="inline-error" role="alert">{state.error}<button className="generation-inline-retry" onClick={() => void state.refresh()}>重新读取</button></p>}
           {actionError && <p className="inline-error" role="alert">{actionError}</p>}
@@ -261,7 +322,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
                 {project.quota && <span className="generation-quota">{ui.text("今日额度", "Daily allowance")} <strong>{project.quota.dailyAccepted}/{project.quota.dailyLimit}</strong></span>}
               </div>
               <div className="composer-toolbar">
-                <div className="composer-model"><SessionModelPicker profiles={modelQuery.data} selectedProfileId={selectedModel?.id} catalog={credentialModels} effectiveModelId={effectiveModelId} lockedLabel={state.active && run ? `${lockedProfile?.name ?? "已保存配置"} · ${run.modelId ?? lockedProfile?.modelId ?? "模型"} · v${run.modelConfigVersion}` : undefined} disabled={pending || state.active} onProfile={(id) => { setSelectedModelId(id); setModelOverrideId(null); setCustomModelMode(false); saveSessionModel(ownerId, projectId, id, null); }} onModel={(id) => { if (!selectedModel) return; setCustomModelMode(false); setModelOverrideId(id); saveSessionModel(ownerId, projectId, selectedModel.id, id); }} onCustom={(id) => { if (!selectedModel) return; setCustomModelMode(true); setModelOverrideId(id); saveSessionModel(ownerId, projectId, selectedModel.id, id); }} onRefresh={modelQuery.refresh} /></div>
+                <div className="composer-model"><SessionModelPicker profiles={modelQuery.data} selectedProfileId={selectedModel?.id} catalog={credentialModels} effectiveModelId={effectiveModelId} lockedLabel={state.active && run ? `${lockedProfile?.name ?? "已保存配置"} · ${run.modelId ?? lockedProfile?.modelId ?? "模型"} · v${run.modelConfigVersion}` : undefined} disabled={pending || state.active} onProfile={(id) => { const next = modelQuery.data?.find((profile) => profile.id === id); setSelectedModelId(id); setModelOverrideId(null); setCustomModelMode(false); if (next) saveSessionModel(ownerId, projectId, id, next.modelId); }} onModel={(id) => { if (!selectedModel) return; setCustomModelMode(false); setModelOverrideId(id); saveSessionModel(ownerId, projectId, selectedModel.id, id); }} onCustom={(id) => { if (!selectedModel) return; setCustomModelMode(true); setModelOverrideId(id); saveSessionModel(ownerId, projectId, selectedModel.id, id); }} onRefresh={modelQuery.refresh} /></div>
                 <div className="composer-actions">{canStop && <Button type="button" variant="outline" size="sm" disabled={stopping || cancellation.isCancellationRequested} onClick={() => void stop()} aria-label={ui.text("停止任务", "Stop run")}>{stopping || cancellation.isCancellationRequested ? <><LoaderCircle className="spin" size={14} />{ui.text("正在停止", "Stopping")}</> : ui.text("停止", "Stop")}</Button>}<Button type="submit" size="icon" disabled={busy || !!unknownSubmission || !draft.trim() || tooLong || !modelReady} aria-label={clarification ? ui.text("发送回答", "Send answer") : ui.text("发送需求", "Send request")}>{pending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</Button></div>
               </div>
             </div>
@@ -273,35 +334,40 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
       </section>
       <div className="generation-result-shell">
         {collapsed && <button className="generation-expand-chat icon-button" aria-label={ui.text("展开对话", "Expand chat")} onClick={() => setCollapsed(false)}><PanelLeftOpen size={16} /></button>}
-        {project.currentRevision && <div className="publication-bar">
-          <span>{publicationQuery.data?.revisionId === project.currentRevision.id
-            ? ui.text("当前版本已永久发布", "Current version is published")
-            : publicationQuery.data
-              ? ui.text("已发布作品仍是之前的版本；回滚不会自动更新它", "The published app is still an earlier version; rollback does not update it")
-              : ui.text("预览会到期，发布后可用独立域名长期访问", "Previews expire; publish for a lasting URL")}</span>
-          {publicationQuery.data && <a href={publicationQuery.data.url} target="_blank" rel="noopener noreferrer">{ui.text("访问已发布作品", "Open published app")}</a>}
-          {publicationQuery.data?.revisionId !== project.currentRevision.id && <Button size="sm" disabled={publishing || busy} onClick={() => void publish()}>
-            {publishing ? <><LoaderCircle className="spin" size={14} />{ui.text("正在发布…", "Publishing…")}</> : ui.text(publicationQuery.data ? "发布新版本" : "永久发布", publicationQuery.data ? "Publish update" : "Publish app")}
-          </Button>}
-        </div>}
-        {(publicationError || publicationQuery.error) && <p className="inline-error" role="alert">{publicationError || publicationQuery.error}</p>}
-        <VersionHistoryPanel revisions={revisions} currentRevisionId={project.project.currentRevisionId} selectedRevision={revision}
-          messages={project.messages} historyError={historyQuery.error} currentFromRollback={!!project.latestCheckHistorical}
-          onSelect={(id) => { setSelectedRevisionId(id); setComparisonTarget(null); }}
-          onCompare={(from, to) => setComparisonTarget({ from, to, key: crypto.randomUUID() })}
-          comparison={comparisonTarget?.to === revision?.id ? diffQuery.data ?? null : null}
-          comparing={!!comparisonTarget && !diffQuery.data && !diffQuery.error}
-          comparisonError={comparisonTarget?.to === revision?.id ? diffQuery.error : ""}
-          rollback={{ busy: rollback.busy, unknown: rollback.unknown,
-            disabled: busy || !!unknownSubmission || publishing || restoring,
-            operation: rollback.operation, error: rollback.error, storageWarning: rollback.storageWarning,
-            start: (target, from) => { void rollback.start(target, from); },
-            confirm: () => { void rollback.confirm(); }, cancel: () => { void rollback.cancel(); },
-            clearResult: rollback.clearResult }} />
         {previewQuery.error && <p className="inline-error" role="alert">{previewQuery.error}</p>}
-        <GenerationResult projectId={projectId} revision={revision} preview={hasSnapshotPreview ? snapshotPreview! : previewQuery.data ?? null} generation={state.generation} active={state.active} latestCheck={project.latestCheck} historicalCheck={revision?.status === "accepted" && (revision.id !== project.project.currentRevisionId || !!project.latestCheckHistorical)} checking={state.active && run?.phase === "review" && revision?.runId === run.id} restoring={restoring || (previewQuery.data?.state === "restoring" && previewQuery.data.revisionId === revision?.id)} onRestore={busy ? undefined : () => void restore()} />
+        <GenerationResult projectId={projectId} revision={revision} preview={hasSnapshotPreview ? snapshotPreview! : previewQuery.data ?? null} generation={state.generation} active={state.active} latestCheck={project.latestCheck} historicalCheck={revision?.status === "accepted" && (revision.id !== project.project.currentRevisionId || !!project.latestCheckHistorical)} checking={state.active && run?.phase === "review" && revision?.runId === run.id} restoring={restoring || (previewQuery.data?.state === "restoring" && previewQuery.data.revisionId === revision?.id)} onRestore={busy ? undefined : () => void restore()} toolbarExtras={toolbarExtras} showReview={false} />
       </div>
     </main>
+    <DeploymentVersion />
+    {drawer === "history" && <WorkbenchDrawer key="history" title="版本历史" onClose={() => setDrawer(null)}>
+      {revisions.length ? <VersionHistoryPanel revisions={revisions} currentRevisionId={project.project.currentRevisionId} selectedRevision={revision}
+        messages={project.messages} historyError={historyQuery.error} currentFromRollback={!!project.latestCheckHistorical}
+        onSelect={(id) => { setSelectedRevisionId(id); setComparisonTarget(null); }}
+        onCompare={(from, to) => setComparisonTarget({ from, to, key: crypto.randomUUID() })}
+        comparison={comparisonTarget?.to === revision?.id ? diffQuery.data ?? null : null}
+        comparing={!!comparisonTarget && !diffQuery.data && !diffQuery.error}
+        comparisonError={comparisonTarget?.to === revision?.id ? diffQuery.error : ""}
+        rollback={{ busy: rollback.busy, unknown: rollback.unknown,
+          disabled: busy || !!unknownSubmission || publishing || restoring,
+          operation: rollback.operation, error: rollback.error, storageWarning: rollback.storageWarning,
+          start: (target, from) => { void rollback.start(target, from); },
+          confirm: () => { void rollback.confirm(); }, cancel: () => { void rollback.cancel(); },
+          clearResult: rollback.clearResult }} /> : <p>还没有保存的版本。</p>}
+    </WorkbenchDrawer>}
+    {drawer === "checks" && <WorkbenchDrawer key="checks" title="检查结果" onClose={() => setDrawer(null)}>
+      {revision ? <>{revision.id !== project.project.currentRevisionId ? <p className="a-drawer-context">正在查看历史 v{revision.revisionNo} 的检查记录；当前版本不会因此改变。</p>
+        : project.latestCheckHistorical ? <p className="a-drawer-context">这是回滚目标原 Run 的历史检查；重建后的预览尚未重新验收。</p> : null}
+        <GenerationReview key={`${revision.id}:${state.active}`} revision={revision} latestCheck={project.latestCheck} generation={state.generation} checking={state.active && run?.phase === "review" && revision.runId === run.id} /></> : <p>生成首个版本后可查看检查结果。</p>}
+    </WorkbenchDrawer>}
+    {drawer === "publish" && <WorkbenchDrawer key="publish" title="发布作品" onClose={() => setDrawer(null)}>
+      {project.currentRevision && <div className="a-publish-panel"><div className="a-publish-icon"><ExternalLink size={26} /></div><h3>让作品拥有自己的地址</h3>
+        <p>{publicationQuery.data?.revisionId === project.currentRevision.id ? "当前版本已永久发布。" : publicationQuery.data ? "已发布作品仍是之前的版本；回滚不会自动更新它。" : "预览会到期，正式发布后可用独立域名长期访问。"}</p>
+        <div className="a-publish-version"><span>当前源码版本</span><strong>v{project.currentRevision.revisionNo}<code>{project.currentRevision.sourceHash.slice(0, 8)}</code></strong></div>
+        {publicationQuery.data && <a className="a-published-link" href={publicationQuery.data.url} target="_blank" rel="noopener noreferrer">访问已发布作品<ExternalLink size={15} /></a>}
+        {publicationQuery.data?.revisionId !== project.currentRevision.id && <Button disabled={publishing || busy} onClick={() => void publish()}>{publishing ? <><LoaderCircle className="spin" size={14} />正在发布…</> : publicationQuery.data ? "发布当前新版本" : "永久发布当前版本"}</Button>}
+        {(publicationError || publicationQuery.error) && <p className="inline-error" role="alert">{publicationError || publicationQuery.error}</p>}
+      </div>}
+    </WorkbenchDrawer>}
   </div>;
 }
 export function ApiWorkbench({ projectId }: { projectId: string }) { return <AuthGate><GenerationWorkspace key={projectId} projectId={projectId} /></AuthGate>; }

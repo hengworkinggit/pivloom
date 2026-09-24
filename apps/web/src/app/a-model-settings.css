@@ -1,0 +1,243 @@
+/* A workbench treatment for the real model settings page. Keep API and form behavior in ModelSettings. */
+.settings-page {
+  min-height: 100dvh;
+  background: #fbfcff;
+  color: #303545;
+}
+
+.settings-page .settings-main {
+  width: min(1120px, calc(100% - 56px));
+  margin: 0 auto;
+  padding: 50px 0 96px;
+}
+
+.settings-page .settings-back {
+  margin-bottom: 39px;
+  color: #8d94a3;
+  font-size: 11px;
+}
+
+.settings-page .settings-back:hover { color: #6762d6; }
+.settings-page .section-eyebrow {
+  color: #a4a9b5;
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: .24em;
+}
+
+.settings-page .settings-title-row {
+  align-items: flex-end;
+  gap: 24px;
+  margin-bottom: 29px;
+}
+
+.settings-page .settings-title-row h1 {
+  margin: 14px 0 10px;
+  color: #303545;
+  font-size: clamp(27px, 2.6vw, 34px);
+  font-weight: 650;
+  letter-spacing: -.045em;
+  line-height: 1.2;
+}
+
+.settings-page .settings-title-row p {
+  color: #969daa;
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+.settings-page .settings-title-row > .pv-button {
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+  background: #655fe2;
+  box-shadow: 0 4px 11px #655fe224;
+  color: #fff;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.settings-page .settings-title-row > .pv-button:hover { background: #5751ce; }
+
+.settings-page .settings-security-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 21px;
+  padding: 13px 16px;
+  border: 1px solid #e6e4f7;
+  border-radius: 10px;
+  background: #f7f6ff;
+  color: #8184a1;
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.settings-page .settings-security-note svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #766de0;
+}
+
+.settings-page .models-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.settings-page .model-profile-card,
+.settings-page .model-form-panel,
+.settings-page .models-empty {
+  border: 1px solid #e5e8f2;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 3px 15px #2a315608;
+}
+
+.settings-page .model-profile-card { padding: 22px; }
+.settings-page .model-profile-heading { gap: 12px; }
+.settings-page .model-icon {
+  width: 43px;
+  height: 43px;
+  border-radius: 10px;
+  background: #f0efff;
+  color: #6b65d8;
+}
+
+.settings-page .model-profile-heading h2 {
+  margin-bottom: 3px;
+  color: #343a49;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.settings-page .model-profile-heading > div > span {
+  color: #999eaa;
+  font-size: 11px;
+}
+
+.settings-page .default-model-badge {
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: #eef8f3;
+  color: #73a589;
+  font-size: 10px;
+}
+
+.settings-page .model-profile-details {
+  gap: 0;
+  margin: 21px 0 13px;
+}
+
+.settings-page .model-profile-details > div {
+  grid-template-columns: 85px minmax(0, 1fr);
+  padding: 8px 0;
+  border-bottom: 1px solid #eff1f6;
+  color: #555c6b;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.settings-page .model-profile-details dt { color: #9ca3b0; }
+.settings-page .model-profile-details dd { color: #555c6b; }
+.settings-page .model-profile-details .key-mask { gap: 7px; }
+.settings-page .model-untested { color: #a3a9b5; }
+
+.settings-page .model-card-actions {
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 15px;
+  border-color: #eff1f6;
+}
+
+.settings-page .model-card-actions .pv-button,
+.settings-page .model-form-footer .pv-button {
+  min-height: 32px;
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.settings-page .model-card-actions .pv-button-outline,
+.settings-page .model-form-footer .pv-button-outline {
+  border-color: #e5e7f0;
+  background: #fff;
+  color: #70788a;
+}
+
+.settings-page .model-card-actions .pv-button:hover,
+.settings-page .model-form-footer .pv-button:hover {
+  color: #625dca;
+}
+
+.settings-page .model-card-actions .model-delete { color: #a1a6b2; }
+.settings-page .model-form-panel {
+  margin-bottom: 21px;
+  padding: 24px;
+  border-color: #dedbf5;
+  box-shadow: 0 9px 24px #5550b60b;
+}
+
+.settings-page .model-form-heading { margin-bottom: 22px; }
+.settings-page .model-form-heading h2 {
+  color: #343a49;
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.settings-page .model-form-heading p { color: #9a9fac; font-size: 11px; }
+.settings-page .model-form-grid { gap: 17px 19px; }
+.settings-page .model-field { gap: 7px; }
+.settings-page .model-field label {
+  color: #737a89;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.settings-page .model-field input,
+.settings-page .model-field select {
+  height: 39px;
+  border: 1px solid #e3e6ef;
+  border-radius: 7px;
+  background: #fff;
+  color: #464c5c;
+  font-size: 12px;
+}
+
+.settings-page .model-field input:focus-visible,
+.settings-page .model-field select:focus-visible {
+  border-color: #9891e7;
+  box-shadow: 0 0 0 3px #655fe21a;
+}
+
+.settings-page .model-field input::placeholder { color: #afb3be; }
+.settings-page .model-field small { color: #9ca2ae; font-size: 10px; }
+.settings-page .model-default-checkbox { color: #747b8a; font-size: 11px; }
+.settings-page .model-default-checkbox input { accent-color: #655fe2; }
+.settings-page .model-form-footer { border-color: #eff1f6; }
+.settings-page .model-form-footer > p { color: #969dab; }
+.settings-page .models-empty { border-style: dashed; }
+.settings-page .models-empty-icon { background: #f0efff; color: #706ad8; }
+.settings-page .models-empty h2 { color: #343a49; }
+.settings-page .models-empty p { color: #9399a7; }
+.settings-page .settings-continue .pv-button { border-color: #e5e7f0; color: #6f7584; }
+
+@media (max-width: 760px) {
+  .settings-page .settings-main { width: calc(100% - 36px); padding: 31px 0 80px; }
+  .settings-page .settings-back { margin-bottom: 28px; }
+  .settings-page .settings-title-row { align-items: flex-start; }
+  .settings-page .models-grid { grid-template-columns: minmax(0, 1fr); gap: 15px; }
+  .settings-page .model-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .settings-page .model-field-wide { grid-column: auto; }
+}
+
+@media (max-width: 480px) {
+  .settings-page .settings-main { width: calc(100% - 32px); }
+  .settings-page .settings-title-row { flex-direction: column; gap: 17px; }
+  .settings-page .settings-title-row > .pv-button { width: 100%; justify-content: center; }
+  .settings-page .settings-security-note { padding: 12px 13px; }
+  .settings-page .model-profile-card,
+  .settings-page .model-form-panel { padding: 18px; }
+  .settings-page .model-profile-details > div { grid-template-columns: 74px minmax(0, 1fr); }
+  .settings-page .model-form-footer { align-items: stretch; }
+  .settings-page .model-form-footer .inline-actions { width: 100%; }
+  .settings-page .model-form-footer .inline-actions > .pv-button { flex: 1 1 135px; min-width: 0; }
+}

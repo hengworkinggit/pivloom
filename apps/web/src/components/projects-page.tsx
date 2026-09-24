@@ -6,19 +6,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight, ChevronRight, FolderOpen, Layers3, LoaderCircle } from "lucide-react";
+import { ArrowRight, ArrowUp, ArrowUpRight, ChevronRight, FolderOpen, Layers3, LoaderCircle, Plus } from "lucide-react";
 import type { ProjectSummary } from "@pivloom/contracts";
 import { AppHeader } from "./app-header";
 import { AuthGate } from "./auth-gate";
+import { LoomMark } from "./brand";
 import { Button } from "./ui/button";
 import { getApiWorkspace, isDemoMode } from "@/lib/workspace";
 import { usePrivateQuery, useWorkspaceAuth } from "@/lib/use-workspace";
 import { createGenerationApi, type GenerationApi } from "@/lib/generation-api";
 import { errorMessage, relativeTime } from "@/lib/utils";
-import { promptLimit, readDraft, saveDraft } from "@/lib/drafts";
+import { promptLimit, readDraft, saveDraft, saveSessionModel } from "@/lib/drafts";
+import { createModelsApi } from "@/lib/models-api";
 import { featuredTemplates, findTemplate } from "@/lib/templates";
 import { useUiPreferences } from "@/lib/ui-preferences";
-import { TemplateArtwork } from "./template-gallery";
 
 const DemoProjects = dynamic(() => import("./demo-projects-page").then((module) => module.ProjectsPage));
 function ProjectCard({ project, generation }: { project: ProjectSummary; generation: GenerationApi }) {
@@ -53,12 +54,15 @@ function ProjectCard({ project, generation }: { project: ProjectSummary; generat
   </Link>;
 }
 
-function ApiProjectsContent() {
+function ApiProjectsContent({ initialSurface }: { initialSurface: "new" | "projects" }) {
   const router = useRouter();
   const api = getApiWorkspace();
   const generation = useMemo(() => createGenerationApi(api), [api]);
+  const modelsApi = useMemo(() => createModelsApi(api), [api]);
   const { user } = useWorkspaceAuth();
   const ui = useUiPreferences();
+  const [surface, setSurface] = useState<"new" | "projects">(initialSurface);
+  const [selectedProfileId, setSelectedProfileId] = useState("");
   const [prompt, setPrompt] = useState(() => readDraft(user!.id, "new"));
   const [busy, setBusy] = useState(false);
   const creating = useRef(false);
@@ -67,11 +71,25 @@ function ApiProjectsContent() {
   const [next, setNext] = useState<string | null | undefined>();
   const [loadingMore, setLoadingMore] = useState(false);
   const loader = useCallback(() => api.listProjects(), [api]);
+  const modelLoader = useCallback(() => modelsApi.list(), [modelsApi]);
   const { data, error: loadError, refresh } = usePrivateQuery(loader);
+  const modelQuery = usePrivateQuery(modelLoader);
+  const selectedProfile = modelQuery.data?.find((profile) => profile.id === selectedProfileId)
+    ?? modelQuery.data?.find((profile) => profile.isDefault) ?? modelQuery.data?.[0];
+  const modelReady = selectedProfile?.capabilities.streaming === "verified" && selectedProfile.capabilities.tools === "verified";
   const projects = data ? [...data.projects, ...pages.filter((project) => !data.projects.some((item) => item.id === project.id))] : undefined;
   const cursor = next === undefined ? data?.nextCursor : next;
   const tooLong = prompt.trim().length > promptLimit;
+  function showSurface(next: "new" | "projects") {
+    setSurface(next);
+    router.push(next === "projects" ? "/projects?view=list" : "/projects", { scroll: false });
+  }
   function updatePrompt(value: string) { setPrompt(value); saveDraft(user!.id, "new", value); }
+  useEffect(() => {
+    const onPopState = () => setSurface(new URLSearchParams(window.location.search).get("view") === "list" ? "projects" : "new");
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
   useEffect(() => {
     const slug = new URLSearchParams(window.location.search).get("template");
     const template = slug ? findTemplate(slug) : undefined;
@@ -85,12 +103,15 @@ function ApiProjectsContent() {
   }, [user?.id]);
   async function create() {
     if (creating.current || !prompt.trim() || tooLong) return;
+    if (!modelReady || !selectedProfile) { setError("请先连接并测试支持流式输出和工具调用的模型，再开始生成。"); return; }
+    if (!saveDraft(user!.id, "new", prompt.trim())) { setError("浏览器暂时无法保存需求草稿。请允许此站点使用会话存储后重试，避免创建空项目。"); return; }
     creating.current = true; setBusy(true); setError("");
     try {
       const project = await api.createProject(prompt.trim().slice(0, 120));
       saveDraft(user!.id, project.id, prompt.trim());
+      if (selectedProfile) saveSessionModel(user!.id, project.id, selectedProfile.id, selectedProfile.modelId);
       saveDraft(user!.id, "new", "");
-      router.push(`/projects/${project.id}`);
+      router.push(`/projects/${project.id}?start=1`);
     } catch (error) { setError(errorMessage(error)); creating.current = false; setBusy(false); }
   }
   async function more() {
@@ -103,34 +124,42 @@ function ApiProjectsContent() {
     } catch (error) { setError(errorMessage(error)); }
     finally { setLoadingMore(false); }
   }
-  return <div className="projects-page">
-    <AppHeader />
-    <main className="home-main">
-      <section className="home-hero" aria-labelledby="home-title">
-        <div className="hero-eyebrow"><span className="tiny-weave">✳</span> {ui.text("一个想法，无限可能", "One idea, endless possibilities")}</div>
-        <h1 id="home-title">{ui.text("把想法，", "Turn ideas ")}<span>{ui.text("织成应用。", "into apps.")}</span></h1>
-        <p className="hero-subtitle">{ui.text("从一句描述开始，让你的下一个想法有迹可循。", "Describe what you want to build and give it a home.")}</p>
-        <form className="home-composer" onSubmit={(event) => { event.preventDefault(); void create(); }}>
-          <label className="sr-only" htmlFor="new-project-prompt">{ui.text("描述你的应用想法", "Describe your app idea")}</label>
-          <textarea id="new-project-prompt" value={prompt} onChange={(event) => updatePrompt(event.target.value)} placeholder={ui.text("你想做一个什么样的应用？", "What would you like to build?")} disabled={busy} aria-invalid={tooLong} aria-describedby={tooLong ? "prompt-error" : undefined}
+  return <div className="projects-page a-projects-page">
+    <AppHeader><button className="a-header-view" onClick={() => showSurface(surface === "new" ? "projects" : "new")}>{surface === "new" ? ui.text("我的项目", "My projects") : ui.text("开始创作", "Start creating")}<ArrowRight size={14} /></button></AppHeader>
+    {surface === "new" ? <main className="a-start" aria-labelledby="home-title">
+      <div className="a-start-orbit orbit-one" aria-hidden="true" /><div className="a-start-orbit orbit-two" aria-hidden="true" />
+      <div className="a-start-inner">
+        <div className="a-start-mark"><LoomMark /><span>{ui.text("从想法到作品", "From idea to app")}</span></div>
+        <h1 id="home-title">{ui.text("你想创造什么", "What will you create")}<span>？</span></h1>
+        <p>{ui.text("一句话开始。工具、网站或小游戏，都可以慢慢长成你想要的样子。", "Start with a sentence. Let a tool, website or game grow from there.")}</p>
+        <form className="a-start-composer" onSubmit={(event) => { event.preventDefault(); void create(); }}>
+          <label className="sr-only" htmlFor="new-project-prompt">{ui.text("新项目需求", "New project request")}</label>
+          <textarea id="new-project-prompt" value={prompt} onChange={(event) => updatePrompt(event.target.value)} placeholder={ui.text("描述你想做的作品，越具体越好…", "Describe what you want to make…")} disabled={busy} aria-invalid={tooLong} aria-describedby={tooLong ? "prompt-error" : undefined}
             onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); void create(); } }} />
-          <div className="home-composer-footer"><span><Layers3 size={14} /><span>{ui.text("先保存想法，进入你的项目", "Save your idea and open the project")}</span></span><Button type="submit" disabled={!prompt.trim() || tooLong || busy}>{busy && <LoaderCircle className="spin" size={16} />}{busy ? ui.text("正在创建", "Creating") : ui.text("创建项目", "Create project")}<ArrowRight size={16} /></Button></div>
+          <div className="a-start-composer-bottom">
+            {modelQuery.data?.length ? <label className="a-start-model"><Layers3 size={14} /><span className="sr-only">{ui.text("初始模型", "Initial model")}</span><select value={selectedProfile?.id ?? ""} onChange={(event) => setSelectedProfileId(event.target.value)}>{modelQuery.data.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.modelId}</option>)}</select></label>
+              : <Link className="a-start-model" href="/settings/models"><Layers3 size={14} />{ui.text("连接模型", "Connect a model")}</Link>}
+            <span>{ui.text("Enter 开始 · Shift + Enter 换行", "Enter to start · Shift + Enter for a new line")}</span>
+            <Button type="submit" size="icon" disabled={!prompt.trim() || tooLong || busy || !modelReady} aria-label={ui.text("创建并开始生成", "Create and start generating")}>{busy ? <LoaderCircle className="spin" size={18} /> : <ArrowUp size={19} />}</Button>
+          </div>
         </form>
         {tooLong && <p id="prompt-error" className="inline-error" role="alert">需求最多 {promptLimit.toLocaleString()} 个字符，请缩短后再创建。</p>}
         {error && <p className="inline-error" role="alert">{error}</p>}
-        <div className="featured-templates-heading"><div><span className="section-eyebrow">START WITH A TEMPLATE</span><h2>{ui.text("先看示例，再开始创作", "Explore first. Then create.")}</h2></div><Link href="/templates">{ui.text("浏览全部模板", "Browse all templates")}<ArrowRight size={15} /></Link></div>
-        <div className="featured-template-grid">{featuredTemplates.map((template) => <Link className="featured-template" href={`/templates/${template.slug}`} key={template.slug}><TemplateArtwork template={template} /><span>{ui.text(template.title, template.titleEn)}<ArrowUpRight size={14} /></span></Link>)}</div>
-      </section>
-      <section className="projects-section" aria-labelledby="projects-title">
-        <div className="section-heading"><div><div className="section-eyebrow">YOUR WORKSPACE</div><h2 id="projects-title">{ui.text("我的项目", "My projects")} <span className="project-count">{projects?.length ?? "—"}</span></h2><p>{ui.text("每一个想法，都值得接着往下做。", "Every idea deserves a next step.")}</p></div></div>
-        {loadError ? <div className="empty-projects" role="alert"><p>{loadError}</p><Button variant="outline" onClick={refresh}>重新加载</Button></div>
-          : !projects ? <div className="project-grid" aria-label="正在加载项目">{[0, 1, 2].map((i) => <div className="project-skeleton" key={i} />)}</div>
-          : projects.length === 0 ? <div className="empty-projects"><FolderOpen size={32} /><h3>{ui.text("你的第一个想法，从这里开始", "Start your first project")}</h3><p>{ui.text("描述一个想法，或先浏览模板。你的作品会保存在这里。", "Describe an idea or explore a template. Your work will live here.")}</p><Button variant="outline" asChild><Link href="/settings/models">{ui.text("先连接模型", "Connect a model")}<ArrowRight size={15} /></Link></Button></div>
-          : <div className="project-grid">{projects.map((project) => <ProjectCard key={project.id} project={project} generation={generation} />)}</div>}
-        {cursor && <div className="load-more-projects"><Button variant="outline" disabled={loadingMore} onClick={() => void more()}>{loadingMore ? "正在加载" : "加载更多项目"}</Button></div>}
-      </section>
-      <footer className="home-footer"><span className="footer-stitch" /><span>{ui.text("让每个好想法，成为看得见的作品。", "Make every good idea something people can see.")}</span><span className="footer-stitch" /></footer>
-    </main>
+        {modelQuery.error && <p className="a-start-model-error" role="status">{modelQuery.error} <Link href="/settings/models">{ui.text("查看模型配置", "Model settings")}</Link></p>}
+        {!modelQuery.error && modelQuery.data && !modelReady && <p className="a-start-model-error" role="status">当前模型尚未通过流式输出和工具调用测试。<Link href="/settings/models">去测试模型</Link></p>}
+        <div className="a-start-suggestions"><div><span>{ui.text("试试一个想法", "Try an idea")}</span><Link href="/templates">{ui.text("浏览全部模板", "Browse templates")}<ArrowRight size={13} /></Link></div><div>{featuredTemplates.map((template) => <button key={template.slug} onClick={() => updatePrompt(ui.locale === "en" ? template.promptEn : template.prompt)}>{ui.text(template.title, template.titleEn)}<ArrowRight size={13} /></button>)}</div></div>
+        <button className="a-start-project-link" onClick={() => showSurface("projects")}>{ui.text("查看已有项目", "View existing projects")}<ArrowRight size={14} /></button>
+      </div>
+    </main> : <main className="a-project-list">
+      <div className="a-project-list-heading"><div><span className="section-eyebrow">YOUR WORKSPACE</span><h1>{ui.text("我的项目", "My projects")}</h1><p>{ui.text("把想法变成作品，再慢慢完善。", "Make an idea real, then keep improving it.")}</p></div><Button onClick={() => { updatePrompt(""); showSurface("new"); }}><Plus size={17} />{ui.text("新建项目", "New project")}</Button></div>
+      <div className="a-project-list-filter"><strong>{ui.text("全部项目", "All projects")} <span>{projects?.length ?? "—"}</span></strong><span>{ui.text("最近编辑", "Recently edited")}</span></div>
+      {loadError ? <div className="empty-projects" role="alert"><p>{loadError}</p><Button variant="outline" onClick={refresh}>重新加载</Button></div>
+        : !projects ? <div className="project-grid" aria-label="正在加载项目">{[0, 1, 2].map((i) => <div className="project-skeleton" key={i} />)}</div>
+        : projects.length === 0 ? <div className="empty-projects"><FolderOpen size={32} /><h2>{ui.text("还没有项目", "No projects yet")}</h2><p>{ui.text("从一个想法开始，作品会保存在这里。", "Start with an idea. Your work will appear here.")}</p><Button onClick={() => showSurface("new")}>{ui.text("开始创作", "Start creating")}</Button></div>
+        : <div className="project-grid">{projects.map((project) => <ProjectCard key={project.id} project={project} generation={generation} />)}</div>}
+      {cursor && <div className="load-more-projects"><Button variant="outline" disabled={loadingMore} onClick={() => void more()}>{loadingMore ? "正在加载" : "加载更多项目"}</Button></div>}
+      <div className="a-project-list-bottom">{ui.text("从空白开始，或使用一个模板。", "Start blank or use a template.")}<Link href="/templates">{ui.text("探索模板", "Explore templates")}<ArrowRight size={14} /></Link></div>
+    </main>}
   </div>;
 }
-export function ProjectsPage() { return isDemoMode ? <DemoProjects /> : <AuthGate><ApiProjectsContent /></AuthGate>; }
+export function ProjectsPage({ initialSurface = "new" }: { initialSurface?: "new" | "projects" }) { return isDemoMode ? <DemoProjects initialSurface={initialSurface} /> : <AuthGate><ApiProjectsContent initialSurface={initialSurface} /></AuthGate>; }

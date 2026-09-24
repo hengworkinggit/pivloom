@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./a-interface.css";
+import "./a-model-settings.css";
+import "./a-templates.css";
+import "./a-auth-account.css";
 
 export const metadata: Metadata = {
   title: "Pivloom · 派织",

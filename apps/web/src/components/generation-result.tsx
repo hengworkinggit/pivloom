@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Code2, Copy, ExternalLink, FileCode2, FileJson2, LoaderCircle, Monitor, RotateCcw, Smartphone } from "lucide-react";
 import type { Check, Preview, Revision } from "@pivloom/contracts";
 import type { GenerationApi } from "@/lib/generation-api";
@@ -75,9 +75,9 @@ function previewUrl(preview: Preview | null, revision: Revision | null, origin: 
   } catch { return null; }
 }
 
-export function GenerationResult({ projectId, revision, preview, generation, active, latestCheck, historicalCheck = false, checking = false, restoring = false, onRestore }: {
+export function GenerationResult({ projectId, revision, preview, generation, active, latestCheck, historicalCheck = false, checking = false, restoring = false, onRestore, toolbarExtras, showReview = true }: {
   projectId: string; revision: Revision | null; preview: Preview | null; generation: GenerationApi; active: boolean; latestCheck?: Check | null; checking?: boolean;
-  historicalCheck?: boolean; restoring?: boolean; onRestore?: () => void;
+  historicalCheck?: boolean; restoring?: boolean; onRestore?: () => void; toolbarExtras?: ReactNode; showReview?: boolean;
 }) {
   const ui = useUiPreferences();
   const [tab, setTab] = useState<"preview" | "code">("preview");
@@ -163,12 +163,13 @@ export function GenerationResult({ projectId, revision, preview, generation, act
       }}><RotateCcw size={14} /></button>
         {frameUrl && <a className="icon-button" href={frameUrl} target="_blank" rel="noopener noreferrer" aria-label={ui.text("在新标签页打开预览", "Open preview in a new tab")}><ExternalLink size={15} /></a>}
       </div>}
+      {toolbarExtras && <div className="a-result-toolbar-extras">{toolbarExtras}</div>}
     </div>
     {revision && <><div className="previous-version-note">{candidate ? ui.text("候选已保存", "Candidate saved") : ui.text("已保存版本", "Saved version")}{active ? ui.text(" · 新任务正在执行，当前显示此版本", " · New run in progress; showing this version") : ""}</div>
-      {historicalCheck && <p className="historical-check-note" data-testid="historical-check-note">{ui.text(
+      {showReview && historicalCheck && <p className="historical-check-note" data-testid="historical-check-note">{ui.text(
         `以下是 v${revision.revisionNo} 原 Run ${revision.runId.slice(0, 8)} 的历史验收记录；回滚重建后的预览尚未重新验收。`,
         `The check below belongs to the original v${revision.revisionNo} run ${revision.runId.slice(0, 8)}. The preview rebuilt by rollback has not been reverified.`)}</p>}
-      <GenerationReview key={`${revision.id}:${checking}`} revision={revision} latestCheck={latestCheck} generation={generation} checking={checking} /></>}
+      {showReview && <GenerationReview key={`${revision.id}:${checking}`} revision={revision} latestCheck={latestCheck} generation={generation} checking={checking} />}</>}
     <div id="code-panel" role="tabpanel" aria-labelledby="code-tab" className="code-panel" hidden={tab !== "code"}>
       {tab === "code" && (revision ? <SourceViewer key={revision.id} revision={revision} generation={generation} /> : <div className="preview-empty"><Code2 size={28} /><h2>{ui.text("还没有生成源码", "No source yet")}</h2><p>{ui.text("候选保存后，可以查看对应的多文件快照。", "Saved candidates will show their source files here.")}</p></div>)}
     </div>

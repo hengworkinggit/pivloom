@@ -44,6 +44,12 @@ it("creates only after a valid, committed idea is submitted from the actual proj
     const url = String(input);
     if (url === "https://identity.example.test/auth/v1/user") return Response.json(user);
     if (url === "/api/v1/me") return Response.json({ user: { id: ownerId, email: user.email, name: "Owner" } });
+    if (url === "/api/v1/model-profiles") return Response.json({ profiles: [{
+      id: "438088cb-5fd0-4704-ad57-3b64ed47c55f", name: "已验证模型", provider: "openai-completions",
+      baseUrl: "https://provider.example.test/v1", modelId: "fixture-model", configVersion: 3,
+      keyMask: "••••0000", isDefault: true, capabilities: { streaming: "verified", tools: "verified", vision: "unknown" },
+      lastTest: null, createdAt: "2026-09-22T00:00:00.000Z", updatedAt: "2026-09-22T00:00:00.000Z",
+    }] });
     if (url === "/api/v1/projects" && init?.method !== "POST") return Response.json({ projects: [], nextCursor: null });
     if (url === "/api/v1/projects" && init?.method === "POST") {
       submittedProjects.push(JSON.parse(String(init.body)));
@@ -67,7 +73,7 @@ it("creates only after a valid, committed idea is submitted from the actual proj
   const input = container.querySelector<HTMLTextAreaElement>("textarea");
   const submit = container.querySelector<HTMLButtonElement>('button[type="submit"]');
   if (!input || !submit) throw new Error("The authenticated project composer did not render");
-  expect(container.querySelector(`label[for="${input.id}"]`)?.textContent).toBe("描述你的应用想法");
+  expect(container.querySelector(`label[for="${input.id}"]`)?.textContent).toBe("新项目需求");
   const type = async (value: string) => {
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, value);
@@ -107,5 +113,5 @@ it("creates only after a valid, committed idea is submitted from the actual proj
   // This positive control prevents a missing/unwired event handler from passing.
   expect((await enter()).defaultPrevented).toBe(true);
   expect(submittedProjects).toEqual([{ title: "做一个中文读书清单" }]);
-  expect(navigation.push).toHaveBeenCalledWith(`/projects/${projectId}`);
+  expect(navigation.push).toHaveBeenCalledWith(`/projects/${projectId}?start=1`);
 });

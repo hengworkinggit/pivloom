@@ -98,7 +98,16 @@ async function openWorkbench(options: { verdict?: Check["verdict"]; unchecked?: 
   const { ApiWorkbench } = await import("./api-workbench");
   const container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   await act(async () => root?.render(<ApiWorkbench projectId={projectId} />));
-  return { container, requests, workspace, created, revoked, publishCheck() {
+  const openChecks = async () => {
+    await act(async () => container.querySelector<HTMLButtonElement>(".a-drawer-heading button")?.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label^="检查结果"]')?.click());
+  };
+  const openHistory = async () => {
+    await act(async () => container.querySelector<HTMLButtonElement>(".a-drawer-heading button")?.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="版本历史"]')?.click());
+  };
+  await openChecks();
+  return { container, requests, workspace, created, revoked, openChecks, openHistory, publishCheck() {
     if (!stream) throw new Error("The workbench must first subscribe to the run");
     project.latestCheck = check;
     stream.enqueue(new TextEncoder().encode(`id: 1\nevent: check.completed\ndata: ${JSON.stringify({ schemaVersion: 1, eventId: "1", runId, attempt: 0, type: "check.completed", createdAt: now, payload: {} })}\n\n`));
@@ -169,14 +178,16 @@ it("keeps an old flat Check labeled with its original count rather than inferrin
 
 it("labels a rejected candidate separately while the earlier accepted revision remains current", async () => {
   const view = await openWorkbench({ verdict: "failed", previousCurrent: true });
+  await view.openHistory();
   const picker = view.container.querySelector<HTMLSelectElement>("[data-testid=history-version-select]");
   expect(Array.from(picker?.options ?? [], (option) => option.textContent)).toEqual(["v2 · 未通过", "v1 · 当前"]);
   expect(picker?.selectedOptions[0].textContent).toBe("v1 · 当前");
   await act(async () => { if (picker) { picker.value = revisionId; picker.dispatchEvent(new Event("change", { bubbles: true })); } });
-  expect(view.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain("关键流程检查未通过");
   const currentSummary = view.container.querySelector('[data-testid="current-version-summary"]');
   expect(currentSummary?.textContent).toContain("当前成功版本");
   expect(currentSummary?.querySelector("strong")?.textContent).toBe("v1");
+  await view.openChecks();
+  expect(view.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain("关键流程检查未通过");
 });
 
 it("explains that two failed repairs reached the limit while the accepted revision stays current", async () => {
@@ -184,6 +195,7 @@ it("explains that two failed repairs reached the limit while the accepted revisi
   const outcome = view.container.querySelector('[data-testid="run-result"]');
   expect(outcome?.textContent).toContain("已尝试修复 2 轮，已达上限，停止自动修复。");
   expect(outcome?.textContent).toContain("报名提交尚未达到预期。");
+  await view.openHistory();
   expect(view.container.querySelector<HTMLSelectElement>("[data-testid=history-version-select]")?.selectedOptions[0].textContent).toBe("v1 · 当前");
 });
 
