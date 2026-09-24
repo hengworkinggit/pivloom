@@ -88,9 +88,19 @@ test.each([
   expect(receipt.result.items).toMatchObject([{behaviorId:'B01',verdict:'blocked',actual:reason}]);
   expect(receipt.markerVerified).toBe(false);
   expect(receipt.chromeClosed).toBe(true);
+  expect(receipt.recoverableInfrastructureCode).toBe(code==='COMMAND_TIMEOUT'?'BROWSER_TIMEOUT':undefined);
   expect(f.stats()).toMatchObject({calls:2,actions:1});
   expect(JSON.stringify(receipt)).not.toMatch(/RAW_SECRET|fixture-key|private-argument|UNRECOGNIZED_REMOTE_ERROR/);
 });
+
+test.each(['BROWSER_BLOCKED','BROWSER_TIMEOUT','COMMAND_TIMEOUT'])(
+  '%s marks only a confirmed-closed browser infrastructure failure for same-candidate review retry',async(code)=>{
+    const f=await fixture(code);
+    const {receipt}=await runReview(f.input,f.boundaries);
+    expect(receipt.chromeClosed).toBe(true);
+    expect(receipt.result.items).toMatchObject([{verdict:'blocked'}]);
+    expect(receipt.recoverableInfrastructureCode).toBe(code==='COMMAND_TIMEOUT'?'BROWSER_TIMEOUT':code);
+  });
 
 test('unknown diagnostic codes use the generic blocked message without reflecting raw data',async()=>{
   const f=await fixture();

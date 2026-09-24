@@ -168,6 +168,7 @@ const browserFailureDiagnostics = new Map([
   ['BROWSER_TIMEOUT','BROWSER_TIMEOUT'],
   ['COMMAND_TIMEOUT','BROWSER_TIMEOUT'],
   ['BROWSER_ORIGIN_REJECTED','BROWSER_ORIGIN_REJECTED'],
+  ['BROWSER_BLOCKED','BROWSER_BLOCKED'],
 ]);
 const schemaIssuePath = (issues: ReadonlyArray<{path:PropertyKey[]}>, fields = reportFields, fallback = 'report') => {
   const path=issues[0]?.path??[];
@@ -619,7 +620,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
           // that leaves the browser state genuinely unknown.
           if((name.startsWith('browser_') || name==='submit_review' || name==='record_behavior')
             && !(error instanceof RuntimeError && recoverableToolErrors.has(error.code))){
-            const diagnosticCode=error instanceof RuntimeError?browserFailureDiagnostics.get(error.code)??'BROWSER_BLOCKED':'BROWSER_BLOCKED';
+            const diagnosticCode=error instanceof RuntimeError?browserFailureDiagnostics.get(error.code)??'REVIEWER_TOOL_FAILED':'REVIEWER_TOOL_FAILED';
             lastRejection=diagnosticCode;
             await emit('tool.end',name,id,false);
             throw fail(new RuntimeError('CHECK_BLOCKED','浏览器无法完成当前候选检查',undefined,undefined,diagnosticCode));

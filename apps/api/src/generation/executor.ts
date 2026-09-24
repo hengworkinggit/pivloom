@@ -301,24 +301,36 @@ export function createGenerationExecutor(options: {
           tracked.expiresAt = expiresAt;
         };
         await repository.queueReviewer(run.ownerId, run.id, { revisionId: candidateRevision.id });
-        const reviewer = await repository.startReviewer(run.ownerId, run.id);
-        activeRoleId = reviewer.role.id;
-        activeUsage = undefined;
+        let reviewer = await repository.startReviewer(run.ownerId, run.id);
+        let checked: Awaited<ReturnType<typeof runReview>>;
         phase = "review";
-        const checked = await runReview({
-          binding: reviewer.scope, sessionId: reviewer.role.sessionId, handoff: reviewer.handoff,
-          expiresAt: result.preview.expiresAt,
-          source: await sources.verify(candidateRevision.source), sources, artifacts,
-          sandboxConfig: sandbox, modelConfig, tokenBudget, signal: task.controller.signal,
-          maxToolCalls: remainingTools(),
-          onEvent: recordEvent(reviewer.role.id),
-          onLeaseRenewed: persistPreviewLease,
-          assertActive: () => repository.assertRoleActive(run.ownerId, run.id, {
-            roleRunId: reviewer.role.id, attempt: reviewer.role.attempt, role: "reviewer",
-          }),
-        }, boundaries);
-        toolCalls += checked.usage?.toolCalls ?? 0;
-        activeUsage = checked.usage ? storedUsage(checked.usage) : undefined;
+        for (;;) {
+          activeRoleId = reviewer.role.id;
+          activeUsage = undefined;
+          checked = await runReview({
+            binding: reviewer.scope, sessionId: reviewer.role.sessionId, handoff: reviewer.handoff,
+            expiresAt: currentResource()?.expiresAt ?? result.preview.expiresAt,
+            source: await sources.verify(candidateRevision.source), sources, artifacts,
+            sandboxConfig: sandbox, modelConfig, tokenBudget, signal: task.controller.signal,
+            maxToolCalls: remainingTools(),
+            onEvent: recordEvent(reviewer.role.id),
+            onLeaseRenewed: persistPreviewLease,
+            assertActive: () => repository.assertRoleActive(run.ownerId, run.id, {
+              roleRunId: reviewer.role.id, attempt: reviewer.role.attempt, role: "reviewer",
+            }),
+          }, boundaries);
+          toolCalls += checked.usage?.toolCalls ?? 0;
+          activeUsage = checked.usage ? storedUsage(checked.usage) : undefined;
+          if (checked.receipt.recoverableInfrastructureCode && toolCalls < toolLimit) {
+            const rebound = await repository.retryReviewer(run.ownerId, run.id,
+              { receipt: checked.receipt, usage: activeUsage });
+            if (rebound) {
+              reviewer = await repository.startReviewer(run.ownerId, run.id);
+              continue;
+            }
+          }
+          break;
+        }
         if (checked.receipt.result.items.every((item) => item.verdict === "passed")) {
           const tracked = currentResource();
           if (!tracked) throw new RuntimeError("SANDBOX_LEASE_RENEW_FAILED", "候选预览已不受当前任务管理");

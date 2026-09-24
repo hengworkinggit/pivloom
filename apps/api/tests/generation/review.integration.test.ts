@@ -15,6 +15,7 @@ import { createArtifactStore } from "../../src/storage/artifacts.js";
 import { runReview } from "../../src/generation/review.js";
 import type { SandboxConnection } from "../../src/runtime/workspace.js";
 import { REACT_TEMPLATE_VERSION } from "../../src/runtime/snapshot.js";
+import { RuntimeError } from "../../src/runtime/types.js";
 
 // Real owner-scoped PostgreSQL and private Storage. Model output, successful
 // build and sandbox identity are explicit fixtures; no model or sandbox starts.
@@ -89,7 +90,12 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     sources = createSourceStore({ url: process.env.SUPABASE_URL!, secret: process.env.SUPABASE_SECRET_KEY! });
   }, 30_000);
 
-  async function candidate() {
+  async function candidate(inMemoryObjects = false) {
+    const objects = new Map<string, Uint8Array>();
+    const fixtureStorage = { upload: async (key: string, bytes: Uint8Array) => { objects.set(key, bytes); },
+      download: async (key: string) => objects.get(key)!, list: async () => [] };
+    const sourceStore = inMemoryObjects ? createSourceStore({ url: "http://fixture.invalid", secret: "fixture", objects: fixtureStorage }) : sources;
+    const artifactStore = inMemoryObjects ? createArtifactStore({ url: "http://fixture.invalid", secret: "fixture", objects: fixtureStorage }) : undefined;
     const project = await createProjectRepository(database).create(ownerA, prefix);
     projectIds.push(project.id); await save();
     const accepted = await generation.accept(ownerA, project.id, { idempotencyKey: randomUUID(), text: "添加书名并展示书单", expectedCurrentRevisionId: null, modelProfileId: model.id, modelConfigVersion: model.configVersion });
@@ -98,8 +104,8 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     await generation.submitPlan(ownerA, accepted.run.id, { roleRunId: coordinator.id, attempt: 0, plan });
     const builder = await generation.startBuilder(ownerA, accepted.run.id);
     await generation.completeBuilder(ownerA, accepted.run.id, { summary: "Explicit build fixture" });
-    const source = await sources.save({ ownerId: ownerA, projectId: project.id, revisionId: randomUUID() }, REACT_TEMPLATE_VERSION, files);
-    sourceKeys.push(source.key); await save();
+    const source = await sourceStore.save({ ownerId: ownerA, projectId: project.id, revisionId: randomUUID() }, REACT_TEMPLATE_VERSION, files);
+    if (!inMemoryObjects) { sourceKeys.push(source.key); await save(); }
     const revision = await generation.saveCandidate(ownerA, accepted.run.id, { source, buildStatus: "passed", build: {
       schemaVersion: 1, sourceHash: source.sourceHash,
       typecheck: { command: "node /workspace/node_modules/typescript/bin/tsc --noEmit", exitCode: 0, durationMs: 1, stdoutTail: "Explicit successful typecheck fixture", stderrTail: "" },
@@ -108,10 +114,10 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     const sandbox = { sandboxId: `review-fixture-${randomUUID()}`, expiresAt: new Date(Date.now() + 600_000).toISOString() };
     await generation.registerSandbox(ownerA, accepted.run.id, sandbox);
     await generation.bindPreview(ownerA, accepted.run.id, { ...sandbox, revisionId: revision.id, sourceHash: revision.sourceHash, markerVerified: true, writeRevoked: true, chromeClosed: true });
-    return { project, run: accepted.run, builder, revision, source, sandbox };
+    return { project, run: accepted.run, builder, revision, source, sandbox, sourceStore, artifactStore, inMemoryObjects };
   }
 
-  async function reviewed(fixture: Awaited<ReturnType<typeof candidate>>, verdict: "passed" | "failed" | "blocked" = "passed", action: "click" | "press" | "reload" = "click") {
+  async function reviewed(fixture: Awaited<ReturnType<typeof candidate>>, verdict: "passed" | "failed" | "blocked" = "passed", action: "click" | "press" | "reload" = "click", browserFault?: "BROWSER_BLOCKED" | "BROWSER_TIMEOUT") {
     await generation.queueReviewer(ownerA, fixture.run.id, { revisionId: fixture.revision.id });
     const execution = await generation.startReviewer(ownerA, fixture.run.id);
     const staging = new Map<string, Uint8Array>();
@@ -134,7 +140,10 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
           if (command.endsWith("'get' 'url'")) data = { url: "http://127.0.0.1:4173/" };
           else if (command.endsWith("'get' 'text' 'body'")) data = { text: actions && verdict === "passed" ? "测试书名" : "空书单" };
           else if (command.endsWith("'snapshot' '-i'")) data = { snapshot: '- button "添加" [ref=e1]', refs: { e1: { role: "button", name: "添加" } } };
-          else if (command.includes("'click'") || command.includes("'press'")) actions++;
+          else if (command.includes("'click'") || command.includes("'press'")) {
+            actions++;
+            if (browserFault) throw new RuntimeError(browserFault, "synthetic browser transport failure");
+          }
           else if (command.endsWith("'close'")) closes++;
           stdoutTail = JSON.stringify({ success: true, data });
         }
@@ -178,10 +187,12 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
       return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({ ...chunk, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } })}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
     };
     const connector = { create: async () => connection, connect: async () => connection };
-    const artifactStore = createArtifactStore({ url: process.env.SUPABASE_URL!, secret: process.env.SUPABASE_SECRET_KEY! });
+    const artifactStore = fixture.artifactStore ?? createArtifactStore({ url: process.env.SUPABASE_URL!, secret: process.env.SUPABASE_SECRET_KEY! });
     const output = await runReview({ binding: execution.scope, sessionId: execution.role.sessionId, handoff: execution.handoff, expiresAt: fixture.sandbox.expiresAt,
-      source: fixture.source, sources, artifacts: { load: artifactStore.load, async save(scope, image) {
-        const artifact = await artifactStore.save(scope, image); sourceKeys.push(artifact.key); await save(); return artifact;
+      source: fixture.source, sources: fixture.sourceStore, artifacts: { load: artifactStore.load, async save(scope, image) {
+        const artifact = await artifactStore.save(scope, image);
+        if (!fixture.inMemoryObjects) { sourceKeys.push(artifact.key); await save(); }
+        return artifact;
       } },
       sandboxConfig: { baseUrl: "http://sandbox-fixture.invalid", apiKey: "sandbox-fixture", image: "fixture" },
       modelConfig: { provider: "review-db-fixture", id: "fixture", api: "openai-completions", baseUrl: "https://model-fixture.invalid/v1", apiKey: "fixture-not-a-real-key", fetch, supportsImages: true },
@@ -264,6 +275,36 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     expect((await generation.getRunCheck(ownerA, fixture.run.id))?.id).toBe(finished.check.id);
     expect((await generation.readProjectSnapshot(ownerA, fixture.project.id)).project.currentRevisionId).toBeNull();
     await expect(models.freezeForRun(ownerA, model.id, model.configVersion, fixture.run.id)).rejects.toMatchObject({ code: "MODEL_LEASE_RELEASED" });
+  }, 180_000);
+
+  test("one infrastructure failure rebinds the same candidate with a new reviewer and browser session", async () => {
+    const fixture = await candidate(true);
+    const first = await reviewed(fixture, "passed", "click", "BROWSER_BLOCKED");
+    expect(first.receipt.recoverableInfrastructureCode).toBe("BROWSER_BLOCKED");
+    const next = await generation.retryReviewer(ownerA, fixture.run.id, { receipt: first.receipt });
+    expect(next).not.toBeNull();
+    expect(next!.role.id).not.toBe(first.execution.role.id);
+    expect(next!.role.sessionId).not.toBe(first.execution.role.sessionId);
+    expect(next!.scope.browserSessionId).not.toBe(first.execution.scope.browserSessionId);
+    expect(next!.scope).toMatchObject({ attempt: 0, revisionId: fixture.revision.id,
+      sourceHash: fixture.revision.sourceHash, sandboxId: fixture.sandbox.sandboxId });
+    expect((await generation.getRun(ownerA, fixture.run.id)).state).toBe("verifying");
+    expect((await generation.getRevision(ownerA, fixture.revision.id)).status).toBe("candidate");
+    await expect(generation.finishReview(ownerA, fixture.run.id, { receipt: first.receipt })).rejects.toMatchObject({ code: "ROLE_NOT_ACTIVE" });
+    await expect(generation.retryReviewer(ownerA, fixture.run.id, { receipt: first.receipt })).rejects.toMatchObject({ code: "ROLE_NOT_ACTIVE" });
+    const started = await generation.startReviewer(ownerA, fixture.run.id);
+    expect(started).toMatchObject({ role: { id: next!.role.id, state: "running" }, scope: next!.scope });
+    const roles = (await generation.readRunSnapshot(ownerA, fixture.run.id)).roles;
+    expect(roles.filter((role) => role.role === "coordinator")).toHaveLength(1);
+    expect(roles.filter((role) => role.role === "builder")).toHaveLength(1);
+    expect(roles.filter((role) => role.role === "reviewer").map((role) => role.state)).toEqual(["failed", "running"]);
+    expect((await admin.query("SELECT output_json FROM nano.role_runs WHERE id=$1", [first.execution.role.id])).rows[0].output_json)
+      .toMatchObject({ diagnosticCode: "BROWSER_BLOCKED", revisionId: fixture.revision.id, sourceHash: fixture.revision.sourceHash });
+    expect((await generation.listEvents(ownerA, fixture.run.id)).some((event) => event.type === "role.completed"
+      && event.roleRunId === first.execution.role.id && event.payload.diagnosticCode === "BROWSER_BLOCKED")).toBe(true);
+    expect(await generation.getRunCheck(ownerA, fixture.run.id)).toBeNull();
+    expect((await generation.readProjectSnapshot(ownerA, fixture.project.id)).project.currentRevisionId).toBeNull();
+    await generation.finishFailed(ownerA, fixture.run.id, { code: "FIXTURE_COMPLETE", message: "Rebinding assertions complete", retryable: false, cleanupState: "confirmed" });
   }, 180_000);
 
   test("only an active exact-version review can atomically promote, with owner-isolated checks and private artifacts", async () => {

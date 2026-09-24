@@ -120,12 +120,14 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     await database?.close(); await admin?.end();
   }, 30_000);
 
-  async function fixture(mode: "normal" | "review-blocked" | "build-once" | "tool-budget" | "cleanup-fails" | "restore-cleanup-fails" | "restore-build-fails" | "cancel-builder" | "cancel-builder-cleanup-fails" | "model-fails",
+  async function fixture(mode: "normal" | "review-blocked" | "reviewer-infra-once" | "reviewer-infra-twice" | "build-once" | "tool-budget" | "cleanup-fails" | "restore-cleanup-fails" | "restore-build-fails" | "cancel-builder" | "cancel-builder-cleanup-fails" | "model-fails",
     options: { failCancelledWrites?: number; failFailedWrites?: number; failRestoreWrites?: number; settlementRetryMs?: number; cleanupSweepMs?: number;
       observeTerminalWrites?: boolean;
       beforeModelFailure?: () => Promise<void> } = {}) {
     const remotes = new Map<string, { files: Map<string, Buffer>; live: boolean; actions: number; url: string; index: number; renewals: number[] }>();
     let builderSessions = 0;
+    const reviewerSessions = new Set<string>();
+    let infrastructureFailures = 0;
     let signalBuilderStarted = () => {};
     const builderStarted = new Promise<void>((resolve) => { signalBuilderStarted = resolve; });
     let cleanupUnavailable = mode === "cleanup-fails" || mode === "restore-cleanup-fails" || mode === "cancel-builder-cleanup-fails";
@@ -179,13 +181,22 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
             else if (command.includes('readFileSync("/workspace/package-lock.json"')) stdoutTail = '{"name":"fixture","lockfileVersion":3}';
             else if (command.includes("typescript/bin/tsc") && (mode === "restore-build-fails" || mode === "build-once" && remote.index === 0)) { exitCode = 2; stdoutTail = "src/App.tsx(1,1): error TS1005: fixture semicolon expected"; }
             else if (command.includes("agent-browser")) {
+              const browserSession = command.match(/'--session' '([^']+)'/)?.[1];
+              if (browserSession) reviewerSessions.add(browserSession);
               let data: Record<string, unknown> = {};
               if (command.includes("'open'")) remote.url = command.split("'open' '")[1]?.split("'")[0] ?? remote.url;
               if (command.endsWith("'get' 'url'")) data = { url: remote.url };
               else if (command.endsWith("'get' 'text' 'body'")) data = { text: (mode === "tool-budget" || mode === "cleanup-fails") && remote.index === 0 ? "计数0" : `计数${remote.actions ? 1 : 0}` };
               else if (command.endsWith("'snapshot' '-i'")) data = { snapshot: '- button "加一" [ref=e1]', refs: { e1: { role: "button", name: "加一" } } };
-              else if (command.includes("'click'")) remote.actions++;
-              stdoutTail = JSON.stringify({ success: true, data });
+              else if (command.includes("'click'")) {
+                if ((mode === "reviewer-infra-once" && infrastructureFailures === 0)
+                  || (mode === "reviewer-infra-twice" && infrastructureFailures < 2)) {
+                  infrastructureFailures++;
+                  exitCode = 1;
+                  stdoutTail = JSON.stringify({ success: false, error: "Synthetic browser transport failure" });
+                } else remote.actions++;
+              }
+              if (!stdoutTail) stdoutTail = JSON.stringify({ success: true, data });
             }
             return { id: randomUUID(), interrupt: async () => {}, wait: async () => ({ exitCode, stdoutTail, stderrTail: "" }) };
           },
@@ -287,7 +298,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
         ...(options.settlementRetryMs ? { settlementRetryMs: options.settlementRetryMs } : {}),
         ...(options.cleanupSweepMs ? { cleanupSweepMs: options.cleanupSweepMs } : {}) });
     closers.push(async () => { await executor.close(); await previews.close(); });
-    return { executor, remotes, builderPrompts, builderStarted, cancelledWrites: () => cancelledWrites,
+    return { executor, remotes, builderPrompts, builderStarted, reviewerSessions, infrastructureFailures: () => infrastructureFailures, cancelledWrites: () => cancelledWrites,
       failedWrites: () => failedWrites, terminalDbFailures: () => terminalDbFailures,
       restoreWrites: () => restoreWrites, providerRequests: () => providerRequests,
       allowCleanup() { cleanupUnavailable = false; }, onRelease(hook: () => Promise<void>) { closeHook = hook; } };
@@ -340,6 +351,36 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     leases.push(next.run.credentialLeaseId);
     expect(next.run.state).toBe("accepted");
     await repository.finishCancelled(owner, next.run.id, { cleanupState: "confirmed", summary: "隔离夹具已结束" });
+  }, 900_000);
+
+  test("one browser infrastructure failure rechecks the exact candidate with a fresh browser and completes", async () => {
+    const remote = await fixture("reviewer-infra-once");
+    const result = await run(remote, undefined, false);
+    try {
+      expect(result.run).toMatchObject({ state: "completed", attempt: 0 });
+      expect(remote.infrastructureFailures()).toBe(1);
+      expect(remote.reviewerSessions.size).toBe(2);
+      expect(remote.builderPrompts).toHaveLength(1);
+      const revisions = (await repository.listProjectRevisions(owner, result.projectId)).filter((item) => item.runId === result.run.id);
+      expect(revisions).toHaveLength(1);
+      expect(revisions[0]).toMatchObject({ id: result.run.resultRevisionId, status: "accepted" });
+      expect(result.roles.filter((role) => role.role === "reviewer").map((role) => role.state)).toEqual(["failed", "succeeded"]);
+      expect((await repository.getRunCheck(owner, result.run.id))?.verdict).toBe("passed");
+      expect([...remote.remotes.values()].map((sandbox) => sandbox.live)).toEqual([true]);
+    } finally { await remote.executor.close(); }
+  }, 900_000);
+
+  test("two browser infrastructure failures terminate and clean up without rebuilding or a third reviewer", async () => {
+    const remote = await fixture("reviewer-infra-twice");
+    const result = await run(remote);
+    expect(result.run).toMatchObject({ state: "failed", attempt: 0, error: { code: "CHECK_BLOCKED" } });
+    expect(remote.infrastructureFailures()).toBe(2);
+    expect(remote.reviewerSessions.size).toBe(2);
+    expect(remote.builderPrompts).toHaveLength(1);
+    expect((await repository.listProjectRevisions(owner, result.projectId)).filter((item) => item.runId === result.run.id)).toHaveLength(1);
+    expect(result.roles.filter((role) => role.role === "reviewer")).toHaveLength(2);
+    expect((await repository.getRunCheck(owner, result.run.id))?.verdict).toBe("blocked");
+    expect([...remote.remotes.values()].map((sandbox) => sandbox.live)).toEqual([false]);
   }, 900_000);
 
   test("only an accepted Reviewer result retains the current candidate preview", async () => {

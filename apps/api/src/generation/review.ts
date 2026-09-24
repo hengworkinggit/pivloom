@@ -14,6 +14,8 @@ export interface VerifiedReviewReceipt {
   binding: ReviewBinding; source: VerifiedSourceSnapshot; result: ReviewResult;
   artifacts: StoredArtifact[]; evidence: ReviewObservationEvent[];
   markerVerified: boolean; chromeClosed: true;
+  /** Internal, allowlisted browser transport failure. Never inferred from a blocked business verdict. */
+  recoverableInfrastructureCode?: 'BROWSER_BLOCKED' | 'BROWSER_TIMEOUT';
 }
 const receipts=new WeakSet<object>();
 const blockedReasons=new Map([
@@ -23,6 +25,7 @@ const blockedReasons=new Map([
   ['COMMAND_TIMEOUT','浏览器操作超时，已停止后续操作，当前候选尚未通过检查。'],
   ['BROWSER_ORIGIN_REJECTED','浏览器离开了绑定的候选预览，已停止检查。'],
   ['BROWSER_BLOCKED','浏览器无法访问或完成页面操作，当前候选尚未通过检查。'],
+  ['REVIEWER_TOOL_FAILED','浏览器无法访问或完成页面操作，当前候选尚未通过检查。'],
   ['VISION_NOT_VERIFIED','当前模型的图像能力未通过实际图片测试，请在模型设置中验证支持图像的配置；当前候选尚未完成视觉检查。'],
 ]);
 export function assertVerifiedReviewReceipt(receipt:VerifiedReviewReceipt){
@@ -53,7 +56,8 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
   const browser=new RemoteBrowser(workspace,handle,undefined,binding.browserSessionId);
   const leaseAbort=new AbortController(),signal=AbortSignal.any([input.signal,leaseAbort.signal]);
   const artifacts:StoredArtifact[]=[];
-  let markerVerified=false,connected=false,usage:TokenUsage|undefined,leaseFailure:RuntimeError|undefined;
+  let markerVerified=false,connected=false,reviewerStarted=false,usage:TokenUsage|undefined,leaseFailure:RuntimeError|undefined;
+  let recoverableInfrastructureCode:VerifiedReviewReceipt['recoverableInfrastructureCode'];
   let evidence:ReviewObservationEvent[]=[],result:ReviewResult|undefined;
   const active=async()=>{signal.throwIfAborted();await input.assertActive();signal.throwIfAborted();};
   async function ensureLease(force=false){
@@ -90,6 +94,7 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     await ensureLease(true);
     await verifyVersion();
     const files=(await input.sources.load(input.source)).files;
+    reviewerStarted=true;
     const reviewed=await runReviewer({binding,sessionId:input.sessionId,handoff:input.handoff,browser,files,
       modelConfig:input.modelConfig,signal,tokenBudget:input.tokenBudget,maxToolCalls:input.maxToolCalls,
       onEvent:async(event)=>{await ensureLease();await input.onEvent?.(event);},assertActive:active,
@@ -104,6 +109,11 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     if(input.signal.aborted)throw error;
     if(error instanceof RuntimeError && ['AGENT_OUTPUT_INVALID','TOKEN_BUDGET_EXCEEDED','TOOL_BUDGET_EXCEEDED','ROLE_NOT_ACTIVE','MODEL_FAILED','MODEL_REQUEST_TIMEOUT'].includes(error.code))throw error;
     if(error instanceof RuntimeError&&error.usage)usage=error.usage;
+    if(reviewerStarted && error instanceof RuntimeError){
+      const code=error.diagnosticCode??error.code;
+      if(code==='BROWSER_BLOCKED'||code==='BROWSER_TIMEOUT'||code==='COMMAND_TIMEOUT')
+        recoverableInfrastructureCode=code==='COMMAND_TIMEOUT'?'BROWSER_TIMEOUT':code;
+    }
     const versionMismatch=error instanceof RuntimeError&&error.code==='CHECK_VERSION_MISMATCH';
     const reason=error instanceof RuntimeError?blockedReasons.get(error.code)??blockedReasons.get(error.diagnosticCode??''):undefined;
     const message=versionMismatch?'候选源码或预览版本不一致，未接受检查结果。':reason??'浏览器或检查过程未完成，当前候选尚未通过检查。';
@@ -118,7 +128,8 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     }
   }
   input.signal.throwIfAborted();await input.assertActive();input.signal.throwIfAborted();
-  const receipt:VerifiedReviewReceipt=freeze({binding,source:input.source,result:result!,artifacts,evidence,markerVerified,chromeClosed:true});
+  const receipt:VerifiedReviewReceipt=freeze({binding,source:input.source,result:result!,artifacts,evidence,markerVerified,chromeClosed:true,
+    ...(recoverableInfrastructureCode?{recoverableInfrastructureCode}:{})});
   receipts.add(receipt);
   return {receipt,usage};
 }

@@ -96,6 +96,8 @@ export interface GenerationRepository {
   completeBuilder(ownerId: string, runId: string, input?: { summary?: string; usage?: RoleUsage }): Promise<StoredRoleRun>;
   queueReviewer(ownerId: string, runId: string, input: { revisionId: string }): Promise<ReviewerExecution>;
   startReviewer(ownerId: string, runId: string): Promise<ReviewerExecution>;
+  /** Rebind one confirmed-closed browser infrastructure failure to a fresh Reviewer session on the same candidate. */
+  retryReviewer(ownerId: string, runId: string, input: { receipt: VerifiedReviewReceipt; usage?: RoleUsage }): Promise<ReviewerExecution | null>;
   finishReview(ownerId: string, runId: string, input: { receipt: VerifiedReviewReceipt; usage?: RoleUsage }): Promise<ReviewCompletion>;
   finishBuildFailure(ownerId: string, runId: string, input: BuildFailureInput): Promise<BuildFailureCompletion>;
   getCheck(ownerId: string, checkId: string): Promise<Check>;
@@ -668,6 +670,62 @@ export function createGenerationRepository(
       await event(client, current, { type: "role.started", roleRunId: prior.id, payload: { role: "reviewer", phase: "review" } });
       return reviewerExecution(updated.rows[0]);
     }),
+    retryReviewer: async (ownerId, runId, input) => {
+      const { receipt } = input;
+      assertVerifiedReviewReceipt(receipt);
+      const diagnosticCode = receipt.recoverableInfrastructureCode;
+      if (!diagnosticCode || !["BROWSER_BLOCKED", "BROWSER_TIMEOUT"].includes(diagnosticCode)
+        || receipt.chromeClosed !== true || receipt.markerVerified
+        || receipt.result.items.length === 0 || receipt.result.items.some((item) => item.verdict !== "blocked"))
+        throw new ApiFailure(409, "REVIEW_NOT_RETRYABLE", "只有已确认关闭的浏览器基础设施故障可以复检同一候选。");
+      const binding = ReviewBindingSchema.parse(receipt.binding);
+      if (binding.runId !== runId || receipt.source.ownerId !== ownerId) throw notFound();
+      return owned(ownerId, async (client) => {
+        const { current, parent } = await lockedRun(client, ownerId, runId);
+        const role = await activeRole(client, current, { roleRunId: binding.roleRunId, attempt: binding.attempt, role: "reviewer" });
+        const storedBinding = ReviewBindingSchema.parse(role.review_binding_json);
+        if (Object.keys(storedBinding).some((key) => Reflect.get(storedBinding, key) !== Reflect.get(binding, key)))
+          throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "复检请求来自其它浏览器会话或候选。");
+        if (parent.current_revision_id !== current.expected_current_revision_id)
+          throw new ApiFailure(409, "STALE_BASE", "当前成功版本已经变化，不能复检。");
+        const saved = await revision(client, ownerId, binding.revisionId);
+        if (saved.run_id !== runId || saved.project_id !== current.project_id || saved.attempt !== current.attempt
+          || current.result_revision_id !== saved.id || saved.status !== "candidate" || saved.build_status !== "passed"
+          || saved.source_hash !== binding.sourceHash || receipt.source.projectId !== saved.project_id
+          || receipt.source.revisionId !== saved.id || receipt.source.sourceHash !== saved.source_hash
+          || receipt.source.key !== saved.source_key)
+          throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "候选源码或版本发生变化，不能复检。");
+        const sandbox = (await client.query(`SELECT id FROM nano.sandboxes WHERE owner_id=$1 AND run_id=$2 AND attempt=$3
+          AND remote_id=$4 AND revision_id=$5 AND source_hash=$6 AND purpose='candidate-preview' AND state='active' AND expires_at>now()`,
+        [ownerId, runId, binding.attempt, binding.sandboxId, saved.id, saved.source_hash])).rows[0];
+        if (!sandbox) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "候选预览已失效，不能复检。");
+        const priorCount = (await client.query(`SELECT count(*)::int AS count FROM nano.role_runs
+          WHERE owner_id=$1 AND run_id=$2 AND role='reviewer' AND attempt=$3 AND review_binding_json->>'revisionId'=$4`,
+        [ownerId, runId, binding.attempt, saved.id])).rows[0].count as number;
+        if (priorCount >= 2) return null;
+        const old = await client.query(`UPDATE nano.role_runs SET state='failed',finished_at=now(),output_json=$3,usage_json=$4
+          WHERE owner_id=$1 AND id=$2 AND state='running' RETURNING id`,
+        [ownerId, role.id, { summary: "浏览器基础设施故障，正在对同一候选复检。", diagnosticCode,
+          revisionId: saved.id, sourceHash: saved.source_hash, browserSessionId: binding.browserSessionId }, roleUsage(input.usage)]);
+        if (!old.rows[0]) throw new ApiFailure(409, "ROLE_NOT_ACTIVE", "旧检查者已停止接受结果。");
+        const id = randomUUID();
+        const scope = ReviewBindingSchema.parse({ ...binding, roleRunId: id, browserSessionId: `pivloom-${randomUUID()}` });
+        const handoff = HandoffSchema.parse({ ...HandoffSchema.parse(role.input_json), fromRoleRunId: role.id,
+          task: "浏览器基础设施故障已确认关闭。请在同一候选的新浏览器会话中重新执行完整检查。" });
+        const inserted = (await client.query(`INSERT INTO nano.role_runs(id,owner_id,project_id,run_id,predecessor_id,role,attempt,session_id,state,input_json,review_binding_json)
+          VALUES($1,$2,$3,$4,$5,'reviewer',$6,$7,'queued',$8,$9) RETURNING *`,
+        [id, ownerId, current.project_id, runId, role.id, binding.attempt, randomUUID(), handoff, scope])).rows[0];
+        const changed = (await client.query(`UPDATE nano.runs SET reviewer_role_run_id=$3
+          WHERE owner_id=$1 AND id=$2 AND reviewer_role_run_id=$4 AND state='verifying' RETURNING *`,
+        [ownerId, runId, id, role.id])).rows[0];
+        if (!changed) throw new ApiFailure(409, "ROLE_NOT_ACTIVE", "检查者交接已变化，不能复检。");
+        await event(client, changed, { type: "role.completed", roleRunId: role.id,
+          payload: { role: "reviewer", state: "failed", diagnosticCode, summary: "浏览器基础设施故障，正在对同一候选复检。" } });
+        await event(client, changed, { type: "run.phase", payload: { state: "verifying", phase: "review",
+          reviewerRetry: priorCount, revisionId: saved.id, sourceHash: saved.source_hash } });
+        return reviewerExecution(inserted);
+      });
+    },
     finishReview: async (ownerId, runId, input) => {
       const { receipt } = input;
       assertVerifiedReviewReceipt(receipt);
