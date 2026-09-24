@@ -1,0 +1,86 @@
+{
+  "mode": "fake-score",
+  "status": "REVIEWED",
+  "runId": "3a813f56-a189-47ca-a3cd-91c66037f483",
+  "revisionId": "12a86b04-5777-4cf2-99a5-0128158252fb",
+  "sourceHash": "d203cb1d0a96e87777f02eaf532b02afafaabdef818cd930cb46b99b351832b6",
+  "browserSessionId": "pivloom-6066ec10-9a7a-4d03-9f38-553af9bc7682",
+  "verdict": "failed",
+  "actual": "点击开始后状态变为 playing；发送 ArrowRight、ArrowDown 两批真实按键后 HUD 显示 分数: 2、长度: 3、步数: 2、最近按键: ArrowDown。Canvas 中蛇仍为 3 节，长度未随分数上升而增加；食物可见。",
+  "observationEventIds": [
+    "35ee1979-2bc0-42fe-a6ac-7f17215a6908",
+    "c835fa00-7072-4899-aacb-4e7894b17aff"
+  ],
+  "screenshotIds": [
+    "5720f71a-3dc4-4ec1-b49f-794d8469a232"
+  ],
+  "evidence": [
+    {
+      "id": "e9abb02d-7516-46c6-bb82-c0640b8b4c47",
+      "behaviorId": null,
+      "action": null,
+      "observationId": "39ca26ea-8b58-4586-b94b-c3e7e4353b5f",
+      "text": "贪吃蛇隔离负例\n开始\n状态: menu | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无\n\n方向键控制，空格暂停。"
+    },
+    {
+      "id": "35ee1979-2bc0-42fe-a6ac-7f17215a6908",
+      "behaviorId": "B01",
+      "action": "click",
+      "observationId": "1c7362b5-7dc3-484b-ab44-4440ac584b2b",
+      "text": "贪吃蛇隔离负例\n开始\n状态: playing | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无\n\n方向键控制，空格暂停。"
+    },
+    {
+      "id": "c835fa00-7072-4899-aacb-4e7894b17aff",
+      "behaviorId": "B01",
+      "action": "key_batch",
+      "observationId": "c3e69c96-197a-4a0f-959c-fdf843c780b3",
+      "text": "贪吃蛇隔离负例\n开始\n状态: playing | 分数: 2 | 长度: 3 | 步数: 2 | 最近按键: ArrowDown\n\n方向键控制，空格暂停。",
+      "batch": {
+        "startedAt": "2026-09-23T23:58:50.301Z",
+        "finishedAt": "2026-09-23T23:58:50.537Z",
+        "steps": [
+          {
+            "index": 0,
+            "key": "ArrowRight",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 1,
+            "key": "ArrowDown",
+            "waitMs": 100,
+            "success": true
+          }
+        ]
+      }
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "491896d3-ce27-457e-871e-f48f5791da51",
+      "mimeType": "image/png",
+      "sha256": "e39323612cd8f6e936dfe1ee4a6eaf4cfe21f5c9d087d7df01fdced8f35cfff0"
+    },
+    {
+      "id": "5720f71a-3dc4-4ec1-b49f-794d8469a232",
+      "mimeType": "image/png",
+      "sha256": "7360ee108e6026e2e828c0efe521aadff4f8adc6ced205514ecf0fbbd10157f8"
+    }
+  ],
+  "chromeClosed": true,
+  "expected": "分数上升时蛇长度同步增加，Canvas 中蛇和食物真实变化",
+  "keys": [
+    "ArrowRight",
+    "ArrowDown"
+  ],
+  "modelCalls": 7,
+  "realProviderRequests": 1,
+  "maxOutboundImages": 2,
+  "pageErrors": [],
+  "screenshotHashes": [
+    "e39323612cd8f6e936dfe1ee4a6eaf4cfe21f5c9d087d7df01fdced8f35cfff0",
+    "7360ee108e6026e2e828c0efe521aadff4f8adc6ced205514ecf0fbbd10157f8"
+  ],
+  "elapsedMs": 7802,
+  "boundary": "Local agent-browser0.38.1 and RemoteBrowser/real Pi Reviewer/real Provider. No OpenSandbox, DB writes, Storage writes or generated Snake."
+}

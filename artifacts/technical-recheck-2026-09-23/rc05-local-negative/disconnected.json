@@ -1,0 +1,95 @@
+{
+  "mode": "disconnected",
+  "status": "REVIEWED",
+  "runId": "7721ab5d-660c-4055-a5e4-11bdee120399",
+  "revisionId": "dad295aa-b7b4-49eb-926e-628f43920b46",
+  "sourceHash": "ed2550e0a780588f6d933c5639383e28d75cea53e4636b7118a69b4122be6467",
+  "browserSessionId": "pivloom-6ceeda56-ff2b-43cc-bfd6-0bfd7d72e4e7",
+  "verdict": "failed",
+  "actual": "点击开始后状态变为 playing，但 Canvas 中蛇未移动（步数仍为 0），且发送 ArrowRight/ArrowDown/Space 后 HUD 仍显示“最近按键: 无”，空格未切换暂停。键盘事件未被应用接收。",
+  "observationEventIds": [
+    "5e67f94c-0aa8-41b3-a15f-97b60fcafcef",
+    "8fd3bab0-2aeb-410e-a421-3cbd0d6a9533",
+    "66747379-9e53-484d-9209-6542b7809bac"
+  ],
+  "screenshotIds": [
+    "9c922ada-e032-46c4-b100-84520fba5664",
+    "3e9c3586-320e-4eab-a4c7-0252b622726d"
+  ],
+  "evidence": [
+    {
+      "id": "5e67f94c-0aa8-41b3-a15f-97b60fcafcef",
+      "behaviorId": null,
+      "action": null,
+      "observationId": "eb584ca1-48ae-4ea2-b825-4177d59c2924",
+      "text": "贪吃蛇隔离负例\n开始\n状态: menu | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无\n\n方向键控制，空格暂停。"
+    },
+    {
+      "id": "8fd3bab0-2aeb-410e-a421-3cbd0d6a9533",
+      "behaviorId": "B01",
+      "action": "click",
+      "observationId": "6a45b88d-6fd8-4caa-b98a-049d1ccbfc41",
+      "text": "贪吃蛇隔离负例\n开始\n状态: playing | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无\n\n方向键控制，空格暂停。"
+    },
+    {
+      "id": "66747379-9e53-484d-9209-6542b7809bac",
+      "behaviorId": "B01",
+      "action": "key_batch",
+      "observationId": "5e545836-190f-4247-a865-ffa388603de7",
+      "text": "贪吃蛇隔离负例\n开始\n状态: playing | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无\n\n方向键控制，空格暂停。",
+      "batch": {
+        "startedAt": "2026-09-23T23:58:38.997Z",
+        "finishedAt": "2026-09-23T23:58:39.333Z",
+        "steps": [
+          {
+            "index": 0,
+            "key": "ArrowRight",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 1,
+            "key": "ArrowDown",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 2,
+            "key": "Space",
+            "waitMs": 100,
+            "success": true
+          }
+        ]
+      }
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "9c922ada-e032-46c4-b100-84520fba5664",
+      "mimeType": "image/png",
+      "sha256": "e39323612cd8f6e936dfe1ee4a6eaf4cfe21f5c9d087d7df01fdced8f35cfff0"
+    },
+    {
+      "id": "3e9c3586-320e-4eab-a4c7-0252b622726d",
+      "mimeType": "image/png",
+      "sha256": "4779e2ca231d85c9f6b93ba7f44753151cd6d00957d0cb7b33862a2282ce8ea4"
+    }
+  ],
+  "chromeClosed": true,
+  "expected": "按键被应用接收，蛇移动或变向，空格切换暂停",
+  "keys": [
+    "ArrowRight",
+    "ArrowDown",
+    "Space"
+  ],
+  "modelCalls": 7,
+  "realProviderRequests": 1,
+  "maxOutboundImages": 2,
+  "pageErrors": [],
+  "screenshotHashes": [
+    "e39323612cd8f6e936dfe1ee4a6eaf4cfe21f5c9d087d7df01fdced8f35cfff0",
+    "4779e2ca231d85c9f6b93ba7f44753151cd6d00957d0cb7b33862a2282ce8ea4"
+  ],
+  "elapsedMs": 7178,
+  "boundary": "Local agent-browser0.38.1 and RemoteBrowser/real Pi Reviewer/real Provider. No OpenSandbox, DB writes, Storage writes or generated Snake."
+}

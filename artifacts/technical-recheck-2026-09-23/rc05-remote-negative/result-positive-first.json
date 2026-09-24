@@ -1,0 +1,176 @@
+{
+  "case": "RC-05 real OpenSandbox + Pi Reviewer + real Provider controlled Canvas positive/negative",
+  "runtimeSha": "4733d3a2c860418f6c71a95535c800887d055be2",
+  "profile": {
+    "provider": "openai-completions",
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/coding/v3",
+    "modelId": "kimi-k2.7-code",
+    "configVersion": 2
+  },
+  "browserVersion": "agent-browser 0.38.1",
+  "piVersion": "0.86.1",
+  "sandboxId": "b742542f-12db-4b80-b510-48fa52b69869",
+  "cases": [
+    {
+      "mode": "positive",
+      "runId": "0c78a167-02c6-449c-af46-0b0e27cec0db",
+      "revisionId": "124bf965-786c-42dc-9ab1-dffe9462382f",
+      "sourceHash": "a459856614487a33325d9f391b7f005aa8daa9aa660fa34502c0f1352f3acb4d",
+      "browserSessionId": "pivloom-9401f039-36fc-4c3c-b10d-00b5f8d7b974",
+      "sandboxId": "b742542f-12db-4b80-b510-48fa52b69869",
+      "expected": "Canvas 显示每次方向变化，最后为 LEFT 且 PAUSED，HUD 顺序为 START>UP>RIGHT>DOWN>LEFT>PAUSE",
+      "keys": [
+        "ArrowUp",
+        "ArrowRight",
+        "ArrowDown",
+        "ArrowLeft",
+        "Space"
+      ],
+      "sourceBytes": 1157,
+      "status": "REVIEWED",
+      "verdict": "passed",
+      "actual": "按键批次成功执行，最终 Canvas 方块显示 'L' 且 HUD 为 DIR:LEFT STATUS:PAUSED TRAIL:START>UP>RIGHT>DOWN>LEFT>PAUSE，与预期完全一致",
+      "reproSteps": [
+        "打开 /positive 页面，初始 HUD 为 DIR:RIGHT STATUS:RUNNING TRAIL:START",
+        "依次按键 ArrowUp、ArrowRight、ArrowDown、ArrowLeft、Space，每步间隔 100ms",
+        "检查最终 Canvas 显示和 HUD 状态"
+      ],
+      "observationEventIds": [
+        "388a2b72-9657-44c3-96be-61a4cbe849ff"
+      ],
+      "screenshotIds": [
+        "cf765482-36f2-403a-a945-1b121aae6556"
+      ],
+      "evidence": [
+        {
+          "id": "101d202b-079d-4b21-8d27-890a7fa1393e",
+          "behaviorId": null,
+          "action": null,
+          "observationId": "6a40baec-ec00-4c82-9718-f1c5329714aa",
+          "text": "方向键 Canvas 正例\n\nDIR:RIGHT STATUS:RUNNING TRAIL:START"
+        },
+        {
+          "id": "388a2b72-9657-44c3-96be-61a4cbe849ff",
+          "behaviorId": "B01",
+          "action": "key_batch",
+          "observationId": "ec92a046-6e3c-4390-ab01-03ab587ba823",
+          "text": "方向键 Canvas 正例\n\nDIR:LEFT STATUS:PAUSED TRAIL:START>UP>RIGHT>DOWN>LEFT>PAUSE",
+          "batch": {
+            "startedAt": "2026-09-23T23:52:20.504Z",
+            "finishedAt": "2026-09-23T23:52:22.040Z",
+            "steps": [
+              {
+                "index": 0,
+                "key": "ArrowUp",
+                "waitMs": 100,
+                "success": true
+              },
+              {
+                "index": 1,
+                "key": "ArrowRight",
+                "waitMs": 100,
+                "success": true
+              },
+              {
+                "index": 2,
+                "key": "ArrowDown",
+                "waitMs": 100,
+                "success": true
+              },
+              {
+                "index": 3,
+                "key": "ArrowLeft",
+                "waitMs": 100,
+                "success": true
+              },
+              {
+                "index": 4,
+                "key": "Space",
+                "waitMs": 100,
+                "success": true
+              }
+            ]
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "id": "ad0d69e5-8f96-4fc0-8508-7f7092cd0692",
+          "sha256": "6b79a40a0b63fe84db8a1b5c595f0daece9eb6a32c20fac574f0e5215510c063",
+          "mimeType": "image/png"
+        },
+        {
+          "id": "cf765482-36f2-403a-a945-1b121aae6556",
+          "sha256": "8e513045bcd979034ada8caf0634ea358cecc40879ad80ab4e088d24d7bc76f2",
+          "mimeType": "image/png"
+        }
+      ],
+      "chromeClosed": true,
+      "scriptedToolDecisionTurns": 5,
+      "modelCalls": 6,
+      "realProviderRequests": 1,
+      "maxOutboundImages": 2,
+      "screenshotHashes": [
+        "6b79a40a0b63fe84db8a1b5c595f0daece9eb6a32c20fac574f0e5215510c063",
+        "8e513045bcd979034ada8caf0634ea358cecc40879ad80ab4e088d24d7bc76f2"
+      ],
+      "pageErrors": [],
+      "elapsedMs": 52186,
+      "passGate": true
+    },
+    {
+      "mode": "blank",
+      "runId": "29e9ea68-6f62-4474-b91b-e333bb13b211",
+      "revisionId": "130e11c3-5cd0-449f-9dad-8320ba476e4e",
+      "sourceHash": "6b690967130462709578dce7b9061b8859b9cb9d2f7f96d36e174c6b7ffe88d7",
+      "browserSessionId": "pivloom-1af91f96-bd11-45f2-b577-8d6c553ffc9c",
+      "sandboxId": "b742542f-12db-4b80-b510-48fa52b69869",
+      "expected": "画布呈现可见的蛇和食物，并随方向键改变画面，空格暂停",
+      "keys": [
+        "ArrowRight",
+        "ArrowDown",
+        "Space"
+      ],
+      "sourceBytes": 2832,
+      "status": "ERROR",
+      "errorCode": "CHECK_BLOCKED",
+      "scriptedToolDecisionTurns": 6,
+      "modelCalls": 1,
+      "realProviderRequests": 0,
+      "maxOutboundImages": 0,
+      "screenshotHashes": [],
+      "pageErrors": [],
+      "elapsedMs": 8012,
+      "passGate": false
+    },
+    {
+      "mode": "fake-score",
+      "runId": "1d3ab583-8d73-4b88-bac2-381c627d091e",
+      "revisionId": "47e4438e-31d6-453d-ba29-1ceeeddccdb1",
+      "sourceHash": "85e64f468f4529c48e17dd443db3da7858f582924a31339fd4e6bea31c17a58d",
+      "browserSessionId": "pivloom-b66435bc-4725-4007-bae0-0e6dde64dd91",
+      "sandboxId": "b742542f-12db-4b80-b510-48fa52b69869",
+      "expected": "分数上升时蛇长度同步增加，Canvas 中蛇和食物真实变化",
+      "keys": [
+        "ArrowRight",
+        "ArrowDown"
+      ],
+      "sourceBytes": 2837,
+      "status": "ERROR",
+      "errorCode": "CHECK_BLOCKED",
+      "scriptedToolDecisionTurns": 6,
+      "modelCalls": 1,
+      "realProviderRequests": 0,
+      "maxOutboundImages": 0,
+      "screenshotHashes": [],
+      "pageErrors": [],
+      "elapsedMs": 8863,
+      "passGate": false
+    }
+  ],
+  "cleanupConfirmed": true,
+  "independentGet404": true,
+  "databaseWrites": 0,
+  "storageWrites": 0,
+  "fixtureBoundary": "Only the initial tool-choice turns are scripted. OpenSandbox, agent-browser keyboard/batch/screenshot, Pi image ToolResults and the final Provider verdict are real. No generated Snake or production project Run."
+}

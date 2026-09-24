@@ -1,0 +1,95 @@
+{
+  "mode": "blank",
+  "status": "REVIEWED",
+  "runId": "35eb236d-fd34-4c5a-b207-8154318ca732",
+  "revisionId": "48c68191-5395-4696-b055-e6b1656a672e",
+  "sourceHash": "445a7fee58f02eb2f6583a7e51ff4511136b9394171dd87a893309a38951807e",
+  "browserSessionId": "pivloom-018864b8-67b1-4a99-bc52-acbf93ed5a31",
+  "verdict": "failed",
+  "actual": "点击开始后状态从 menu 变为 playing，再经方向键/空格后状态变为 paused、步数为 2、最近按键为 Space，但 Canvas 始终为空白，没有可见的蛇或食物，画面未随方向键改变。",
+  "observationEventIds": [
+    "0c690c39-5354-4ac3-9c0f-8c875be7fe8b",
+    "3e451f5b-3cce-488d-bcfc-b04c85686860",
+    "4af8ec20-b66b-4a5b-aedb-3efbdfd4f273"
+  ],
+  "screenshotIds": [
+    "546c5eb5-ed39-4dea-9e71-56951b7c2e1c",
+    "c90d8185-1fdb-4c21-af5e-963e253f69d2"
+  ],
+  "evidence": [
+    {
+      "id": "0c690c39-5354-4ac3-9c0f-8c875be7fe8b",
+      "behaviorId": null,
+      "action": null,
+      "observationId": "32ba8f47-8d4b-4ae5-bdeb-afc83764c9ed",
+      "text": "贪吃蛇隔离负例\n开始\n状态: menu | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无\n\n方向键控制，空格暂停。"
+    },
+    {
+      "id": "3e451f5b-3cce-488d-bcfc-b04c85686860",
+      "behaviorId": "B01",
+      "action": "click",
+      "observationId": "0cbd7be3-1d08-49a4-b0bb-48fa27e6e09e",
+      "text": "贪吃蛇隔离负例\n开始\n状态: playing | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无\n\n方向键控制，空格暂停。"
+    },
+    {
+      "id": "4af8ec20-b66b-4a5b-aedb-3efbdfd4f273",
+      "behaviorId": "B01",
+      "action": "key_batch",
+      "observationId": "a56ea83d-2ffc-41cb-9d83-afc2bd500f75",
+      "text": "贪吃蛇隔离负例\n开始\n状态: paused | 分数: 0 | 长度: 3 | 步数: 2 | 最近按键: Space\n\n方向键控制，空格暂停。",
+      "batch": {
+        "startedAt": "2026-09-23T23:57:44.697Z",
+        "finishedAt": "2026-09-23T23:57:45.041Z",
+        "steps": [
+          {
+            "index": 0,
+            "key": "ArrowRight",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 1,
+            "key": "ArrowDown",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 2,
+            "key": "Space",
+            "waitMs": 100,
+            "success": true
+          }
+        ]
+      }
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "546c5eb5-ed39-4dea-9e71-56951b7c2e1c",
+      "mimeType": "image/png",
+      "sha256": "235c6c9b34c01f9e92e9bf1fce831701837a4b0dbf0d9b28527a9d0e2b1c748f"
+    },
+    {
+      "id": "c90d8185-1fdb-4c21-af5e-963e253f69d2",
+      "mimeType": "image/png",
+      "sha256": "e91c3b83fdf3fafa61b5a30e5adb0da952db8293cd9f7f12e1461286fac7b659"
+    }
+  ],
+  "chromeClosed": true,
+  "expected": "画布呈现可见的蛇和食物，并随方向键改变画面，空格暂停",
+  "keys": [
+    "ArrowRight",
+    "ArrowDown",
+    "Space"
+  ],
+  "modelCalls": 7,
+  "realProviderRequests": 1,
+  "maxOutboundImages": 2,
+  "pageErrors": [],
+  "screenshotHashes": [
+    "235c6c9b34c01f9e92e9bf1fce831701837a4b0dbf0d9b28527a9d0e2b1c748f",
+    "e91c3b83fdf3fafa61b5a30e5adb0da952db8293cd9f7f12e1461286fac7b659"
+  ],
+  "elapsedMs": 7451,
+  "boundary": "Local agent-browser0.38.1 and RemoteBrowser/real Pi Reviewer/real Provider. No OpenSandbox, DB writes, Storage writes or generated Snake."
+}

@@ -1,0 +1,95 @@
+{
+  "mode": "menu",
+  "status": "REVIEWED",
+  "runId": "a58fb59d-6192-429a-9fba-270b46b71217",
+  "revisionId": "98581501-dbd0-4103-961f-78f35fc01967",
+  "sourceHash": "5d16f0aa5d1d766788b5afec88f0d3276a59b8b0344798a750e1317e4356ef3d",
+  "browserSessionId": "pivloom-607f3c83-efce-4d73-a774-d6c951e68a0d",
+  "verdict": "failed",
+  "actual": "点击“开始”按钮后页面仍停留在菜单状态，HUD显示“状态: menu | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无”；后续发送的 ArrowRight、ArrowDown、Space 按键均无效果，Canvas 仍显示“按开始进入游戏”。没有蛇和食物渲染，游戏未启动。",
+  "observationEventIds": [
+    "1610a7bc-b4e9-4209-9b3a-fdf88dbb7616",
+    "147caac7-5498-4a62-a687-cdb87fc47731",
+    "2cbb8bff-4420-46d6-a3bc-131c49f3b572"
+  ],
+  "screenshotIds": [
+    "99c69557-52c5-4a6e-872f-ef58008e8061",
+    "e4df2eae-4196-47d8-b367-ecd2529fe414"
+  ],
+  "evidence": [
+    {
+      "id": "1610a7bc-b4e9-4209-9b3a-fdf88dbb7616",
+      "behaviorId": null,
+      "action": null,
+      "observationId": "d3fa938a-0438-44d2-8c0c-3b719bce7553",
+      "text": "贪吃蛇隔离负例\n开始\n状态: menu | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无\n\n方向键控制，空格暂停。"
+    },
+    {
+      "id": "147caac7-5498-4a62-a687-cdb87fc47731",
+      "behaviorId": "B01",
+      "action": "click",
+      "observationId": "0f1a6c6f-2975-47f7-ab6f-817959dcabfa",
+      "text": "贪吃蛇隔离负例\n开始\n状态: menu | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无\n\n方向键控制，空格暂停。"
+    },
+    {
+      "id": "2cbb8bff-4420-46d6-a3bc-131c49f3b572",
+      "behaviorId": "B01",
+      "action": "key_batch",
+      "observationId": "fdda953b-712f-4c15-a1ed-a0c210de4523",
+      "text": "贪吃蛇隔离负例\n开始\n状态: menu | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无\n\n方向键控制，空格暂停。",
+      "batch": {
+        "startedAt": "2026-09-23T23:58:27.336Z",
+        "finishedAt": "2026-09-23T23:58:27.676Z",
+        "steps": [
+          {
+            "index": 0,
+            "key": "ArrowRight",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 1,
+            "key": "ArrowDown",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 2,
+            "key": "Space",
+            "waitMs": 100,
+            "success": true
+          }
+        ]
+      }
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "99c69557-52c5-4a6e-872f-ef58008e8061",
+      "mimeType": "image/png",
+      "sha256": "e39323612cd8f6e936dfe1ee4a6eaf4cfe21f5c9d087d7df01fdced8f35cfff0"
+    },
+    {
+      "id": "e4df2eae-4196-47d8-b367-ecd2529fe414",
+      "mimeType": "image/png",
+      "sha256": "2023cf6c053e037ce4c1a44863950f29aaf3c3f8472ad400ebb9bf80b52c2f6c"
+    }
+  ],
+  "chromeClosed": true,
+  "expected": "开始后离开菜单并显示可控制的蛇和食物",
+  "keys": [
+    "ArrowRight",
+    "ArrowDown",
+    "Space"
+  ],
+  "modelCalls": 7,
+  "realProviderRequests": 1,
+  "maxOutboundImages": 2,
+  "pageErrors": [],
+  "screenshotHashes": [
+    "e39323612cd8f6e936dfe1ee4a6eaf4cfe21f5c9d087d7df01fdced8f35cfff0",
+    "2023cf6c053e037ce4c1a44863950f29aaf3c3f8472ad400ebb9bf80b52c2f6c"
+  ],
+  "elapsedMs": 7854,
+  "boundary": "Local agent-browser0.38.1 and RemoteBrowser/real Pi Reviewer/real Provider. No OpenSandbox, DB writes, Storage writes or generated Snake."
+}

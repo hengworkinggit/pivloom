@@ -1,0 +1,130 @@
+{
+  "mode": "no-collision",
+  "status": "REVIEWED",
+  "runId": "591d1150-c244-42be-8bae-13d6adcd5cb5",
+  "revisionId": "bc314448-42be-41e5-9a3a-95ee6cb9bcb1",
+  "sourceHash": "b49a921f9c5b91cc3452807e1825d2c10fb178e4e6ebe756665fe1c7ed5c8f28",
+  "browserSessionId": "pivloom-80bbd785-2750-48cb-bb16-b15f0780013d",
+  "verdict": "failed",
+  "actual": "蛇到达右墙后没有结束游戏，而是穿墙：截图显示 playing 状态步数 8，蛇头从左侧出现，身体被分隔在左右两侧，Canvas 中出现分段的绿色方块，说明发生了穿墙而非结束。",
+  "observationEventIds": [
+    "86186198-7c7e-4b59-a1e1-3aa795055d9f",
+    "c34b5dfd-5071-4c5c-a9f2-d7fa005da298",
+    "b990f164-2a20-4f00-b9b8-770603605dac"
+  ],
+  "screenshotIds": [
+    "56d3c109-1b49-4a39-8224-2d21b25ea4ff",
+    "f6e35f76-1622-44d6-bc18-83f2c3c88b12"
+  ],
+  "evidence": [
+    {
+      "id": "86186198-7c7e-4b59-a1e1-3aa795055d9f",
+      "behaviorId": null,
+      "action": null,
+      "observationId": "bd387679-d7d5-4ac4-a552-955d0bfc78b4",
+      "text": "贪吃蛇隔离负例\n开始\n状态: menu | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无\n\n方向键控制，空格暂停。"
+    },
+    {
+      "id": "c34b5dfd-5071-4c5c-a9f2-d7fa005da298",
+      "behaviorId": "B01",
+      "action": "click",
+      "observationId": "de91ef5c-4552-4249-964c-3f8b796b83e6",
+      "text": "贪吃蛇隔离负例\n开始\n状态: playing | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无\n\n方向键控制，空格暂停。"
+    },
+    {
+      "id": "b990f164-2a20-4f00-b9b8-770603605dac",
+      "behaviorId": "B01",
+      "action": "key_batch",
+      "observationId": "30029060-ef16-4023-8374-17e7a09e4dea",
+      "text": "贪吃蛇隔离负例\n开始\n状态: playing | 分数: 0 | 长度: 3 | 步数: 8 | 最近按键: ArrowRight\n\n方向键控制，空格暂停。",
+      "batch": {
+        "startedAt": "2026-09-23T23:59:02.297Z",
+        "finishedAt": "2026-09-23T23:59:03.154Z",
+        "steps": [
+          {
+            "index": 0,
+            "key": "ArrowRight",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 1,
+            "key": "ArrowRight",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 2,
+            "key": "ArrowRight",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 3,
+            "key": "ArrowRight",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 4,
+            "key": "ArrowRight",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 5,
+            "key": "ArrowRight",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 6,
+            "key": "ArrowRight",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 7,
+            "key": "ArrowRight",
+            "waitMs": 100,
+            "success": true
+          }
+        ]
+      }
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "56d3c109-1b49-4a39-8224-2d21b25ea4ff",
+      "mimeType": "image/png",
+      "sha256": "e39323612cd8f6e936dfe1ee4a6eaf4cfe21f5c9d087d7df01fdced8f35cfff0"
+    },
+    {
+      "id": "f6e35f76-1622-44d6-bc18-83f2c3c88b12",
+      "mimeType": "image/png",
+      "sha256": "b7544606707e084925cf7659e1a8ac45be44facf5d9aaa34f1b4dd43a105b812"
+    }
+  ],
+  "chromeClosed": true,
+  "expected": "蛇到达右墙后游戏结束，不从左侧穿墙继续",
+  "keys": [
+    "ArrowRight",
+    "ArrowRight",
+    "ArrowRight",
+    "ArrowRight",
+    "ArrowRight",
+    "ArrowRight",
+    "ArrowRight",
+    "ArrowRight"
+  ],
+  "modelCalls": 7,
+  "realProviderRequests": 1,
+  "maxOutboundImages": 2,
+  "pageErrors": [],
+  "screenshotHashes": [
+    "e39323612cd8f6e936dfe1ee4a6eaf4cfe21f5c9d087d7df01fdced8f35cfff0",
+    "b7544606707e084925cf7659e1a8ac45be44facf5d9aaa34f1b4dd43a105b812"
+  ],
+  "elapsedMs": 8875,
+  "boundary": "Local agent-browser0.38.1 and RemoteBrowser/real Pi Reviewer/real Provider. No OpenSandbox, DB writes, Storage writes or generated Snake."
+}

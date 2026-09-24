@@ -1,0 +1,125 @@
+{
+  "case": "RC-05 real OpenSandbox + Pi Reviewer + real Provider controlled Canvas positive/negative",
+  "runtimeSha": "4733d3a2c860418f6c71a95535c800887d055be2",
+  "profile": {
+    "provider": "openai-completions",
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/coding/v3",
+    "modelId": "kimi-k2.7-code",
+    "configVersion": 2
+  },
+  "browserVersion": "agent-browser 0.38.1",
+  "piVersion": "0.86.1",
+  "sandboxId": "4d501fdc-c36e-4be8-bb8c-adc03e4b8a48",
+  "cases": [
+    {
+      "mode": "blank",
+      "runId": "ee418276-16d0-4a5a-9fb6-3e822e88c66d",
+      "revisionId": "a938dbf3-1d5c-4626-bfa9-550266b8c7b7",
+      "sourceHash": "6b690967130462709578dce7b9061b8859b9cb9d2f7f96d36e174c6b7ffe88d7",
+      "browserSessionId": "pivloom-eb84065e-dd25-41aa-8606-17dad5c0c7af",
+      "sandboxId": "4d501fdc-c36e-4be8-bb8c-adc03e4b8a48",
+      "expected": "画布呈现可见的蛇和食物，并随方向键改变画面，空格暂停",
+      "keys": [
+        "ArrowRight",
+        "ArrowDown",
+        "Space"
+      ],
+      "sourceBytes": 2832,
+      "status": "REVIEWED",
+      "verdict": "failed",
+      "actual": "Canvas 全程为空白（开始前后、按键后均无任何像素渲染），只有 HUD 状态文本从 menu 变为 playing，步数从 0 增加到 2，最后 paused；没有可见的蛇和食物，方向键未带来可观察的画面变化",
+      "reproSteps": [
+        "打开 /blank 页面，确认 Canvas 空白、HUD 状态为 menu",
+        "点击“开始”按钮，观察 Canvas 与 HUD",
+        "执行 ArrowRight、ArrowDown、Space 按键序列",
+        "截图检查 Canvas 是否可见蛇/食物及画面变化"
+      ],
+      "observationEventIds": [
+        "4469850d-93cd-462e-9dc8-fd77107ec210",
+        "40e8dd1b-c6f8-4f05-8d17-c83405b87a55",
+        "e018f5cf-962f-4d01-8dab-49beaf4cbe03",
+        "e018f5cf-962f-4d01-8dab-49beaf4cbe03"
+      ],
+      "screenshotIds": [
+        "fc054f3e-42d8-4888-85af-bff1c4c240fc",
+        "4392c24d-e7b5-4466-bcdc-adcdd8e9f308"
+      ],
+      "evidence": [
+        {
+          "id": "4469850d-93cd-462e-9dc8-fd77107ec210",
+          "behaviorId": null,
+          "action": null,
+          "observationId": "a6344035-85ea-431c-bf64-28aaa645eb0b",
+          "text": "贪吃蛇隔离负例\n开始\n状态: menu | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无\n\n方向键控制，空格暂停。"
+        },
+        {
+          "id": "40e8dd1b-c6f8-4f05-8d17-c83405b87a55",
+          "behaviorId": "B01",
+          "action": "click",
+          "observationId": "ff0cbc67-9df2-457b-9ef1-0d85650b1cc7",
+          "text": "贪吃蛇隔离负例\n开始\n状态: playing | 分数: 0 | 长度: 3 | 步数: 0 | 最近按键: 无\n\n方向键控制，空格暂停。"
+        },
+        {
+          "id": "e018f5cf-962f-4d01-8dab-49beaf4cbe03",
+          "behaviorId": "B01",
+          "action": "key_batch",
+          "observationId": "870b5aaa-5337-455e-9554-37ded25be8f6",
+          "text": "贪吃蛇隔离负例\n开始\n状态: paused | 分数: 0 | 长度: 3 | 步数: 2 | 最近按键: Space\n\n方向键控制，空格暂停。",
+          "batch": {
+            "startedAt": "2026-09-24T00:00:38.992Z",
+            "finishedAt": "2026-09-24T00:00:40.512Z",
+            "steps": [
+              {
+                "index": 0,
+                "key": "ArrowRight",
+                "waitMs": 100,
+                "success": true
+              },
+              {
+                "index": 1,
+                "key": "ArrowDown",
+                "waitMs": 100,
+                "success": true
+              },
+              {
+                "index": 2,
+                "key": "Space",
+                "waitMs": 100,
+                "success": true
+              }
+            ]
+          }
+        }
+      ],
+      "artifacts": [
+        {
+          "id": "fc054f3e-42d8-4888-85af-bff1c4c240fc",
+          "sha256": "0efd074efd3daa590378ddc79a0c33f84b79a32a2e515450a5398834a560a563",
+          "mimeType": "image/png"
+        },
+        {
+          "id": "4392c24d-e7b5-4466-bcdc-adcdd8e9f308",
+          "sha256": "e7bbc87d6c79587db3197c2b6782f29add3e8161212d5b951336ebb2c25f89a3",
+          "mimeType": "image/png"
+        }
+      ],
+      "chromeClosed": true,
+      "scriptedToolDecisionTurns": 6,
+      "modelCalls": 8,
+      "realProviderRequests": 2,
+      "maxOutboundImages": 2,
+      "screenshotHashes": [
+        "0efd074efd3daa590378ddc79a0c33f84b79a32a2e515450a5398834a560a563",
+        "e7bbc87d6c79587db3197c2b6782f29add3e8161212d5b951336ebb2c25f89a3"
+      ],
+      "pageErrors": [],
+      "elapsedMs": 77152,
+      "passGate": true
+    }
+  ],
+  "cleanupConfirmed": true,
+  "independentGet404": true,
+  "databaseWrites": 0,
+  "storageWrites": 0,
+  "fixtureBoundary": "Only the initial tool-choice turns are scripted. OpenSandbox, agent-browser keyboard/batch/screenshot, Pi image ToolResults and the final Provider verdict are real. No generated Snake or production project Run."
+}
