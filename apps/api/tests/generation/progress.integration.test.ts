@@ -85,6 +85,9 @@ describe.skipIf(process.env.PIVLOOM_PROGRESS_INTEGRATION !== '1')('rolling Run p
       await repo.cancel(ownerId, runId);
       await expect(repo.appendEvent(ownerId, runId, { type:'tool.completed',roleRunId:roleId,
         progress:true,payload:{toolName:'project_summary',success:true} })).rejects.toMatchObject({code:'RUN_NOT_ACTIVE'});
+      await expect(repo.appendEvent(ownerId, runId, { type:'tool.output',roleRunId:roleId,progress:true,
+        payload:{progressKind:'provider_retry',success:false,retryRequestNumber:3,retryAttempt:2,retryMaxAttempts:6,retryDelayMs:2000} }))
+        .rejects.toMatchObject({code:'RUN_NOT_ACTIVE'});
     } finally {
       const client = await admin.connect();
       try {
