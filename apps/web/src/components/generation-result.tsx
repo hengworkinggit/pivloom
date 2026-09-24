@@ -11,6 +11,18 @@ import { GenerationReview } from "./generation-review";
 import { useUiPreferences } from "@/lib/ui-preferences";
 import { activatePrivatePreview } from "@/lib/preview-session";
 
+const PREVIEW_COOKIE_REFRESH_WINDOW_MS = 120_000;
+interface PreviewAuthorization {
+  url: string;
+  projectId: string;
+  revisionId: string;
+  generation: GenerationApi;
+  retry: number;
+  leaseExpiresAt: number;
+  cookieExpiresAt: number;
+  accepted: boolean;
+}
+
 function SourceViewer({ revision, generation }: { revision: Revision; generation: GenerationApi }) {
   const ui = useUiPreferences();
   const manifestLoader = useCallback(async () => {
@@ -72,9 +84,10 @@ export function GenerationResult({ projectId, revision, preview, generation, act
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [reloadKey, setReloadKey] = useState(0);
   const [loaded, setLoaded] = useState<string | null>(null);
-  const [authorizedUrl, setAuthorizedUrl] = useState<string | null>(null);
+  const [authorization, setAuthorization] = useState<PreviewAuthorization | null>(null);
   const [accessError, setAccessError] = useState<{ key: string; message: string } | null>(null);
   const [accessRetry, setAccessRetry] = useState(0);
+  const [authorizationTick, setAuthorizationTick] = useState(0);
   const [observedAt, setObservedAt] = useState(() => Date.now());
   useEffect(() => {
     if (!preview?.expiresAt) return;
@@ -85,21 +98,50 @@ export function GenerationResult({ projectId, revision, preview, generation, act
   const expired = preview?.state === "expired" || !!preview?.expiresAt && Date.parse(preview.expiresAt) <= observedAt;
   const url = expired ? null : previewUrl(preview, revision, typeof window === "undefined" ? "" : window.location.origin);
   const revisionId = revision?.id;
-  const accessKey = `${url ?? "empty"}:${accessRetry}`;
+  const accessKey = `${projectId}:${revisionId ?? "empty"}:${url ?? "empty"}:${accessRetry}`;
   const previewError = accessError?.key === accessKey ? accessError.message : "";
   useEffect(() => {
-    if (!url || !revisionId) return;
+    if (!url || !revisionId || !preview?.expiresAt || previewError) return;
+    const leaseExpiresAt = Date.parse(preview.expiresAt);
+    if (!Number.isFinite(leaseExpiresAt) || leaseExpiresAt <= Date.now()) return;
+    const bound = authorization?.url === url && authorization.projectId === projectId
+      && authorization.revisionId === revisionId && authorization.generation === generation
+      && authorization.retry === accessRetry;
+    if (bound) {
+      const extended = leaseExpiresAt > authorization.leaseExpiresAt;
+      const acceptedExtension = extended && revision?.status === "accepted" && !authorization.accepted;
+      const refreshAt = authorization.cookieExpiresAt - PREVIEW_COOKIE_REFRESH_WINDOW_MS;
+      if (!extended || !acceptedExtension && Date.now() < refreshAt) {
+        if (extended) {
+          const timer = setTimeout(() => setAuthorizationTick((value) => value + 1),
+            Math.max(0, refreshAt - Date.now()));
+          return () => clearTimeout(timer);
+        }
+        return;
+      }
+    }
     const controller = new AbortController();
     void generation.openPreview(projectId, revisionId).then(async (access) => {
       if (access.revisionId !== revisionId || access.url !== url) throw new Error("预览版本不一致，请重新加载项目。");
       return activatePrivatePreview(access, controller.signal);
-    }).then((ready) => { if (!controller.signal.aborted) setAuthorizedUrl(ready); })
+    }).then((ready) => {
+      if (!controller.signal.aborted) {
+        setAuthorization({ url: ready, projectId, revisionId, generation, retry: accessRetry,
+          // The gateway floors Cookie Max-Age to whole seconds. This estimate
+          // stays conservative and never outlives the lease shown by the API.
+          leaseExpiresAt, cookieExpiresAt: leaseExpiresAt - 1_000,
+          accepted: revision?.status === "accepted" });
+        setAccessError(null);
+      }
+    })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) setAccessError({ key: accessKey, message: error instanceof Error ? error.message : "预览授权失败，请重试。" });
       });
     return () => controller.abort();
-  }, [accessKey, generation, projectId, revisionId, url]);
-  const frameUrl = authorizedUrl === url ? url : null;
+  }, [accessKey, accessRetry, authorization, authorizationTick, generation, preview?.expiresAt, previewError, projectId, revision?.status, revisionId, url]);
+  const frameUrl = !previewError && authorization?.url === url && authorization.projectId === projectId
+    && authorization.revisionId === revisionId && authorization.generation === generation
+    && authorization.retry === accessRetry ? url : null;
   const frameKey = `${frameUrl ?? "empty"}:${reloadKey}`;
   const candidate = revision?.status === "candidate";
   return <section className="result-panel" aria-label={ui.text("应用结果", "App result")}>
