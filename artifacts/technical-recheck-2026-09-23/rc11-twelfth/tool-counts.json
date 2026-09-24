@@ -1,0 +1,30 @@
+[
+  {
+    "count": 1,
+    "toolName": "browser_click"
+  },
+  {
+    "count": 17,
+    "toolName": "browser_key_batch"
+  },
+  {
+    "count": 1,
+    "toolName": "browser_logs"
+  },
+  {
+    "count": 1,
+    "toolName": "browser_open"
+  },
+  {
+    "count": 1,
+    "toolName": "browser_reload"
+  },
+  {
+    "count": 2,
+    "toolName": "browser_screenshot"
+  },
+  {
+    "count": 1,
+    "toolName": "submit_review"
+  }
+]

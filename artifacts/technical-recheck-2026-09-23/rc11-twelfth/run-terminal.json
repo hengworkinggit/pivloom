@@ -1,0 +1,21 @@
+{
+  "phase": "persist",
+  "runId": "3d5e8667-db48-4afb-a724-a59d2b1545d3",
+  "state": "completed",
+  "retryOf": "2bdbc38e-a170-444c-8ec2-8f1abab17e14",
+  "createdAt": "2026-09-24T15:00:30.386+00:00",
+  "errorCode": null,
+  "sandboxId": "77106c4e-1b7e-4929-9992-fa3ad3fa083f",
+  "finishedAt": "2026-09-24T15:36:10.507+00:00",
+  "revisionNo": 12,
+  "sourceHash": "b1e0f6b997360ba474df59d1594cb1f1580470bb1c3dfd095c912742aeecd9cb",
+  "buildStatus": "passed",
+  "cleanupState": "clear",
+  "sandboxState": "active",
+  "revisionStatus": "accepted",
+  "remoteSandboxId": "b0873a0a-5fe6-467b-b2b3-1b137316714c",
+  "resultRevisionId": "ffa20081-c51c-49b0-8e53-1ca6dbf24e17",
+  "sandboxExpiresAt": "2026-09-24T16:06:10.47+00:00",
+  "projectOperationId": null,
+  "projectCurrentRevisionId": "ffa20081-c51c-49b0-8e53-1ca6dbf24e17"
+}

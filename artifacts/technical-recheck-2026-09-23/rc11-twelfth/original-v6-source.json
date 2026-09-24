@@ -1,0 +1,11 @@
+{
+  "runId": "192fd9e5-3a81-4fea-abbb-182bbefaed25",
+  "revisionId": "b2ca04f3-52d1-4977-a05b-09bd8571abae",
+  "revisionNo": 6,
+  "sourceHash": "b1e0f6b997360ba474df59d1594cb1f1580470bb1c3dfd095c912742aeecd9cb",
+  "roleModelCalls": {
+    "builder": 10,
+    "reviewer": 54,
+    "coordinator": 2
+  }
+}

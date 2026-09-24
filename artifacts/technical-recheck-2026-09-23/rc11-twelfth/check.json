@@ -1,0 +1,338 @@
+{
+  "id": "bb809321-45bb-41ae-b742-423c5bbc785c",
+  "items": [
+    {
+      "actual": "首次加载后状态为“未开始”，当前分数 0，最高分 0，开始游戏按钮可见，Canvas 中可见网格、蛇和食物，操作说明完整显示",
+      "verdict": "passed",
+      "expected": "Canvas 棋盘可见，当前分数显示为 0，最高分显示为 0 或已保存的最高分，操作说明可见，开始按钮可见；蛇静止不动",
+      "behaviorId": "B01",
+      "reproSteps": [
+        "打开游戏页面",
+        "观察初始界面元素"
+      ],
+      "screenshotIds": [
+        "8d146424-7988-4162-b8d8-ec78fa1f77bd"
+      ],
+      "observationEventIds": [
+        "a8519ae0-a34f-47d7-933e-96e46c03f733"
+      ]
+    },
+    {
+      "actual": "使用 Enter 启动游戏后状态变为“已暂停”，开始按钮消失，游戏已开始运行",
+      "verdict": "passed",
+      "expected": "蛇开始在 Canvas 上按默认方向移动，游戏进入运行状态，开始按钮消失或变为不可触发",
+      "behaviorId": "B02",
+      "reproSteps": [
+        "聚焦开始按钮并按下 Enter",
+        "观察状态变化与按钮消失"
+      ],
+      "screenshotIds": [
+        "e40a8597-ce2b-4fe7-b82c-deb125fa7aa0"
+      ],
+      "observationEventIds": [
+        "1730e3ec-d4cf-4494-8cbc-ee53c3e1d3ad"
+      ]
+    },
+    {
+      "actual": "在两次 Space 之间的运行时段内，蛇头沿右方向在网格上前进了若干格",
+      "verdict": "passed",
+      "expected": "Canvas 上蛇头与蛇身整体沿当前方向连续前进，网格位置逐格更新",
+      "behaviorId": "B03",
+      "reproSteps": [
+        "按 Space 继续游戏",
+        "等待若干 tick",
+        "按 Space 暂停",
+        "对比蛇的位置变化"
+      ],
+      "screenshotIds": [
+        "658b606e-51be-42f2-9abd-cb3b5e463c0c"
+      ],
+      "observationEventIds": [
+        "0efd88f9-d823-4888-94a3-c2275744f5c9"
+      ]
+    },
+    {
+      "actual": "运行中按下 ArrowUp，蛇从水平向右转为竖直向上移动",
+      "verdict": "passed",
+      "expected": "蛇的移动方向按按键方向改变（非反向键立即生效），Canvas 中蛇头按新方向前进",
+      "behaviorId": "B04",
+      "reproSteps": [
+        "让蛇向右移动",
+        "按下上方向键",
+        "暂停后观察蛇头朝上"
+      ],
+      "screenshotIds": [
+        "1be003f6-c565-46b7-9a0f-ce281aa40239"
+      ],
+      "observationEventIds": [
+        "8397e308-4cb1-4bca-b42e-89f773d67e1d"
+      ]
+    },
+    {
+      "actual": "蛇向右移动过程中按 ArrowLeft，蛇继续向右前进，状态保持运行，未触发游戏结束",
+      "verdict": "passed",
+      "expected": "蛇仍继续向右移动，不会因反向键立即掉头，也不会因此直接触发游戏结束",
+      "behaviorId": "B05",
+      "reproSteps": [
+        "让蛇向右移动",
+        "按下左方向键",
+        "观察蛇仍向右移动且未结束"
+      ],
+      "screenshotIds": [
+        "069850be-e8e4-48ea-a77c-2840af80a9fd"
+      ],
+      "observationEventIds": [
+        "881e5567-6acb-40c7-8861-1f67d7879134"
+      ]
+    },
+    {
+      "actual": "运行中按 Space 状态变为“已暂停”，再次按 Space 恢复运行且蛇继续移动",
+      "verdict": "passed",
+      "expected": "第一次按空格后蛇停止移动；再次按空格后蛇从暂停位置继续按原方向移动",
+      "behaviorId": "B06",
+      "reproSteps": [
+        "开始游戏",
+        "按 Space 暂停",
+        "再按 Space 继续"
+      ],
+      "screenshotIds": [
+        "658b606e-51be-42f2-9abd-cb3b5e463c0c"
+      ],
+      "observationEventIds": [
+        "0efd88f9-d823-4888-94a3-c2275744f5c9"
+      ]
+    },
+    {
+      "actual": "操控蛇头到达食物格后，当前分数从 0 变为 1，蛇身由 3 格变为 4 格，原食物消失并在别处出现新食物",
+      "verdict": "passed",
+      "expected": "食物消失并在别处重新生成，蛇身长度比之前多一格，当前分数增加 1",
+      "behaviorId": "B07",
+      "reproSteps": [
+        "开始游戏",
+        "控制蛇移动到食物所在格子",
+        "暂停后检查分数与蛇长变化"
+      ],
+      "screenshotIds": [
+        "16f65337-7871-4c95-9b45-c5ff5fa038a6"
+      ],
+      "observationEventIds": [
+        "708928eb-b303-4f57-bfff-185cc71ae4a4"
+      ]
+    },
+    {
+      "actual": "控制蛇撞向右侧墙壁后状态变为“游戏结束”，出现“重新开始”按钮，蛇停止移动",
+      "verdict": "passed",
+      "expected": "游戏结束，蛇停止移动，页面显示游戏结束提示，并出现重新开始按钮",
+      "behaviorId": "B08",
+      "reproSteps": [
+        "开始游戏",
+        "控制蛇向右墙移动",
+        "观察游戏结束提示与重新开始按钮"
+      ],
+      "screenshotIds": [
+        "62d492b2-0213-42bf-ac5b-2cdcb569d981"
+      ],
+      "observationEventIds": [
+        "bb5a9658-2b08-45ea-b873-ad9398ff8e7e"
+      ]
+    },
+    {
+      "actual": "当蛇长为 5 格时，执行右-下-左转向使蛇头撞到身体，状态变为“游戏结束”并出现重新开始按钮",
+      "verdict": "passed",
+      "expected": "游戏结束，蛇停止移动，页面显示游戏结束提示，并出现重新开始按钮",
+      "behaviorId": "B09",
+      "reproSteps": [
+        "使蛇吃到食物变长",
+        "快速转向让蛇头撞向身体",
+        "观察游戏结束"
+      ],
+      "screenshotIds": [
+        "a89a552a-113e-4696-9fce-ebcd65db7824"
+      ],
+      "observationEventIds": [
+        "51e893e4-0222-419c-a45a-62d70abb9030"
+      ]
+    },
+    {
+      "actual": "吃第一个食物后分数变为 1，吃第二个食物后分数变为 2，与蛇身增长一致",
+      "verdict": "passed",
+      "expected": "页面上当前分数从 0 依次更新为 1、2，与 Canvas 中蛇长度变化保持一致",
+      "behaviorId": "B10",
+      "reproSteps": [
+        "控制蛇吃第一个食物",
+        "记录分数为 1",
+        "控制蛇吃第二个食物",
+        "记录分数为 2"
+      ],
+      "screenshotIds": [
+        "16f65337-7871-4c95-9b45-c5ff5fa038a6",
+        "69b90ffd-82c2-45db-b5e8-b264908f38ed"
+      ],
+      "observationEventIds": [
+        "708928eb-b303-4f57-bfff-185cc71ae4a4",
+        "286c49fb-f491-4072-9dc1-e6e83550eb17"
+      ]
+    },
+    {
+      "actual": "本局最终分数为 2，游戏结束后最高分从 0 更新为 2",
+      "verdict": "passed",
+      "expected": "最高分显示为本次最终分数，数字已更新",
+      "behaviorId": "B11",
+      "reproSteps": [
+        "以分数 2 结束游戏",
+        "查看最高分区域显示为 2"
+      ],
+      "screenshotIds": [
+        "a89a552a-113e-4696-9fce-ebcd65db7824"
+      ],
+      "observationEventIds": [
+        "51e893e4-0222-419c-a45a-62d70abb9030"
+      ]
+    },
+    {
+      "actual": "点击“重新开始”后状态回到“未开始”，当前分数 0，蛇回到初始长度与位置，开始按钮再次出现；刷新后同样重置为初始状态且最高分保留",
+      "verdict": "passed",
+      "expected": "Canvas 重置为初始状态，当前分数恢复为 0，蛇恢复初始长度与方向，游戏可再次开始",
+      "behaviorId": "B12",
+      "reproSteps": [
+        "游戏结束后点击重新开始",
+        "观察分数、状态与蛇位置重置"
+      ],
+      "screenshotIds": [
+        "0294f0c2-1f63-43bc-a469-40424572a795"
+      ],
+      "observationEventIds": [
+        "adc91709-f31d-4bce-96c7-7fe6ab326574",
+        "bccd6bc8-4edf-4bc5-951e-4d7b422faff7"
+      ]
+    },
+    {
+      "actual": "Canvas 显示深色网格背景、绿色蛇身（头部更亮）、红色圆形食物，三者均严格对齐网格",
+      "verdict": "passed",
+      "expected": "棋盘网格/背景、蛇（头与身体）、食物三者颜色/形状区分明显，均位于网格格子上",
+      "behaviorId": "B13",
+      "reproSteps": [
+        "打开页面",
+        "观察 Canvas 绘制内容"
+      ],
+      "screenshotIds": [
+        "8d146424-7988-4162-b8d8-ec78fa1f77bd"
+      ],
+      "observationEventIds": [
+        "a8519ae0-a34f-47d7-933e-96e46c03f733"
+      ]
+    },
+    {
+      "actual": "在未开始、暂停、游戏结束、刷新后的状态下，右侧均显示方向键、空格暂停、吃食物、开始/重新开始等操作说明",
+      "verdict": "passed",
+      "expected": "始终显示方向键移动、空格暂停/继续、开始/重新开始等操作说明",
+      "behaviorId": "B14",
+      "reproSteps": [
+        "在不同状态下查看页面文字说明区域"
+      ],
+      "screenshotIds": [
+        "8d146424-7988-4162-b8d8-ec78fa1f77bd",
+        "0294f0c2-1f63-43bc-a469-40424572a795"
+      ],
+      "observationEventIds": [
+        "a8519ae0-a34f-47d7-933e-96e46c03f733",
+        "bccd6bc8-4edf-4bc5-951e-4d7b422faff7"
+      ]
+    },
+    {
+      "actual": "浏览器刷新后，最高分区域仍显示 2，未重置为 0",
+      "verdict": "passed",
+      "expected": "页面重新加载后，最高分区域仍显示刷新前的最高分，而不是重置为 0",
+      "behaviorId": "B15",
+      "reproSteps": [
+        "产生最高分 2",
+        "刷新浏览器页面",
+        "确认最高分仍为 2"
+      ],
+      "screenshotIds": [
+        "0294f0c2-1f63-43bc-a469-40424572a795"
+      ],
+      "observationEventIds": [
+        "bccd6bc8-4edf-4bc5-951e-4d7b422faff7"
+      ]
+    }
+  ],
+  "runId": "3d5e8667-db48-4afb-a724-a59d2b1545d3",
+  "groups": [
+    {
+      "id": "G1",
+      "title": "核心游戏流程",
+      "verdict": "passed",
+      "behaviorIds": [
+        "B01",
+        "B02",
+        "B03"
+      ],
+      "failedCount": 0,
+      "passedCount": 3,
+      "blockedCount": 0,
+      "requiredCount": 3
+    },
+    {
+      "id": "G2",
+      "title": "输入与控制",
+      "verdict": "passed",
+      "behaviorIds": [
+        "B04",
+        "B05",
+        "B06"
+      ],
+      "failedCount": 0,
+      "passedCount": 3,
+      "blockedCount": 0,
+      "requiredCount": 3
+    },
+    {
+      "id": "G3",
+      "title": "进阶规则与边界",
+      "verdict": "passed",
+      "behaviorIds": [
+        "B07",
+        "B08",
+        "B09"
+      ],
+      "failedCount": 0,
+      "passedCount": 3,
+      "blockedCount": 0,
+      "requiredCount": 3
+    },
+    {
+      "id": "G4",
+      "title": "结果与状态",
+      "verdict": "passed",
+      "behaviorIds": [
+        "B10",
+        "B11",
+        "B12"
+      ],
+      "failedCount": 0,
+      "passedCount": 3,
+      "blockedCount": 0,
+      "requiredCount": 3
+    },
+    {
+      "id": "G5",
+      "title": "视觉布局与持久化",
+      "verdict": "passed",
+      "behaviorIds": [
+        "B13",
+        "B14",
+        "B15"
+      ],
+      "failedCount": 0,
+      "passedCount": 3,
+      "blockedCount": 0,
+      "requiredCount": 3
+    }
+  ],
+  "summary": "全部 15 项计划行为均通过实际浏览器操作验证。Canvas 棋盘、蛇与食物绘制清晰；开始/暂停/方向键/反向拦截/吃食物/碰墙/撞自身/重新开始/最高分本地持久化均表现正确，浏览器控制台无报错。",
+  "verdict": "passed",
+  "createdAt": "2026-09-24T15:36:10.507+00:00",
+  "revisionId": "ffa20081-c51c-49b0-8e53-1ca6dbf24e17",
+  "sourceHash": "b1e0f6b997360ba474df59d1594cb1f1580470bb1c3dfd095c912742aeecd9cb"
+}

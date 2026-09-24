@@ -1,0 +1,31 @@
+{
+  "observedAt": "2026-09-24T15:45:17.985Z",
+  "deployment": {
+    "webSha": "887cd4fa1240b2db6b3abf7106804229c8149b05",
+    "apiSha": "887cd4fa1240b2db6b3abf7106804229c8149b05"
+  },
+  "project": {
+    "id": "b5031ebf-ec85-4c17-9433-3647d7d81a79",
+    "currentRevisionId": "ffa20081-c51c-49b0-8e53-1ca6dbf24e17",
+    "activeRun": null
+  },
+  "run": {
+    "id": "3d5e8667-db48-4afb-a724-a59d2b1545d3",
+    "state": "completed",
+    "resultRevisionId": "ffa20081-c51c-49b0-8e53-1ca6dbf24e17",
+    "errorCode": null
+  },
+  "check": {
+    "id": "bb809321-45bb-41ae-b742-423c5bbc785c",
+    "verdict": "passed",
+    "revisionId": "ffa20081-c51c-49b0-8e53-1ca6dbf24e17",
+    "sourceHash": "b1e0f6b997360ba474df59d1594cb1f1580470bb1c3dfd095c912742aeecd9cb"
+  },
+  "preview": {
+    "state": "ready",
+    "revisionId": "ffa20081-c51c-49b0-8e53-1ca6dbf24e17",
+    "sourceHash": "b1e0f6b997360ba474df59d1594cb1f1580470bb1c3dfd095c912742aeecd9cb",
+    "url": "https://ffa20081-c51c-49b0-8e53-1ca6dbf24e17.preview-pivloom-69-5-7-187.sslip.io/p/ffa20081-c51c-49b0-8e53-1ca6dbf24e17/",
+    "expiresAt": "2026-09-24T16:06:10.470Z"
+  }
+}

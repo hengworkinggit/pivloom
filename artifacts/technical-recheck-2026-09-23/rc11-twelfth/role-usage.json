@@ -1,0 +1,50 @@
+[
+  {
+    "role": "coordinator",
+    "state": "succeeded",
+    "usage": {
+      "source": "unreported",
+      "elapsedMs": 0,
+      "toolCalls": 0,
+      "modelCalls": 0,
+      "inputTokens": null,
+      "totalTokens": null,
+      "cachedTokens": null,
+      "outputTokens": null
+    },
+    "startedAt": "2026-09-24T15:00:30.429+00:00",
+    "finishedAt": "2026-09-24T15:00:30.455+00:00"
+  },
+  {
+    "role": "builder",
+    "state": "succeeded",
+    "usage": {
+      "source": "unreported",
+      "elapsedMs": 0,
+      "toolCalls": 0,
+      "modelCalls": 0,
+      "inputTokens": null,
+      "totalTokens": null,
+      "cachedTokens": null,
+      "outputTokens": null
+    },
+    "startedAt": "2026-09-24T15:00:30.505+00:00",
+    "finishedAt": "2026-09-24T15:00:44.65+00:00"
+  },
+  {
+    "role": "reviewer",
+    "state": "succeeded",
+    "usage": {
+      "source": "unreported",
+      "elapsedMs": 2121074.1970329997,
+      "toolCalls": 24,
+      "modelCalls": 24,
+      "inputTokens": null,
+      "totalTokens": null,
+      "cachedTokens": null,
+      "outputTokens": null
+    },
+    "startedAt": "2026-09-24T15:00:44.716+00:00",
+    "finishedAt": "2026-09-24T15:36:10.507+00:00"
+  }
+]
