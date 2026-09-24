@@ -40,6 +40,14 @@ function ProjectCard({ project, generation }: { project: ProjectSummary; generat
     return () => { controller.abort(); if (url) URL.revokeObjectURL(url); };
   }, [artifact, check, generation]);
   const thumbnail = image?.key === `${check?.id}:${artifact?.id}` ? image.url : null;
+  // The card reports the project's real task state: a task waiting for capacity
+  // must not read as an idle saved version, and the position comes from the
+  // scheduler rather than an estimate. A blocked task reports no position.
+  const activity = project.activeRunState === "queued"
+    ? { label: project.activeRunPosition ? ui.text(`排队中 · 第 ${project.activeRunPosition} 位`, `Queued · position ${project.activeRunPosition}`) : ui.text("排队中", "Queued"), tone: "queued" }
+    : project.activeRunState === "cancel_requested"
+      ? { label: ui.text("正在停止", "Stopping"), tone: "stopping" }
+      : project.activeRunState ? { label: ui.text("执行中", "Running"), tone: "running" } : null;
   return <Link className="project-card project-card-api" href={`/projects/${project.id}`}>
     <div className={`project-thumbnail api-project-thumbnail ${thumbnail ? "has-screenshot" : "no-screenshot"}`}>
       {thumbnail ? <img className="project-screenshot" src={thumbnail} alt={ui.text(`${project.title} 的已保存应用截图`, `Saved app screenshot for ${project.title}`)} />
@@ -49,7 +57,7 @@ function ProjectCard({ project, generation }: { project: ProjectSummary; generat
     <div className="project-card-body">
       <div className="project-name-row"><h3>{project.title}</h3><ChevronRight size={15} /></div>
       <p>{project.currentRevisionId ? ui.text("继续完善你的应用", "Keep building your app") : ui.text("项目已保存，随时开始创作", "Saved and ready whenever you are")}</p>
-      <div className="project-card-meta"><span className="card-state"><span className="mini-dot" />{project.currentRevisionId ? ui.text("已有版本", "Version ready") : ui.text("空项目", "Empty project")}</span><time dateTime={project.updatedAt}>{relativeTime(project.updatedAt)}</time></div>
+      <div className="project-card-meta"><span className={`card-state${activity ? ` card-state-${activity.tone}` : ""}`} data-testid={activity ? `project-activity-${activity.tone}` : undefined}><span className="mini-dot" />{activity ? activity.label : project.currentRevisionId ? ui.text("已有版本", "Version ready") : ui.text("空项目", "Empty project")}</span><time dateTime={project.updatedAt}>{relativeTime(project.updatedAt)}</time></div>
     </div>
   </Link>;
 }

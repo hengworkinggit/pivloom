@@ -113,10 +113,15 @@
 .a-workbench-page .view-tabs button[aria-selected=true]:after{display:none}
 .a-workbench-page .version-badge{display:none}
 .a-result-toolbar-extras{display:contents}
-.a-toolbar-version,.a-toolbar-hash,.a-toolbar-icon,.a-toolbar-check,.a-toolbar-publish{display:inline-flex;align-items:center;justify-content:center;gap:5px;flex-shrink:0;border:0;background:transparent;white-space:nowrap;cursor:pointer}
+.a-toolbar-version,.a-toolbar-hash,.a-toolbar-icon,.a-toolbar-check,.a-toolbar-publish,.a-toolbar-current{display:inline-flex;align-items:center;justify-content:center;gap:5px;flex-shrink:0;border:0;background:transparent;white-space:nowrap;cursor:pointer}
 .a-toolbar-version{order:2;padding:3px 4px;color:#33384b;font-size:13px;font-weight:700}
 .a-toolbar-version span{color:#a4a8b2;font-size:9px;font-weight:400}
 .a-toolbar-version svg{color:#adb2c0}
+/* While a historical version is open, the real current version stays visible
+   and one click returns to it. */
+.a-toolbar-current{order:2;gap:4px;padding:3px 6px;border:1px solid #e5e3f2;border-radius:5px;background:#f7f6fd;color:#625ce5;font-size:10px;font-weight:600}
+.a-toolbar-current code{color:#7a7d8d;font-size:9px;font-weight:400}
+.a-toolbar-current:hover{background:#efedfb}
 .a-toolbar-hash{order:3;padding:4px 6px;border:1px solid #e9e7f4;border-radius:5px;background:#faf9fd;color:#7a7d8d;font-size:10px}
 .a-toolbar-hash span{color:#a4a6b4;font-size:9px}
 .a-toolbar-hash code{font-size:10px}

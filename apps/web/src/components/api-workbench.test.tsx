@@ -34,7 +34,7 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
   saveDraft(ownerId, projectId, "创建中文读书清单");
   const run: Run = { id: runId, projectId, state: "building", phase: "implement", attempt: 0, requestText: "创建中文读书清单", modelProfileId: profileId, modelConfigVersion: 3, modelId: null, baseRevisionId: null, resultRevisionId: null, createdAt: now, deadlineAt: "2026-09-22T00:10:00.000Z", finishedAt: null, cleanupState: "clear", error: null, summary: null };
   const candidate: Revision = { id: revisionId, projectId, runId, revisionNo: 1, attempt: 0, sourceHash: "a".repeat(64), templateVersion: "fixture-v1", buildStatus: "passed", status: "candidate", createdAt: now, manifest: [{ path: "src/App.tsx", bytes: 31, sha256: "b".repeat(64) }] };
-  const project: ProjectDetailResponse = { project: { id: projectId, title: "读书清单", createdAt: now, updatedAt: now, currentRevisionId: null }, messages: [], currentRevision: null, activeRun: null, latestRun: null, latestCandidate: null, latestCheck: null, preview: null };
+  const project: ProjectDetailResponse = { project: { id: projectId, title: "读书清单", createdAt: now, updatedAt: now, currentRevisionId: null, activeRunState: null, activeRunPosition: null }, messages: [], currentRevision: null, activeRun: null, latestRun: null, latestCandidate: null, latestCheck: null, preview: null };
   const requests: { body: unknown; key: string | null }[] = [];
   let eventConnections = 0;
   let snapshotRequests = 0;

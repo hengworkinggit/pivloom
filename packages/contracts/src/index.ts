@@ -12,6 +12,15 @@ export const ProjectSummarySchema = z.object({
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   currentRevisionId: z.uuid().nullable(),
+  /**
+   * What the project is doing right now, so a list card can tell a task waiting
+   * for capacity apart from a task that is really executing. Null when the
+   * project has no open task. `activeRunPosition` is only ever a real scheduler
+   * position: null for a task that is not waiting, and null for one that is
+   * blocked behind its own project and so not yet competing for a slot.
+   */
+  activeRunState: z.enum(["queued", "accepted", "planning", "building", "verifying", "repairing", "finalizing", "cancel_requested"]).nullable().default(null),
+  activeRunPosition: z.number().int().positive().nullable().default(null),
 });
 export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
 

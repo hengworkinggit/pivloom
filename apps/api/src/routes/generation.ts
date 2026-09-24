@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
   CancelRunResponseSchema, CreateRunRequestSchema, CreateRunResponseSchema, PreviewResponseSchema, PreviewAccessResponseSchema,
-  RestorePreviewRequestSchema, RollbackRequestSchema,
+  RestorePreviewRequestSchema, RollbackRequestSchema, TaskListResponseSchema,
 } from "@pivloom/contracts";
 import type { GenerationService } from "../generation/service.js";
 import { ApiFailure } from "./errors.js";
@@ -30,22 +30,14 @@ export async function registerGenerationRoutes(app: FastifyInstance, options: {
       const accepted = await generation.accept(ownerId, projectId, body, key);
       const response = CreateRunResponseSchema.parse({ runId: accepted.run.id, state: accepted.run.state,
         eventsUrl: `/api/v1/runs/${accepted.run.id}/events`, replayed: accepted.replayed });
-      if (!accepted.replayed) {
-        let dispatched = false;
-        const start = () => {
-          if (dispatched) return;
-          dispatched = true;
-          reply.raw.off("finish", start);
-          reply.raw.off("close", start);
-          generation.start(accepted.run);
-        };
-        reply.raw.once("finish", start);
-        reply.raw.once("close", start);
-        // A disconnected caller still owns the durable request it submitted.
-        if (reply.raw.destroyed) setImmediate(start);
-      }
+      // The request is already durable. Dispatch is decided by the scheduler
+      // from persisted state, never by this connection, so a disconnected
+      // caller keeps the task it submitted and every executor sees one queue.
+      if (!accepted.replayed) generation.wake();
       return reply.code(202).send(response);
     });
+    secured.get("/api/v1/tasks", async (request) =>
+      TaskListResponseSchema.parse({ tasks: await service().tasks(requireOwner(request)) }));
     secured.get("/api/v1/runs/:id", async (request) => service().runDetail(requireOwner(request), id(request)));
     secured.post("/api/v1/runs/:id/cancel", async (request) => {
       const run = await service().cancel(requireOwner(request), id(request));

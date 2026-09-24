@@ -316,6 +316,11 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
       <button type="button" className="a-toolbar-version" onClick={() => setDrawer("history")} aria-label={`版本历史，正在查看 v${revision.revisionNo}`}>
         v{revision.revisionNo}<span>{revision.id === project.project.currentRevisionId ? "当前" : revision.status === "candidate" ? "候选" : "历史"}</span><ChevronDown size={12} />
       </button>
+      {/* Viewing a historical version must never hide which version is really
+          current: the two are labelled separately, and this returns to it. */}
+      {revision.id !== project.project.currentRevisionId && project.currentRevision && <button type="button" className="a-toolbar-current" onClick={() => setSelectedRevisionId(project.currentRevision!.id)} aria-label={`回到当前版本 v${project.currentRevision.revisionNo}`}>
+        {ui.text("当前", "Current")} v{project.currentRevision.revisionNo}<code>{project.currentRevision.sourceHash.slice(0, 8)}</code>
+      </button>}
       <button type="button" className="a-toolbar-hash" title={revision.sourceHash} onClick={() => void copySourceHash()} aria-label="复制完整源码 hash">
         <span>hash</span><code data-testid="workbench-source-hash-short">{revision.sourceHash.slice(0, 8)}</code><Copy size={12} />
       </button>

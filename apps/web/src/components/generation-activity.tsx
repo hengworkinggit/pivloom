@@ -36,13 +36,16 @@ function describe(event: RunEvent, locale: Locale) {
 
 export function GenerationActivity({ run, events, roles = [] }: { run: Run; events: RunEvent[]; roles?: RoleRun[] }) {
   const ui = useUiPreferences();
-  const active = !TerminalRunStates.has(run.state);
+  // A queued task is not executing: it holds no sandbox and no role is working,
+  // so it must not render as "处理中" with a spinner above the composer.
+  const queued = run.state === "queued";
+  const active = !queued && !TerminalRunStates.has(run.state);
   const visible = events.filter((event) => event.runId === run.id);
   const latest = visible.filter((event) => event.type !== "tool.output").slice(-4);
   return <article className="assistant-message active-message" data-testid="role-timeline">
-    <div className="assistant-message-heading"><LoomMark /><strong>Pivloom</strong><span>{active ? ui.text("处理中", "Working") : ui.text("任务记录", "Run activity")}</span></div>
+    <div className="assistant-message-heading"><LoomMark /><strong>Pivloom</strong><span>{queued ? ui.text("排队中", "Queued") : active ? ui.text("处理中", "Working") : ui.text("任务记录", "Run activity")}</span></div>
     <div className="assistant-message-body">
-      <p className="run-label" role="status">{active && <LoaderCircle className="spin" size={13} />}{run.state === "accepted" ? ui.text("需求已接收", "Request accepted") : active ? (ui.locale === "en" ? phaseLabelsEn : phaseLabels)[run.phase] : ui.text("本次任务已结束", "Run finished")}</p>
+      <p className="run-label" role="status">{active && <LoaderCircle className="spin" size={13} />}{queued ? ui.text("已排队，资源可用后自动开始", "Queued; it starts as soon as capacity is free") : run.state === "accepted" ? ui.text("需求已接收", "Request accepted") : active ? (ui.locale === "en" ? phaseLabelsEn : phaseLabels)[run.phase] : ui.text("本次任务已结束", "Run finished")}</p>
       <p className="generation-run-model">{ui.text("模型配置", "Model config")} v{run.modelConfigVersion}{run.modelId ? ` · ${run.modelId}` : ""} · {ui.text("任务", "Run")} {run.id.slice(0, 8)}</p>
       {roles.length > 0 && <ul className="generation-role-activity" data-testid="role-activity" aria-label={ui.text("实际角色活动", "Role activity")}>{roles.filter((role) => role.runId === run.id).map((role) => <li key={role.id}>
         <strong>{(ui.locale === "en" ? roleLabelsEn : roleLabels)[role.role]}</strong><span>{(ui.locale === "en" ? roleStateLabelsEn : roleStateLabels)[role.state]}</span>

@@ -40,7 +40,7 @@ async function openWorkbench(stream: (after: string, signal: AbortSignal) => Res
   saveDraft(ownerId, projectId, "下一条中文需求\n保留换行");
   if (options.autoStart) window.history.replaceState(null, "", `/projects/${projectId}?start=1`);
   const run: Run = { id: runId, projectId, state: "building", phase: "implement", attempt: 0, requestText: "创建读书清单", modelProfileId: profileId, modelConfigVersion: 3, modelId: null, baseRevisionId: null, resultRevisionId: null, createdAt: now, deadlineAt: "2026-09-22T00:10:00.000Z", finishedAt: null, cleanupState: "clear", error: null, summary: null };
-  const project: ProjectDetailResponse = { project: { id: projectId, title: "读书清单", createdAt: now, updatedAt: now, currentRevisionId: null }, messages: [{ id: "ade806dc-49c3-4b16-950d-6f69c46bb4d8", projectId, runId, kind: "user", content: run.requestText, createdAt: now }], currentRevision: null, activeRun: run, latestRun: run, latestCandidate: null, latestCheck: null, preview: null };
+  const project: ProjectDetailResponse = { project: { id: projectId, title: "读书清单", createdAt: now, updatedAt: now, currentRevisionId: null, activeRunState: null, activeRunPosition: null }, messages: [{ id: "ade806dc-49c3-4b16-950d-6f69c46bb4d8", projectId, runId, kind: "user", content: run.requestText, createdAt: now }], currentRevision: null, activeRun: run, latestRun: run, latestCandidate: null, latestCheck: null, preview: null };
   if (options.empty) { project.messages = []; project.activeRun = null; project.latestRun = null; }
   const requests: { url: string; method: string; at: number; signal?: AbortSignal | null }[] = [];
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {

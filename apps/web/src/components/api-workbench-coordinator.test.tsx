@@ -46,7 +46,7 @@ async function openWorkbench(options: { needsInput?: boolean; proxyFailureOnce?:
     { id: coordinatorId, runId, role: "coordinator", attempt: 0, sessionId: "9e9ec313-c626-45b3-836e-d3dfb1c21459", state: "succeeded", predecessorId: null, startedAt: now, finishedAt: now },
     { id: "5d9cf5ab-37f5-4b63-84c6-064111de78e6", runId, role: "builder", attempt: 0, sessionId: "f40df64a-4c3b-4b83-988c-9e918fba409d", state: "running", predecessorId: coordinatorId, startedAt: now, finishedAt: null },
   ];
-  const project: ProjectDetailResponse = { project: { id: projectId, title: "活动报名", createdAt: now, updatedAt: now, currentRevisionId: null }, messages: [{ id: "ade806dc-49c3-4b16-950d-6f69c46bb4d8", projectId, runId, kind: "user", content: run.requestText, createdAt: now }], currentRevision: null, activeRun: run, latestRun: run, latestCandidate: null, latestCheck: null, preview: null };
+  const project: ProjectDetailResponse = { project: { id: projectId, title: "活动报名", createdAt: now, updatedAt: now, currentRevisionId: null, activeRunState: null, activeRunPosition: null }, messages: [{ id: "ade806dc-49c3-4b16-950d-6f69c46bb4d8", projectId, runId, kind: "user", content: run.requestText, createdAt: now }], currentRevision: null, activeRun: run, latestRun: run, latestCandidate: null, latestCheck: null, preview: null };
   if (options.needsInput) {
     Object.assign(run, { state: "needs_input", phase: "plan", plan: null, clarification: { question }, summary: question, finishedAt: now, cleanupState: "confirmed" });
     project.activeRun = null;

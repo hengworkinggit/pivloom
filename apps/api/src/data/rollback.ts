@@ -30,7 +30,11 @@ function stored(row: Row): StoredRollback {
 
 /** Rollback has its own durable state. The project row is the shared lock used
  * by generation and preview restore, and every transition locks it first. */
-export function createRollbackRepository(database: Pick<PivloomDatabase, "owned" | "system">) {
+export function createRollbackRepository(
+  database: Pick<PivloomDatabase, "owned" | "system">,
+  options: { maxSandboxes: number },
+) {
+  const maxSandboxes = options.maxSandboxes;
   async function parent(client: PoolClient, ownerId: string, projectId: string) {
     const row = (await client.query("SELECT * FROM nano.projects WHERE owner_id=$1 AND id=$2 FOR UPDATE", [ownerId, projectId])).rows[0];
     if (!row) throw notFound();
@@ -70,6 +74,11 @@ export function createRollbackRepository(database: Pick<PivloomDatabase, "owned"
             AND v.status='accepted' AND v.build_status='passed'`,
         [ownerId, projectId, input.targetRevisionId])).rows[0];
         if (!target) throw new ApiFailure(409, "ROLLBACK_TARGET_NOT_ACCEPTED", "只能回滚到本项目已验收且通过检查的版本。");
+        // A rollback rebuilds and re-checks the target revision in its own
+        // sandbox, so it takes a slot from the same capacity ledger the
+        // generation queue reserves from instead of overselling the ceiling.
+        if ((await client.query("SELECT nano.reserve_generation_capacity($1) AS admitted", [maxSandboxes])).rows[0].admitted !== true)
+          throw new ApiFailure(409, "SERVICE_BUSY", "沙箱容量已满，请在当前预览结束后重试。", true);
         const id = randomUUID();
         const row = (await client.query(`INSERT INTO nano.rollbacks
           (id,owner_id,project_id,from_revision_id,target_revision_id,source_hash,idempotency_key,status)

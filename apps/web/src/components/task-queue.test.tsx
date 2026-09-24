@@ -47,7 +47,7 @@ async function openWorkbench(options: { run: Run; tasks: TaskListItem[] }) {
     refresh_token: "fixture-refresh-token", token_type: "bearer", expires_in: 3600, expires_at: expiresAt, user,
   }));
   const project: ProjectDetailResponse = {
-    project: { id: projectId, title: "读书清单", createdAt: now, updatedAt: now, currentRevisionId: null },
+    project: { id: projectId, title: "读书清单", createdAt: now, updatedAt: now, currentRevisionId: null, activeRunState: null, activeRunPosition: null },
     messages: [], currentRevision: null, activeRun: options.run, latestRun: options.run,
     latestCandidate: null, latestCheck: null, preview: null,
   };

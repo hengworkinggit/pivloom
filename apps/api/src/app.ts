@@ -148,7 +148,13 @@ export function createApp(options: CreateAppOptions = {}) {
           // Nothing left behind by a previous process may keep a project locked
           // or claim to be running; the server awaits this before it is used.
           const service = generation;
-          recovering.run = () => service.recover();
+          recovering.run = async () => {
+            const recovered = await service.recover();
+            // Persisted queued tasks only start once stale resources from the
+            // previous process have been reconciled.
+            service.startQueue();
+            return recovered;
+          };
           if (options.previewListen) {
             const service = generation;
             const address = options.previewListen;

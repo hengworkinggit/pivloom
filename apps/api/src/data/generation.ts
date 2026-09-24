@@ -6,6 +6,7 @@ import {
   ReviewBindingSchema, CheckSchema, ReviewArtifactSchema, ReviewResultSchema, MAX_CHECK_ARTIFACTS, aggregateCheckGroups, allowsRenderOnlyEvidence, type ReviewBinding, type Check,
   TerminalRunStates, type CreateRunRequest, type ProjectMessage, type ProjectSummary, type Revision,
   type Run, type RunEvent, type RunEventType, type RunPhase, type RunState, type RoleRun, type RoleUsage, type Role, type Plan, type PlanningContext, type Handoff,
+  TaskListItemSchema, type TaskListItem,
 } from "@pivloom/contracts";
 import { z } from "zod";
 import type { PivloomDatabase } from "./database.js";
@@ -120,6 +121,33 @@ export interface GenerationRepository {
   listReferencedSourceKeys(ownerId: string, projectId: string): Promise<string[]>;
   cancel(ownerId: string, runId: string): Promise<StoredRun>;
   finishCancelled(ownerId: string, runId: string, input: { cleanupState: "confirmed" | "pending"; summary: string }): Promise<StoredRun>;
+  /** The caller's own tasks: queued first, then running, then recently finished. */
+  listTasks(ownerId: string): Promise<TaskListItem[]>;
+  /**
+   * Atomically claims capacity, the run row and the project operation lock.
+   * Without runId it claims the next task in queue order; with one it claims that
+   * exact task if it is next in line to be dispatchable and capacity is free.
+   */
+  claimNextQueuedRun(runId?: string): Promise<StoredRun | null>;
+  /**
+   * Parks claims made by this boot whose handoff to the executor never finished,
+   * so a single failed dispatch cannot hold a project lock and a capacity slot
+   * until the next restart. Returns the tasks it recovered.
+   */
+  recoverStrandedClaims(): Promise<StoredRun[]>;
+  /**
+   * Collects one capacity slot for work that creates its own sandbox outside the
+   * generation queue (preview restore, rollback). Throws a retryable conflict
+   * when the ceiling is reached instead of overselling it.
+   */
+  reserveCapacity(ownerId: string): Promise<void>;
+  /**
+   * Freezes the dispatch-time baseline and model configuration for a claimed
+   * task. Returns "parked" when the request was preserved but cannot start.
+   */
+  prepareDispatch(ownerId: string, runId: string): Promise<{ run: StoredRun; outcome: "ready" | "parked" }>;
+  /** Preserves a claimed task that cannot start instead of dropping or rewriting it. */
+  parkQueuedRun(ownerId: string, runId: string, input: { code: string; message: string }): Promise<StoredRun>;
   quota(ownerId: string): Promise<{ dailyLimit: number; dailyAccepted: number }>;
   startRepairBuilder(ownerId: string, runId: string, input: { attempt: number; previousRevisionId: string; failedChecks: string[] }): Promise<StoredRoleRun>;
   beginRestore(ownerId: string, projectId: string, input: { revisionId: string; idempotencyKey: string }): Promise<{ restore: StoredRestore; revision: StoredRevision; replayed: boolean }>;
@@ -134,6 +162,12 @@ export interface GenerationRepository {
 type Row = QueryResultRow;
 const notFound = () => new ApiFailure(404, "NOT_FOUND", "找不到这个项目资源。");
 const date = (value: Date | string) => value instanceof Date ? value : new Date(value);
+/**
+ * How long a claimed task may stay handed-off-but-unstarted before this boot
+ * treats the handoff as failed. Long enough to cover prepareDispatch, short
+ * enough that one DB blip does not park a project for a whole restart cycle.
+ */
+const STRANDED_CLAIM_GRACE_SECONDS = 60;
 function storedProject(row: Row): ProjectSummary {
   return ProjectSummarySchema.parse({ id: row.id, title: row.title, currentRevisionId: row.current_revision_id,
     createdAt: date(row.created_at).toISOString(), updatedAt: date(row.updated_at).toISOString() });
@@ -226,7 +260,7 @@ function storedRestore(row: Row): StoredRestore {
 }
 
 export function createGenerationRepository(
-  database: Pick<PivloomDatabase, "owned">,
+  database: Pick<PivloomDatabase, "owned"> & Partial<Pick<PivloomDatabase, "system">>,
   models: ModelProfileService,
   options: {
     executorBootId: string; maxSandboxes?: number;
@@ -294,6 +328,55 @@ export function createGenerationRepository(
     const context = PlanningContextSchema.safeParse(current.planning_context_json);
     if (!context.success) throw new ApiFailure(409, "PLANNING_CONTEXT_UNAVAILABLE", "这个任务缺少有效的规划上下文。");
     return context.data;
+  }
+  /**
+   * Preserves a task that was accepted but cannot start. The requirement text and
+   * the recorded model choice stay readable, the project operation lock is
+   * released so other work can proceed, and nothing remote was created.
+   */
+  async function parkClaim(client: PoolClient, current: Row, input: { code: string; message: string }) {
+    const message = input.message.slice(0, 2000);
+    const changed = (await client.query(`UPDATE nano.runs
+      SET state='needs_input',phase='plan',cleanup_state='confirmed',summary=$3,
+        error_code=$4,error_message=$3,error_retryable=true,finished_at=coalesce(finished_at,now())
+      WHERE owner_id=$1 AND id=$2 AND state IN ('queued','accepted') RETURNING *`,
+    [current.owner_id, current.id, message, input.code.slice(0, 80)])).rows[0];
+    if (!changed) return storedRun(await run(client, current.owner_id, current.id));
+    await client.query("UPDATE nano.role_runs SET state='cancelled',finished_at=coalesce(finished_at,now()) WHERE owner_id=$1 AND run_id=$2 AND state IN ('queued','running')", [current.owner_id, current.id]);
+    await client.query(`INSERT INTO nano.messages(owner_id,project_id,run_id,kind,content) VALUES($1,$2,$3,'result',$4)
+      ON CONFLICT (run_id,kind) DO NOTHING`, [current.owner_id, current.project_id, current.id, message]);
+    await client.query("UPDATE nano.projects SET operation_kind=NULL,operation_id=NULL,operation_started_at=NULL,updated_at=now() WHERE owner_id=$1 AND id=$2 AND operation_id=$3", [current.owner_id, current.project_id, current.id]);
+    // The lease taken at accept belongs to an execution that never happened; a
+    // parked task must not keep a deleted credential from being purged.
+    if (current.credential_lease_id) await models.releaseInTransaction(client, current.owner_id, current.credential_lease_id);
+    await event(client, changed, { type: "run.finished", payload: { state: "needs_input", message } });
+    return storedRun(changed);
+  }
+  /**
+   * Reads the frozen model configuration back from the database. The profile may
+   * have been edited, re-tested, deleted or had its credential removed while the
+   * task waited in the queue; that must park the task with a reason rather than
+   * fail inside the executor after a capacity slot has been spent.
+   */
+  async function assertModelConfiguration(client: PoolClient, ownerId: string, current: Row) {
+    const profile = (await client.query(`SELECT p.current_version, p.deleted_at, v.model_id, v.capabilities,
+        EXISTS (SELECT 1 FROM nano.model_credentials c
+          WHERE c.owner_id=p.owner_id AND c.profile_id=p.id AND c.config_version=p.current_version) AS credential_available
+      FROM nano.model_profiles p
+      JOIN nano.model_profile_versions v ON v.profile_id=p.id AND v.owner_id=p.owner_id AND v.config_version=p.current_version
+      WHERE p.owner_id=$1 AND p.id=$2`, [ownerId, current.model_profile_id])).rows[0];
+    if (!profile || profile.deleted_at) throw new ApiFailure(409, "MODEL_PROFILE_NOT_FOUND", "这个任务的模型配置已被删除，请选择其它配置后重新提交。");
+    if (profile.current_version !== current.model_config_version)
+      throw new ApiFailure(409, "MODEL_CONFIGURATION_CHANGED", "这个任务使用的模型配置已被修改，请确认后重新提交。");
+    if (current.model_id && current.model_id !== profile.model_id)
+      throw new ApiFailure(409, "MODEL_CONFIGURATION_CHANGED", "这个任务固定的模型 ID 与当前配置不一致，请重新提交。");
+    if (profile.credential_available !== true)
+      throw new ApiFailure(409, "MODEL_CREDENTIAL_UNAVAILABLE", "这个任务的模型凭据不可用，请在模型设置中重新保存密钥。");
+    const capabilities = z.object({ streaming: z.string(), tools: z.string(), vision: z.string() }).safeParse(profile.capabilities);
+    if (!capabilities.success || capabilities.data.streaming !== "verified" || capabilities.data.tools !== "verified")
+      throw new ApiFailure(409, "MODEL_NOT_VERIFIED", "这个任务的模型配置尚未通过连接与工具测试，请重新测试后提交。");
+    if (capabilities.data.vision !== "verified")
+      throw new ApiFailure(409, "MODEL_VISION_NOT_VERIFIED", "这个任务的模型配置尚未通过图像能力测试，请重新测试后提交。");
   }
   function assertRole(current: Row, role: Row | undefined, input: RoleReference) {
     if (date(current.deadline_at).getTime() <= Date.now()) throw new ApiFailure(409, "RUN_TIMEOUT", "任务长时间没有进展，已停止执行。");
@@ -370,13 +453,11 @@ export function createGenerationRepository(
             return { run: storedRun(previous.rows[0]), replayed: true };
           }
           if (parent.current_revision_id !== normalized.expectedCurrentRevisionId) throw new ApiFailure(409, "STALE_BASE", "当前版本已经变化，请刷新项目后重试。");
-          if (parent.operation_id) throw new ApiFailure(409, "PROJECT_BUSY", "当前项目仍有执行或清理操作。", true);
-          // The transaction-scoped advisory lock serializes cross-project
-          // admission. Accepted runs reserve a slot before creating a sandbox;
-          // active candidate sandboxes and retained Previews are counted once.
-          const admitted = (await client.query("SELECT nano.reserve_generation_capacity($1) AS admitted",
-            [options.maxSandboxes ?? 1])).rows[0].admitted as boolean;
-          if (!admitted) throw new ApiFailure(503, "SERVICE_BUSY", "沙箱容量已满，本次需求尚未接受。", true);
+          // Admission no longer reserves execution capacity. The request is
+          // persisted as a queued task; the scheduler claims one capacity slot,
+          // the run row and the project operation lock in a single transaction
+          // when resources are free. A project may therefore hold several queued
+          // requests, and dispatch keeps their execution serial.
           // Replays return above, so a retried idempotency key never consumes quota twice.
           const used = (await client.query("SELECT count(*)::int AS accepted FROM nano.runs WHERE owner_id=$1 AND created_at > now() - interval '24 hours'", [ownerId])).rows[0].accepted as number;
           const dailyLimit = options.dailyLimitByOwner?.[ownerId] ?? DAILY_ACCEPTED_LIMIT;
@@ -425,8 +506,9 @@ export function createGenerationRepository(
           const lease = await models.freezeInTransaction(client, ownerId, normalized.modelProfileId, normalized.modelConfigVersion, id, normalized.modelId);
           const inserted = await client.query(`INSERT INTO nano.runs
             (id,owner_id,project_id,idempotency_key,request_hash,request_text,kind,expected_current_revision_id,base_revision_id,
-             model_profile_id,model_config_version,model_id,credential_lease_id,coordinator_role_run_id,state,phase,budget_json,deadline_at,executor_boot_id,planning_context_json,parent_run_id,retry_of)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,$11,$12,$13,'accepted','plan',$14,now()+make_interval(secs=>$19),$15,$16,$17,$18) RETURNING *`,
+             model_profile_id,model_config_version,model_id,credential_lease_id,coordinator_role_run_id,state,phase,budget_json,deadline_at,executor_boot_id,planning_context_json,parent_run_id,retry_of,queued_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,$11,$12,$13,'queued','plan',$14,
+              now()+make_interval(secs=>$19),$15,$16,$17,$18,now()) RETURNING *`,
           [id, ownerId, projectId, idempotencyKey, requestHash, requestText, runKind,
             baseRevisionId, normalized.modelProfileId, normalized.modelConfigVersion, normalized.modelId ?? null, lease.id, roleId,
             { idleTimeoutMs: RUN_IDLE_TIMEOUT_MS, modelTimeoutMs: MODEL_REQUEST_TIMEOUT_MS, maxToolCalls: RUN_TOOL_LIMIT },
@@ -434,13 +516,15 @@ export function createGenerationRepository(
           await client.query(`INSERT INTO nano.role_runs (id,owner_id,project_id,run_id,role,attempt,session_id,state,input_json)
             VALUES ($1,$2,$3,$4,'coordinator',0,$5,'queued',$6)`, [roleId, ownerId, projectId, id, randomUUID(), context]);
           await client.query("INSERT INTO nano.messages (owner_id,project_id,run_id,kind,content) VALUES ($1,$2,$3,'user',$4)", [ownerId, projectId, id, requestText]);
-          await event(client, inserted.rows[0], { type: "run.accepted", payload: { state: "accepted", phase: "plan" } });
-          await client.query("UPDATE nano.projects SET operation_kind='generate',operation_id=$3,operation_started_at=now(),updated_at=now() WHERE owner_id=$1 AND id=$2", [ownerId, projectId, id]);
+          await event(client, inserted.rows[0], { type: "run.accepted", payload: { state: "queued", phase: "plan" } });
           return { run: storedRun(inserted.rows[0]), replayed: false };
         });
       } catch (error) {
         const pgError = error as { code?: string; constraint?: string };
-        if (pgError.code === "23505" && pgError.constraint === "one_global_generation") throw new ApiFailure(503, "SERVICE_BUSY", "服务当前正在执行任务，本次需求尚未接受。", true);
+        // A fresh admission can only hit its own idempotency key or the one live
+        // run per project; the pre-queue global index was dropped by 019.
+        if (pgError.code === "23505" && (pgError.constraint === "runs_project_id_idempotency_key_key" || pgError.constraint === "one_active_run_per_project"))
+          throw new ApiFailure(409, "PROJECT_BUSY", "这个项目已有正在执行的任务。", true);
         throw error;
       }
     },
@@ -1018,6 +1102,24 @@ export function createGenerationRepository(
     cancel: (ownerId, runId) => owned(ownerId, async (client) => {
       const { current, parent } = await lockedRun(client, ownerId, runId, false);
       if (TerminalRunStates.has(current.state)) return storedRun(current);
+      // A queued task never started: cancelling it is immediate and durable, and
+      // there is nothing remote to reclaim because it holds no sandbox.
+      if (current.state === "queued") {
+        const summary = "已取消排队，任务没有开始执行。";
+        const cancelled = (await client.query(`UPDATE nano.runs
+          SET state='cancelled',phase='cleanup',cleanup_state='confirmed',summary=$3,
+            error_code='CANCELLED',error_message=$3,error_retryable=true,finished_at=coalesce(finished_at,now())
+          WHERE owner_id=$1 AND id=$2 AND state='queued' RETURNING *`, [ownerId, runId, summary])).rows[0];
+        if (!cancelled) return storedRun(await run(client, ownerId, runId));
+        await client.query("UPDATE nano.role_runs SET state='cancelled',finished_at=coalesce(finished_at,now()) WHERE owner_id=$1 AND run_id=$2 AND state IN ('queued','running')", [ownerId, runId]);
+        await client.query(`INSERT INTO nano.messages(owner_id,project_id,run_id,kind,content) VALUES($1,$2,$3,'result',$4)
+          ON CONFLICT (run_id,kind) DO NOTHING`, [ownerId, cancelled.project_id, runId, summary]);
+        // The lease was taken at accept; this task will never execute, so it must
+        // not keep a deleted credential from being purged.
+        if (cancelled.credential_lease_id) await models.releaseInTransaction(client, ownerId, cancelled.credential_lease_id);
+        await event(client, cancelled, { type: "run.finished", payload: { state: "cancelled", cleanupState: "confirmed" } });
+        return storedRun(cancelled);
+      }
       if (parent.operation_id !== runId) throw new ApiFailure(409, "RUN_NOT_ACTIVE", "这个任务已停止接受执行结果。");
       if (current.state === "cancel_requested") return storedRun(current);
       const changed = (await client.query(`UPDATE nano.runs SET state='cancel_requested',phase='cleanup',
@@ -1078,6 +1180,119 @@ export function createGenerationRepository(
       }
       return { run: storedRun(changed), revision: storedRevision(changedRevision), repairNextAttempt };
     }),
+    listTasks: (ownerId) => owned(ownerId, async (client) => {
+      const result = await client.query(`SELECT r.*, p.title AS project_title, q.queue_position AS queue_position
+        FROM nano.runs r
+        JOIN nano.projects p ON p.id=r.project_id AND p.owner_id=r.owner_id
+        LEFT JOIN nano.queue_candidates() q ON q.run_id=r.id
+        WHERE r.owner_id=$1 AND (
+          r.state IN ('queued','accepted','planning','building','verifying','repairing','finalizing','cancel_requested')
+          OR (r.finished_at IS NOT NULL AND r.finished_at > now() - interval '24 hours'))
+        ORDER BY CASE WHEN r.state='queued' THEN 0
+            WHEN r.state IN ('accepted','planning','building','verifying','repairing','finalizing','cancel_requested') THEN 1 ELSE 2 END,
+          CASE WHEN r.state='queued' THEN q.queue_position END ASC NULLS LAST,
+          coalesce(r.dispatched_at, r.queued_at, r.created_at) ASC,
+          r.finished_at DESC NULLS LAST, r.id`, [ownerId]);
+      return result.rows.map((row) => TaskListItemSchema.parse({
+        runId: row.id, projectId: row.project_id, projectTitle: String(row.project_title).slice(0, 120),
+        state: row.state, phase: row.phase,
+        // A position is only reported for a task that is really waiting, and
+        // only from the scheduler's own ordering.
+        queuedAt: row.state === "queued" && row.queued_at ? date(row.queued_at).toISOString() : null,
+        queuePosition: row.state === "queued" && row.queue_position !== null ? Number(row.queue_position) : null,
+        cancelable: row.state === "queued" || (!TerminalRunStates.has(row.state) && row.state !== "cancel_requested"),
+        modelProfileId: row.model_profile_id, modelConfigVersion: row.model_config_version, modelId: row.model_id ?? null,
+        error: row.error_code
+          ? { code: row.error_code, message: row.error_message ?? row.error_code, retryable: row.error_retryable === true }
+          : null,
+      }));
+    }),
+    claimNextQueuedRun: async (runId?: string) => {
+      if (!database.system) throw new Error("Queue dispatch requires the system connection");
+      if (runId !== undefined && !z.uuid().safeParse(runId).success)
+        throw new ApiFailure(422, "INVALID_INPUT", "任务标识格式不正确。");
+      const result = await database.system(async (client) => client.query(
+        "SELECT * FROM nano.claim_next_queued_run($1,$2,$3,$4)", [options.executorBootId, options.maxSandboxes ?? 1, runId ?? null, null]));
+      return result.rows[0] ? storedRun(result.rows[0]) : null;
+    },
+    /**
+     * Claims of this boot whose handoff never completed. They hold the project
+     * lock and a capacity slot, and no boot scan reclaims them because they
+     * already carry the current boot id. Parking them is what keeps one failed
+     * dispatch from wedging a project and a slot until the next restart.
+     */
+    recoverStrandedClaims: async () => {
+      if (!database.system) throw new Error("Queue recovery requires the system connection");
+      const rows = (await database.system(async (client) => client.query(
+        "SELECT * FROM nano.claim_stranded_runs($1,$2)", [options.executorBootId, STRANDED_CLAIM_GRACE_SECONDS]))).rows;
+      const recovered: StoredRun[] = [];
+      for (const row of rows) {
+        try {
+          recovered.push(await owned(row.owner_id as string, async (client) => {
+            const current = await run(client, row.owner_id as string, row.run_id as string);
+            if (current.state !== "accepted") return storedRun(current);
+            return parkClaim(client, current, { code: "QUEUE_DISPATCH_STALLED",
+              message: "任务已保留，但派发没有完成，已释放占用；可以重新提交或从任务列表重试。" });
+          }));
+        } catch {
+          // A row that cannot be parked right now is retried on the next sweep.
+        }
+      }
+      return recovered;
+    },
+    prepareDispatch: (ownerId, runId) => owned(ownerId, async (client) => {
+      const { current, parent } = await lockedRun(client, ownerId, runId, false);
+      if (current.state !== "accepted") throw new ApiFailure(409, "RUN_NOT_ACTIVE", "这个任务不在待派发状态。");
+      // The queued request keeps the model selection it was accepted with. A
+      // configuration that stopped being valid parks the task with a reason
+      // instead of silently switching to another model. freezeInTransaction
+      // returns the lease created at accept without re-reading the profile, so
+      // the stored configuration is validated here before dispatch.
+      try {
+        await assertModelConfiguration(client, ownerId, current);
+        await models.freezeInTransaction(client, ownerId, current.model_profile_id, current.model_config_version, runId, current.model_id);
+      } catch (error) {
+        const failure = error instanceof ApiFailure
+          ? error : new ApiFailure(409, "MODEL_CONFIGURATION_CHANGED", "这个任务的模型配置已失效，请在模型设置中修复后重试。");
+        return { run: await parkClaim(client, current, { code: failure.code, message: failure.message }), outcome: "parked" as const };
+      }
+      if (parent.current_revision_id !== current.expected_current_revision_id) {
+        // A queued follow-up chains onto the version produced by the task it was
+        // queued behind. Anything else changed the baseline, so the request is
+        // preserved for the user instead of being pointed at an unrelated
+        // revision or executed against a stale base.
+        const predecessor = (await client.query(`SELECT r.plan_json
+          FROM nano.revisions v
+          JOIN nano.runs r ON r.id=v.run_id AND r.project_id=v.project_id AND r.owner_id=v.owner_id
+          WHERE v.owner_id=$1 AND v.project_id=$2 AND v.id=$3 AND r.state='completed'
+            AND r.finished_at IS NOT NULL AND r.finished_at >= coalesce($4::timestamptz, r.created_at)`,
+        [ownerId, current.project_id, parent.current_revision_id, current.queued_at])).rows[0];
+        const context = PlanningContextSchema.safeParse(current.planning_context_json);
+        if (!predecessor || !context.success)
+          return { run: await parkClaim(client, current, { code: "QUEUE_BASELINE_CHANGED",
+            message: "项目基线已被其它操作改变，这个需求没有执行。请确认当前版本后重新提交。" }), outcome: "parked" as const };
+        const nextContext = PlanningContextSchema.parse({ ...context.data,
+          baseRevisionId: parent.current_revision_id, previousPlan: predecessor.plan_json ?? null });
+        const updated = (await client.query(`UPDATE nano.runs
+          SET base_revision_id=$3,expected_current_revision_id=$3,planning_context_json=$4
+          WHERE owner_id=$1 AND id=$2 RETURNING *`, [ownerId, runId, parent.current_revision_id, nextContext])).rows[0];
+        return { run: storedRun(updated), outcome: "ready" as const };
+      }
+      return { run: storedRun(current), outcome: "ready" as const };
+    }),
+    parkQueuedRun: (ownerId, runId, input) => owned(ownerId, async (client) =>
+      parkClaim(client, await run(client, ownerId, runId), input)),
+    /**
+     * Preview restore and rollback create their own sandbox, so they must take a
+     * slot from the same ledger the generation queue reserves from. Without this
+     * a restore could raise the live sandbox count above the ceiling while a
+     * queued task was still waiting for a free one.
+     */
+    reserveCapacity: (ownerId) => owned(ownerId, async (client) => {
+      const result = await client.query("SELECT nano.reserve_generation_capacity($1) AS admitted", [options.maxSandboxes ?? 1]);
+      if (result.rows[0].admitted !== true)
+        throw new ApiFailure(409, "SERVICE_BUSY", "沙箱容量已满，请在当前预览结束后重试。", true);
+    }),
     quota: (ownerId) => owned(ownerId, async (client) => {
       const row = (await client.query("SELECT count(*)::int AS accepted FROM nano.runs WHERE owner_id=$1 AND created_at > now() - interval '24 hours'", [ownerId])).rows[0];
       return { dailyLimit: options.dailyLimitByOwner?.[ownerId] ?? DAILY_ACCEPTED_LIMIT, dailyAccepted: row.accepted as number };
@@ -1125,6 +1340,11 @@ export function createGenerationRepository(
       }
       if (parent.operation_id) throw new ApiFailure(409, "PROJECT_BUSY", "当前项目仍有执行或清理操作。", true);
       if (saved.build_status !== "passed") throw new ApiFailure(422, "PREVIEW_NOT_RESTORABLE", "这个版本的构建未通过，只能查看已保存的源码与诊断。");
+      // A restore is about to create a sandbox. Taking the slot from the shared
+      // ledger here is what keeps it from overselling the ceiling while a queued
+      // generation task is still waiting for one.
+      if ((await client.query("SELECT nano.reserve_generation_capacity($1) AS admitted", [options.maxSandboxes ?? 1])).rows[0].admitted !== true)
+        throw new ApiFailure(409, "SERVICE_BUSY", "沙箱容量已满，请在当前预览结束后重试。", true);
       const id = randomUUID();
       const inserted = (await client.query(`INSERT INTO nano.preview_restores
         (id,owner_id,project_id,revision_id,source_hash,idempotency_key,status) VALUES($1,$2,$3,$4,$5,$6,'pending') RETURNING *`,

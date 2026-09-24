@@ -64,6 +64,8 @@ export async function settleTerminalReview<T extends { run: { state: RunState };
 export function createGenerationExecutor(options: {
   repository: GenerationRepository; models: ModelProfileService; sources: SourceStore; artifacts: ArtifactStore;
   previews: PreviewGateway; sandbox: SandboxConfig; maxSandboxes: number;
+  /** Notifies the durable queue that a capacity slot may have been released. */
+  onTaskSettled?: (runId: string) => void;
 }, boundaries: NonNullable<Parameters<typeof runCandidate>[1]> & {
   modelFetch?: typeof fetch; maxToolCalls?: number; settlementRetryMs?: number; cleanupSweepMs?: number;
 } = {}) {
@@ -630,7 +632,7 @@ export function createGenerationExecutor(options: {
         task.settlementError = error;
         console.error(`run ${run.id} terminal transition is pending; retrying without model or tool replay`);
         await retrySettlement(run, task).catch((failure) => reportSettlementFailure(run.id, task, failure));
-      });
+      }).finally(() => { options.onTaskSettled?.(run.id); });
     },
     async close() {
       closing = true;

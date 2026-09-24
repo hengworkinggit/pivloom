@@ -21,6 +21,7 @@ import { destroyCandidateSandbox } from "./candidate.js";
 import { createPreviewGateway } from "./preview.js";
 import { createRunEventHub, openRunEventStream, type RunEventLimits } from "./events.js";
 import { createPublicationStore } from "./publication.js";
+import { createGenerationScheduler } from "./scheduler.js";
 
 export function createGenerationService(options: {
   database: PivloomDatabase; models: ModelProfileService; identity: IdentityConfig;
@@ -41,7 +42,7 @@ export function createGenerationService(options: {
     dailyLimitByOwner: options.dailyLimitByOwner,
     onCommittedEvent: eventHub.publish,
   });
-  const rollbacks = createRollbackRepository(options.database);
+  const rollbacks = createRollbackRepository(options.database, { maxSandboxes: options.maxSandboxes });
   const sources = createSourceStore({ url: options.identity.supabaseUrl, secret: options.identity.supabaseSecretKey, objects: options.sourceObjects });
   const artifacts = createArtifactStore({ url: options.identity.supabaseUrl, secret: options.identity.supabaseSecretKey, objects: options.artifactObjects });
   const previews = createPreviewGateway({ publicOrigin: options.previewOrigin, appOrigin: options.identity.appOrigin,
@@ -51,7 +52,14 @@ export function createGenerationService(options: {
       return result.rows[0]?.active === true;
     }),
   });
-  const executor = createGenerationExecutor({ repository, models: options.models, sources, artifacts, previews, sandbox: options.sandbox, maxSandboxes: options.maxSandboxes }, options.generationBoundaries);
+  // Settling a run frees its capacity slot, so the queue is woken as soon as the
+  // executor stops owning the run. The scheduler only looks; the durable queue
+  // and nano.claim_next_queued_run decide what may start.
+  let wakeQueue: () => void = () => {};
+  const executor = createGenerationExecutor({ repository, models: options.models, sources, artifacts, previews,
+    sandbox: options.sandbox, maxSandboxes: options.maxSandboxes, onTaskSettled: () => wakeQueue() }, options.generationBoundaries);
+  const scheduler = createGenerationScheduler({ repository, start: (run) => executor.start(run) });
+  wakeQueue = () => scheduler.wake();
   const rollbackExecutor = createRollbackExecutor({ repository: rollbacks, generation: repository, sources, previews,
     sandbox: options.sandbox }, options.generationBoundaries);
   const publications = options.publishedBaseUrl ? createPublicationStore({
@@ -180,6 +188,11 @@ export function createGenerationService(options: {
       return repository.accept(ownerId, projectId, { ...input, idempotencyKey });
     },
     start(run: StoredRun) { executor.start(run); },
+    /** Dispatches persisted queued tasks as capacity frees up. */
+    wake() { scheduler.wake(); },
+    /** Begins dispatch after boot recovery; safe to call more than once. */
+    startQueue() { scheduler.start(); },
+    tasks(ownerId: string) { return repository.listTasks(ownerId); },
     async projectDetail(ownerId: string, projectId: string) {
       const { project, messages, latestRun, currentRevision, latestCandidate, binding, lastRollbackAt } = await repository.readProjectSnapshot(ownerId, projectId);
       const selected = latestCandidate && (!lastRollbackAt || Date.parse(latestCandidate.createdAt) > Date.parse(lastRollbackAt))
@@ -257,8 +270,14 @@ export function createGenerationService(options: {
       const cancelled = await repository.cancel(ownerId, runId);
       // A run with no live task in this process (accepted but not yet dispatched,
       // or left behind by a restart) settles immediately instead of hanging.
-      if (cancelled.state === "cancel_requested" && !executor.cancel(runId))
-        return repository.finishCancelled(ownerId, runId, { cleanupState: "confirmed", summary: "任务已停止。" });
+      if (cancelled.state === "cancel_requested" && !executor.cancel(runId)) {
+        const settled = await repository.finishCancelled(ownerId, runId, { cleanupState: "confirmed", summary: "任务已停止。" });
+        // Releasing a slot is what the next waiting task needs; a stop that
+        // frees capacity has to wake the queue instead of waiting for the sweep.
+        wakeQueue();
+        return settled;
+      }
+      if (TerminalRunStates.has(cancelled.state)) wakeQueue();
       return cancelled;
     },
     async restorePreview(ownerId: string, projectId: string, input: { revisionId: string; idempotencyKey: string }) {
@@ -311,6 +330,7 @@ export function createGenerationService(options: {
       closing = true;
       clearInterval(recoveryTimer);
       await recovering?.catch(() => {});
+      await scheduler.close();
       await executor.close();
       await rollbackExecutor.close();
       await previews.close();
