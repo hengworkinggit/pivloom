@@ -84,7 +84,11 @@ function ApiProjectsContent({ initialSurface }: { initialSurface: "new" | "proje
   const modelQuery = usePrivateQuery(modelLoader);
   const selectedProfile = modelQuery.data?.find((profile) => profile.id === selectedProfileId)
     ?? modelQuery.data?.find((profile) => profile.isDefault) ?? modelQuery.data?.[0];
-  const modelReady = selectedProfile?.capabilities.streaming === "verified" && selectedProfile.capabilities.tools === "verified";
+  // The server refuses a run whose profile has not passed the image test as well
+  // (MODEL_VISION_NOT_VERIFIED), so the page must not offer a submit that can
+  // only come back as an error.
+  const modelReady = selectedProfile?.capabilities.streaming === "verified"
+    && selectedProfile.capabilities.tools === "verified" && selectedProfile.capabilities.vision === "verified";
   const projects = data ? [...data.projects, ...pages.filter((project) => !data.projects.some((item) => item.id === project.id))] : undefined;
   const cursor = next === undefined ? data?.nextCursor : next;
   const tooLong = prompt.trim().length > promptLimit;
@@ -111,12 +115,21 @@ function ApiProjectsContent({ initialSurface }: { initialSurface: "new" | "proje
   }, [user?.id]);
   async function create() {
     if (creating.current || !prompt.trim() || tooLong) return;
-    if (!modelReady || !selectedProfile) { setError("请先连接并测试支持流式输出和工具调用的模型，再开始生成。"); return; }
+    if (!modelReady || !selectedProfile) { setError("请先连接并完成流式、工具与图像能力测试的模型，再开始生成。"); return; }
     if (!saveDraft(user!.id, "new", prompt.trim())) { setError("浏览器暂时无法保存需求草稿。请允许此站点使用会话存储后重试，避免创建空项目。"); return; }
     creating.current = true; setBusy(true); setError("");
     try {
       const project = await api.createProject(prompt.trim().slice(0, 120));
-      saveDraft(user!.id, project.id, prompt.trim());
+      // The workbench opens this project with ?start=1 and only submits when its
+      // draft is present, so a draft that cannot be stored would leave a project
+      // with no first run and no request. Say so instead of navigating as if the
+      // requirement had been handed over; the project itself is real and stays.
+      if (!saveDraft(user!.id, project.id, prompt.trim())) {
+        setError("项目已创建，但需求草稿没能保存在这个浏览器里。请打开项目后粘贴需求再发送。");
+        creating.current = false; setBusy(false);
+        router.push(`/projects/${project.id}`);
+        return;
+      }
       if (selectedProfile) saveSessionModel(user!.id, project.id, selectedProfile.id, selectedProfile.modelId);
       saveDraft(user!.id, "new", "");
       router.push(`/projects/${project.id}?start=1`);
@@ -154,7 +167,7 @@ function ApiProjectsContent({ initialSurface }: { initialSurface: "new" | "proje
         {tooLong && <p id="prompt-error" className="inline-error" role="alert">需求最多 {promptLimit.toLocaleString()} 个字符，请缩短后再创建。</p>}
         {error && <p className="inline-error" role="alert">{error}</p>}
         {modelQuery.error && <p className="a-start-model-error" role="status">{modelQuery.error} <Link href="/settings/models">{ui.text("查看模型配置", "Model settings")}</Link></p>}
-        {!modelQuery.error && modelQuery.data && !modelReady && <p className="a-start-model-error" role="status">当前模型尚未通过流式输出和工具调用测试。<Link href="/settings/models">去测试模型</Link></p>}
+        {!modelQuery.error && modelQuery.data && !modelReady && <p className="a-start-model-error" role="status">当前模型尚未通过流式输出、工具调用与图像能力测试。<Link href="/settings/models">去测试模型</Link></p>}
         <div className="a-start-suggestions"><div><span>{ui.text("试试一个想法", "Try an idea")}</span><Link href="/templates">{ui.text("浏览全部模板", "Browse templates")}<ArrowRight size={13} /></Link></div><div>{featuredTemplates.map((template) => <button key={template.slug} onClick={() => updatePrompt(ui.locale === "en" ? template.promptEn : template.prompt)}>{ui.text(template.title, template.titleEn)}<ArrowRight size={13} /></button>)}</div></div>
         <button className="a-start-project-link" onClick={() => showSurface("projects")}>{ui.text("查看已有项目", "View existing projects")}<ArrowRight size={14} /></button>
       </div>

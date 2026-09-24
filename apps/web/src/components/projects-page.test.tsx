@@ -47,7 +47,7 @@ it("creates only after a valid, committed idea is submitted from the actual proj
     if (url === "/api/v1/model-profiles") return Response.json({ profiles: [{
       id: "438088cb-5fd0-4704-ad57-3b64ed47c55f", name: "已验证模型", provider: "openai-completions",
       baseUrl: "https://provider.example.test/v1", modelId: "fixture-model", configVersion: 3,
-      keyMask: "••••0000", isDefault: true, capabilities: { streaming: "verified", tools: "verified", vision: "unknown" },
+      keyMask: "••••0000", isDefault: true, capabilities: { streaming: "verified", tools: "verified", vision: "verified" },
       lastTest: null, createdAt: "2026-09-22T00:00:00.000Z", updatedAt: "2026-09-22T00:00:00.000Z",
     }] });
     if (url === "/api/v1/projects" && init?.method !== "POST") return Response.json({ projects: [], nextCursor: null });
@@ -114,4 +114,63 @@ it("creates only after a valid, committed idea is submitted from the actual proj
   expect((await enter()).defaultPrevented).toBe(true);
   expect(submittedProjects).toEqual([{ title: "做一个中文读书清单" }]);
   expect(navigation.push).toHaveBeenCalledWith(`/projects/${projectId}?start=1`);
+});
+
+it("does not offer to start a run with a profile whose image capability is unverified", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubEnv("NEXT_PUBLIC_APP_MODE", "api");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://identity.example.test");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "fixture-public-key");
+  const ownerId = "1e5dce44-654d-4352-bb4b-7680138c1135";
+  const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+  const user = { id: ownerId, email: "owner@example.test", aud: "authenticated", app_metadata: {}, user_metadata: {}, created_at: "2026-09-22T00:00:00.000Z" };
+  const encode = (value: object) => btoa(JSON.stringify(value)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  localStorage.setItem("pivloom.auth.v1", JSON.stringify({
+    access_token: `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ sub: ownerId, exp: expiresAt })}.fixture`,
+    refresh_token: "fixture-refresh-token", token_type: "bearer", expires_in: 3600, expires_at: expiresAt, user,
+  }));
+  const posted: unknown[] = [];
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "https://identity.example.test/auth/v1/user") return Response.json(user);
+    if (url === "/api/v1/me") return Response.json({ user: { id: ownerId, email: user.email, name: "Owner" } });
+    // Streaming and tools passed, the image probe did not. The run API refuses
+    // this profile with MODEL_VISION_NOT_VERIFIED, so the page must not offer it.
+    if (url === "/api/v1/model-profiles") return Response.json({ profiles: [{
+      id: "438088cb-5fd0-4704-ad57-3b64ed47c55f", name: "仅文字模型", provider: "openai-completions",
+      baseUrl: "https://provider.example.test/v1", modelId: "fixture-model", configVersion: 3,
+      keyMask: "••••0000", isDefault: true, capabilities: { streaming: "verified", tools: "verified", vision: "unsupported" },
+      lastTest: null, createdAt: "2026-09-22T00:00:00.000Z", updatedAt: "2026-09-22T00:00:00.000Z",
+    }] });
+    if (url === "/api/v1/projects") {
+      if (init?.method === "POST") posted.push(init.body);
+      return Response.json({ projects: [], nextCursor: null });
+    }
+    return new Response(null, { status: 404 });
+  });
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  // The module is imported lazily, exactly as the existing case does, so the
+  // stubbed environment is in place before the page reads it.
+  const { ProjectsPage } = await import("./projects-page");
+  await act(async () => root.render(<ProjectsPage initialSurface="new" />));
+  const input = await vi.waitFor(() => {
+    const found = container.querySelector<HTMLTextAreaElement>("#new-project-prompt");
+    if (!found) throw new Error("composer not ready");
+    return found;
+  });
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!;
+    setter.call(input, "做一个中文读书清单");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const submit = container.querySelector<HTMLButtonElement>('button[aria-label="创建并开始生成"]')!;
+  // A valid requirement is present, so only the capability gate can keep it closed.
+  expect(input.value).toBe("做一个中文读书清单");
+  expect(submit.disabled).toBe(true);
+  expect(container.textContent).toContain("图像能力");
+  expect(posted).toEqual([]);
+  await act(async () => root.unmount());
+  vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.resetModules();
 });

@@ -29,7 +29,7 @@ import { VersionHistoryPanel } from "./version-history";
 import { summarizeTasks } from "@/lib/task-queue";
 import type { Revision, TaskListItem } from "@pivloom/contracts";
 
-const rejectedSubmissions = new Set(["INVALID_INPUT", "PROJECT_BUSY", "CLEANUP_PENDING", "STALE_BASE", "IDEMPOTENCY_CONFLICT", "SERVICE_BUSY", "QUOTA_EXCEEDED", "NOT_FOUND", "UNAUTHENTICATED", "MODEL_PROFILE_NOT_FOUND", "MODEL_CONFIG_CHANGED", "MODEL_NOT_VERIFIED", "MODEL_CONFIGURATION_MISSING"]);
+const rejectedSubmissions = new Set(["INVALID_INPUT", "PROJECT_BUSY", "CLEANUP_PENDING", "STALE_BASE", "IDEMPOTENCY_CONFLICT", "SERVICE_BUSY", "QUOTA_EXCEEDED", "NOT_FOUND", "UNAUTHENTICATED", "MODEL_PROFILE_NOT_FOUND", "MODEL_CONFIG_CHANGED", "MODEL_NOT_VERIFIED", "MODEL_VISION_NOT_VERIFIED", "MODEL_CONFIGURATION_MISSING"]);
 
 function WorkbenchDrawer({ title, onClose, children }: { title: string; onClose(): void; children: ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -69,7 +69,11 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   // means "use the credential's default model", which is also frozen per run.
   const [modelOverrideId, setModelOverrideId] = useState<string | null>(() => readSessionModel(ownerId, projectId)?.modelId ?? null);
   const [customModelMode, setCustomModelMode] = useState(false);
-  const modelReady = selectedModel?.capabilities.streaming === "verified" && selectedModel.capabilities.tools === "verified";
+  // Matches the server's admission requirements: a profile that has not passed
+  // the image test is refused with MODEL_VISION_NOT_VERIFIED, so it is not
+  // offered as ready here either.
+  const modelReady = selectedModel?.capabilities.streaming === "verified"
+    && selectedModel.capabilities.tools === "verified" && selectedModel.capabilities.vision === "verified";
   /** Models available on the selected credential's endpoint: Pi's catalog for
    * built-in providers, the endpoint's own `/models` list for custom ones. */
   const profileModelsLoader = useCallback(() => {

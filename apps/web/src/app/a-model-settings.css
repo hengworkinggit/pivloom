@@ -141,6 +141,8 @@
 .settings-page .model-profile-details dd { color: #555c6b; }
 .settings-page .model-profile-details .key-mask { gap: 7px; }
 .settings-page .model-untested { color: #a3a9b5; }
+/* A configuration the run API will refuse must say so where it is chosen. */
+.settings-page .model-unusable { margin: 6px 0 0; color: #b06a2c; font-size: 11px; }
 
 .settings-page .model-card-actions {
   gap: 8px;

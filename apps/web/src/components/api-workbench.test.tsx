@@ -64,7 +64,7 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
     }
     if (url === "https://identity.example.test/auth/v1/user") return Response.json(user);
     if (url === "/api/v1/me") return Response.json({ user: { id: ownerId, name: "Owner", email: user.email } });
-    if (url === "/api/v1/model-profiles") return Response.json({ profiles: [{ id: profileId, name: "真实配置", provider: "openai-completions", baseUrl: "https://provider.example.test/v1", modelId: "fixture-model", configVersion: 3, keyMask: "••••0000", isDefault: true, capabilities: { streaming: "verified", tools: "verified", vision: "unknown" }, lastTest: null, createdAt: now, updatedAt: now }] });
+    if (url === "/api/v1/model-profiles") return Response.json({ profiles: [{ id: profileId, name: "真实配置", provider: "openai-completions", baseUrl: "https://provider.example.test/v1", modelId: "fixture-model", configVersion: 3, keyMask: "••••0000", isDefault: true, capabilities: { streaming: "verified", tools: "verified", vision: "verified" }, lastTest: null, createdAt: now, updatedAt: now }] });
     if (url === `/api/v1/model-profiles/${profileId}/models`) return Response.json({ source: "none", models: [] });
     if (url === `/api/v1/projects/${projectId}`) {
       snapshotRequests += 1;
