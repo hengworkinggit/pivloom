@@ -1,0 +1,13 @@
+{
+  "case": "E34 controlled Canvas seven keys and canceled batch",
+  "runtimeSha": "a9fbe1d28c603336326149fc0956f15b082a26dc",
+  "sourceHash": "74058af74ae26e0f04fd57f9e286964fbc8aad6bbb9fb8b57131106ce1c5390f",
+  "sandboxId": "c579fca5-8343-433b-939a-03968a70d95f",
+  "browserVersion": "agent-browser 0.38.1",
+  "browserSessionId": "pivloom-7c027322-d304-479f-a5ed-cacef32fc6f1",
+  "errorCode": "INVALID_BROWSER_ACTION",
+  "cleanupConfirmed": true,
+  "independentGet404": true,
+  "elapsedMs": 30950,
+  "modulePass": false
+}

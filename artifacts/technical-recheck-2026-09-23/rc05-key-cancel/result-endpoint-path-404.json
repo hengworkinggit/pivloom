@@ -1,0 +1,17 @@
+{
+  "case": "E34 controlled Canvas seven keys and canceled batch",
+  "runtimeSha": "bbdb94b0399aa3b184c96fac171d06991f629ddc",
+  "sourceHash": "74058af74ae26e0f04fd57f9e286964fbc8aad6bbb9fb8b57131106ce1c5390f",
+  "cancelOnly": true,
+  "sandboxId": "346f7a8e-02c7-476f-8a59-007249db1409",
+  "browserVersion": "agent-browser 0.38.1",
+  "endpointHost": "127.0.0.1:45320",
+  "endpointStatus": 404,
+  "endpointDirectAvailable": false,
+  "errorCode": "Error",
+  "errorMessage": "endpoint_unreachable",
+  "cleanupConfirmed": true,
+  "independentGet404": true,
+  "elapsedMs": 12188,
+  "modulePass": false
+}

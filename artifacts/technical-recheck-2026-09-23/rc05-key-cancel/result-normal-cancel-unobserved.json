@@ -1,0 +1,186 @@
+{
+  "case": "E34 controlled Canvas seven keys and canceled batch",
+  "runtimeSha": "bbdb94b0399aa3b184c96fac171d06991f629ddc",
+  "sourceHash": "74058af74ae26e0f04fd57f9e286964fbc8aad6bbb9fb8b57131106ce1c5390f",
+  "sandboxId": "5950e62e-6eed-4b73-a29c-f3ebc7612749",
+  "browserVersion": "agent-browser 0.38.1",
+  "browserSessionId": "pivloom-73627f1f-87a4-4298-9091-36f0c27aeecd",
+  "backspaceIncluded": true,
+  "normal": {
+    "initialObservationId": "a9e693e0-8e77-4916-b99f-76a619b0b7f1",
+    "directionObservationId": "c9a11bbc-468f-4df0-b28a-f3ae6b3db1a1",
+    "finalObservationId": "58cdbee9-46dc-4128-8b6f-c6e691658050",
+    "batches": [
+      {
+        "startedAt": "2026-09-24T00:20:17.733Z",
+        "finishedAt": "2026-09-24T00:20:19.280Z",
+        "steps": [
+          {
+            "index": 0,
+            "key": "ArrowUp",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 1,
+            "key": "ArrowRight",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 2,
+            "key": "ArrowDown",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 3,
+            "key": "ArrowLeft",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 4,
+            "key": "Space",
+            "waitMs": 100,
+            "success": true
+          }
+        ]
+      },
+      {
+        "startedAt": "2026-09-24T00:20:26.447Z",
+        "finishedAt": "2026-09-24T00:20:27.872Z",
+        "steps": [
+          {
+            "index": 0,
+            "key": "Enter",
+            "waitMs": 100,
+            "success": true
+          },
+          {
+            "index": 1,
+            "key": "Backspace",
+            "waitMs": 100,
+            "success": true
+          }
+        ]
+      }
+    ],
+    "beforeSha256": "5ff4dcc1a2d5da094d1f6e71066f9412d637c01c0c8ca3e1ad5ac592d749c1e3",
+    "afterSha256": "f6ba260896fac686dbea390f1d87a26ce1b8991fc51f84cfe333932b36cd03f5",
+    "finalText": "Canvas 键盘验收\n\nMODE:normal STATUS:PAUSED TRAIL:START>ArrowUp>ArrowRight>ArrowDown>ArrowLeft>Space>Enter>Backspace",
+    "pageErrors": [],
+    "console": {
+      "success": true,
+      "data": {
+        "lifecycle": {
+          "effectiveLaunch": {
+            "browserLaunched": true,
+            "engine": "chrome",
+            "launchHash": 15261429649487985000
+          },
+          "launched": false,
+          "relaunchedBrowser": false,
+          "restartedBackground": false,
+          "restoreStatus": "not_configured",
+          "reused": true,
+          "saveStatus": "not_attempted"
+        },
+        "messages": []
+      },
+      "error": null
+    },
+    "eventLog": [
+      {
+        "mode": "normal",
+        "phase": "down",
+        "key": "ArrowUp",
+        "at": 1790209218091
+      },
+      {
+        "mode": "normal",
+        "phase": "up",
+        "key": "ArrowUp",
+        "at": 1790209218100
+      },
+      {
+        "mode": "normal",
+        "phase": "down",
+        "key": "ArrowRight",
+        "at": 1790209218213
+      },
+      {
+        "mode": "normal",
+        "phase": "up",
+        "key": "ArrowRight",
+        "at": 1790209218221
+      },
+      {
+        "mode": "normal",
+        "phase": "down",
+        "key": "ArrowDown",
+        "at": 1790209218332
+      },
+      {
+        "mode": "normal",
+        "phase": "up",
+        "key": "ArrowDown",
+        "at": 1790209218338
+      },
+      {
+        "mode": "normal",
+        "phase": "down",
+        "key": "ArrowLeft",
+        "at": 1790209218452
+      },
+      {
+        "mode": "normal",
+        "phase": "up",
+        "key": "ArrowLeft",
+        "at": 1790209218460
+      },
+      {
+        "mode": "normal",
+        "phase": "down",
+        "key": "Space",
+        "at": 1790209218570
+      },
+      {
+        "mode": "normal",
+        "phase": "up",
+        "key": "Space",
+        "at": 1790209218577
+      },
+      {
+        "mode": "normal",
+        "phase": "down",
+        "key": "Enter",
+        "at": 1790209226805
+      },
+      {
+        "mode": "normal",
+        "phase": "up",
+        "key": "Enter",
+        "at": 1790209226813
+      },
+      {
+        "mode": "normal",
+        "phase": "down",
+        "key": "Backspace",
+        "at": 1790209226926
+      },
+      {
+        "mode": "normal",
+        "phase": "up",
+        "key": "Backspace",
+        "at": 1790209226934
+      }
+    ]
+  },
+  "normalPass": true,
+  "errorCode": "Error",
+  "cleanupConfirmed": true,
+  "independentGet404": true,
+  "elapsedMs": 73121,
+  "modulePass": false
+}
