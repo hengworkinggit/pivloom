@@ -23,8 +23,8 @@ export function summarizeReviewCheckpoint(checkpoint: ProvisionalReviewCheckpoin
     item: {
       behaviorId: item.behaviorId,
       verdict: item.verdict,
-      observationEventIds: [...new Set(item.observationEventIds)],
-      screenshotIds: [...new Set(item.screenshotIds)],
+      observationEventIds: [...item.observationEventIds],
+      screenshotIds: [...item.screenshotIds],
       expected: '',
       actual: '',
       reproSteps: [] as string[],
