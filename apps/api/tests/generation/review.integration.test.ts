@@ -303,7 +303,8 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     expect((await generation.listEvents(ownerA, fixture.run.id)).some((event) => event.type === "role.completed"
       && event.roleRunId === first.execution.role.id && event.payload.diagnosticCode === "BROWSER_BLOCKED")).toBe(true);
     expect(await generation.getRunCheck(ownerA, fixture.run.id)).toBeNull();
-    expect((await generation.readProjectSnapshot(ownerA, fixture.project.id)).project.currentRevisionId).toBeNull();
+    expect((await admin.query("SELECT current_revision_id FROM nano.projects WHERE owner_id=$1 AND id=$2",
+      [ownerA, fixture.project.id])).rows[0].current_revision_id).toBeNull();
     await generation.finishFailed(ownerA, fixture.run.id, { code: "FIXTURE_COMPLETE", message: "Rebinding assertions complete", retryable: false, cleanupState: "confirmed" });
   }, 180_000);
 
