@@ -1,0 +1,8 @@
+{
+  "providerKeyInPublicEvidence": false,
+  "sourceFileCount": 7,
+  "checkArtifactCount": 8,
+  "allArtifactPngHashesValid": true,
+  "storageJsRoundtrip": true,
+  "firstFixtureCalls": 1
+}

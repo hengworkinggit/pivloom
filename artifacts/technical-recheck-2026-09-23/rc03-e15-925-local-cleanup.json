@@ -1,0 +1,24 @@
+{
+  "environmentId": "rc03-e15-local",
+  "exactOwnerAndProjectCleanup": true,
+  "deleted": {
+    "users": 1,
+    "projects": 1,
+    "runs": 2,
+    "revisions": 1,
+    "checks": 1,
+    "sandboxes": 1,
+    "objectFiles": 10
+  },
+  "residual": {
+    "users": 0,
+    "projects": 0,
+    "runs": 0,
+    "revisions": 0,
+    "checks": 0,
+    "sandboxes": 0,
+    "profiles": 0
+  },
+  "remoteFreshGetInfo": "404",
+  "remoteActiveAfter": 0
+}

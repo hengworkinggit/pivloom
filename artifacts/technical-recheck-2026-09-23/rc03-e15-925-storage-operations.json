@@ -1,0 +1,110 @@
+[
+  {
+    "method": "POST",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 68
+  },
+  {
+    "method": "GET",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 68
+  },
+  {
+    "method": "POST",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 10389
+  },
+  {
+    "method": "GET",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 10389
+  },
+  {
+    "method": "POST",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 8537
+  },
+  {
+    "method": "GET",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 8537
+  },
+  {
+    "method": "POST",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 10428
+  },
+  {
+    "method": "GET",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 10428
+  },
+  {
+    "method": "POST",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 9643
+  },
+  {
+    "method": "GET",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 9643
+  },
+  {
+    "method": "POST",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 10428
+  },
+  {
+    "method": "GET",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 10428
+  },
+  {
+    "method": "POST",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 10428
+  },
+  {
+    "method": "GET",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 10428
+  },
+  {
+    "method": "POST",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 8417
+  },
+  {
+    "method": "GET",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 8417
+  },
+  {
+    "method": "POST",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 8467
+  },
+  {
+    "method": "GET",
+    "kind": "artifact",
+    "status": 200,
+    "bytes": 8467
+  }
+]

@@ -1,0 +1,238 @@
+{
+  "environmentId": "rc03-e15-local",
+  "syntheticOwnerDistinct": true,
+  "provider": {
+    "provider": "openai-completions",
+    "modelId": "kimi-k2.7-code",
+    "baseHost": "ark.cn-beijing.volces.com",
+    "capabilities": {
+      "tools": "verified",
+      "vision": "verified",
+      "streaming": "verified"
+    },
+    "sourceConfigVersion": 2,
+    "plaintextPersisted": false,
+    "publicEvidenceContainsKey": false
+  },
+  "webVersion": {
+    "component": "web",
+    "commit": "9255399a8685b0c69f2bb9b2b4a04177d123a83c",
+    "builtAt": "2026-09-24T00:52:09.103165Z",
+    "buildId": "9255399a8685b0c69f2bb9b2b4a04177d123a83c",
+    "deploymentId": null
+  },
+  "apiVersion": {
+    "component": "api",
+    "commit": "9255399a8685b0c69f2bb9b2b4a04177d123a83c",
+    "builtAt": "2026-09-24T00:52:09.103165Z"
+  },
+  "firstFixtureCalls": 1,
+  "project": {
+    "id": "a3ed4666-6c38-47db-9ccd-1614d900d7f4",
+    "current_revision_id": "14ccb77c-3f8d-4248-b6bd-d74085aa695e",
+    "operation_id": null
+  },
+  "runs": [
+    {
+      "id": "c7042522-3868-4b88-8732-4f8c9716e1a2",
+      "kind": "generate",
+      "state": "failed",
+      "phase": "cleanup",
+      "attempt": 0,
+      "cleanup_state": "confirmed",
+      "error_code": "MODEL_FAILED",
+      "retry_of": null,
+      "base_revision_id": null,
+      "result_revision_id": null,
+      "createdAt": "2026-09-24T01:00:02.143Z",
+      "finishedAt": "2026-09-24T01:00:02.267Z"
+    },
+    {
+      "id": "4daa0764-59c0-49f4-98e0-206d2dd3190f",
+      "kind": "retry",
+      "state": "completed",
+      "phase": "persist",
+      "attempt": 0,
+      "cleanup_state": "clear",
+      "error_code": null,
+      "retry_of": "c7042522-3868-4b88-8732-4f8c9716e1a2",
+      "base_revision_id": null,
+      "result_revision_id": "14ccb77c-3f8d-4248-b6bd-d74085aa695e",
+      "createdAt": "2026-09-24T01:01:52.059Z",
+      "finishedAt": "2026-09-24T01:11:20.543Z"
+    }
+  ],
+  "roles": [
+    {
+      "runId": "c7042522-3868-4b88-8732-4f8c9716e1a2",
+      "role": "coordinator",
+      "state": "failed",
+      "modelCalls": 1,
+      "toolCalls": 0
+    },
+    {
+      "runId": "4daa0764-59c0-49f4-98e0-206d2dd3190f",
+      "role": "coordinator",
+      "state": "succeeded",
+      "modelCalls": 2,
+      "toolCalls": 2
+    },
+    {
+      "runId": "4daa0764-59c0-49f4-98e0-206d2dd3190f",
+      "role": "builder",
+      "state": "succeeded",
+      "modelCalls": 6,
+      "toolCalls": 8
+    },
+    {
+      "runId": "4daa0764-59c0-49f4-98e0-206d2dd3190f",
+      "role": "reviewer",
+      "state": "succeeded",
+      "modelCalls": 33,
+      "toolCalls": 35
+    }
+  ],
+  "revision": {
+    "id": "14ccb77c-3f8d-4248-b6bd-d74085aa695e",
+    "runId": "4daa0764-59c0-49f4-98e0-206d2dd3190f",
+    "revisionNo": 1,
+    "status": "accepted",
+    "buildStatus": "passed",
+    "sourceHash": "14c4567c50c8ac156be1281db325e9933f80e20e78d1a85d35a979b89b7424a4",
+    "files": [
+      {
+        "path": "index.html",
+        "sha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42",
+        "bytes": 263
+      },
+      {
+        "path": "package-lock.json",
+        "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6",
+        "bytes": 26874
+      },
+      {
+        "path": "package.json",
+        "sha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65",
+        "bytes": 517
+      },
+      {
+        "path": "src/App.tsx",
+        "sha256": "72fda94a6528b57d77c44620e6237a2203d2e5c98602735b8b36401a607effcb",
+        "bytes": 636
+      },
+      {
+        "path": "src/main.tsx",
+        "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c",
+        "bytes": 153
+      },
+      {
+        "path": "src/style.css",
+        "sha256": "f84cc6d64553d48bf8a5f2fff4ce4af17d9fdec1f796cc3b4642b7e7dc659ceb",
+        "bytes": 1220
+      },
+      {
+        "path": "tsconfig.json",
+        "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837",
+        "bytes": 331
+      }
+    ],
+    "appBytes": 636,
+    "hasIncrement": true,
+    "hasReset": true
+  },
+  "checks": [
+    {
+      "id": "d182ce3e-87f3-4262-b5da-6b06501be3af",
+      "runId": "4daa0764-59c0-49f4-98e0-206d2dd3190f",
+      "revisionId": "14ccb77c-3f8d-4248-b6bd-d74085aa695e",
+      "verdict": "passed",
+      "sourceHash": "14c4567c50c8ac156be1281db325e9933f80e20e78d1a85d35a979b89b7424a4",
+      "sandboxId": "0f1fcd7a-6851-4230-9aad-0e87b7b3271a",
+      "items": [
+        {
+          "id": "B01",
+          "verdict": "passed"
+        },
+        {
+          "id": "B02",
+          "verdict": "passed"
+        },
+        {
+          "id": "B03",
+          "verdict": "passed"
+        },
+        {
+          "id": "B04",
+          "verdict": "passed"
+        },
+        {
+          "id": "B05",
+          "verdict": "passed"
+        },
+        {
+          "id": "B06",
+          "verdict": "passed"
+        },
+        {
+          "id": "B07",
+          "verdict": "passed"
+        }
+      ],
+      "groups": [
+        {
+          "id": "G1",
+          "verdict": "passed"
+        },
+        {
+          "id": "G2",
+          "verdict": "passed"
+        },
+        {
+          "id": "G3",
+          "verdict": "passed"
+        },
+        {
+          "id": "G4",
+          "verdict": "passed"
+        },
+        {
+          "id": "G5",
+          "verdict": "passed"
+        }
+      ],
+      "artifactCount": 8,
+      "artifactHashes": [
+        "a3a84a66ab72b22dd65b4443f3f857d6b64f3758a54004473f8e884fa927d488",
+        "9cbd4bfa3aacc4a3e8e952c9e46aa34f66b56e91f03b391ef58296209f4252bd",
+        "d3faeb6fb662cc3820473ca7e366d73af2924e827c6abab7d8390cc8cfe07e57",
+        "8c4a96d37a0ce7774406f0ec9a55c678c9eb394db1c94237c1960e709ab33442",
+        "d3faeb6fb662cc3820473ca7e366d73af2924e827c6abab7d8390cc8cfe07e57",
+        "d3faeb6fb662cc3820473ca7e366d73af2924e827c6abab7d8390cc8cfe07e57",
+        "d607ae2875ed0dbc7a6d7c25b16baccf806cbec045c7938692cf1c932c02d81e",
+        "05f64e3348c8e2db2fc0387b9ac5179f1469e999599192d20433a1c6ee2ee28c"
+      ]
+    }
+  ],
+  "sandboxes": [
+    {
+      "sandboxId": "0f1fcd7a-6851-4230-9aad-0e87b7b3271a",
+      "runId": "4daa0764-59c0-49f4-98e0-206d2dd3190f",
+      "state": "active",
+      "purpose": "preview",
+      "expiresAt": "2026-09-24T01:32:48.907Z"
+    }
+  ],
+  "preview": {
+    "state": "ready",
+    "revisionId": "14ccb77c-3f8d-4248-b6bd-d74085aa695e",
+    "sourceHash": "14c4567c50c8ac156be1281db325e9933f80e20e78d1a85d35a979b89b7424a4",
+    "expiresAt": "2026-09-24T01:32:48.907Z"
+  },
+  "runEventCount": 126,
+  "retryLink": {
+    "exactlyTwoAcceptedRuns": true,
+    "sameRequestText": true,
+    "firstRunHasNoSandbox": true,
+    "retryOfFirst": true
+  }
+}

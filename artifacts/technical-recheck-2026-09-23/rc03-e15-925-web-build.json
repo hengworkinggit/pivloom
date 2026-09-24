@@ -1,0 +1,11 @@
+{
+  "component": "web",
+  "release": "rc03-e15-925",
+  "commit": "9255399a8685b0c69f2bb9b2b4a04177d123a83c",
+  "builtAt": "2026-09-24T00:52:09.103165Z",
+  "worktreeDirty": false,
+  "createdAt": "2026-09-24T00:53:23.207576+00:00",
+  "archiveSha256": "26d5938025bd22cd6eb2fed4696b8c46ce99bfbb18884fdb121bc94070c8a468",
+  "files": 1775,
+  "buildId": "9255399a8685b0c69f2bb9b2b4a04177d123a83c"
+}
