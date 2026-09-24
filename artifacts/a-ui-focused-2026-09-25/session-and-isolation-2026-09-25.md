@@ -46,3 +46,13 @@ API 隔离矩阵（10 条探针，原样记录在 `account-isolation-matrix.json
 ## 4. 三处 SHA（同一时点）
 
 `2026-09-25 04:56 CST`（UTC 2026-09-24 20:56）读取：线上 `/version`、`/api/v1/version` 与 GitHub 默认分支 HEAD 均为 `d9f3e22cf8492bc97edc844e284a33c44315a160`；工作区 `main` 多出尚未推送的 `614fc28`（仅契约：`queued` 状态与本人任务列表），因此冻结发布时要按新的并集重新对齐。
+
+## 5. 队列 UI 的本地无回归检查（2026-09-25 04:58 CST）
+
+本地开发 Web（`next dev :45242`，`/api` 与 `/auth` 同源重写到现有 Pivloom API/Auth）打开计算器项目 v8：
+
+- 部署中的 API 还没有 `/api/v1/tasks`，页面因此不显示“任务”入口，输入区保持旧文案与旧的等待规则——这是刻意的能力门控，不让前端把未上线的队列伪装成可用。
+- 1440 与 390 视口下 `documentElement.scrollWidth` 分别等于 `1440` / `390`（无横向溢出）；输入框、发送按钮和状态文字都在视口内可见。
+- 项目列表 20 张卡片，两个视口同样无横向溢出。
+
+截图：`local-queue-ui-desktop-1440.png`、`local-queue-ui-narrow-390.png`、`local-project-list-narrow-390.png`。真正的排队体验（真实 queued 状态、排队位置、取消排队、刷新恢复）要等 #29 后端落地后再做浏览器验收，见 A07。
