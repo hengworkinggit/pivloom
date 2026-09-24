@@ -450,6 +450,7 @@ test('Canvas key batch binds every input result, fresh observation and delivered
 test('a failed Canvas input cannot pass and is reported blocked after the one correction turn',async()=>{
   let batchEventId='';
   let rejected='';
+  const batchCompleted:boolean[]=[];
   const f=setup((request,n)=>{
     const last=request.messages.filter(message=>message.role==='tool').at(-1);
     let data:Record<string,unknown>|null=null;
@@ -465,8 +466,11 @@ test('a failed Canvas input cannot pass and is reported blocked after the one co
   f.input.browser.keyBatch=async({steps})=>({observation:await f.input.browser.observe(),
     startedAt:'2026-09-23T18:00:00.000Z',finishedAt:'2026-09-23T18:00:00.200Z',
     steps:steps.map((step,index)=>({index,...step,success:index===0}))});
-  const result=await runReviewer(f.input);
+  const result=await runReviewer({...f.input,onEvent:async(event:ProbeEvent)=>{
+    if(event.type==='tool.end'&&event.toolName==='browser_key_batch')batchCompleted.push(event.success===true);
+  }});
   expect(rejected).toContain('INPUT_FAILED');
+  expect(batchCompleted).toEqual([false]);
   expect(result.result.items[0].verdict).toBe('blocked');
   expect(result.evidence.find(event=>event.id===batchEventId)?.batch?.steps.map(step=>step.success)).toEqual([true,false]);
 });

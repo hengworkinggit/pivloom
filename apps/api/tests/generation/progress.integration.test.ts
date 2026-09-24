@@ -66,7 +66,14 @@ describe.skipIf(process.env.PIVLOOM_PROGRESS_INTEGRATION !== '1')('rolling Run p
       expect(Date.parse(advanced.deadlineAt)).toBeGreaterThan(Date.parse(before.deadlineAt));
       await repo.appendEvent(ownerId, runId, { type:'tool.completed',roleRunId:roleId,
         payload:{toolName:'project_summary',success:false} });
+      for (let repeated = 0; repeated < 3; repeated++) await repo.appendEvent(ownerId, runId, {
+        type:'tool.completed',roleRunId:roleId,payload:{toolName:'browser_observe',success:true},
+      });
       expect((await repo.getRun(ownerId, runId)).deadlineAt).toBe(advanced.deadlineAt);
+      await admin.query("UPDATE nano.runs SET state='building',phase='implement',deadline_at=now()-interval '1 second' WHERE id=$1", [runId]);
+      await expect(repo.setPhase(ownerId, runId, { phase:'build',state:'building' }))
+        .rejects.toMatchObject({code:'RUN_TIMEOUT'});
+      expect(Date.parse((await repo.getRun(ownerId, runId)).deadlineAt)).toBeLessThan(Date.now());
       await repo.cancel(ownerId, runId);
       await expect(repo.appendEvent(ownerId, runId, { type:'tool.completed',roleRunId:roleId,
         progress:true,payload:{toolName:'project_summary',success:true} })).rejects.toMatchObject({code:'RUN_NOT_ACTIVE'});
@@ -87,5 +94,5 @@ describe.skipIf(process.env.PIVLOOM_PROGRESS_INTEGRATION !== '1')('rolling Run p
       } catch (error) { await client.query('ROLLBACK'); throw error; }
       finally { client.release(); await admin.end(); await database.close(); }
     }
-  }, 60_000);
+  }, 120_000);
 });

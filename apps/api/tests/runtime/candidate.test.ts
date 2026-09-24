@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { afterEach, expect, test } from "vitest";
 import type { Handoff } from "@pivloom/contracts";
-import { runCandidate } from "../../src/generation/candidate.js";
+import { destroyCandidateSandbox, runCandidate } from "../../src/generation/candidate.js";
 import { createRunTokenBudget } from "../../src/runtime/token-budget.js";
 import { SANDBOX_LEASE_SEGMENT_MS } from "../../src/runtime/budgets.js";
 import type {
@@ -116,7 +116,7 @@ async function remoteFixture(
       };
     },
   };
-  const connector: SandboxConnector = { create: async () => connection };
+  const connector: SandboxConnector = { create: async () => connection, connect: async () => connection };
   return { connector, files, commands, renewals, isLive: () => live };
 }
 
@@ -173,6 +173,16 @@ const sandboxConfig = {
   apiKey: "sandbox-fixture-secret",
   image: "fixture",
 };
+
+test("a bound fake sandbox is actually killed and independently absent after failed-run cleanup", async () => {
+  const remote = await remoteFixture();
+  const connection = await remote.connector.create(sandboxConfig, randomUUID());
+  expect(remote.isLive()).toBe(true);
+  const result = await destroyCandidateSandbox({ sandboxConfig, sandboxId: connection.sandboxId,
+    sandboxConnector: remote.connector });
+  expect(result).toEqual({ confirmed: true });
+  expect(remote.isLive()).toBe(false);
+});
 
 test("repair Builder receives the failed behavior and compiler diagnostic from its persisted handoff", async () => {
   const remote = await remoteFixture();

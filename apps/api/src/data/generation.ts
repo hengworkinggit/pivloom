@@ -585,6 +585,8 @@ export function createGenerationRepository(
     },
     setPhase: (ownerId, runId, input) => owned(ownerId, async (client) => {
       const { current } = await lockedRun(client, ownerId, runId);
+      if (current.executor_boot_id !== options.executorBootId) throw new ApiFailure(409, "RUN_NOT_ACTIVE", "任务执行者已变化。");
+      if (date(current.deadline_at).getTime() <= Date.now()) throw new ApiFailure(409, "RUN_TIMEOUT", "任务长时间没有进展，已停止执行。");
       const state = input.state ?? current.state;
       const permitted: Record<string, string[]> = { accepted: ["accepted", "building"], building: ["building", "verifying"], verifying: ["verifying"] };
       if (!permitted[current.state]?.includes(state)) throw new ApiFailure(409, "INVALID_RUN_TRANSITION", "当前阶段不能进行这个状态切换。");

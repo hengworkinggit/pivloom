@@ -446,7 +446,21 @@ export async function runCandidate(
 export async function destroyCandidateSandbox(input: {
   sandboxConfig: SandboxConfig;
   sandboxId: string;
+  sandboxConnector?: SandboxConnector;
 }): Promise<{ confirmed: boolean }> {
+  if (input.sandboxConnector) {
+    // An explicit connector is the isolated execution boundary. Never fall
+    // through to the production Manager when its test double cannot connect.
+    if (!input.sandboxConnector.connect) return { confirmed: false };
+    const workspace = new OpenSandboxWorkspace(input.sandboxConfig, input.sandboxConnector);
+    const handle = { sandboxId: input.sandboxId, expiresAt: new Date(Date.now() + 60_000).toISOString() };
+    try {
+      await workspace.connect(handle);
+      return await workspace.destroy(handle);
+    } catch (error) {
+      return { confirmed: error instanceof SandboxApiException && error.statusCode === 404 };
+    }
+  }
   const manager = SandboxManager.create({
     connectionConfig: sandboxConnectionConfig(input.sandboxConfig),
   });

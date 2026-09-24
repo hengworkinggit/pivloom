@@ -359,6 +359,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
         lastRejection=undefined;
         check();
         let success=false;
+        let actionSucceeded=true;
         let argumentFailure:RuntimeError|undefined;
         try {
           const parsed=schemas[name].safeParse(args);
@@ -427,7 +428,10 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             const result=await input.browser.keyBatch({observationId:batch.observationId,steps:batch.steps});
             await active();
             const sequence=JSON.stringify(batch.steps);
-            if(result.steps.some(step=>!step.success))failedInputBehaviors.set(batch.behaviorId,sequence);
+            if(result.steps.some(step=>!step.success)){
+              actionSucceeded=false;
+              failedInputBehaviors.set(batch.behaviorId,sequence);
+            }
             else if(failedInputBehaviors.get(batch.behaviorId)===sequence)failedInputBehaviors.delete(batch.behaviorId);
             lastAction={behaviorId:batch.behaviorId,action:'key_batch'};
             noteBehaviorAction(batch.behaviorId);
@@ -521,7 +525,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             noteBehaviorAction(behaviorId);
             value=observe(observation);
           }
-          await active();success=true;
+          await active();success=actionSucceeded;
           return imageContent ? {content:[{type:'text' as const,text:JSON.stringify(value)},imageContent],details:{}} : output(value);
         } catch(error){
           if(fatal && error===fatal && fatal.code==='AGENT_OUTPUT_INVALID'){

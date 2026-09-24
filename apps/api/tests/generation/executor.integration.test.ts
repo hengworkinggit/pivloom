@@ -124,7 +124,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     options: { failCancelledWrites?: number; failFailedWrites?: number; failRestoreWrites?: number; settlementRetryMs?: number; cleanupSweepMs?: number;
       observeTerminalWrites?: boolean;
       beforeModelFailure?: () => Promise<void> } = {}) {
-    const remotes = new Map<string, { files: Map<string, Buffer>; live: boolean; actions: number; url: string; index: number }>();
+    const remotes = new Map<string, { files: Map<string, Buffer>; live: boolean; actions: number; url: string; index: number; renewals: number[] }>();
     let builderSessions = 0;
     let signalBuilderStarted = () => {};
     const builderStarted = new Promise<void>((resolve) => { signalBuilderStarted = resolve; });
@@ -156,14 +156,14 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       connect: async (_config, id) => connections.get(id)!,
       create: async () => {
         const id = randomUUID();
-        const remote = { files: new Map<string, Buffer>(), live: true, actions: 0, url: "http://127.0.0.1:4173/", index: remotes.size };
+        const remote = { files: new Map<string, Buffer>(), live: true, actions: 0, url: "http://127.0.0.1:4173/", index: remotes.size, renewals: [] as number[] };
         remotes.set(id, remote);
         const connection: SandboxConnection = {
           sandboxId: id, kill: async () => {
             if (mode === "cancel-builder-cleanup-fails" && cleanupUnavailable) throw new Error("Synthetic first destroy failure");
             remote.live = false;
           }, isRunning: async () => remote.live,
-          renew: async () => {}, close: async () => { const hook = closeHook; closeHook = undefined; await hook?.(); }, endpoint: async () => ({ url: `${origin}/v1/sandboxes/${id}/proxy/4173`, headers: {} }),
+          renew: async (seconds) => { remote.renewals.push(seconds); }, close: async () => { const hook = closeHook; closeHook = undefined; await hook?.(); }, endpoint: async () => ({ url: `${origin}/v1/sandboxes/${id}/proxy/4173`, headers: {} }),
           read: async (path) => path.startsWith("/tmp/pivloom-browser/")
             ? Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aV0cAAAAASUVORK5CYII=", "base64")
             : remote.files.get(path) ?? Buffer.alloc(0),
@@ -293,7 +293,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       allowCleanup() { cleanupUnavailable = false; }, onRelease(hook: () => Promise<void>) { closeHook = hook; } };
   }
 
-  async function run(f: Awaited<ReturnType<typeof fixture>>, projectId?: string) {
+  async function run(f: Awaited<ReturnType<typeof fixture>>, projectId?: string, closeAfter = true) {
     const project = projectId ? await createProjectRepository(database).get(owner, projectId) : await createProjectRepository(database).create(owner, prefix);
     if (!projects.includes(project.id)) projects.push(project.id);
     const accepted = await repository.accept(owner, project.id, { idempotencyKey: randomUUID(), text: "初始0，点击加一显示1", expectedCurrentRevisionId: project.currentRevisionId, modelProfileId: model.id, modelConfigVersion: model.configVersion });
@@ -303,7 +303,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       finished.set(accepted.run.id, () => { clearTimeout(timer); finished.delete(accepted.run.id); done(); });
       f.executor.start(accepted.run);
     });
-    await f.executor.close();
+    if (closeAfter) await f.executor.close();
     return { ...await repository.readRunSnapshot(owner, accepted.run.id), projectId: project.id };
   }
 
@@ -344,10 +344,17 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
 
   test("only an accepted Reviewer result retains the current candidate preview", async () => {
     const remote = await fixture("normal");
-    const result = await run(remote);
-    expect(result.run.state).toBe("completed");
-    expect(result.binding?.state).toBe("active");
-    expect([...remote.remotes.values()].map((sandbox) => sandbox.live)).toEqual([true]);
+    const result = await run(remote, undefined, false);
+    try {
+      expect(result.run.state).toBe("completed");
+      expect(result.binding?.state).toBe("active");
+      const sandbox = [...remote.remotes.values()][0];
+      expect(sandbox.live).toBe(true);
+      expect(sandbox.renewals).toContain(1_800);
+      expect(Date.parse(result.binding!.expiresAt) - Date.parse(result.run.finishedAt!)).toBeGreaterThan(25 * 60_000);
+      const stored = await repository.getPreviewBinding(owner, result.projectId, result.run.resultRevisionId!);
+      expect(stored?.expiresAt).toBe(result.binding?.expiresAt);
+    } finally { await remote.executor.close(); }
   }, 900_000);
 
   test("Reviewer actions consume the same tool allowance as the next repair Builder", async () => {

@@ -13,7 +13,7 @@ import { ApiFailure } from "../routes/errors.js";
 import { destroyCandidateSandbox, runCandidate, type CandidateSnapshot } from "./candidate.js";
 import { restorePreview } from "./restore.js";
 import type { PreviewGateway } from "./preview.js";
-import { createRunProgressWatchdog } from "./progress-watchdog.js";
+import { createMeaningfulProgressGate, createRunProgressWatchdog } from "./progress-watchdog.js";
 import { OpenSandboxWorkspace } from "../runtime/workspace.js";
 
 interface Resource {
@@ -82,7 +82,8 @@ export function createGenerationExecutor(options: {
   async function destroy(resource: Resource) {
     resource.cleanupPending = true;
     previews.revoke(resource.revisionId, resource.sandboxId);
-    const result = await destroyCandidateSandbox({ sandboxConfig: sandbox, sandboxId: resource.sandboxId });
+    const result = await destroyCandidateSandbox({ sandboxConfig: sandbox, sandboxId: resource.sandboxId,
+      sandboxConnector: boundaries.sandboxConnector });
     if (result.confirmed) {
       if (resource.restore) {
         await repository.markRestoreSandboxDestroyed(resource.ownerId, resource.restore.projectId, resource.restore.id, resource.sandboxId);
@@ -100,6 +101,7 @@ export function createGenerationExecutor(options: {
 
   async function execute(run: StoredRun, task: Task) {
     const watchdog = createRunProgressWatchdog(run.deadlineAt, task.controller);
+    const meaningfulProgress = createMeaningfulProgressGate();
     // The candidate sandbox for the current attempt. It is written from inside
     // the sandbox callback, so reads go through a helper that always reports the
     // declared type instead of a stale control-flow narrowing.
@@ -154,8 +156,7 @@ export function createGenerationExecutor(options: {
         const phases = { creating: "provision", generating: "implement", building: "build", previewing: "persist", checking: "review", ready: "persist", cleaning: "cleanup" } as const;
         if (event.type === "stage" && event.stage) await setPhase(phases[event.stage]);
         if (event.type !== "tool.start" && event.type !== "tool.end" && event.type !== "tool.output" && event.type !== "model.stream.started") return;
-        const progress = event.type === "tool.end" && event.success === true
-          || event.type === "model.stream.started" && event.success === true;
+        const progress = meaningfulProgress(roleRunId, event);
         const saved = await repository.appendEvent(run.ownerId, run.id, {
           type: event.type === "tool.start" ? "tool.started" : event.type === "tool.end" ? "tool.completed" : "tool.output",
           roleRunId,
@@ -321,7 +322,7 @@ export function createGenerationExecutor(options: {
         if (checked.receipt.result.items.every((item) => item.verdict === "passed")) {
           const tracked = currentResource();
           if (!tracked) throw new RuntimeError("SANDBOX_LEASE_RENEW_FAILED", "候选预览已不受当前任务管理");
-          const manager = new OpenSandboxWorkspace(sandbox);
+          const manager = new OpenSandboxWorkspace(sandbox, boundaries.sandboxConnector);
           const handle = { sandboxId: tracked.sandboxId, expiresAt: tracked.expiresAt };
           try {
             await manager.connect(handle);

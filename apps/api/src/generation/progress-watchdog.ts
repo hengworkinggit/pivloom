@@ -1,3 +1,26 @@
+import type { ProbeEvent } from '../runtime/types.js';
+
+const meaningfullyCompletedTools = new Set([
+  'submit_plan', 'request_clarification',
+  'write', 'edit', 'bash',
+  'browser_click', 'browser_fill', 'browser_select', 'browser_press', 'browser_key_batch', 'browser_form',
+  'record_behavior', 'submit_review',
+]);
+
+/** A role gets one first-stream credit; later liveness needs an actual action. */
+export function createMeaningfulProgressGate() {
+  const firstStreamSeen = new Set<string>();
+  return (roleRunId: string, event: Pick<ProbeEvent, 'type' | 'toolName' | 'success' | 'message'>): boolean => {
+    if (event.type === 'model.stream.started') {
+      if (event.success !== true || firstStreamSeen.has(roleRunId)) return false;
+      firstStreamSeen.add(roleRunId);
+      return true;
+    }
+    return event.type === 'tool.end' && event.success === true
+      && meaningfullyCompletedTools.has(event.toolName ?? '');
+  };
+}
+
 /** Aborts a Run only when its persisted inactivity lease stops advancing. */
 export function createRunProgressWatchdog(initialDeadlineAt: string, controller: AbortController) {
   let expiresAt = Date.parse(initialDeadlineAt);

@@ -119,7 +119,8 @@ export function createGenerationService(options: {
     for (const row of claim.rows) {
       let confirmed = true;
       for (const sandboxId of row.o_sandbox_ids ?? []) {
-        const destroyed = await destroyCandidateSandbox({ sandboxConfig: options.sandbox, sandboxId }).catch(() => ({ confirmed: false }));
+        const destroyed = await destroyCandidateSandbox({ sandboxConfig: options.sandbox, sandboxId,
+          sandboxConnector: options.generationBoundaries?.sandboxConnector }).catch(() => ({ confirmed: false }));
         if (!destroyed.confirmed) confirmed = false;
       }
       if (confirmed)
