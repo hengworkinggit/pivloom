@@ -5,28 +5,18 @@ import { allowsRenderOnlyEvidence } from '@pivloom/contracts';
 import { runReviewer, assertReviewerResult, deliveredScreenshotIdsFromRequest, type ReviewBrowser } from '../../src/runtime/reviewer.js';
 import { RuntimeError, type ModelConfig, type ProbeEvent } from '../../src/runtime/types.js';
 import { classifyReviewerModelFailure } from '../../src/runtime/reviewer.js';
-import { MODEL_REQUEST_TIMEOUT_MS, PROVIDER_RETRY_POLICY, REVIEW_ATTEMPT_TIMEOUT_MS, RUN_DEADLINE_MS } from '../../src/runtime/budgets.js';
+import { MODEL_REQUEST_TIMEOUT_MS, PROVIDER_RETRY_POLICY, RUN_IDLE_TIMEOUT_MS, SANDBOX_LEASE_SEGMENT_MS } from '../../src/runtime/budgets.js';
 
-test('the run and Reviewer ceilings leave room for the measured three-role chain',()=>{
-  expect(RUN_DEADLINE_MS).toBeGreaterThanOrEqual(1_200_000);
-  expect(REVIEW_ATTEMPT_TIMEOUT_MS).toBeGreaterThanOrEqual(480_000);
+test('a single provider request is bounded below the renewable inactivity and sandbox leases',()=>{
   expect(MODEL_REQUEST_TIMEOUT_MS).toBeGreaterThan(57_000);
-  expect(MODEL_REQUEST_TIMEOUT_MS).toBeLessThan(REVIEW_ATTEMPT_TIMEOUT_MS);
-  expect(REVIEW_ATTEMPT_TIMEOUT_MS).toBeLessThan(RUN_DEADLINE_MS);
+  expect(MODEL_REQUEST_TIMEOUT_MS).toBeLessThan(RUN_IDLE_TIMEOUT_MS);
+  expect(RUN_IDLE_TIMEOUT_MS).toBeLessThan(SANDBOX_LEASE_SEGMENT_MS);
 });
 
-test.each([
-  ['attempt deadline already fired',{deadlineAborted:true,grantedTimeoutClipped:false,expired:false}],
-  ['request budget clipped by the deadline',{deadlineAborted:false,grantedTimeoutClipped:true,expired:false}],
-  ['attempt clock expired before the terminal event',{deadlineAborted:false,grantedTimeoutClipped:false,expired:true}],
-])('a model turn stopped by %s is a review deadline, not a provider failure',(_label,state)=>{
-  expect(classifyReviewerModelFailure(state).code).toBe('REVIEW_TIMEOUT');
-});
-
-test('only an in-budget provider failure is reported as a provider error',()=>{
-  const timeout=classifyReviewerModelFailure({deadlineAborted:false,grantedTimeoutClipped:false,expired:false,errorMessage:'Request timed out after 120s'});
+test('a failed provider request is classified independently of elapsed Reviewer time',()=>{
+  const timeout=classifyReviewerModelFailure({errorMessage:'Request timed out after 120s'});
   expect(timeout.code).toBe('MODEL_REQUEST_TIMEOUT');
-  const other=classifyReviewerModelFailure({deadlineAborted:false,grantedTimeoutClipped:false,expired:false,errorMessage:'Provider returned a malformed payload'});
+  const other=classifyReviewerModelFailure({errorMessage:'Provider returned a malformed payload'});
   expect(other.code).toBe('MODEL_FAILED');
 });
 
@@ -742,22 +732,23 @@ test('Reviewer shares the run token budget and refuses before external provider 
   expect(f.stats()).toEqual({calls:0,actions:0,closes:1});
 });
 
-test('the whole Reviewer attempt has a deadline, including a stalled model stream',async()=>{
+test('parent cancellation stops a stalled Reviewer model stream and closes its browser',async()=>{
   const f=setup(()=>({name:'browser_open',args:{}})), controller=new AbortController();
   f.input.modelConfig.fetch=async(_url,init)=>new Promise<Response>((_resolve,reject)=>{
     const signal=init?.signal;
     if(signal?.aborted)reject(new Error('aborted'));
     else signal?.addEventListener('abort',()=>reject(new Error('aborted')),{once:true});
   });
-  const pending=runReviewer({...f.input,signal:controller.signal,timeoutMs:30});
+  const pending=runReviewer({...f.input,signal:controller.signal});
   const result=pending.then(()=> 'unexpected success',error=>error.code);
+  const cancel=setTimeout(()=>controller.abort('CANCELLED'),30);
   try{
-    expect(await Promise.race([result,new Promise(resolve=>setTimeout(()=>resolve('NO_ATTEMPT_DEADLINE'),150))])).toBe('REVIEW_TIMEOUT');
-  }finally{controller.abort();await result;}
+    expect(await Promise.race([result,new Promise(resolve=>setTimeout(()=>resolve('NO_CANCEL'),150))])).toBe('CANCELLED');
+  }finally{clearTimeout(cancel);controller.abort('CANCELLED');await result;}
   expect(f.stats().closes).toBe(1);
 });
 
-test('expiry while persisting tool.start prevents starting the browser operation',async()=>{
+test('an explicit parent timeout while persisting tool.start prevents a browser operation',async()=>{
   const f=setup(()=>({name:'browser_open',args:{}})), controller=new AbortController();
   let opens=0;
   const open=f.input.browser.open;

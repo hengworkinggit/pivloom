@@ -3,8 +3,9 @@ import { ReviewBindingSchema, type ReviewBinding, type ReviewResult, type Handof
 import { OpenSandboxWorkspace, type SandboxConnector } from '../runtime/workspace.js';
 import { RemoteBrowser } from '../runtime/browser.js';
 import { sourceHash } from '../runtime/generation.js';
-import { runReviewer, assertReviewerResult, REVIEW_ATTEMPT_TIMEOUT_MS, type ReviewObservationEvent } from '../runtime/reviewer.js';
+import { runReviewer, assertReviewerResult, type ReviewObservationEvent } from '../runtime/reviewer.js';
 import { RuntimeError, type ModelConfig, type SandboxConfig, type ProbeEventSink } from '../runtime/types.js';
+import { SANDBOX_LEASE_RENEW_THRESHOLD_MS, SANDBOX_LEASE_SEGMENT_MS } from '../runtime/budgets.js';
 import { type TokenUsage, type RunTokenBudget } from '../runtime/token-budget.js';
 import { assertVerifiedSourceSnapshot, type SourceStore, type VerifiedSourceSnapshot } from '../storage/source.js';
 import type { ArtifactStore, StoredArtifact } from '../storage/artifacts.js';
@@ -33,6 +34,7 @@ export interface ReviewInput {
   source:VerifiedSourceSnapshot;sources:SourceStore;artifacts:ArtifactStore;
   sandboxConfig:SandboxConfig;modelConfig:ModelConfig;signal:AbortSignal;
   tokenBudget?:RunTokenBudget;maxToolCalls?:number;onEvent?:ProbeEventSink;assertActive():Promise<void>;
+  onLeaseRenewed(expiresAt:string):Promise<void>;
 }
 function freeze<T>(value:T):T{
   if(value&&typeof value==='object'&&!Object.isFrozen(value)){
@@ -47,14 +49,25 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
   if(input.source.revisionId!==binding.revisionId||input.source.sourceHash!==binding.sourceHash)
     throw new RuntimeError('INVALID_REVIEW_RECEIPT','检查源码与候选版本不一致');
   const workspace=new OpenSandboxWorkspace(input.sandboxConfig,boundaries.sandboxConnector);
-  const handle={sandboxId:binding.sandboxId,expiresAt:input.expiresAt};
+  let handle={sandboxId:binding.sandboxId,expiresAt:input.expiresAt};
   const browser=new RemoteBrowser(workspace,handle,undefined,binding.browserSessionId);
-  const deadline=new AbortController(), signal=AbortSignal.any([input.signal,deadline.signal]);
-  const timer=setTimeout(()=>deadline.abort("REVIEW_TIMEOUT"),REVIEW_ATTEMPT_TIMEOUT_MS);
+  const leaseAbort=new AbortController(),signal=AbortSignal.any([input.signal,leaseAbort.signal]);
   const artifacts:StoredArtifact[]=[];
-  let markerVerified=false,connected=false,usage:TokenUsage|undefined;
+  let markerVerified=false,connected=false,usage:TokenUsage|undefined,leaseFailure:RuntimeError|undefined;
   let evidence:ReviewObservationEvent[]=[],result:ReviewResult|undefined;
   const active=async()=>{signal.throwIfAborted();await input.assertActive();signal.throwIfAborted();};
+  async function ensureLease(force=false){
+    if(!force&&Date.parse(handle.expiresAt)-Date.now()>SANDBOX_LEASE_RENEW_THRESHOLD_MS)return;
+    try{
+      const renewed=await workspace.renewLease(handle,SANDBOX_LEASE_SEGMENT_MS,signal);
+      await input.onLeaseRenewed(renewed.expiresAt);
+      handle=renewed;
+    }catch{
+      leaseFailure=new RuntimeError('SANDBOX_LEASE_RENEW_FAILED','检查沙箱续租未确认，已停止并清理本轮任务');
+      leaseAbort.abort(leaseFailure);
+      throw leaseFailure;
+    }
+  }
   async function verifyVersion(){
     await active();
     await input.sources.verify(input.source);
@@ -74,11 +87,12 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
   }
   try{
     await active();await workspace.connect(handle);connected=true;
+    await ensureLease(true);
     await verifyVersion();
     const files=(await input.sources.load(input.source)).files;
     const reviewed=await runReviewer({binding,sessionId:input.sessionId,handoff:input.handoff,browser,files,
       modelConfig:input.modelConfig,signal,tokenBudget:input.tokenBudget,maxToolCalls:input.maxToolCalls,
-      onEvent:input.onEvent,assertActive:active,
+      onEvent:async(event)=>{await ensureLease();await input.onEvent?.(event);},assertActive:active,
       async saveScreenshot(image){
         await active();const artifact=await input.artifacts.save(input.source,image,signal);await active();artifacts.push(artifact);
         return {id:artifact.id,mimeType:artifact.mimeType,sha256:artifact.sha256};
@@ -86,17 +100,17 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     assertReviewerResult(reviewed);usage=reviewed.usage;evidence=reviewed.evidence;result=reviewed.result;
     await verifyVersion();markerVerified=true;
   }catch(error){
+    if(leaseFailure)throw leaseFailure;
     if(input.signal.aborted)throw error;
     if(error instanceof RuntimeError && ['AGENT_OUTPUT_INVALID','TOKEN_BUDGET_EXCEEDED','TOOL_BUDGET_EXCEEDED','ROLE_NOT_ACTIVE','MODEL_FAILED','MODEL_REQUEST_TIMEOUT'].includes(error.code))throw error;
     if(error instanceof RuntimeError&&error.usage)usage=error.usage;
     const versionMismatch=error instanceof RuntimeError&&error.code==='CHECK_VERSION_MISMATCH';
     const reason=error instanceof RuntimeError?blockedReasons.get(error.code)??blockedReasons.get(error.diagnosticCode??''):undefined;
-    const message=versionMismatch?'候选源码或预览版本不一致，未接受检查结果。':deadline.signal.aborted?`检查超过本轮 ${Math.round(REVIEW_ATTEMPT_TIMEOUT_MS/60000)} 分钟时限，候选尚未通过检查。`:reason??'浏览器或检查过程未完成，当前候选尚未通过检查。';
+    const message=versionMismatch?'候选源码或预览版本不一致，未接受检查结果。':reason??'浏览器或检查过程未完成，当前候选尚未通过检查。';
     result={revisionId:binding.revisionId,sourceHash:binding.sourceHash,summary:message,items:input.handoff.plan.behaviors.map(behavior=>({
       behaviorId:behavior.id,verdict:'blocked' as const,expected:behavior.expected,actual:message,observationEventIds:[],screenshotIds:[],reproSteps:[],
     }))};
   }finally{
-    clearTimeout(timer);
     if(connected){
       const closed=await browser.close().catch(()=>({confirmed:false}));
       await workspace.releaseClient(handle).catch(()=>{});

@@ -35,6 +35,8 @@ export const RunSchema = z.object({
   // The exact model this run used; null means the profile's default model.
   modelId: z.string().max(160).nullable().default(null),
   baseRevisionId: z.uuid().nullable(), resultRevisionId: z.uuid().nullable(),
+  // Next expiry for lack of meaningful progress; it rolls forward and is not
+  // a maximum total generation duration.
   createdAt: z.iso.datetime(), deadlineAt: z.iso.datetime(), finishedAt: z.iso.datetime().nullable(),
   cleanupState: z.enum(["clear", "pending", "confirmed"]),
   error: RunErrorSchema.nullable(), summary: z.string().max(4000).nullable(),

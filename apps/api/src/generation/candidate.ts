@@ -10,7 +10,7 @@ import {
 } from "../runtime/generation.js";
 import { runBuilder, type BuilderResult } from "../runtime/pi.js";
 import type { RunTokenBudget } from "../runtime/token-budget.js";
-import { RUN_DEADLINE_MINUTES, RUN_DEADLINE_MS } from "../runtime/budgets.js";
+import { SANDBOX_LEASE_RENEW_THRESHOLD_MS, SANDBOX_LEASE_SEGMENT_MS } from "../runtime/budgets.js";
 import { createSourceSnapshot } from "../runtime/snapshot.js";
 import {
   OpenSandboxWorkspace,
@@ -40,6 +40,7 @@ export type CandidateManifest = Array<{
 export interface CandidateSandboxRegistration extends WorkspaceHandle {
   state:
     | "created"
+    | "renewed"
     | "preview_ready"
     | "retained"
     | "destroyed"
@@ -119,24 +120,19 @@ export async function runCandidate(
   boundaries: CandidateBoundaries = {},
 ): Promise<RunCandidateResult> {
   const started = Date.now();
-  const deadline = new AbortController();
   const eventAbort = new AbortController();
-  const timer = setTimeout(() => deadline.abort(), RUN_DEADLINE_MS);
-  const signal = AbortSignal.any([
-    input.signal,
-    deadline.signal,
-    eventAbort.signal,
-  ]);
+  const signal = AbortSignal.any([input.signal, eventAbort.signal]);
   const workspace = new OpenSandboxWorkspace(
     {
       ...input.sandboxConfig,
-      lifetimeMs: input.sandboxConfig.lifetimeMs ?? RUN_DEADLINE_MS,
+      lifetimeMs: input.sandboxConfig.lifetimeMs ?? SANDBOX_LEASE_SEGMENT_MS,
     },
     boundaries.sandboxConnector,
   );
   let handle: WorkspaceHandle | undefined;
   let retained = false;
   let eventFailure = false;
+  let leaseFailure: RuntimeError | undefined;
   let eventTail = Promise.resolve();
   const toolCalls: BuilderResult["toolCalls"] = [];
   let usage: BuilderResult["usage"] | undefined;
@@ -144,6 +140,18 @@ export async function runCandidate(
   let buildStarted = false;
   const eventError = () =>
     new RuntimeError("EVENT_APPEND_FAILED", "运行事件保存失败，已停止候选生成");
+  const ensureLease = async () => {
+    if (!handle || Date.parse(handle.expiresAt) - Date.now() > SANDBOX_LEASE_RENEW_THRESHOLD_MS) return;
+    try {
+      const renewed = await workspace.renewLease(handle, SANDBOX_LEASE_SEGMENT_MS, signal);
+      await register({ ...renewed, state: "renewed", revisionId: input.revisionId });
+      handle = renewed;
+    } catch {
+      leaseFailure = new RuntimeError("SANDBOX_LEASE_RENEW_FAILED", "候选沙箱续租未确认，已停止并清理本轮任务");
+      eventAbort.abort(leaseFailure);
+      throw leaseFailure;
+    }
+  };
   const sink = (event: ProbeEvent): Promise<void> => {
     if (event.type === "tool.end" && event.toolCallId && event.toolName)
       toolCalls.push({
@@ -153,6 +161,8 @@ export async function runCandidate(
       });
     const operation = eventTail.then(async () => {
       if (eventFailure) throw eventError();
+      if (leaseFailure) throw leaseFailure;
+      if (!signal.aborted && event.type !== "resource.cleaned" && event.type !== "model.stopped") await ensureLease();
       try {
         await input.onEvent?.({
           ...event,
@@ -283,7 +293,6 @@ export async function runCandidate(
       prompt: builderPrompt,
       signal,
       onEvent: sink,
-      timeoutMs: Math.max(1, RUN_DEADLINE_MS - (Date.now() - started)),
       maxToolCalls: input.maxToolCalls ?? 80,
       tokenBudget: input.tokenBudget,
       sessionId: input.sessionId,
@@ -355,9 +364,11 @@ export async function runCandidate(
   } catch (error) {
     if (error instanceof RuntimeError && error.trustedBuild) trustedBuild = safeBuild(error.trustedBuild);
     if (error instanceof RuntimeError && error.usage) usage = { ...error.usage };
-    const timedOut = deadline.signal.aborted || input.signal.aborted && input.signal.reason === "RUN_TIMEOUT";
+    const timedOut = input.signal.aborted && input.signal.reason === "RUN_TIMEOUT";
     const runtimeError = timedOut
-      ? new RuntimeError("RUN_TIMEOUT", `本次生成超过 ${RUN_DEADLINE_MINUTES} 分钟，已停止`)
+      ? new RuntimeError("RUN_TIMEOUT", "任务长时间没有进展，已停止执行")
+      : leaseFailure
+      ? leaseFailure
       : eventFailure
       ? eventError()
       : input.signal.aborted
@@ -406,7 +417,6 @@ export async function runCandidate(
       }
     }
   } finally {
-    clearTimeout(timer);
     if (!retained && handle) {
       const cleanup = await workspace.destroy(handle);
       if (failure) {

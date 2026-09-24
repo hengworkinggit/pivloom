@@ -8,11 +8,13 @@ import { runReview } from "./review.js";
 import { RuntimeError, type ProbeEvent, type SandboxConfig, type SourceFile, type TrustedBuildRecord } from "../runtime/types.js";
 import { runCoordinator } from "../runtime/coordinator.js";
 import { createRunTokenBudget, type TokenUsage } from "../runtime/token-budget.js";
-import { RESTORE_TIMEOUT_MS, RUN_DEADLINE_MINUTES, RUN_TOOL_LIMIT } from "../runtime/budgets.js";
+import { ACCEPTED_PREVIEW_LEASE_MS, RESTORE_TIMEOUT_MS, RUN_IDLE_TIMEOUT_MS, RUN_TOOL_LIMIT } from "../runtime/budgets.js";
 import { ApiFailure } from "../routes/errors.js";
 import { destroyCandidateSandbox, runCandidate, type CandidateSnapshot } from "./candidate.js";
 import { restorePreview } from "./restore.js";
 import type { PreviewGateway } from "./preview.js";
+import { createRunProgressWatchdog } from "./progress-watchdog.js";
+import { OpenSandboxWorkspace } from "../runtime/workspace.js";
 
 interface Resource {
   ownerId: string; runId: string; revisionId: string; sandboxId: string; expiresAt: string;
@@ -97,7 +99,7 @@ export function createGenerationExecutor(options: {
   }
 
   async function execute(run: StoredRun, task: Task) {
-    const deadlineTimer = setTimeout(() => task.controller.abort("RUN_TIMEOUT"), Math.max(1, Date.parse(run.deadlineAt) - Date.now()));
+    const watchdog = createRunProgressWatchdog(run.deadlineAt, task.controller);
     // The candidate sandbox for the current attempt. It is written from inside
     // the sandbox callback, so reads go through a helper that always reports the
     // declared type instead of a stale control-flow narrowing.
@@ -121,7 +123,8 @@ export function createGenerationExecutor(options: {
     };
     async function setPhase(next: RunPhase) {
       if (phase === next) return;
-      await repository.setPhase(run.ownerId, run.id, { phase: next, state: "building" });
+      const changed = await repository.setPhase(run.ownerId, run.id, { phase: next, state: "building" });
+      watchdog.touch(changed.deadlineAt);
       phase = next;
     }
     async function save(snapshot: CandidateSnapshot, buildStatus: "passed" | "failed", trustedBuild: TrustedBuildRecord) {
@@ -151,15 +154,20 @@ export function createGenerationExecutor(options: {
         const phases = { creating: "provision", generating: "implement", building: "build", previewing: "persist", checking: "review", ready: "persist", cleaning: "cleanup" } as const;
         if (event.type === "stage" && event.stage) await setPhase(phases[event.stage]);
         if (event.type !== "tool.start" && event.type !== "tool.end" && event.type !== "tool.output" && event.type !== "model.stream.started") return;
-        await repository.appendEvent(run.ownerId, run.id, {
+        const progress = event.type === "tool.end" && event.success === true
+          || event.type === "model.stream.started" && event.success === true;
+        const saved = await repository.appendEvent(run.ownerId, run.id, {
           type: event.type === "tool.start" ? "tool.started" : event.type === "tool.end" ? "tool.completed" : "tool.output",
           roleRunId,
+          progress,
           // Tool batches have already been redacted across chunk boundaries and
           // bounded by encoded JSON bytes. Re-clipping here would silently lose
           // their contents and split UTF-8 output before it reaches SSE.
           payload: { message: event.type === "tool.output" ? event.message : safeMessage(event.message), toolName: event.toolName, toolCallId: event.toolCallId,
-            success: event.success, exitCode: event.exitCode, truncated: event.truncated },
+            success: event.success, exitCode: event.exitCode, truncated: event.truncated,
+            progressKind: event.type === "model.stream.started" ? "model_stream" : undefined },
         });
+        if (progress) watchdog.touch(new Date(Date.parse(saved.createdAt) + RUN_IDLE_TIMEOUT_MS - 1_000).toISOString());
       };
       const coordinator = await repository.startCoordinator(run.ownerId, run.id);
       activeRoleId = coordinator.id;
@@ -185,7 +193,8 @@ export function createGenerationExecutor(options: {
       if (planning.decision.kind === "clarification") return;
       task.controller.signal.throwIfAborted();
       // Attempt 0 implements the plan. Every later attempt is a bounded repair of
-      // a candidate the Reviewer rejected; all attempts share this run's deadline
+      // a candidate the Reviewer rejected; all attempts share this run's rolling
+      // inactivity lease
       // and its token and tool ledgers, and each owns an immutable revision.
       let attempt = run.attempt;
       let seed: SourceFile[] | undefined = run.baseRevisionId
@@ -221,6 +230,12 @@ export function createGenerationExecutor(options: {
               task.sandboxId = registration.sandboxId;
               resources.set(registration.sandboxId, resource);
               await repository.registerSandbox(run.ownerId, run.id, { sandboxId: registration.sandboxId, expiresAt: registration.expiresAt, state: "active" });
+            } else if (registration.state === "renewed") {
+              const tracked = resources.get(registration.sandboxId);
+              if (!tracked || tracked.runId !== run.id || tracked.revisionId !== attemptRevisionId
+                || !await repository.updateSandboxExpiry(run.ownerId, run.id, registration.sandboxId, registration.expiresAt))
+                throw new RuntimeError("SANDBOX_LEASE_RENEW_FAILED", "候选沙箱续租未持久确认");
+              tracked.expiresAt = registration.expiresAt;
             } else if (registration.state === "destroyed") {
               await repository.markDestroyed(run.ownerId, run.id, registration.sandboxId);
               resources.delete(registration.sandboxId);
@@ -276,6 +291,14 @@ export function createGenerationExecutor(options: {
           ...result.preview, markerVerified: true, writeRevoked: true, chromeClosed: true,
         });
         previews.register({ ...result.preview, ownerId: run.ownerId, projectId: run.projectId });
+        const persistPreviewLease = async (expiresAt: string) => {
+          const tracked = currentResource();
+          if (!tracked || tracked.revisionId !== candidateRevision.id
+            || !await repository.updateSandboxExpiry(run.ownerId, run.id, tracked.sandboxId, expiresAt)
+            || !await previews.renew(run.ownerId, tracked.revisionId, tracked.sandboxId, expiresAt))
+            throw new RuntimeError("SANDBOX_LEASE_RENEW_FAILED", "候选预览续租未完整确认");
+          tracked.expiresAt = expiresAt;
+        };
         await repository.queueReviewer(run.ownerId, run.id, { revisionId: candidateRevision.id });
         const reviewer = await repository.startReviewer(run.ownerId, run.id);
         activeRoleId = reviewer.role.id;
@@ -288,12 +311,24 @@ export function createGenerationExecutor(options: {
           sandboxConfig: sandbox, modelConfig, tokenBudget, signal: task.controller.signal,
           maxToolCalls: remainingTools(),
           onEvent: recordEvent(reviewer.role.id),
+          onLeaseRenewed: persistPreviewLease,
           assertActive: () => repository.assertRoleActive(run.ownerId, run.id, {
             roleRunId: reviewer.role.id, attempt: reviewer.role.attempt, role: "reviewer",
           }),
         }, boundaries);
         toolCalls += checked.usage?.toolCalls ?? 0;
         activeUsage = checked.usage ? storedUsage(checked.usage) : undefined;
+        if (checked.receipt.result.items.every((item) => item.verdict === "passed")) {
+          const tracked = currentResource();
+          if (!tracked) throw new RuntimeError("SANDBOX_LEASE_RENEW_FAILED", "候选预览已不受当前任务管理");
+          const manager = new OpenSandboxWorkspace(sandbox);
+          const handle = { sandboxId: tracked.sandboxId, expiresAt: tracked.expiresAt };
+          try {
+            await manager.connect(handle);
+            const renewed = await manager.renewLease(handle, ACCEPTED_PREVIEW_LEASE_MS, task.controller.signal);
+            await persistPreviewLease(renewed.expiresAt);
+          } finally { await manager.releaseClient(handle).catch(() => {}); }
+        }
         // A lost transaction response is ambiguous: the accepted Preview might
         // already be current. Reconcile the DB state before deleting its sandbox.
         task.commitUnknown = true;
@@ -356,7 +391,7 @@ export function createGenerationExecutor(options: {
         return;
       }
       const failure = task.controller.signal.aborted
-        ? new ApiFailure(503, task.controller.signal.reason === "RUN_TIMEOUT" ? "RUN_TIMEOUT" : "SERVICE_RESTARTED", task.controller.signal.reason === "RUN_TIMEOUT" ? `生成超过 ${RUN_DEADLINE_MINUTES} 分钟，已停止。` : "服务停止了本次执行，已保存的内容保留。", true)
+        ? new ApiFailure(503, task.controller.signal.reason === "RUN_TIMEOUT" ? "RUN_TIMEOUT" : "SERVICE_RESTARTED", task.controller.signal.reason === "RUN_TIMEOUT" ? "任务长时间没有进展，已停止执行。" : "服务停止了本次执行，已保存的内容保留。", true)
         : error instanceof ApiFailure ? error
           : error instanceof RuntimeError && error.code === "AGENT_OUTPUT_INVALID"
             ? new ApiFailure(503, "AGENT_OUTPUT_INVALID", phase === "review" ? "检查结果未通过格式或证据校验，请稍后重试。" : "需求整理结果未通过校验，请补充说明后重试。", true)
@@ -382,7 +417,7 @@ export function createGenerationExecutor(options: {
         roleUsage: activeRoleId && activeUsage ? { roleRunId: activeRoleId, usage: activeUsage } : undefined,
       });
     } finally {
-      clearTimeout(deadlineTimer);
+      watchdog.close();
       const leftover = currentResource();
       if (!retained && !task.commitUnknown && leftover && resources.has(leftover.sandboxId)) await destroy(leftover).catch(() => {});
       await models.releaseForRun(run.ownerId, run.credentialLeaseId);

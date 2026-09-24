@@ -140,7 +140,6 @@ try {
     handle,
     modelConfig,
     signal: controller.signal,
-    timeoutMs: 120_000,
     prompt:
       "这是人工取消验证。不要调用任何工具。请逐行输出从1到20000的整数，每行加一句不同的中文解释，持续流式输出，直到收到取消信号。",
     onEvent: (event) => {

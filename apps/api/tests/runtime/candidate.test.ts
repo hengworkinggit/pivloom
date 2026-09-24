@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "vitest";
 import type { Handoff } from "@pivloom/contracts";
 import { runCandidate } from "../../src/generation/candidate.js";
 import { createRunTokenBudget } from "../../src/runtime/token-budget.js";
-import { RUN_DEADLINE_MINUTES, RUN_DEADLINE_MS } from "../../src/runtime/budgets.js";
+import { SANDBOX_LEASE_SEGMENT_MS } from "../../src/runtime/budgets.js";
 import type {
   SandboxConnection,
   SandboxConnector,
@@ -189,7 +189,7 @@ test("repair Builder receives the failed behavior and compiler diagnostic from i
         behaviors: [{ id: "B02", title: "筛选已读", precondition: "已有已读和未读书籍", action: "点击已读", expected: "只显示已读", required: true }] } },
   }, { sandboxConnector: remote.connector });
   expect(result.status).toBe("candidate");
-  expect(remote.renewals).toContain(RUN_DEADLINE_MS / 1000);
+  expect(remote.renewals).toContain(SANDBOX_LEASE_SEGMENT_MS / 1000);
   const request = JSON.stringify(model.requests[0].messages);
   for (const diagnostic of failedChecks) expect(request).toContain(diagnostic);
 });
@@ -543,7 +543,7 @@ test("an event storage failure after actual Pi SSE content stops the model and c
   expect(remote.isLive()).toBe(false);
 });
 
-test("a parent run deadline reports RUN_TIMEOUT and confirmed cleanup rather than user cancellation", async () => {
+test("a parent inactivity timeout reports RUN_TIMEOUT and confirmed cleanup rather than user cancellation", async () => {
   const remote = await remoteFixture();
   const model = modelFixture("export default function App(){return <h1>读书</h1>}");
   const controller = new AbortController();
@@ -553,7 +553,7 @@ test("a parent run deadline reports RUN_TIMEOUT and confirmed cleanup rather tha
     onEvent: async (event) => { if (event.type === "model.stream.started") controller.abort("RUN_TIMEOUT"); },
   }, { sandboxConnector: remote.connector });
   expect(result).toMatchObject({
-    status: "failed", cleanup: "confirmed", error: { code: "RUN_TIMEOUT", message: expect.stringContaining(`${RUN_DEADLINE_MINUTES} 分钟`) },
+    status: "failed", cleanup: "confirmed", error: { code: "RUN_TIMEOUT", message: expect.stringContaining("长时间没有进展") },
   });
   expect(remote.isLive()).toBe(false);
   expect(result).not.toHaveProperty("preview");

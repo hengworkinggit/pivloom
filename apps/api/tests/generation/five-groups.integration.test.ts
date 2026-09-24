@@ -107,6 +107,7 @@ test.skipIf(process.env.PIVLOOM_GROUPS_INTEGRATION !== "1")(
         sandboxConfig: { baseUrl: "http://sandbox-fixture.invalid", apiKey: "fixture", image: "fixture" },
         modelConfig: { provider: "fixture", id: "fixture", api: "openai-completions", baseUrl: "https://model-fixture.invalid/v1", apiKey: "fixture" },
         signal: new AbortController().signal,
+        onLeaseRenewed: async () => {},
         assertActive: () => repository.assertRoleActive(ownerA, accepted.run.id, { roleRunId: execution.role.id, attempt: 0, role: "reviewer" }),
       }, { sandboxConnector: { create: async () => connection, connect: async () => connection },
         previewFetch: async () => Response.json({ revisionId: randomUUID(), sourceHash: source.sourceHash }) });

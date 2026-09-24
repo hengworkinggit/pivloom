@@ -61,7 +61,7 @@ async function fixture(fault?:string){
     handoff:{runId:binding.runId,fromRoleRunId:randomUUID(),toRole:'reviewer',attempt:0,baseRevisionId:null,expectedRevisionId:binding.revisionId,sourceHash:binding.sourceHash,plan,task:'检查书名',artifactIds:[]},
     sandboxConfig:{baseUrl:'http://fixture.invalid',apiKey:'fixture',image:'fixture'},
     modelConfig:{provider:'fixture',id:'fixture',api:'openai-completions',baseUrl:'https://model-fixture.invalid/v1',apiKey:'fixture-key',fetch:modelFetch,supportsImages:true},
-    signal:new AbortController().signal,assertActive:async()=>{},
+    signal:new AbortController().signal,assertActive:async()=>{},onLeaseRenewed:async()=>{},
   };
   const boundaries={sandboxConnector:{create:async()=>connection,connect:async()=>connection},previewFetch:async()=>new Response(JSON.stringify({revisionId:source.revisionId,sourceHash:source.sourceHash}))};
   return {input,boundaries,stats:()=>({calls,remoteActions,actions})};

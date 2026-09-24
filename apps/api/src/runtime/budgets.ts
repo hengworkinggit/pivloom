@@ -1,5 +1,5 @@
 /**
- * Run-wide resource budgets.
+ * Per-operation limits and rolling liveness leases.
  *
  * Every value here started as an uncalibrated estimate in TRD §12.4. The
  * current numbers come from real three-role runs against the configured Ark
@@ -11,28 +11,24 @@
  * record lives in artifacts/dev-06-2026-09-22/.
  */
 
-/** Wall-clock ceiling for one run, including every role and repair attempt. */
-export const RUN_DEADLINE_MS = 1_800_000;
-
 /** Rolling deadline for lack of real Run progress, never a total Run duration. */
 export const RUN_IDLE_TIMEOUT_MS = 360_000;
 
+/** Renewable remote lease: short enough to expire after a crashed process. */
+export const SANDBOX_LEASE_SEGMENT_MS = 420_000;
+/** Renew before a full legitimate provider request can outlive the lease. */
+export const SANDBOX_LEASE_RENEW_THRESHOLD_MS = 300_000;
+/** One final temporary Preview window after a successful Check; never rolled. */
+export const ACCEPTED_PREVIEW_LEASE_MS = 1_800_000;
+
 /**
- * Ceiling for a single provider request. It stays well below the run ceiling so
- * a dead request cannot consume the whole run, but it must sit above the slowest
+ * Ceiling for a single provider request. It stays below the inactivity lease so
+ * a dead request cannot hold the project forever, but it must sit above the slowest
  * legitimate request: a degraded provider window streamed only ~36 characters
  * per second and needed more than 120 s for one Builder turn, while the idle
  * watchdog (no bytes at all) already cuts genuinely dead streams at 60 s.
  */
 export const MODEL_REQUEST_TIMEOUT_MS = 210_000;
-
-/**
- * Ceiling for one Reviewer attempt. Measured: a five-behavior check needs ~20
- * model turns plus ~28 gated browser actions, which has exceeded 720 s on a slow
- * provider day. It stays below the run ceiling minus the measured
- * Coordinator+Builder time (~200-420 s), so the run ceiling still wins.
- */
-export const REVIEW_ATTEMPT_TIMEOUT_MS = 1_200_000;
 
 /**
  * Shared ledger for every role, correction and repair turn in one run. Measured
@@ -42,7 +38,7 @@ export const REVIEW_ATTEMPT_TIMEOUT_MS = 1_200_000;
 /**
  * The Reviewer needs at least one action, image capture and recorded verdict per
  * grouped target. Keep room for Builder and Coordinator even at the 80-target
- * schema ceiling; wall-clock and per-item cadence still bound a runaway check.
+ * schema ceiling; the rolling inactivity lease and per-item cadence remain.
  */
 export const RUN_TOOL_LIMIT = 384;
 export const REVIEW_TOOL_LIMIT = 280;
@@ -56,8 +52,8 @@ export const DAILY_ACCEPTED_LIMIT = 20;
 
 /**
  * Ceiling for one preview rebuild. It covers sandbox start, locked dependency
- * install and the trusted build, but never a model call; it stays well under
- * the run ceiling so a stuck restore cannot hold the project lock for long.
+ * install and the trusted build, but never a model call. Restore is a separate
+ * bounded operation and cannot hold the project lock indefinitely.
  */
 export const RESTORE_TIMEOUT_MS = 300_000;
 
@@ -77,9 +73,6 @@ export const PROVIDER_RETRY_POLICY = {
   baseDelayMs: 1_000,
   maxAgentDelayMs: 8_000,
 } as const;
-
-/** Minutes used in user-facing text, derived so the copy cannot drift. */
-export const RUN_DEADLINE_MINUTES = Math.round(RUN_DEADLINE_MS / 60_000);
 
 /** Provider retry settings for the Pi SDK session, including the SDK's own transport budget. */
 export function providerRetrySettings() {

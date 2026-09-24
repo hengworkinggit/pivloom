@@ -187,6 +187,7 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
       modelConfig: { provider: "review-db-fixture", id: "fixture", api: "openai-completions", baseUrl: "https://model-fixture.invalid/v1", apiKey: "fixture-not-a-real-key", fetch, supportsImages: true },
       signal: new AbortController().signal,
       assertActive: () => generation.assertRoleActive(ownerA, fixture.run.id, { role: "reviewer", roleRunId: execution.role.id, attempt: execution.scope.attempt }),
+      onLeaseRenewed: async () => {},
     }, { sandboxConnector: connector, previewFetch: async () => new Response(JSON.stringify({ revisionId: verdict === "blocked" ? randomUUID() : fixture.revision.id, sourceHash: fixture.revision.sourceHash })) });
     return { ...output, execution, stats: { actions, closes, calls } };
   }

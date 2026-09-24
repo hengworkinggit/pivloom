@@ -14,7 +14,7 @@ import { registerVersionHistoryRoutes } from "./routes/version-history.js";
 import { createGenerationService, type GenerationService } from "./generation/service.js";
 import { createSourceStore, type SourceObjectStore } from "./storage/source.js";
 import { readApiBuildVersion } from "./build-version.js";
-import { RUN_DEADLINE_MS } from "./runtime/budgets.js";
+import { SANDBOX_LEASE_SEGMENT_MS } from "./runtime/budgets.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -142,9 +142,8 @@ export function createApp(options: CreateAppOptions = {}) {
             previewOrigin: env.PREVIEW_BASE_URL, maxSandboxes, sourceObjects: options.sourceObjects, dailyLimitByOwner,
             publishedBaseUrl: env.PUBLISHED_APP_BASE_URL, publishedRoot: env.PUBLISHED_APP_ROOT,
             generationBoundaries: options.generationBoundaries,
-            // A candidate must remain reachable for its entire generation Run.
-            // A shorter TTL can expire while a large Reviewer is still checking.
-            sandbox: { baseUrl: env.OPENSANDBOX_BASE_URL, apiKey: env.OPENSANDBOX_API_KEY, image: env.OPENSANDBOX_IMAGE, lifetimeMs: RUN_DEADLINE_MS },
+            // Active candidates renew short leases as real Run progress continues.
+            sandbox: { baseUrl: env.OPENSANDBOX_BASE_URL, apiKey: env.OPENSANDBOX_API_KEY, image: env.OPENSANDBOX_IMAGE, lifetimeMs: SANDBOX_LEASE_SEGMENT_MS },
           });
           // Nothing left behind by a previous process may keep a project locked
           // or claim to be running; the server awaits this before it is used.

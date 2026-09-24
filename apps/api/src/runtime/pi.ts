@@ -34,7 +34,6 @@ export interface BuilderInput {
   prompt: string;
   signal: AbortSignal;
   onEvent?: ProbeEventSink;
-  timeoutMs?: number;
   maxToolCalls?: number;
   sessionId?: string;
   redactValues?: readonly string[];
@@ -227,10 +226,8 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
       .replace(/Bearer\s+[^\s\"']+/gi, "Bearer [REDACTED]")
       .slice(0, 800);
   const isolated = await mkdtemp(join(tmpdir(), "pivloom-pi-"));
-  const deadline = new AbortController();
   const eventAbort = new AbortController();
-  const timer = setTimeout(() => deadline.abort(), input.timeoutMs ?? 360000);
-  const signal = AbortSignal.any([input.signal, deadline.signal, eventAbort.signal]);
+  const signal = AbortSignal.any([input.signal, eventAbort.signal]);
   let eventTail = Promise.resolve(), eventFailure = false;
   const eventError = () => new RuntimeError("EVENT_APPEND_FAILED", "运行事件保存失败，已停止模型执行");
   const emit = (event: ProbeEvent) => {
@@ -474,6 +471,7 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
               id: randomUUID(),
               at: new Date().toISOString(),
               type: "model.stream.started",
+              success: true,
               stage: "generating",
               requestNumber,
               message: `模型第 ${requestNumber} 轮已收到实际流式内容`,
@@ -488,6 +486,7 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
         id: randomUUID(),
         at: new Date().toISOString(),
         type: "model.stream.started",
+        success: false,
         stage: "generating",
         requestNumber,
         message: `模型第 ${requestNumber} 轮第 ${event.attempt}/${event.maxAttempts} 次瞬态失败，${event.delayMs}ms 后重试`,
@@ -506,7 +505,7 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
     if (eventFailure) throw eventError();
     if (signal.aborted)
       throw new RuntimeError(
-        deadline.signal.aborted ? "MODEL_TIMEOUT" : "CANCELLED",
+        input.signal.reason === "RUN_TIMEOUT" ? "RUN_TIMEOUT" : "CANCELLED",
         "模型任务已停止",
       );
     if (calls.length >= maxToolCalls)
@@ -540,12 +539,11 @@ export async function runBuilder(input: BuilderInput): Promise<BuilderResult> {
   } catch (error) {
     const failure = tokens.failure ?? tokenFailure ?? (eventFailure ? eventError()
       : error instanceof RuntimeError ? error
-        : signal.aborted ? new RuntimeError(deadline.signal.aborted ? "MODEL_TIMEOUT" : "CANCELLED", "模型任务已停止")
+        : signal.aborted ? new RuntimeError(input.signal.reason === "RUN_TIMEOUT" ? "RUN_TIMEOUT" : "CANCELLED", "模型任务已停止")
           : new RuntimeError("MODEL_FAILED", `模型执行失败：${safeDetail(error instanceof Error ? error.message : error)}`));
     throw new RuntimeError(failure.code, failure.message, failure.trustedBuild, tokens.usage());
   } finally {
     output.dispose();
-    clearTimeout(timer);
     signal.removeEventListener("abort", abort);
     if (aborting) {
       // Pi's abort() waits for the agent to become idle. A five-second race

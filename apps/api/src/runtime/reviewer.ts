@@ -9,10 +9,8 @@ import { HandoffSchema, ReviewResultSchema, ReviewItemSchema, MAX_CHECK_ARTIFACT
 import { createServiceModel } from './pi.js';
 import { RuntimeError, type ModelConfig, type ProbeEvent, type ProbeEventSink } from './types.js';
 import { createRoleTokenTracker, type RunTokenBudget, type TokenUsage } from './token-budget.js';
-import { MODEL_REQUEST_TIMEOUT_MS, REVIEW_ATTEMPT_TIMEOUT_MS, REVIEW_TOOL_LIMIT, piCompactionSettings, providerRetrySettings } from './budgets.js';
+import { MODEL_REQUEST_TIMEOUT_MS, REVIEW_TOOL_LIMIT, piCompactionSettings, providerRetrySettings } from './budgets.js';
 import { BrowserPressKeySchema, type BrowserAction, type BrowserKeyBatchResult, type BrowserObservation } from './browser.js';
-
-export { REVIEW_ATTEMPT_TIMEOUT_MS };
 
 /**
  * Tool errors the Reviewer may recover from on its next turn: local protocol
@@ -25,15 +23,10 @@ export const recoverableToolErrors: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Decides how a failed Reviewer model turn is reported. A turn that stopped
- * because this attempt ran out of time is a review-deadline outcome; only a
- * failure inside a full-length request budget can be blamed on the provider.
+ * Each model request has its own bounded timeout. Reviewer progress has no
+ * cumulative wall-clock ceiling; the owning Run watchdog handles inactivity.
  */
-export function classifyReviewerModelFailure(state: {
-  deadlineAborted: boolean; grantedTimeoutClipped: boolean; expired: boolean; errorMessage?: string;
-}): RuntimeError {
-  if (state.deadlineAborted || state.grantedTimeoutClipped || state.expired)
-    return new RuntimeError('REVIEW_TIMEOUT', '检查者已达到本次检查的时间上限');
+export function classifyReviewerModelFailure(state: { errorMessage?: string }): RuntimeError {
   return new RuntimeError(/timeout|timed out|abort/i.test(state.errorMessage ?? '') ? 'MODEL_REQUEST_TIMEOUT' : 'MODEL_FAILED',
     '检查者模型请求未完成，请稍后重试');
 }
@@ -88,7 +81,7 @@ export interface ReviewObservationEvent {
 export interface ReviewerInput {
   binding: ReviewBinding; sessionId: string; handoff: Handoff;
   browser: ReviewBrowser; files: ReadonlyArray<{ path: string; content: string }>;
-  modelConfig: ModelConfig; signal: AbortSignal; tokenBudget?: RunTokenBudget; maxToolCalls?: number; timeoutMs?: number;
+  modelConfig: ModelConfig; signal: AbortSignal; tokenBudget?: RunTokenBudget; maxToolCalls?: number;
   /** Production requires a successful image-bearing Provider turn before a passing report. */
   requireVisionEvidence?: boolean;
   onEvent?: ProbeEventSink;
@@ -173,9 +166,8 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     throw new RuntimeError('INVALID_HANDOFF', '检查交接与当前候选不匹配');
   if (!input.modelConfig.fetch) throw new RuntimeError('MODEL_CONFIGURATION_MISSING', '检查者缺少模型传输');
   const tokens = createRoleTokenTracker(input.tokenBudget);
-  const abortController = new AbortController(), deadline = new AbortController();
-  const expiresAt = Date.now() + Math.min(REVIEW_ATTEMPT_TIMEOUT_MS, Math.max(1, input.timeoutMs ?? REVIEW_ATTEMPT_TIMEOUT_MS));
-  const signal = AbortSignal.any([input.signal, abortController.signal, deadline.signal]);
+  const abortController = new AbortController();
+  const signal = AbortSignal.any([input.signal, abortController.signal]);
   let fatal: RuntimeError | undefined, isolated: string | undefined;
   let session: Awaited<ReturnType<typeof createAgentSession>>['session'] | undefined;
   let aborting: Promise<void> | undefined, decision: ReviewResult | undefined;
@@ -190,12 +182,9 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   // Static, bounded reason of the most recent report rejection so an incomplete
   // check can be diagnosed from persisted events without echoing model input.
   let lastRejection: string | undefined;
-  // A request whose own ceiling was clipped by the attempt deadline must be
-  // reported as a review-deadline outcome, never as a provider failure.
-  let grantedTimeoutClipped = false;
+  let receivedStream = false;
   const maxTools = Math.min(REVIEW_TOOL_LIMIT, input.maxToolCalls ?? REVIEW_TOOL_LIMIT);
   if (!Number.isInteger(maxTools) || maxTools < 1) throw new RuntimeError("TOOL_BUDGET_EXCEEDED", "检查工具预算已耗尽");
-  const timer = setTimeout(() => deadline.abort("REVIEW_TIMEOUT"), Math.max(1, expiresAt-Date.now()));
   const evidence: ReviewObservationEvent[] = [], artifacts: CheckArtifact[] = [];
   const screenshots = new Map<string, { image: ImageContent; observationId: string | null }>();
   const imageDelivered = new Set<string>();
@@ -210,7 +199,8 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   const check = () => {
     if (tokens.failure) throw tokens.failure;
     if (fatal) throw fatal;
-    if (signal.aborted) throw new RuntimeError(input.signal.reason === 'RUN_TIMEOUT' ? 'RUN_TIMEOUT' : deadline.signal.aborted || input.signal.reason === 'REVIEW_TIMEOUT' ? 'REVIEW_TIMEOUT' : 'CANCELLED', '检查已停止');
+    if (signal.aborted) throw new RuntimeError(input.signal.reason === 'RUN_TIMEOUT' ? 'RUN_TIMEOUT'
+      : input.signal.reason === 'REVIEW_TIMEOUT' ? 'REVIEW_TIMEOUT' : 'CANCELLED', '检查已停止');
   };
   const active = async () => {
     check();
@@ -565,14 +555,12 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     session.agent.streamFunction=(selected,context,options)=>{
       check();
       modelTurn++;
+      receivedStream = false;
       const providerContext={...context,messages:context.messages.map(message=>{
         if(message.role==='system'&&message.toolsAdded)
           return {...message,toolsAdded:message.toolsAdded.map(tool=>({...tool,parameters:z.toJSONSchema(schemas[tool.name as ToolName]) as TSchema}))};
         return message;
       })};
-      const remaining=expiresAt-Date.now();
-      const grantedTimeoutMs=Math.max(1,Math.min(MODEL_REQUEST_TIMEOUT_MS,remaining));
-      grantedTimeoutClipped=grantedTimeoutMs<MODEL_REQUEST_TIMEOUT_MS;
       return tokens.stream(4096,input.modelConfig.fetch,fetch=>runtime.streamSimple(selected,providerContext,{...options,
         fetch:async(url,init)=>{
           const body=typeof init?.body==='string'?init.body:'';
@@ -585,27 +573,31 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             for(const id of deliveredScreenshotIdsFromRequest(body,screenshots))imageDelivered.add(id);
           }
           return response;
-        },transport:'sse',timeoutMs:grantedTimeoutMs,maxRetries:0,maxTokens:4096}));
+        },transport:'sse',timeoutMs:MODEL_REQUEST_TIMEOUT_MS,maxRetries:0,maxTokens:4096}));
     };
     session.subscribe(event=>{
       if(event.type!=='auto_retry_start')return;
-      if(Date.now()>=expiresAt)return;
+      if(signal.aborted)return;
       void appendEvent({id:randomUUID(),at:new Date().toISOString(),roleRunId:binding.roleRunId,sessionId:input.sessionId,
-        type:'model.stream.started',message:`检查者请求第 ${event.attempt}/${event.maxAttempts} 次瞬态失败，${event.delayMs}ms 后重试`,
+        type:'model.stream.started',success:false,message:`检查者请求第 ${event.attempt}/${event.maxAttempts} 次瞬态失败，${event.delayMs}ms 后重试`,
         requestNumber:event.attempt}).catch(()=>{});
     });
     session.agent.subscribe(event=>{
       if(event.type==='tool_execution_start'){
         tokens.recordToolCall();
         if(++toolCount>maxTools)fail(new RuntimeError('TOOL_BUDGET_EXCEEDED','检查工具预算耗尽'));
+      }else if(event.type==='message_update'&&'delta' in event.assistantMessageEvent
+        &&typeof event.assistantMessageEvent.delta==='string'&&event.assistantMessageEvent.delta&&!receivedStream){
+        receivedStream=true;
+        void appendEvent({id:randomUUID(),at:new Date().toISOString(),roleRunId:binding.roleRunId,sessionId:input.sessionId,
+          type:'model.stream.started',success:true,requestNumber:modelTurn,message:'检查者已收到实际模型流式内容'}).catch(()=>{});
       }
     });
     session.agent.shouldStopAfterTurn=()=>Boolean(decision)||toolCount>=maxTools;
     const checkModelResult=()=>{
       const last=[...session!.messages].reverse().find(message=>message.role==='assistant');
       if(last?.role==='assistant' && (last.stopReason==='error'||last.stopReason==='aborted')){
-        throw classifyReviewerModelFailure({deadlineAborted:deadline.signal.aborted,grantedTimeoutClipped,
-          expired:Date.now()>=expiresAt,errorMessage:last.errorMessage});
+        throw classifyReviewerModelFailure({errorMessage:last.errorMessage});
       }
     };
     await session.prompt(redact(JSON.stringify({handoff,files:input.files.map(f=>f.path),revisionId:binding.revisionId,sourceHash:binding.sourceHash})));
@@ -625,7 +617,6 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     const failure=error instanceof RuntimeError?error:new RuntimeError('CHECK_BLOCKED','检查者无法完成检查');
     throw new RuntimeError(failure.code,failure.message,undefined,tokens.usage(),failure.diagnosticCode);
   }finally{
-    clearTimeout(timer);
     signal.removeEventListener('abort',abort);
     if(aborting)await aborting.catch(()=>{});
     await session?.waitForIdle();

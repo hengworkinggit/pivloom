@@ -15,7 +15,7 @@ import {
 import { createServiceModel } from "./pi.js";
 import { RuntimeError, type ModelConfig, type ProbeEvent, type ProbeEventSink } from "./types.js";
 import { createRoleTokenTracker, type RunTokenBudget, type TokenUsage } from "./token-budget.js";
-import { MODEL_REQUEST_TIMEOUT_MS, RUN_DEADLINE_MS, piCompactionSettings, providerRetrySettings } from "./budgets.js";
+import { MODEL_REQUEST_TIMEOUT_MS, piCompactionSettings, providerRetrySettings } from "./budgets.js";
 
 export type CoordinatorDecision = { kind: "plan"; plan: Plan } | { kind: "clarification"; question: string };
 export interface CoordinatorMetadata {
@@ -36,7 +36,6 @@ export interface CoordinatorInput {
   assertActive(): Promise<void>;
   onDecision(decision: CoordinatorDecision, metadata: CoordinatorMetadata): Promise<void>;
   maxToolCalls?: number;
-  timeoutMs?: number;
   tokenBudget?: RunTokenBudget;
 }
 
@@ -102,10 +101,8 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
   if (!Number.isFinite(requestedToolBudget) || requestedToolBudget < 1)
     throw new RuntimeError("TOOL_BUDGET_EXCEEDED", "本次任务工具调用预算已耗尽");
   const maxToolCalls = Math.min(Math.floor(requestedToolBudget), 80);
-  const deadline = new AbortController(), failureAbort = new AbortController();
-  const expiresAt = Date.now() + Math.min(Math.max(input.timeoutMs ?? RUN_DEADLINE_MS, 1), RUN_DEADLINE_MS);
-  const timer = setTimeout(() => deadline.abort(), Math.max(1, expiresAt - Date.now()));
-  const signal = AbortSignal.any([input.signal, deadline.signal, failureAbort.signal]);
+  const failureAbort = new AbortController();
+  const signal = AbortSignal.any([input.signal, failureAbort.signal]);
   let isolated: string | undefined;
   let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
   let aborting: Promise<void> | undefined;
@@ -134,7 +131,7 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
     if (tokens.failure) throw tokens.failure;
     if (fatal) throw fatal;
     if (signal.aborted) throw new RuntimeError(
-      input.signal.reason === "RUN_TIMEOUT" ? "RUN_TIMEOUT" : deadline.signal.aborted ? "MODEL_TIMEOUT" : "CANCELLED",
+      input.signal.reason === "RUN_TIMEOUT" ? "RUN_TIMEOUT" : "CANCELLED",
       "协调者执行已停止",
     );
   };
@@ -242,7 +239,7 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
       const maxTokens = Math.min(input.modelConfig.maxTokens ?? 4096, 4096);
       try {
         return tokens.stream(maxTokens, input.modelConfig.fetch, (modelFetch) => runtime.streamSimple(selected, messageContext, { ...options, fetch: modelFetch, transport: "sse",
-          timeoutMs: Math.max(1, Math.min(MODEL_REQUEST_TIMEOUT_MS, expiresAt - Date.now())), maxRetries: 0, maxTokens }));
+          timeoutMs: MODEL_REQUEST_TIMEOUT_MS, maxRetries: 0, maxTokens }));
       } catch (error) {
         if (error instanceof RuntimeError) throw fail(error);
         throw error;
@@ -279,12 +276,12 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
         callArguments.delete(callId);
       } else if (event.type === "message_update" && "delta" in event.assistantMessageEvent && typeof event.assistantMessageEvent.delta === "string" && event.assistantMessageEvent.delta && !receivedStream) {
         receivedStream = true;
-        void emit({ type: "model.stream.started", requestNumber, message: "协调者已收到实际模型响应" }).catch(() => {});
+        void emit({ type: "model.stream.started", requestNumber, success: true, message: "协调者已收到实际模型响应" }).catch(() => {});
       }
     });
     session.subscribe((event) => {
-      if (event.type !== "auto_retry_start" || Date.now() >= expiresAt) return;
-      void emit({ type: "model.stream.started", requestNumber,
+      if (event.type !== "auto_retry_start" || signal.aborted) return;
+      void emit({ type: "model.stream.started", requestNumber, success: false,
         message: `协调者请求第 ${event.attempt}/${event.maxAttempts} 次瞬态失败，${event.delayMs}ms 后重试` }).catch(() => {});
     });
     session.agent.shouldStopAfterTurn = () => Boolean(decision) || calls.length >= maxToolCalls;
@@ -320,7 +317,7 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
     const failure = error instanceof RuntimeError ? error : new RuntimeError("COORDINATOR_FAILED", "协调者执行或交接未完成，请稍后重试");
     throw new RuntimeError(failure.code, failure.message, failure.trustedBuild, tokens.usage());
   } finally {
-    clearTimeout(timer); signal.removeEventListener("abort", abort);
+    signal.removeEventListener("abort", abort);
     if (aborting) await aborting.catch(() => {});
     await session?.waitForIdle();
     await eventTail;
