@@ -30,8 +30,17 @@ test("history identifies current versus inspected versions and exposes full-tree
   await act(async () => root.render(<VersionHistoryPanel revisions={[current, selected, rejected]} currentRevisionId={current.id}
     selectedRevision={selected} messages={messages} onSelect={onSelect} onCompare={onCompare}
     comparison={comparison} comparing={false} comparisonError="" />));
-  expect(container.textContent).toContain("当前 v3");
+  expect(container.querySelector('[data-testid="current-version-summary"]')?.textContent).toContain("当前成功版本v3");
+  expect(container.querySelector('[data-testid="current-source-hash-short"]')?.textContent).toContain("333333333333");
+  expect(container.querySelector(".version-history-full-hash")?.textContent).toContain(current.sourceHash);
+  expect(container.textContent).toContain("不是平台部署 SHA");
   expect(container.textContent).toContain("正在查看 v2");
+  expect(container.querySelector('[data-testid="selected-version-kind"]')?.textContent).toContain("历史已验收版本");
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="复制完整源码 hash"]')?.click());
+  expect(writeText).toHaveBeenCalledWith(current.sourceHash);
+  expect(container.textContent).toContain("已复制");
   expect(container.textContent).toContain("把按钮改成蓝色");
   expect(container.textContent).toContain("src/旧/颜色.css");
   expect(container.textContent).toContain("src/新/颜色.css");

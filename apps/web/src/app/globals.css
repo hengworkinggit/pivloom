@@ -2989,13 +2989,29 @@ svg {
 .generation-review-group > p { margin: 3px 0 7px; color: var(--muted); }
 .generation-review-group .generation-review-item { padding: 8px 0; border-top: 1px solid var(--line); }
 
-.version-history { flex: none; max-height: min(42vh, 420px); overflow: auto; padding: 9px 14px; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--foreground); font-size: 11px; }
-.version-history-picker { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.version-history-picker label,.version-history-current { color: var(--muted); white-space: nowrap; }
+.version-history { flex: none; max-height: min(70vh, 680px); overflow: auto; padding: 12px 14px; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--foreground); font-size: 12px; }
+.version-history-hero { padding: 11px 12px; border: 1px solid #bdc9fb; border-radius: 10px; background: var(--primary-soft); }
+.version-history-hero-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.version-history-hero-heading span { color: var(--primary); font-weight: 700; }
+.version-history-hero-heading strong { color: var(--foreground); font-size: 20px; line-height: 1.1; }
+.version-history-hero p { margin: 5px 0 0; line-height: 1.45; }
+.version-history-hash-row { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 8px; margin-top: 9px; }
+.version-history-hash-row > span { color: var(--muted); font-weight: 600; }
+.version-history-hash-row code { padding: 3px 6px; border-radius: 5px; background: var(--surface); font-size: 11px; letter-spacing: .03em; }
+.version-history-hash-row button { min-height: 30px; padding: 4px 8px; border: 1px solid var(--primary); border-radius: 6px; background: var(--surface); color: var(--primary); font: inherit; font-weight: 700; cursor: pointer; }
+.version-history-full-hash { margin-top: 6px; }
+.version-history-full-hash summary { width: fit-content; color: var(--primary); cursor: pointer; font-weight: 600; }
+.version-history-full-hash code { display: block; margin-top: 5px; padding: 7px; border-radius: 6px; background: var(--surface); line-height: 1.5; overflow-wrap: anywhere; user-select: all; }
+.version-history-hash-note { color: var(--muted); font-size: 11px; }
+.version-history-copy-error { color: #a64131; }
+.version-history-picker { display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 11px; }
+.version-history-picker label { color: var(--foreground); font-weight: 700; white-space: nowrap; }
 .version-history-picker select,.version-history-compare-controls select { min-width: 0; max-width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--background); color: var(--foreground); font: inherit; }
-.version-history-picker select { flex: 1; }
-.version-history-context { margin: 6px 0 0; color: var(--muted); }
-.version-history-context span { color: var(--foreground); }
+.version-history-picker select { flex: 1; min-height: 36px; }
+.version-history-context { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 8px; margin: 9px 0 0; padding: 8px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--background); }
+.version-history-context strong { font-size: 12px; }
+.version-history-context-badge { padding: 2px 6px; border-radius: 4px; background: var(--subtle); color: var(--foreground); font-weight: 600; }
+.version-history-context p { width: 100%; margin: 0; color: var(--muted); line-height: 1.45; }
 .version-history-details { margin-top: 6px; border-top: 1px solid var(--line); padding-top: 6px; }
 .version-history-details > summary { cursor: pointer; font-weight: 600; }
 .version-history-details ol { margin: 8px 0 0; padding: 0; list-style: none; }
@@ -3014,7 +3030,10 @@ svg {
 .version-history-compare-controls button { border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; background: var(--background); color: var(--foreground); cursor: pointer; }
 .version-history-compare-controls button:disabled { opacity: .55; cursor: default; }
 .version-history-error { color: #b4533e; }
-.version-history-rollback-trigger { margin-top: 8px; padding: 6px 10px; border: 1px solid var(--primary); border-radius: 6px; background: var(--background); color: var(--foreground); font: inherit; font-weight: 600; cursor: pointer; }
+.version-history-rollback-entry { margin-top: 9px; padding: 9px; border: 1px solid #bdc9fb; border-radius: 7px; background: var(--primary-soft); }
+.version-history-rollback-entry p { margin: 0 0 7px; color: var(--foreground); line-height: 1.45; }
+.version-history-rollback-trigger { width: 100%; min-height: 38px; padding: 8px 12px; border: 1px solid var(--primary); border-radius: 6px; background: var(--primary); color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+.version-history-rollback-trigger:hover:not(:disabled) { background: var(--primary-hover); }
 .version-history-rollback-trigger:disabled { opacity: .55; cursor: default; }
 .version-history-rollback-confirm, .version-history-rollback-status { margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--background); line-height: 1.55; overflow-wrap: anywhere; }
 .version-history-rollback-confirm > p, .version-history-rollback-status > p { margin: 5px 0; }
@@ -3023,7 +3042,7 @@ svg {
 .version-history-rollback-actions button { min-height: 32px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--foreground); font: inherit; cursor: pointer; }
 .version-history-rollback-actions button:first-child { border-color: var(--primary); font-weight: 600; }
 .version-history-rollback-actions button:disabled { opacity: .55; cursor: default; }
-.version-history-rollback-trigger:focus-visible, .version-history-rollback-actions button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.version-history-rollback-trigger:focus-visible, .version-history-rollback-actions button:focus-visible, .version-history-hash-row button:focus-visible, .version-history-full-hash summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .version-history-diff > p { color: var(--muted); margin: 8px 0; }
 .version-history-change { border: 1px solid var(--line); border-radius: 6px; margin-top: 5px; background: var(--background); }
 .version-history-change > summary { display: flex; gap: 8px; align-items: center; cursor: pointer; padding: 7px; overflow-wrap: anywhere; }
@@ -3033,10 +3052,11 @@ svg {
 .version-history-change .diff-remove { color: #a33d3d; background: #fbe9e7; }
 .version-history-change .diff-hunk { color: #536daa; }
 @media (max-width: 640px) {
-  .version-history { max-height: 32vh; }
+  .version-history { max-height: 58vh; padding: 10px 12px; }
   .version-history:has(.version-history-provenance[open]) { max-height: 50vh; }
   .version-history:has(.version-history-rollback-confirm), .version-history:has(.version-history-rollback-status) { max-height: 55vh; }
   .version-history-rollback-actions button { flex: 1 1 130px; }
-  .version-history-current { display: none; }
+  .version-history-picker { align-items: stretch; flex-direction: column; }
+  .version-history-hash-row code { max-width: 100%; overflow-wrap: anywhere; }
   .version-history-details li > button { flex-wrap: wrap; }
 }

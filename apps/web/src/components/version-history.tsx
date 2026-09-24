@@ -39,6 +39,8 @@ export function VersionHistoryPanel({ revisions, currentRevisionId, selectedRevi
   const ui = useUiPreferences();
   const english = ui.locale === "en";
   const [chosenBaseId, setChosenBaseId] = useState("");
+  const [copiedHash, setCopiedHash] = useState<string | null>(null);
+  const [copyFailedHash, setCopyFailedHash] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<{ fromId: string; targetId: string } | null>(null);
   const defaultBase = selectedRevision && (
     revisions.find((revision) => revision.revisionNo < selectedRevision.revisionNo)
@@ -54,26 +56,56 @@ export function VersionHistoryPanel({ revisions, currentRevisionId, selectedRevi
   const rollbackTarget = confirmation && revisions.find((revision) => revision.id === confirmation.targetId);
   const rollbackFrom = confirmation && revisions.find((revision) => revision.id === confirmation.fromId);
   const visibleDiff = comparison && comparison.toRevision.id === selectedRevision?.id && comparison.fromRevision.id === base?.id ? comparison : null;
+  const selectedKind = selectedRevision?.id === currentRevisionId
+    ? ui.text("当前成功版本", "Current accepted version")
+    : selectedRevision?.status === "accepted" ? ui.text("历史已验收版本", "Previously accepted version")
+      : selectedRevision?.status === "candidate" ? ui.text("候选版本 · 尚未验收", "Candidate · not accepted yet")
+        : ui.text("未通过验收的版本", "Revision that did not pass review");
+
+  async function copyCurrentHash() {
+    if (!current) return;
+    try {
+      await navigator.clipboard.writeText(current.sourceHash);
+      setCopiedHash(current.sourceHash);
+      setCopyFailedHash(null);
+    } catch {
+      setCopiedHash(null);
+      setCopyFailedHash(current.sourceHash);
+    }
+  }
 
   if (!revisions.length) return null;
   return <section className="version-history" aria-label={ui.text("版本历史", "Version history")}>
+    <div className="version-history-hero" data-testid="current-version-summary">
+      <div className="version-history-hero-heading"><span>{ui.text("当前成功版本", "Current accepted version")}</span>
+        <strong>{current ? `v${current.revisionNo}` : ui.text("暂无", "None yet")}</strong></div>
+      {current ? <>
+        <div className="version-history-hash-row"><span>{ui.text("作品源码 hash", "App source hash")}</span>
+          <code data-testid="current-source-hash-short" title={current.sourceHash}>{current.sourceHash.slice(0, 12)}…</code>
+          <button type="button" onClick={() => void copyCurrentHash()} aria-label={ui.text("复制完整源码 hash", "Copy full source hash")}>{copiedHash === current.sourceHash ? ui.text("已复制", "Copied") : ui.text("复制完整 hash", "Copy full hash")}</button></div>
+        <details className="version-history-full-hash"><summary>{ui.text("查看完整源码 hash", "View full source hash")}</summary><code>{current.sourceHash}</code></details>
+        {copyFailedHash === current.sourceHash && <p className="version-history-copy-error" role="status">{ui.text("无法自动复制，可展开并手动选择完整 hash。", "Copy unavailable. Expand and select the full hash manually.")}</p>}
+      </> : <p>{ui.text("候选版本尚未成为下一轮生成的基线。", "A candidate has not become the baseline for the next run.")}</p>}
+      <p className="version-history-hash-note">{ui.text("这是作品源码版本标识，不是平台部署 SHA。", "This identifies the app source, not the platform deployment SHA.")}</p>
+    </div>
     <div className="version-history-picker">
-      <label htmlFor="history-version-select">{ui.text("查看版本", "View version")}</label>
+      <label htmlFor="history-version-select">{ui.text("版本历史", "Version history")}</label>
       <select id="history-version-select" data-testid="history-version-select" value={selectedRevision?.id ?? ""} onChange={(event) => { setConfirmation(null); onSelect(event.target.value); }}>
         {revisions.map((revision) => <option key={revision.id} value={revision.id}>v{revision.revisionNo} · {statusLabel(revision, currentRevisionId, english)}</option>)}
       </select>
-      <span className="version-history-current">{ui.text("当前", "Current")} {current ? `v${current.revisionNo}` : "—"}</span>
     </div>
-    <p className="version-history-context">{ui.text("正在查看", "Viewing")} {selectedRevision ? `v${selectedRevision.revisionNo}` : "—"}
-      {selectedRevision && selectedRevision.id !== currentRevisionId && <span> · {ui.text("只读；后续生成仍以当前版本为基线", "Read only; the next run still uses the current version")}</span>}
-      {selectedRevision?.id === currentRevisionId && currentFromRollback && <span> · {ui.text("从历史版本恢复的当前基线", "Current baseline restored from history")}</span>}
-    </p>
+    <div className="version-history-context" data-testid="selected-version-kind"><strong>{ui.text("正在查看", "Viewing")} {selectedRevision ? `v${selectedRevision.revisionNo}` : "—"}</strong>
+      {selectedRevision && <span className="version-history-context-badge">{selectedKind}</span>}
+      {selectedRevision && selectedRevision.id !== currentRevisionId && <p>{ui.text("当前只读；下一轮生成仍以当前成功版本为基线。", "Read only; the next run still uses the current accepted version as its baseline.")}</p>}
+      {selectedRevision?.id === currentRevisionId && currentFromRollback && <p>{ui.text("从历史版本恢复的当前基线", "Current baseline restored from history")}</p>}
+    </div>
     {rollback && selectedRevision?.status === "accepted" && selectedRevision.buildStatus === "passed"
       && currentRevisionId && selectedRevision.id !== currentRevisionId && !rollback.busy && !confirmation &&
-      <button type="button" className="version-history-rollback-trigger" disabled={rollback.disabled}
-        onClick={() => setConfirmation({ fromId: currentRevisionId, targetId: selectedRevision.id })}>
-        {ui.text(`回滚到 v${selectedRevision.revisionNo}`, `Rollback to v${selectedRevision.revisionNo}`)}
-      </button>}
+      <div className="version-history-rollback-entry"><p>{ui.text("这个历史版本已通过验收，可以恢复为当前版本。", "This previously accepted version can become the current version.")}</p>
+        <button type="button" className="version-history-rollback-trigger" disabled={rollback.disabled}
+          onClick={() => setConfirmation({ fromId: currentRevisionId, targetId: selectedRevision.id })}>
+          {ui.text(`回滚到 v${selectedRevision.revisionNo}`, `Rollback to v${selectedRevision.revisionNo}`)}
+        </button></div>}
     {rollback && confirmation && rollbackTarget && rollbackFrom && <div className="version-history-rollback-confirm" role="group" aria-label={ui.text("确认回滚版本", "Confirm version rollback")}>
       <strong>{ui.text("确认切换当前版本", "Confirm current version change")}</strong>
       <p data-testid="rollback-direction">v{rollbackFrom.revisionNo} → v{rollbackTarget.revisionNo}</p>
@@ -104,7 +136,7 @@ export function VersionHistoryPanel({ revisions, currentRevisionId, selectedRevi
     </div>}
     {historyError && <p className="version-history-error" role="alert">{historyError}</p>}
     <details className="version-history-details">
-      <summary>{ui.text(`全部 ${revisions.length} 个已保存版本`, `All ${revisions.length} saved versions`)}</summary>
+      <summary>{ui.text(`展开版本历史 · ${revisions.length} 个已保存版本`, `Open version history · ${revisions.length} saved versions`)}</summary>
       <ol>{revisions.map((revision) => <li key={revision.id}>
         <button type="button" aria-current={revision.id === selectedRevision?.id ? "true" : undefined}
           onClick={() => { setConfirmation(null); onSelect(revision.id); }}>
@@ -117,7 +149,7 @@ export function VersionHistoryPanel({ revisions, currentRevisionId, selectedRevi
     {selectedRevision && <details className="version-history-details version-history-provenance">
       <summary>{ui.text("版本来源与对话", "Version and conversation")}</summary>
       <dl><dt>{ui.text("版本 ID", "Revision ID")}</dt><dd>{selectedRevision.id}</dd>
-        <dt>sourceHash</dt><dd>{selectedRevision.sourceHash}</dd>
+        <dt>{ui.text("作品源码 hash", "App source hash")}</dt><dd>{selectedRevision.sourceHash}</dd>
         <dt>Run ID</dt><dd>{selectedRevision.runId}</dd>
         <dt>{ui.text("构建", "Build")}</dt><dd>{selectedRevision.buildStatus}</dd></dl>
       <ol className="version-history-messages">{selectedMessages.map((message) => <li key={message.id}><strong>{message.kind === "rollback" ? ui.text("回滚事件", "Rollback event") : message.kind === "user" ? ui.text("需求", "Request") : message.kind === "question" ? ui.text("澄清", "Question") : ui.text("结果", "Result")}</strong><p>{message.content}</p></li>)}</ol>
