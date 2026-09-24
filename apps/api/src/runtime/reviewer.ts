@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import type { ImageContent, TSchema } from '@earendil-works/pi-ai';
 import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, type ToolDefinition } from '@earendil-works/pi-coding-agent';
@@ -33,29 +34,33 @@ export function classifyReviewerModelFailure(state: { errorMessage?: string }): 
 /** Match a screenshot's own tool result to its image in either supported wire protocol. */
 export function deliveredScreenshotIdsFromRequest(body:string,captures:ReadonlyMap<string,{image:ImageContent}>):Set<string>{
   const delivered=new Set<string>();
+  const idsFromText=(text:string):string[]=>{
+    try{const data=JSON.parse(text);return [data.artifactId,...(Array.isArray(data.captures)?data.captures.map((capture:{artifactId?:string})=>capture.artifactId):[])].filter((id):id is string=>typeof id==='string');}
+    catch{return [];}
+  };
   let messages:unknown;
   try{messages=JSON.parse(body).messages;}catch{return delivered;}
   if(!Array.isArray(messages))return delivered;
   for(let index=0;index<messages.length-1;index++){
     const item=messages[index],next=messages[index+1];
     if(item?.role!=='tool'||typeof item.content!=='string'||next?.role!=='user'||!Array.isArray(next.content))continue;
-    let artifactId:string|undefined;
-    try{artifactId=JSON.parse(item.content).artifactId;}catch{continue;}
-    const saved=artifactId?captures.get(artifactId):undefined;
-    if(saved&&next.content.some((part:{type?:string;image_url?:{url?:string}})=>part.type==='image_url'
-      &&part.image_url?.url===`data:${saved.image.mimeType};base64,${saved.image.data}`))delivered.add(artifactId!);
+    for(const artifactId of idsFromText(item.content)){
+      const saved=captures.get(artifactId);
+      if(saved&&next.content.some((part:{type?:string;image_url?:{url?:string}})=>part.type==='image_url'
+        &&part.image_url?.url===`data:${saved.image.mimeType};base64,${saved.image.data}`))delivered.add(artifactId);
+    }
   }
   for(const message of messages){
     if(message?.role!=='user'||!Array.isArray(message.content))continue;
     for(const result of message.content){
       if(result?.type!=='tool_result'||!Array.isArray(result.content))continue;
       const text=result.content.find((part:{type?:string})=>part.type==='text')?.text;
-      let artifactId:string|undefined;
-      try{artifactId=JSON.parse(text).artifactId;}catch{continue;}
-      const saved=artifactId?captures.get(artifactId):undefined;
-      if(saved&&result.content.some((part:{type?:string;source?:{type?:string;media_type?:string;data?:string}})=>
-        part.type==='image'&&part.source?.type==='base64'&&part.source.media_type===saved.image.mimeType
-        &&part.source.data===saved.image.data))delivered.add(artifactId!);
+      for(const artifactId of idsFromText(text??'')){
+        const saved=captures.get(artifactId);
+        if(saved&&result.content.some((part:{type?:string;source?:{type?:string;media_type?:string;data?:string}})=>
+          part.type==='image'&&part.source?.type==='base64'&&part.source.media_type===saved.image.mimeType
+          &&part.source.data===saved.image.data))delivered.add(artifactId);
+      }
     }
   }
   return delivered;
@@ -97,6 +102,15 @@ export function assertReviewerResult(value: ReviewerResult) {
   if (!verifiedResults.has(value)) throw new RuntimeError('INVALID_REVIEW_RECEIPT', '检查结果未经运行时证据校验');
 }
 const ref = { observationId: z.uuid(), ref: z.string().regex(/^e\d+$/), behaviorId: z.string().regex(/^B\d{2}$/) };
+const stepScope = { behaviorIds: z.array(ref.behaviorId).min(1).max(20), capture: z.boolean().default(false) };
+const namedControl = { name: z.string().min(1).max(300), role: z.string().min(1).max(80).default('button') };
+const reviewStep = z.discriminatedUnion('type', [
+  z.strictObject({ ...stepScope, ...namedControl, type: z.literal('click') }),
+  z.strictObject({ ...stepScope, ...namedControl, type: z.literal('fill'), text: z.string().max(2000) }),
+  z.strictObject({ ...stepScope, ...namedControl, type: z.literal('select'), value: z.string().max(2000) }),
+  z.strictObject({ ...stepScope, type: z.literal('press'), key: BrowserPressKeySchema }),
+  z.strictObject({ ...stepScope, type: z.literal('wait'), ms: z.number().int().min(1).max(3000) }),
+]);
 const schemas = {
   source_read: z.strictObject({ path: z.string().min(1).max(240) }),
   observation_read: z.strictObject({ id: z.uuid() }),
@@ -118,6 +132,7 @@ const schemas = {
   browser_key_batch: z.strictObject({ observationId: z.uuid(), behaviorId: ref.behaviorId,
     steps: z.array(z.strictObject({ key: BrowserPressKeySchema, waitMs: z.number().int().min(0).max(1000) })).min(1).max(8),
   }).refine(value=>value.steps.reduce((total,step)=>total+step.waitMs,0)<=4000),
+  browser_steps: z.strictObject({ observationId: z.uuid(), steps: z.array(reviewStep).min(1).max(64) }),
   browser_scroll: z.strictObject({ observationId: z.uuid(), behaviorId: ref.behaviorId, direction: z.enum(['up','down','left','right']) }),
   browser_screenshot: z.strictObject({}),
   browser_logs: z.strictObject({}),
@@ -247,13 +262,12 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     return invalidReports >= 3 ? fail(error) : error;
   };
   const requireRecordBeforeAction = (behaviorId: string, actionCount = 1) => {
-    if (pendingBehaviorId && pendingBehaviorId !== behaviorId)
-      throw invalid('RECORD_BEHAVIOR_REQUIRED', pendingBehaviorId);
-    if (unrecordedActions + actionCount > MAX_UNRECORDED_ACTIONS)
+    if (pendingBehaviorId === behaviorId && unrecordedActions + actionCount > MAX_UNRECORDED_ACTIONS)
       throw new RuntimeError('BEHAVIOR_ACTION_LIMIT',
         `当前 ${behaviorId} 已连续执行 ${MAX_UNRECORDED_ACTIONS} 次浏览器动作，请先观察并用 record_behavior 记录实际结果。`);
   };
   const noteBehaviorAction = (behaviorId: string, actionCount = 1) => {
+    if (pendingBehaviorId !== behaviorId) unrecordedActions = 0;
     pendingBehaviorId = behaviorId;
     unrecordedActions += actionCount;
   };
@@ -339,14 +353,14 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
         'Use browser_resize after opening the page to set an exact CSS viewport (for example width 390, height 844). Its observation includes measured width, height and scrollWidth; scrollWidth greater than width means horizontal overflow. Resizing itself is not a business action: use fresh refs for the required interaction and take a screenshot for layout verification.',
         'For Canvas games, use browser_press or browser_key_batch with ArrowUp/ArrowRight/ArrowDown/ArrowLeft/Space. A batch accepts up to eight short press/wait steps, stops at the first failed input, and returns each step result plus a fresh observation. If any input failed, observe and retry the full sequence or mark blocked; never call that a game failure or claim the key was held down. A real-time game can change while the model thinks: use normal Space to pause when needed, keep action batches short, and observe again before clicking a transient control. Screenshot the actual Canvas and HUD after interaction; do not inject hidden score or coordinates.',
         'Prefer browser_form for related fields and optional submit in one turn; give refs from the latest observation. The service executes and observes every step, rebinding only uniquely named controls. Never batch a destructive action or repeat submission without observing its result.',
-        'Reuse observations returned by actions. If asynchronous content has not appeared, browser_observe again; do not repeat submission blindly. After a stale ref, observe again, then perform a new action for the same behaviorId before recording it; observation alone is not behavior evidence. Submit only one record_behavior per model response so you can read any rejection before proceeding.',
+        'Reuse observations returned by actions. If asynchronous content has not appeared, browser_observe again; do not repeat submission blindly. After a stale ref, observe again, then continue from the first unexecuted scenario step; do not replay a completed submission. observation alone is not interaction evidence.',
         'Historical observations are compacted for context: their event IDs and short text remain, but only the latest observation carries actionable refs. Complete evidence is retained by the server. A truncated historical excerpt is not proof of absence; observe again when needed.',
         'Pi may summarize older turns when the context window fills. Complete evidence remains available through observation_read(id), screenshot_read(artifactId), and source_read. Reread the current revision’s screenshot after compaction instead of assuming the image survived the summary.',
         'Read relevant source to check unsupported capability promises, fake success, persistence and plan outOfScope. Mark failed if UI promises real email/payment/backend that source does not implement. Do not accept build success as behavioral correctness.',
-        'Work through plan behaviors in order. Immediately call record_behavior after verifying each behavior; retained completedBehaviors are your checklist. You must record the current behavior before acting on a different behaviorId. One multi-step behavior may use up to 32 browser actions, including clearing prior state before a long calculator expression; use a blocked or failed verdict if observation cannot establish success. Recording the final behavior validates and submits the whole report automatically. You may instead submit_review once for all behaviors only when no behavior switch is needed.',
+        'Use browser_steps for complete short test scenarios, not one model request per button. It resolves exact accessible role/name afresh after every step, stops on the first failure, and returns real observations. A step may list several related behaviorIds when the same action genuinely tests their outcomes; each receives its own evidence. Set capture:true at outcome checkpoints to receive actual screenshots in the same result. For calculators, batch all expression buttons and capture the result, then clear and test the next expression in the same call. For keyboard tests, digits/operators and Enter/Backspace/Escape are supported. A wait step advances real time and observes; use it for motion/pause instead of inventing a click. Never repeat a destructive or externally visible submission. After reviewing returned checkpoint text and images, submit_review for all tested behaviors together, or record_behavior incrementally. Switching between related behaviors does not require a separate report turn.',
         'Submit one report matching all plan behaviors exactly. Browser results return `reportEvidenceId` for observationEventIds and `observationId` for chaining the next browser action; the service canonicalizes either only when it names a unique observation from this check. Screenshot results return `artifactId` for screenshotIds. Include concise actual evidence and reproSteps. The expected field is bound to the sealed plan by the service, so put what you actually saw in actual instead of restating the plan. blocked means infrastructure prevents observation, failed means observed incorrect behavior.',
         'Take a screenshot after the relevant action and inspect its actual image pixels alongside the text metadata. The screenshot tool sends a real PNG image to you; artifactId, path, hash and DOM text alone do not prove visual behavior. A passing report is accepted only after a later model request actually receives that image. browser_logs shows runtime exceptions; these prevent passing.',
-        'Use short reports, at most 3 small independent tool calls per turn, await dependent results. A report does not itself publish the application.',
+        'Use short reports. Prefer one browser_steps call for a group of related cases and one final submit_review over repeated model turns. After screenshots have been received, several independent record_behavior calls may share one response. A report does not itself publish the application.',
       ].join('\n')});
     await loader.reload();
     const tools: ToolDefinition[] = toolNames.map(name=>({name,label:name,executionMode:'sequential',description:name==='source_read'?'Read an immutable source file; available paths are in the request.':name==='screenshot_read'?'Reread one image captured during this exact revision and browser session.':name==='submit_review'?'Submit report with matching behavior IDs and real observation event IDs.':`Controlled ${name}; every action returns a fresh observation and event id.`,
@@ -374,6 +388,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
           const params=parsed.data;
           let value:unknown;
           let imageContent:ImageContent|undefined;
+          const batchImages:ImageContent[]=[];
           if(name==='submit_review'){
             const report=ReviewResultSchema.parse(params);
             const canonicalReport={...report,items:report.items.map(canonicalItem)};
@@ -416,6 +431,54 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             imageContent=saved.image;
             value={artifactId,mimeType:saved.image.mimeType,revisionId:binding.revisionId,sourceHash:binding.sourceHash,
               observationId:saved.observationId,browserSessionId:binding.browserSessionId};
+          } else if(name==='browser_steps'){
+            const batch=schemas.browser_steps.parse(params);
+            if(!hasOpenedPage || batch.observationId!==latestObservationId)
+              throw new RuntimeError('STALE_BROWSER_REF','先打开页面并使用最新观察执行场景');
+            const known=new Set(handoff.plan.behaviors.map(behavior=>behavior.id));
+            if(batch.steps.some(step=>step.behaviorIds.some(id=>!known.has(id))))
+              throw new RuntimeError('INVALID_BEHAVIOR','场景包含计划外行为');
+            if(artifacts.length+batch.steps.filter(step=>step.capture).length>MAX_CHECK_ARTIFACTS)
+              throw new RuntimeError('ARTIFACT_LIMIT','场景截图超过当前剩余额度');
+            const checkpoints:unknown[]=[];
+            const captures:Array<{artifactId:string;observationId:string}>=[];
+            for(const [index,step] of batch.steps.entries()){
+              await active();
+              const observationId=latestObservationId!;
+              let observation:BrowserObservation;
+              if(step.type==='wait'){
+                await delay(step.ms,undefined,{signal});
+                observation=await input.browser.observe();
+              }else if(step.type==='press'){
+                observation=await input.browser.act({type:'press',key:step.key,observationId});
+              }else{
+                if(!latestRefsComplete)throw new RuntimeError('STALE_BROWSER_REF','页面观察不完整，请重新观察后继续未完成步骤');
+                const matches=Object.entries(latestRefs).filter(([,target])=>target.role===step.role&&target.name===step.name);
+                if(matches.length!==1)throw new RuntimeError('STALE_BROWSER_REF',`第 ${index+1} 步控件不唯一或已改变，请重新观察`);
+                const targetRef=matches[0][0];
+                observation=await input.browser.act(step.type==='click'?{type:'click',ref:targetRef,observationId}
+                  :step.type==='fill'?{type:'fill',ref:targetRef,observationId,text:step.text}
+                    :{type:'select',ref:targetRef,observationId,value:step.value});
+              }
+              await active();
+              const events=step.behaviorIds.map(behaviorId=>{
+                lastAction={behaviorId,action:step.type,...(step.type==='press'?{key:step.key}:{})};
+                return observe(observation);
+              });
+              let artifactId:string|undefined;
+              if(step.capture){
+                const screenshot=await input.browser.screenshot();
+                const artifact=await input.saveScreenshot(screenshot);artifacts.push(artifact);artifactId=artifact.id;
+                const image:ImageContent={type:'image',data:screenshot.base64,mimeType:screenshot.mimeType};
+                screenshots.set(artifact.id,{image,observationId:observation.id});batchImages.push(image);
+                captures.push({artifactId:artifact.id,observationId:observation.id});
+              }
+              checkpoints.push({index,behaviorIds:step.behaviorIds,observationId:observation.id,
+                evidence:events.map(event=>({behaviorId:event.behaviorId,reportEvidenceId:event.id})),
+                text:events[0].text,...(artifactId?{artifactId}:{})});
+            }
+            pendingBehaviorId=undefined;unrecordedActions=0;
+            value={checkpoints,captures,observationId:latestObservationId,refs:latestRefs};
           } else if(name==='browser_key_batch'){
             const batch=schemas.browser_key_batch.parse(params);
             if(!hasOpenedPage || batch.observationId!==latestObservationId)
@@ -538,7 +601,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             value=observe(observation);
           }
           await active();success=actionSucceeded;
-          return imageContent ? {content:[{type:'text' as const,text:JSON.stringify(value)},imageContent],details:{}} : output(value);
+          return imageContent || batchImages.length ? {content:[{type:'text' as const,text:JSON.stringify(value)},...(imageContent?[imageContent]:batchImages)],details:{}} : output(value);
         } catch(error){
           if(fatal && error===fatal && fatal.code==='AGENT_OUTPUT_INVALID'){
             // The terminal report rejection itself must remain auditable. The

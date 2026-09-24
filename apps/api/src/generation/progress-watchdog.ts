@@ -3,7 +3,7 @@ import type { ProbeEvent } from '../runtime/types.js';
 const meaningfullyCompletedTools = new Set([
   'submit_plan', 'request_clarification',
   'write', 'edit', 'bash',
-  'browser_click', 'browser_fill', 'browser_select', 'browser_press', 'browser_key_batch', 'browser_form',
+  'browser_click', 'browser_fill', 'browser_select', 'browser_press', 'browser_key_batch', 'browser_form', 'browser_steps',
   'record_behavior', 'submit_review',
 ]);
 

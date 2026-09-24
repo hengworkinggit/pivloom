@@ -49,6 +49,45 @@ function setup(turn: (request: { messages: Array<{ role: string; content: string
   return { input, stats:()=>({calls,actions,closes}) };
 }
 const report=(ids:string[])=>({revisionId,sourceHash,items:[{behaviorId:'B01',verdict:'passed',expected:'出现书名',actual:'已出现',observationEventIds:ids,screenshotIds:[],reproSteps:['点击添加']}],summary:'通过'});
+test('a scenario checks two behaviors with fresh controls and delivered checkpoint images in three model turns',async()=>{
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(m=>m.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_steps',args:{observationId:data.observationId,steps:[
+      {type:'click',role:'button',name:'添加',behaviorIds:['B01'],capture:true},
+      {type:'press',key:'2',behaviorIds:['B02']},
+      {type:'press',key:'Enter',behaviorIds:['B02'],capture:true},
+    ]}};
+    const checkpoints=data.checkpoints.filter((item:{artifactId?:string})=>item.artifactId);
+    return {name:'submit_review',args:{revisionId,sourceHash,summary:'两个真实场景已检查',items:checkpoints.map((item:{artifactId:string;evidence:Array<{behaviorId:string;reportEvidenceId:string}>})=>({
+      behaviorId:item.evidence[0].behaviorId,verdict:'passed',expected:'出现书名',actual:'已实际操作并观察结果',
+      observationEventIds:[item.evidence[0].reportEvidenceId],screenshotIds:[item.artifactId],reproSteps:['执行真实控件操作并查看结果截图'],
+    }))}};
+  });
+  f.input.handoff.plan={...plan,behaviors:[plan.behaviors[0],{...plan.behaviors[0],id:'B02',title:'键盘输入'}]};
+  const result=await runReviewer({...f.input,requireVisionEvidence:true});
+  expect(result.result.items.map(item=>item.verdict)).toEqual(['passed','passed']);
+  expect(result.evidence.map(item=>item.behaviorId)).toEqual([null,'B01','B02','B02']);
+  expect(f.stats()).toEqual({calls:3,actions:3,closes:1});
+});
+
+test('a real timed observation supplies motion evidence without inventing a click',async()=>{
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(m=>m.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_steps',args:{observationId:data.observationId,steps:[{type:'wait',ms:1,behaviorIds:['B01'],capture:true}]}};
+    const checkpoint=data.checkpoints[0];
+    return {name:'submit_review',args:{...report([checkpoint.evidence[0].reportEvidenceId]),items:[{
+      ...report([checkpoint.evidence[0].reportEvidenceId]).items[0],screenshotIds:[checkpoint.artifactId],
+    }]}};
+  });
+  f.input.handoff.plan={...plan,behaviors:[{...plan.behaviors[0],action:'等待若干 tick'}]};
+  const result=await runReviewer({...f.input,requireVisionEvidence:true});
+  expect(result.evidence.at(-1)).toMatchObject({action:'wait',behaviorId:'B01'});
+  expect(f.stats()).toEqual({calls:3,actions:0,closes:1});
+});
 test('a fabricated passing report cannot replace actual browser actions and observations',async()=>{
   const f=setup(()=>({name:'submit_review',args:report([randomUUID()])}));
   await expect(runReviewer(f.input)).rejects.toMatchObject({code:'AGENT_OUTPUT_INVALID'});
@@ -1055,7 +1094,7 @@ test('an older identical PNG cannot prove delivery of a later behavior screensho
     anthropicResult(first,true),anthropicResult(second,true)]}]}),captures)).toEqual(new Set([first,second]));
 });
 
-test('Reviewer requires recording before switching behaviors and caps one behavior without spending report correction',async()=>{
+test('Reviewer can collect related behaviors before reporting and bounds repetitive single-step actions',async()=>{
   const second={...plan.behaviors[0],id:'B02',title:'第二项检查',expected:'第二项结果可见'};
   let firstEventId='',firstObservationId='',rejection='';
   const f=setup((request,n)=>{
@@ -1067,14 +1106,13 @@ test('Reviewer requires recording before switching behaviors and caps one behavi
     if(n===2)return {name:'browser_click',args:{behaviorId:'B01',observationId:data?.observationId,ref:'e1'}};
     if(n===3){firstEventId=String(data?.id);firstObservationId=String(data?.observationId);
       return {name:'browser_click',args:{behaviorId:'B02',observationId:firstObservationId,ref:'e1'}};}
-    if(n===4)return {name:'record_behavior',args:report([firstEventId]).items[0]};
-    if(n===5)return {name:'browser_click',args:{behaviorId:'B02',observationId:firstObservationId,ref:'e1'}};
-    return {name:'record_behavior',args:{...report([String(data?.id)]).items[0],behaviorId:'B02',expected:second.expected}};
+    return {name:'submit_review',args:{...report([firstEventId]),items:[report([firstEventId]).items[0],
+      {...report([String(data?.id)]).items[0],behaviorId:'B02',expected:second.expected}]}};
   });
   const result=await runReviewer({...f.input,handoff:{...f.input.handoff,plan:{...plan,behaviors:[...plan.behaviors,second]}}});
-  expect(rejection).toContain('RECORD_BEHAVIOR_REQUIRED');
+  expect(rejection).toBe('');
   expect(result.result.items.map(item=>item.behaviorId)).toEqual(['B01','B02']);
-  expect(f.stats()).toEqual({calls:6,actions:2,closes:1});
+  expect(f.stats()).toEqual({calls:4,actions:2,closes:1});
 
   let capRejection='',lastEventId='';
   const spam=setup((request,n)=>{
