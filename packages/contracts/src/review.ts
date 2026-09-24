@@ -32,8 +32,17 @@ export function allowsRenderOnlyEvidence(target: Pick<BehaviorTarget, "action">)
   // later positive actions must remain visible to the interaction guard.
   const action = target.action.trim().replace(/[，,]\s*(?:不点击任何按钮|不按(?:任何)?键)[。.]?$/u, "");
   const firstRender = /^(?:首次|初次)(?:加载|打开)(?:页面|界面)[。.]?$/u.test(action);
-  return (firstRender || /^(?:直接)?(?:查看|观察|浏览|目视|阅读|打开页面|打开界面)|^(?:directly\s+)?(?:view|observe|inspect|look at|open\s+(?:the\s+)?(?:page|screen))/iu.test(action))
-    && !/(点击|按下|按键|按动|按住|按按钮|输入|填写|提交|选择|切换|拖拽|滚动|刷新|重载|重启|发送|移动|控制|开始游戏|click|press|type|fill|submit|select|toggle|drag|scroll|reload|restart|send|move|control|start\s+(?:the\s+)?game)/iu.test(action);
+  const renderVerb = /(?:查看|观察|浏览|目视|阅读|检查|目测)/u.test(action);
+  const renderedTarget = /(?:页面|界面|首屏|Canvas|画布|文本|文字|说明|按钮|输入框|控件|分数|布局|结果|列表|标题)/iu.test(action);
+  const renderOnly = firstRender
+    || /^(?:直接)?(?:查看|观察|浏览|目视|阅读|打开页面|打开界面)|^(?:directly\s+)?(?:view|observe|inspect|look at|open\s+(?:the\s+)?(?:page|screen))/iu.test(action)
+    || renderVerb && renderedTarget;
+  // Waiting for page load is compatible with a first-render screenshot. Waiting
+  // for gameplay is not. Viewport comparison is visual evidence: browser_resize
+  // has no behaviorId, so the Reviewer must cite its observations and images.
+  const timeAdvance = /(?:等待|持续|经过|一段时间|数秒|秒后|时间变化|自动运行)/u.test(action.replaceAll("等待页面加载完成", ""));
+  const interaction = /(点击|按下|按键|按动|按住|按按钮|按(?:多个)?方向键|使用(?:键盘|方向键|空格)|输入(?!框)|填写|提交|选择(?!框)|切换|拖拽|滚动|刷新|重载|重启|发送|移动|控制|开始游戏|变化|更新|click|press|type|fill|submit|select|toggle|drag|scroll|reload|restart|send|move|control|start\s+(?:the\s+)?game)/iu.test(action);
+  return renderOnly && !timeAdvance && !interaction;
 }
 const reviewItems = z.array(ReviewItemSchema).max(80)
   .refine((items) => new TextEncoder().encode(JSON.stringify(items)).length <= 64 * 1024, "检查条目不得超过 64 KiB。");

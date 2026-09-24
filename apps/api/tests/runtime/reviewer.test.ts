@@ -82,17 +82,31 @@ test('real Pi accepts only a report linked to an action and its subsequent obser
 test.each([
   ['首次加载页面，不点击任何按钮',true],
   ['初次打开页面，不按任何键',true],
+  ['等待页面加载完成，观察 Canvas 区域与页面文本',true],
   ['观察游戏画布',true],
   ['查看页面文字说明区域',true],
+  ['检查页面按钮、输入框和可见控件',true],
   ['游戏进行中不点击重新开始，仅使用方向键和空格',false],
+  ['连续按多个方向键',false],
   ['开始游戏并观察画布',false],
+  ['观察 Canvas 内容并在开始游戏后观察',false],
+  ['在不同窗口大小下目测分数、Canvas、按钮与说明的位置',true],
+  ['等待游戏一段时间，观察 Canvas 中蛇是否移动',false],
+  ['等待',false],
+  ['观察画布后点击开始游戏',false],
+  ['观察画布后按键',false],
+  ['观察画布后输入数据',false],
+  ['观察画布后刷新页面',false],
   ['首次加载页面，不点击任何按钮，随后点击开始游戏',false],
   ['初次打开页面，不按任何键，然后按下空格',false],
 ])('render-only plan action %s is %s', (action,expected)=>{
   expect(allowsRenderOnlyEvidence({action})).toBe(expected);
 });
 
-test('initial Canvas plan can record a screenshot of first load without clicking',async()=>{
+test.each([
+  '首次加载页面，不点击任何按钮',
+  '等待页面加载完成，观察 Canvas 区域与页面文本',
+])('initial Canvas plan %s can record first-load screenshot without clicking',async action=>{
   let firstEventId='';
   const f=setup((request,n)=>{
     const last=request.messages.filter(message=>message.role==='tool').at(-1);
@@ -103,11 +117,35 @@ test('initial Canvas plan can record a screenshot of first load without clicking
       screenshotIds:[data.artifactId],reproSteps:['首次加载页面观察初始画面，未点击按钮']}};
   });
   f.input.handoff.plan={...plan,behaviors:[{...plan.behaviors[0],
-    action:'首次加载页面，不点击任何按钮',expected:'Canvas 初始棋盘、分数和说明可见'}]};
+    action,expected:'Canvas 初始棋盘、分数和说明可见'}]};
   const result=await runReviewer({...f.input,requireVisionEvidence:true});
   expect(result.result.items[0].verdict).toBe('passed');
   expect(result.evidence[0]).toMatchObject({behaviorId:null,action:null});
   expect(f.stats()).toEqual({calls:3,actions:0,closes:1});
+});
+
+test('layout observation can cite screenshots after two actual browser resizes',async()=>{
+  const observationIds:string[]=[],screenshotIds:string[]=[];
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_resize',args:{width:390,height:844}};
+    if(n===3){observationIds.push(data.id);return {name:'browser_screenshot',args:{}};}
+    if(n===4){screenshotIds.push(data.artifactId);return {name:'browser_resize',args:{width:1280,height:720}};}
+    if(n===5){observationIds.push(data.id);return {name:'browser_screenshot',args:{}};}
+    screenshotIds.push(data.artifactId);
+    return {name:'record_behavior',args:{...report(observationIds).items[0],screenshotIds,
+      reproSteps:['390px 截图并观察布局','1280px 截图并观察布局']}};
+  });
+  f.input.handoff.plan={...plan,behaviors:[{...plan.behaviors[0],
+    action:'在不同窗口大小下目测分数、Canvas、按钮与说明的位置',expected:'两种宽度下布局清楚'}]};
+  const result=await runReviewer({...f.input,requireVisionEvidence:true});
+  expect(result.result.items[0].verdict).toBe('passed');
+  expect(result.result.items[0].screenshotIds).toHaveLength(2);
+  expect(result.evidence.some(event=>event.text.includes('width=390'))).toBe(true);
+  expect(result.evidence.some(event=>event.text.includes('width=1280'))).toBe(true);
+  expect(f.stats()).toEqual({calls:6,actions:0,closes:1});
 });
 
 test('interactive report can correct unbound observation then missing post-action image',async()=>{
