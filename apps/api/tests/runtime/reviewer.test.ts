@@ -545,9 +545,9 @@ test('a passing DOM report is rejected when no image entered a later Provider re
 });
 
 test('Canvas key batch binds every input result, fresh observation and delivered image to the current revision',async()=>{
-  let batchEventId='';
+  let batchEventId='',batchArtifactId='';
   let batchToolResult:Record<string,unknown>|undefined;
-  let batchCalls=0;
+  let batchCalls=0,savedImages=0;
   const f=setup((request,n)=>{
     const last=request.messages.filter(message=>message.role==='tool').at(-1);
     const data=last?JSON.parse(last.content) as Record<string,unknown>:null;
@@ -558,9 +558,10 @@ test('Canvas key batch binds every input result, fresh observation and delivered
     }
     if(n===2)return {name:'browser_key_batch',args:{behaviorId:'B01',observationId:data?.observationId,
       steps:[{key:'Space',waitMs:0},{key:'ArrowUp',waitMs:170},{key:'ArrowRight',waitMs:320},{key:'Space',waitMs:0}]}};
-    if(n===3){batchEventId=String(data?.id);batchToolResult=data??undefined;return {name:'browser_screenshot',args:{}};}
+    batchEventId=String(data?.id);batchArtifactId=String(data?.artifactId);batchToolResult=data??undefined;
+    expect(JSON.stringify(request.messages)).toContain('data:image/png;base64,');
     return {name:'record_behavior',args:{...report([batchEventId]).items[0],
-      screenshotIds:[data?.artifactId],actual:'Canvas 与 HUD 在键盘操作后更新',reproSteps:['空格继续、上、右、空格暂停']}};
+      screenshotIds:[batchArtifactId],actual:'Canvas 与 HUD 在键盘操作后更新',reproSteps:['空格继续、上、右、空格暂停']}};
   });
   f.input.browser.keyBatch=async({steps})=>{
     batchCalls++;
@@ -568,9 +569,14 @@ test('Canvas key batch binds every input result, fresh observation and delivered
       startedAt:'2026-09-23T18:00:00.000Z',finishedAt:'2026-09-23T18:00:00.250Z',
       steps:steps.map((step,index)=>({index,...step,success:true}))};
   };
-  const result=await runReviewer({...f.input,requireVisionEvidence:true});
+  const result=await runReviewer({...f.input,requireVisionEvidence:true,saveScreenshot:async()=>{
+    savedImages++;return f.input.saveScreenshot();
+  }});
   expect(batchCalls).toBe(1);
+  expect(savedImages).toBe(1);
+  expect(f.stats().calls).toBe(3);
   expect(batchToolResult).toMatchObject({revisionId,sourceHash,browserSessionId:f.input.browser.sessionId,
+    artifactId:batchArtifactId,
     batch:{steps:[{index:0,key:'Space',success:true},{index:1,key:'ArrowUp',success:true},{index:2,key:'ArrowRight',success:true},{index:3,key:'Space',success:true}]}});
   const evidence=result.evidence.find(event=>event.id===batchEventId);
   expect(evidence).toMatchObject({behaviorId:'B01',action:'key_batch',batch:{startedAt:'2026-09-23T18:00:00.000Z'}});
@@ -581,6 +587,7 @@ test('Canvas key batch binds every input result, fresh observation and delivered
     {index:3,key:'Space',waitMs:0,success:true},
   ]);
   expect(result.result.items[0].verdict).toBe('passed');
+  expect(result.result.items[0].screenshotIds).toEqual([batchArtifactId]);
 });
 
 test('a failed Canvas input cannot pass and is reported blocked after the one correction turn',async()=>{
@@ -595,7 +602,10 @@ test('a failed Canvas input cannot pass and is reported blocked after the one co
     if(n===1)return {name:'browser_open',args:{}};
     if(n===2)return {name:'browser_key_batch',args:{behaviorId:'B01',observationId:data?.observationId,
       steps:[{key:'ArrowUp',waitMs:100},{key:'ArrowRight',waitMs:100}]}};
-    if(n===3){batchEventId=String(data?.id);return {name:'record_behavior',args:report([batchEventId]).items[0]};}
+    if(n===3){
+      expect(JSON.stringify(request.messages)).not.toContain('data:image/png;base64,');
+      batchEventId=String(data?.id);return {name:'record_behavior',args:report([batchEventId]).items[0]};
+    }
     return {name:'record_behavior',args:{...report([batchEventId]).items[0],verdict:'blocked',
       actual:'第二个方向键未执行，无法判断游戏响应',reproSteps:['重试方向键失败']}};
   });
