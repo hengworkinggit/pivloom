@@ -35,7 +35,7 @@ export function SessionModelPicker({ profiles, selectedProfileId, catalog, effec
   }[vision];
   const filtered = catalog.filter((item) => `${item.name} ${item.id}`.toLowerCase().includes(query.toLowerCase()));
   return <><DropdownMenu.Root>
-    <DropdownMenu.Trigger asChild><button type="button" className="session-model-trigger" disabled={disabled || !profiles?.length} aria-label={ui.text("选择会话模型", "Select session model")}><Cpu size={15} /><span>{lockedLabel ?? modelName ?? ui.text("选择模型", "Select model")}</span><ChevronDown size={13} /></button></DropdownMenu.Trigger>
+    <DropdownMenu.Trigger asChild><button type="button" className="session-model-trigger" title={lockedLabel ?? modelName ?? undefined} disabled={disabled || !profiles?.length} aria-label={ui.text("选择会话模型", "Select session model")}><Cpu size={15} aria-hidden="true" /><span>{lockedLabel ?? modelName ?? ui.text("选择模型", "Select model")}</span><ChevronDown size={13} aria-hidden="true" /></button></DropdownMenu.Trigger>
     <DropdownMenu.Portal><DropdownMenu.Content className="session-model-menu" side="top" align="start" sideOffset={10}>
       <div className="session-model-menu-title"><strong>{ui.text("会话模型", "Session model")}</strong><span>{ui.text("下次任务生效", "For the next run")}</span></div>
       <div className="session-model-search"><Search size={14} /><input aria-label={ui.text("搜索模型", "Search models")} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.stopPropagation()} placeholder={ui.text("搜索模型", "Search models")} /></div>

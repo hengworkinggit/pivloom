@@ -100,9 +100,11 @@ if [[ "$mode" = install ]]; then
   chmod -R a-w "$target"
 fi
 [[ -d "$target" ]] || { echo 'Release directory not found.' >&2; exit 2; }
-if [[ "$component" = api ]]; then api_dir="$target"; else api_dir=$(readlink -f "$root/api-current"); fi
+if [[ "$component" = api ]]; then
+# Only the API owns generation workers. Web-only releases preserve the API
+# process and let clients reconnect to the same durable run after refresh.
 # Cross-owner idle checks need maintenance privileges, never the RLS-scoped API role.
-cd "$api_dir"
+cd "$target"
 "$node" --env-file="$maintenance_env" --input-type=module - <<'JS'
 import { Pool } from 'pg';
 if (!process.env.MIGRATION_DATABASE_URL) {
@@ -125,6 +127,7 @@ try {
   process.exitCode = 3;
 } finally { await pool.end(); }
 JS
+fi
 curl --fail --silent --show-error --location --max-time 20 "$existing_site" >/dev/null
 switch_to "$target"
 switched=1

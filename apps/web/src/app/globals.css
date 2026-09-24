@@ -2893,6 +2893,31 @@ svg {
 .session-model-trigger { display:inline-flex; align-items:center; gap:6px; max-width:210px; min-height:28px; padding:0 7px; border:0; border-radius:16px; background:transparent; color:var(--muted); font-size:12px; }
 .session-model-trigger:hover { background:var(--subtle); }.session-model-trigger > span { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }.session-model-trigger:disabled { opacity:.65; }
 .session-model-vision-status { color:var(--muted); font-size:11px; white-space:nowrap; }
+.chat-composer { container: composer / inline-size; min-width: 0; background: var(--surface); border-color: var(--line); }
+.chat-composer textarea { color: var(--foreground); }
+.chat-composer textarea::placeholder { color: var(--muted); }
+.generation-composer-controls { display: grid; gap: 10px; padding-top: 8px; }
+.composer-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 5px 12px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.composer-status { display: flex; flex: 1 1 155px; align-items: center; gap: 6px; min-width: 0; word-break: normal; }
+.composer-status .small-status-dot { flex: 0 0 5px; width: 5px; height: 5px; }
+.composer-meta .generation-quota { flex: 0 0 auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.composer-meta .generation-quota strong { margin-left: 3px; font-weight: 550; color: var(--foreground); }
+.composer-toolbar { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.composer-model { display: flex; flex: 1 1 0%; align-items: center; gap: 7px; min-width: 0; }
+.composer-model .session-model-trigger { flex: 1 1 0%; min-width: 0; max-width: 280px; min-height: 32px; padding-left: 0; border-radius: 7px; }
+.composer-model .session-model-trigger > span { min-width: 0; text-align: left; }
+.composer-model .session-model-trigger > svg { flex-shrink: 0; }
+.composer-model .session-model-vision-status { flex: 0 0 auto; font-size: 10px; }
+.generation-composer-controls .composer-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.generation-composer-controls .composer-actions .pv-button { flex-shrink: 0; white-space: nowrap; min-height: 34px; }
+.generation-composer-controls .composer-actions .pv-button-outline { background: var(--surface); border-color: var(--line); color: var(--foreground); }
+.generation-composer-controls .composer-actions .pv-button-icon { width: 34px; height: 34px; }
+@container composer (max-width: 340px) {
+  .composer-toolbar { align-items: flex-end; gap: 8px; }
+  .composer-model { flex-direction: column; align-items: stretch; gap: 1px; }
+  .composer-model .session-model-trigger { flex: 0 0 auto; width: 100%; max-width: none; }
+  .composer-model .session-model-vision-status { font-size: 10px; }
+}
 @media (max-width: 600px) {
   .session-model-trigger { max-width: 112px; }
   .session-model-vision-status { font-size: 9px; }
