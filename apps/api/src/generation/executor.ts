@@ -5,6 +5,7 @@ import type { ModelProfileService } from "../models/service.js";
 import { sourceBundleFiles, type SourceStore } from "../storage/source.js";
 import type { ArtifactStore } from "../storage/artifacts.js";
 import { runReview } from "./review.js";
+import { summarizeReviewCheckpoint } from "./review-checkpoint.js";
 import { RuntimeError, type ProbeEvent, type SandboxConfig, type SourceFile, type TrustedBuildRecord } from "../runtime/types.js";
 import { runCoordinator } from "../runtime/coordinator.js";
 import { createRunTokenBudget, type TokenUsage } from "../runtime/token-budget.js";
@@ -340,6 +341,16 @@ export function createGenerationExecutor(options: {
             sandboxConfig: sandbox, modelConfig, tokenBudget, signal: task.controller.signal,
             maxToolCalls: remainingTools(),
             onEvent: recordEvent(reviewer.role.id),
+            onCheckpoint: async (checkpoint) => {
+              await repository.appendEvent(run.ownerId, run.id, {
+                type: "tool.output", roleRunId: reviewer.role.id, progress: false,
+                payload: {
+                  toolName: "review_checkpoint",
+                  message: `行为 ${checkpoint.item.behaviorId} 的真实证据已核对并暂存；正式检查尚未完成。`,
+                  reviewCheckpoint: summarizeReviewCheckpoint(checkpoint),
+                },
+              });
+            },
             onLeaseRenewed: persistPreviewLease,
             assertActive: () => repository.assertRoleActive(run.ownerId, run.id, {
               roleRunId: reviewer.role.id, attempt: reviewer.role.attempt, role: "reviewer",
