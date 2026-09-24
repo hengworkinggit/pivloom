@@ -120,6 +120,35 @@ test('service bootstrap supplies real initial evidence and image in the first mo
   expect(f.stats()).toEqual({calls:1,actions:0,closes:1});
   expect(parseReviewEvidence(result.evidence)).toEqual(result.evidence);
 });
+test('Pi checkpoint steers a long unrecorded scenario without accepting an unobserved claim',async()=>{
+  let actionEventId='',artifactId='',sawCheckpoint=false;
+  const rejected:string[]=[];
+  const f=setup((request,n)=>{
+    const firstUser=request.messages.find(message=>message.role==='user');
+    const parts=firstUser?.content as unknown as Array<{type:string;text?:string}>;
+    const initial=JSON.parse(parts.find(part=>part.type==='text')!.text!).initialReview;
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    let data:null|Record<string,unknown>=null;
+    if(last)try{data=JSON.parse(last.content);}catch{ /* A rejected report returns a static tool error string. */ }
+    if(n===1)return {name:'record_behavior',args:{...report([randomUUID()]).items[0],screenshotIds:[]}};
+    if(n===2)return {name:'browser_click',args:{behaviorId:'B01',observationId:initial.observationId,ref:'e1'}};
+    if(n===3){actionEventId=String(data?.id);return {name:'browser_screenshot',args:{}};}
+    if(n===4){artifactId=String(data?.artifactId);return {name:'browser_observe',args:{}};}
+    sawCheckpoint=JSON.stringify(request.messages).includes('Scenario checkpoint');
+    return {name:'record_behavior',args:{...report([actionEventId]).items[0],
+      actual:'点击后真实观察到测试书名',screenshotIds:[artifactId]}};
+  });
+  const onEvent=(event:ProbeEvent)=>{
+    if(event.type==='tool.end'&&event.toolName==='record_behavior'&&event.success===false)rejected.push(event.message);
+  };
+  const result=await runReviewer({...f.input,bootstrap:true,requireVisionEvidence:true,onEvent});
+  expect(rejected).toHaveLength(1);
+  expect(rejected[0]).toContain('OBSERVATION_SCOPE');
+  expect(sawCheckpoint).toBe(true);
+  expect(result.result.items).toMatchObject([{behaviorId:'B01',verdict:'passed',screenshotIds:[artifactId]}]);
+  expect(result.evidence.some(event=>event.id===actionEventId&&event.action==='click')).toBe(true);
+  expect(f.stats()).toEqual({calls:5,actions:1,closes:1});
+},30_000);
 test('a fabricated passing report cannot replace actual browser actions and observations',async()=>{
   const f=setup(()=>({name:'submit_review',args:report([randomUUID()])}));
   await expect(runReviewer(f.input)).rejects.toMatchObject({code:'AGENT_OUTPUT_INVALID'});

@@ -217,6 +217,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   const completedBehaviors = new Map<string, ReviewItem>();
   const failedInputBehaviors = new Map<string, string>();
   let pendingBehaviorId: string | undefined, unrecordedActions = 0;
+  let browserToolsSinceRecord = 0, recordedEvidenceCount = 0, checkpointEvidenceCount = 0;
   // One calculator expression may need clear + parentheses + several operands.
   // Switching behaviors is still forbidden until the current one is recorded.
   const MAX_UNRECORDED_ACTIONS = 32;
@@ -300,6 +301,27 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   };
   const canonicalItem = (item: ReviewItem): ReviewItem => ({ ...item,
     observationEventIds: item.observationEventIds.map(canonicalObservationId) });
+  /** Pi delivers steer only after the current tool turn. It asks for a real
+   * per-scenario verdict; it never creates one or skips a sealed plan item. */
+  const steerScenarioCheckpoint = () => {
+    if (!session || decision || signal.aborted || browserToolsSinceRecord < 3 || toolCount >= maxTools
+      || evidence.length <= checkpointEvidenceCount) return;
+    const capturedObservations = new Set([...screenshots.values()].map(capture => capture.observationId));
+    const ready = [...new Set(evidence.slice(recordedEvidenceCount)
+      .filter(event => event.behaviorId && event.action && event.action !== 'scroll'
+        && !(event.action === 'press' && event.key === 'Tab')
+        && capturedObservations.has(event.observationId) && !completedBehaviors.has(event.behaviorId))
+      .map(event => event.behaviorId!))];
+    if (!ready.length) return;
+    const recorded = handoff.plan.behaviors.filter(behavior => completedBehaviors.has(behavior.id)).map(behavior => behavior.id);
+    const remaining = handoff.plan.behaviors.filter(behavior => !completedBehaviors.has(behavior.id)).map(behavior => behavior.id);
+    session.agent.steer({ role: 'user', content: [{ type: 'text', text:
+      `Scenario checkpoint. Recorded: ${recorded.join(', ') || 'none'}. Remaining: ${remaining.join(', ')}. `
+      + `New action-and-screenshot evidence exists for ${ready.join(', ')}. In the next turn, inspect the actual images and record each completed short scenario with record_behavior (several records may share one turn) before gathering more evidence. `
+      + `Use passed only for observed correct behavior, failed for observed incorrect behavior, and blocked if infrastructure prevented observation. Cite this session's real observationEventIds and screenshotIds; never invent a verdict or skip remaining checks. Continue testing any item still lacking evidence.` }], timestamp: Date.now() });
+    checkpointEvidenceCount = evidence.length;
+    browserToolsSinceRecord = 0;
+  };
   const itemProblem=(item:ReviewItem):ReportProblem|undefined=>{
     const target=handoff.plan.behaviors.find(b=>b.id===item.behaviorId);
     if(!target)return 'OBSERVATION_SCOPE';
@@ -408,6 +430,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             const problem=itemProblem(item);if(problem)throw invalid(problem);
             if(JSON.stringify(item).includes(input.modelConfig.apiKey))throw invalid('SECRET_OUTPUT');
             completedBehaviors.set(item.behaviorId,bindExpected(item));
+            browserToolsSinceRecord=0; recordedEvidenceCount=evidence.length; checkpointEvidenceCount=evidence.length;
             if(pendingBehaviorId===item.behaviorId){pendingBehaviorId=undefined;unrecordedActions=0;}
             if(completedBehaviors.size===handoff.plan.behaviors.length){
               const logs=await input.browser.logs();
@@ -608,6 +631,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             value=observe(observation);
           }
           await active();success=actionSucceeded;
+          if(name.startsWith('browser_'))browserToolsSinceRecord++;
           return imageContent || batchImages.length ? {content:[{type:'text' as const,text:JSON.stringify(value)},...(imageContent?[imageContent]:batchImages)],details:{}} : output(value);
         } catch(error){
           if(fatal && error===fatal && fatal.code==='AGENT_OUTPUT_INVALID'){
@@ -672,6 +696,8 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
       if(event.type==='tool_execution_start'){
         tokens.recordToolCall();
         if(++toolCount>maxTools)fail(new RuntimeError('TOOL_BUDGET_EXCEEDED','检查工具预算耗尽'));
+      }else if(event.type==='turn_end'){
+        steerScenarioCheckpoint();
       }else if(event.type==='message_update'&&'delta' in event.assistantMessageEvent
         &&typeof event.assistantMessageEvent.delta==='string'&&event.assistantMessageEvent.delta&&!receivedStream){
         receivedStream=true;
