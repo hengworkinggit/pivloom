@@ -1,0 +1,172 @@
+--- v6/src/App.tsx
++++ v7/src/App.tsx
+@@ -5,6 +5,13 @@
+   | { type: 'op'; value: string }
+   | { type: 'paren'; value: string };
+ 
++type HistoryItem = {
++  expression: string;
++  result: string;
++};
++
++const HISTORY_KEY = 'calculator-history';
++
+ class CalcError extends Error {
+   constructor(message: string) {
+     super(message);
+@@ -153,12 +160,42 @@
+   return text;
+ }
+ 
++function loadHistory(): HistoryItem[] {
++  try {
++    const raw = localStorage.getItem(HISTORY_KEY);
++    if (!raw) return [];
++    const parsed = JSON.parse(raw);
++    if (Array.isArray(parsed)) {
++      return parsed.filter(
++        (item): item is HistoryItem =>
++          item && typeof item.expression === 'string' && typeof item.result === 'string'
++      );
++    }
++  } catch {
++    // ignore corrupt storage
++  }
++  return [];
++}
++
++function saveHistory(history: HistoryItem[]) {
++  try {
++    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
++  } catch {
++    // ignore storage errors
++  }
++}
++
+ export default function App() {
+   const [expression, setExpression] = useState('');
+   const [result, setResult] = useState('');
+   const [error, setError] = useState('');
+   const [justEvaluated, setJustEvaluated] = useState(false);
++  const [history, setHistory] = useState<HistoryItem[]>([]);
+ 
++  useEffect(() => {
++    setHistory(loadHistory());
++  }, []);
++
+   const clear = useCallback(() => {
+     setExpression('');
+     setResult('');
+@@ -181,6 +218,31 @@
+         return value;
+       }
+       return prev + value;
++    });
++    setJustEvaluated(false);
++  }, [justEvaluated]);
++
++  const addHistory = useCallback((expression: string, result: string) => {
++    setHistory((prev) => {
++      const next = [{ expression, result }, ...prev];
++      saveHistory(next);
++      return next;
++    });
++  }, []);
++
++  const clearHistory = useCallback(() => {
++    setHistory([]);
++    saveHistory([]);
++  }, []);
++
++  const useHistoryResult = useCallback((result: string) => {
++    setError('');
++    setResult('');
++    setExpression((prev) => {
++      if (justEvaluated || prev === '') {
++        return result;
++      }
++      return prev + result;
+     });
+     setJustEvaluated(false);
+   }, [justEvaluated]);
+@@ -189,15 +251,17 @@
+     if (!expression.trim()) return;
+     try {
+       const value = evaluate(expression);
+-      setResult(formatResult(value));
++      const resultText = formatResult(value);
++      setResult(resultText);
+       setError('');
+       setJustEvaluated(true);
++      addHistory(expression, resultText);
+     } catch (err) {
+       setResult('');
+       setError(err instanceof CalcError ? err.message : '表达式无效');
+       setJustEvaluated(false);
+     }
+-  }, [expression]);
++  }, [expression, addHistory]);
+ 
+   useEffect(() => {
+     const handleKeyDown = (e: KeyboardEvent) => {
+@@ -275,6 +339,36 @@
+         <button onClick={calculate} className="eq">=</button>
+         <button onClick={() => append('+')} className="op">+</button>
+       </div>
++
++      <section className="history" aria-label="计算历史">
++        <div className="history-header">
++          <h2>历史记录</h2>
++          {history.length > 0 && (
++            <button className="clear-history" onClick={clearHistory}>
++              清空历史
++            </button>
++          )}
++        </div>
++        {history.length === 0 ? (
++          <p className="history-empty">暂无历史记录</p>
++        ) : (
++          <ul className="history-list">
++            {history.map((item, index) => (
++              <li key={index} className="history-item">
++                <button
++                  className="history-entry"
++                  onClick={() => useHistoryResult(item.result)}
++                  title="点击使用此结果"
++                >
++                  <span className="history-expression">{item.expression}</span>
++                  <span className="history-equals">=</span>
++                  <span className="history-result">{item.result}</span>
++                </button>
++              </li>
++            ))}
++          </ul>
++        )}
++      </section>
+     </main>
+   );
+ }
+--- v6/src/style.css
++++ v7/src/style.css
+@@ -11,4 +11,20 @@
+ .keypad button.op{background:#dbe4ff;color:#3b5bdb}
+ .keypad button.fn{background:#e9ecef;color:#495057}
+ .keypad button.eq{background:#3b5bdb;color:#fff}
+-@media(max-width:420px){.calculator{padding:14px;border-radius:0;box-shadow:none;max-width:none}.display{padding:16px 14px;min-height:100px}.expression{font-size:1.35rem}.output{font-size:2rem}.keypad{gap:10px}.keypad button{height:58px;font-size:1.25rem;border-radius:12px}}
++
++.history{margin-top:20px;border-top:1px solid #e9ecef;padding-top:16px}
++.history-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
++.history-header h2{margin:0;font-size:1.05rem;font-weight:600;color:#495057}
++.clear-history{font-size:.85rem;font-weight:500;color:#d93025;background:transparent;padding:6px 10px;border-radius:8px;transition:background .15s}
++.clear-history:hover{background:#fff0ef}
++.history-empty{margin:0;font-size:.9rem;color:#868e96;text-align:center;padding:16px 0}
++.history-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
++.history-item{margin:0}
++.history-entry{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;background:#f8f9fa;border-radius:12px;font-size:1rem;color:#172033;transition:background .15s,transform .05s;text-align:left}
++.history-entry:active{transform:scale(.99)}
++.history-entry:hover{background:#f1f3f5}
++.history-expression{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#5a667c}
++.history-equals{flex:0 0 auto;color:#adb5bd;font-weight:500}
++.history-result{flex:0 1 auto;font-weight:600;color:#172033;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
++
++@media(max-width:420px){.calculator{padding:14px;border-radius:0;box-shadow:none;max-width:none}.display{padding:16px 14px;min-height:100px}.expression{font-size:1.35rem}.output{font-size:2rem}.keypad{gap:10px}.keypad button{height:58px;font-size:1.25rem;border-radius:12px}.history-entry{padding:10px 12px;font-size:.95rem}}

@@ -1,0 +1,40 @@
+{
+  "revisionId": "786423f9-0886-47fe-b764-996b073ee79a",
+  "files": [
+    {
+      "path": "index.html",
+      "sha256": "671af5fd2348350e7756da7e19cc8b5e3688d255a7b5e9c2832897ee607b4c42",
+      "bytes": 263
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "d6f6d33576938d01cc6b069255232bac781510147efa95d546b0d9f6b4726da6",
+      "bytes": 26874
+    },
+    {
+      "path": "package.json",
+      "sha256": "7a8be5382a1f33de0299e19e773ce899bed0797aab1d4b8332de64b151438e65",
+      "bytes": 517
+    },
+    {
+      "path": "src/App.tsx",
+      "sha256": "b25f4dedbdb280af59ace333c655d4995e2240332c74fe1834d671af7c32c437",
+      "bytes": 7849
+    },
+    {
+      "path": "src/main.tsx",
+      "sha256": "d607130ce852076f813659f04bd57b5e342fc489a809dc8376a82fae7239f32c",
+      "bytes": 153
+    },
+    {
+      "path": "src/style.css",
+      "sha256": "67f4552a730b6c107eddbe9c188969c5119a504384274a8cdf7b61c70a83075c",
+      "bytes": 1680
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "858c1e09c809628dc0fe8eba6fb6a1821f802c060f0705313443f3634f6e5837",
+      "bytes": 331
+    }
+  ]
+}
