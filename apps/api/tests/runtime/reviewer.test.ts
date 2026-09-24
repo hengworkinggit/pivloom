@@ -105,6 +105,21 @@ test('related assertions may share a real observation within the same candidate 
   expect(result.result.items.map(item=>item.verdict)).toEqual(['passed','passed']);
   expect(f.stats()).toEqual({calls:3,actions:1,closes:1});
 });
+test('service bootstrap supplies real initial evidence and image in the first model request',async()=>{
+  const f=setup(request=>{
+    const user=request.messages.find(message=>message.role==='user');
+    const parts=user?.content as unknown as Array<{type:string;text?:string}>;
+    const initial=JSON.parse(parts.find(part=>part.type==='text')!.text!).initialReview;
+    return {name:'submit_review',args:{...report([initial.reportEvidenceId]),items:[{
+      ...report([initial.reportEvidenceId]).items[0],screenshotIds:[initial.artifactId],
+    }]}};
+  });
+  f.input.handoff.plan={...plan,behaviors:[{...plan.behaviors[0],action:'打开计算器页面，观察页面初始状态'}]};
+  const result=await runReviewer({...f.input,bootstrap:true,requireVisionEvidence:true});
+  expect(result.result.items[0].verdict).toBe('passed');
+  expect(f.stats()).toEqual({calls:1,actions:0,closes:1});
+  expect(parseReviewEvidence(result.evidence)).toEqual(result.evidence);
+});
 test('a fabricated passing report cannot replace actual browser actions and observations',async()=>{
   const f=setup(()=>({name:'submit_review',args:report([randomUUID()])}));
   await expect(runReviewer(f.input)).rejects.toMatchObject({code:'AGENT_OUTPUT_INVALID'});

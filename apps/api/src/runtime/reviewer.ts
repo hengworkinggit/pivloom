@@ -52,6 +52,13 @@ export function deliveredScreenshotIdsFromRequest(body:string,captures:ReadonlyM
   }
   for(const message of messages){
     if(message?.role!=='user'||!Array.isArray(message.content))continue;
+    const initialText=message.content.find((part:{type?:string})=>part.type==='text')?.text;
+    let initialArtifactId:string|undefined;
+    try{initialArtifactId=JSON.parse(initialText??'').initialReview?.artifactId;}catch{ /* ordinary prompt */ }
+    const initial=initialArtifactId?captures.get(initialArtifactId):undefined;
+    if(initial&&message.content.some((part:{type?:string;image_url?:{url?:string};source?:{data?:string;media_type?:string}})=>
+      part.type==='image_url'&&part.image_url?.url===`data:${initial.image.mimeType};base64,${initial.image.data}`
+      ||part.type==='image'&&part.source?.data===initial.image.data&&part.source?.media_type===initial.image.mimeType))delivered.add(initialArtifactId!);
     for(const result of message.content){
       if(result?.type!=='tool_result'||!Array.isArray(result.content))continue;
       const text=result.content.find((part:{type?:string})=>part.type==='text')?.text;
@@ -89,6 +96,8 @@ export interface ReviewerInput {
   modelConfig: ModelConfig; signal: AbortSignal; tokenBudget?: RunTokenBudget; maxToolCalls?: number;
   /** Production requires a successful image-bearing Provider turn before a passing report. */
   requireVisionEvidence?: boolean;
+  /** Service supplies the actual initial page and image before the first model request. */
+  bootstrap?: boolean;
   onEvent?: ProbeEventSink;
   assertActive(): Promise<void>;
   saveScreenshot(image: { base64: string; mimeType: 'image/png'; sha256: string }): Promise<CheckArtifact>;
@@ -677,7 +686,28 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
         throw classifyReviewerModelFailure({errorMessage:last.errorMessage});
       }
     };
-    await session.prompt(redact(JSON.stringify({handoff,files:input.files.map(f=>f.path),revisionId:binding.revisionId,sourceHash:binding.sourceHash})));
+    let initialReview:Record<string,unknown>|undefined,initialImage:ImageContent|undefined;
+    if(input.bootstrap){
+      const id=randomUUID();
+      await emit('tool.start','browser_open',id);
+      const opened=await input.browser.open();await active();hasOpenedPage=true;
+      const observation=observe(opened);
+      await emit('tool.end','browser_open',id,true);
+      await emit('tool.start','browser_screenshot',id+'-image');
+      const captured=await input.browser.screenshot();
+      const artifact=await input.saveScreenshot(captured);artifacts.push(artifact);
+      initialImage={type:'image',data:captured.base64,mimeType:captured.mimeType};
+      screenshots.set(artifact.id,{image:initialImage,observationId:opened.id});
+      initialReview={...observation,artifactId:artifact.id};
+      await emit('tool.end','browser_screenshot',id+'-image',true);
+      toolCount+=2;tokens.recordToolCall();tokens.recordToolCall();
+    }
+    const sourceFiles=input.bootstrap?input.files.filter(file=>!file.path.endsWith('package-lock.json')).map(file=>({
+      path:file.path,content:redact(file.content).slice(0,16000),truncated:file.content.length>16000,
+    })):undefined;
+    await session.prompt(redact(JSON.stringify({handoff,files:input.files.map(f=>f.path),sourceFiles,initialReview,
+      instruction:initialReview?'The service already opened the bound app and supplied its real initial observation and screenshot. Start testing from these refs; do not reopen or reread unchanged supplied source.':undefined,
+      revisionId:binding.revisionId,sourceHash:binding.sourceHash})),initialImage?{images:[initialImage]}:undefined);
     check();checkModelResult();
     if(!decision && invalidReports===0 && toolCount<maxTools){invalidReports++;await session.prompt('尚未提交有效检查报告。这是唯一纠正机会，请通过 submit_review 提交实际结果。');check();checkModelResult();}
     if(!decision)throw new RuntimeError('AGENT_OUTPUT_INVALID','检查者未提交有效报告');

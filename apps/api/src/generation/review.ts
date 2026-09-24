@@ -96,7 +96,7 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     await verifyVersion();
     const files=(await input.sources.load(input.source)).files;
     reviewerStarted=true;
-    const reviewed=await runReviewer({binding,sessionId:input.sessionId,handoff:input.handoff,browser,files,
+    const reviewed=await runReviewer({binding,sessionId:input.sessionId,handoff:input.handoff,browser,files,bootstrap:true,
       modelConfig:input.modelConfig,signal,tokenBudget:input.tokenBudget,maxToolCalls:input.maxToolCalls,
       onEvent:async(event)=>{await ensureLease();await input.onEvent?.(event);},assertActive:active,
       async saveScreenshot(image){
