@@ -1,0 +1,692 @@
+{
+  "run": {
+    "id": "11b550d6-6c86-4ade-afa6-a58b18e5dc9a",
+    "project_id": "b5031ebf-ec85-4c17-9433-3647d7d81a79",
+    "retry_of": "ce4b4bee-bb40-4bbd-b32f-904a7cae4403",
+    "state": "failed",
+    "phase": "cleanup",
+    "attempt": 0,
+    "error_code": "AGENT_OUTPUT_INVALID",
+    "error_message": "检查结果未通过格式或证据校验，请稍后重试。",
+    "cleanup_state": "confirmed",
+    "model_profile_id": "ea2e0acf-4277-4670-8280-1e6635e7b363",
+    "model_config_version": 2,
+    "model_id": null,
+    "result_revision_id": "f99724f1-98fb-4f28-b6e2-4bcf8cc734bd",
+    "created_at": "2026-09-24T02:15:04.808+00:00",
+    "finished_at": "2026-09-24T02:31:28.091+00:00",
+    "deadline_at": "2026-09-24T02:45:04.808+00:00"
+  },
+  "roles": [
+    {
+      "role": "coordinator",
+      "state": "succeeded",
+      "attempt": 0,
+      "model_calls": "4",
+      "started_at": "2026-09-24T02:15:04.835+00:00",
+      "finished_at": "2026-09-24T02:21:51.277+00:00"
+    },
+    {
+      "role": "builder",
+      "state": "succeeded",
+      "attempt": 0,
+      "model_calls": "14",
+      "started_at": "2026-09-24T02:21:51.292+00:00",
+      "finished_at": "2026-09-24T02:26:35.935+00:00"
+    },
+    {
+      "role": "reviewer",
+      "state": "failed",
+      "attempt": 0,
+      "model_calls": "12",
+      "started_at": "2026-09-24T02:26:36.023+00:00",
+      "finished_at": "2026-09-24T02:31:28.091+00:00"
+    }
+  ],
+  "revision": {
+    "id": "f99724f1-98fb-4f28-b6e2-4bcf8cc734bd",
+    "revision_no": 2,
+    "source_hash": "23877d1b0475c59a471779e130d3ea4af6d734182117e9fd4ab4962ea86c9168",
+    "build_status": "passed",
+    "status": "candidate",
+    "source_bytes": 39173,
+    "created_at": "2026-09-24T02:26:35.996+00:00"
+  },
+  "sandboxes": [
+    {
+      "id": "7b6eb2d5-132b-4cf4-b966-615395bab8e1",
+      "remote_id": "043574b9-fb71-4a97-b921-c80cdb7d0686",
+      "state": "destroyed",
+      "purpose": "candidate-preview",
+      "expires_at": "2026-09-24T02:51:52.255+00:00",
+      "last_checked_at": "2026-09-24T02:31:28.084+00:00"
+    }
+  ],
+  "events": [
+    {
+      "id": 7134,
+      "type": "run.phase",
+      "tool_name": null,
+      "success": null,
+      "message": "",
+      "created_at": "2026-09-24T02:15:04.835+00:00"
+    },
+    {
+      "id": 7135,
+      "type": "role.started",
+      "tool_name": null,
+      "success": null,
+      "message": "",
+      "created_at": "2026-09-24T02:15:04.835+00:00"
+    },
+    {
+      "id": 7137,
+      "type": "tool.started",
+      "tool_name": "project_summary",
+      "success": null,
+      "message": "协调者执行 project_summary",
+      "created_at": "2026-09-24T02:15:07.614+00:00"
+    },
+    {
+      "id": 7138,
+      "type": "tool.completed",
+      "tool_name": "project_summary",
+      "success": "true",
+      "message": "协调者工具已返回，等待服务端处理",
+      "created_at": "2026-09-24T02:15:07.621+00:00"
+    },
+    {
+      "id": 7144,
+      "type": "tool.started",
+      "tool_name": "submit_plan",
+      "success": null,
+      "message": "协调者执行 submit_plan",
+      "created_at": "2026-09-24T02:21:51.246+00:00"
+    },
+    {
+      "id": 7145,
+      "type": "tool.completed",
+      "tool_name": "submit_plan",
+      "success": "true",
+      "message": "协调者工具已返回，等待服务端处理",
+      "created_at": "2026-09-24T02:21:51.267+00:00"
+    },
+    {
+      "id": 7146,
+      "type": "role.completed",
+      "tool_name": null,
+      "success": null,
+      "message": "",
+      "created_at": "2026-09-24T02:21:51.277+00:00"
+    },
+    {
+      "id": 7147,
+      "type": "run.phase",
+      "tool_name": null,
+      "success": null,
+      "message": "",
+      "created_at": "2026-09-24T02:21:51.277+00:00"
+    },
+    {
+      "id": 7148,
+      "type": "role.started",
+      "tool_name": null,
+      "success": null,
+      "message": "",
+      "created_at": "2026-09-24T02:21:51.292+00:00"
+    },
+    {
+      "id": 7150,
+      "type": "tool.started",
+      "tool_name": "read",
+      "success": null,
+      "message": "执行远程 read",
+      "created_at": "2026-09-24T02:22:00.317+00:00"
+    },
+    {
+      "id": 7151,
+      "type": "tool.completed",
+      "tool_name": "read",
+      "success": "false",
+      "message": "远程工具未完成",
+      "created_at": "2026-09-24T02:22:00.323+00:00"
+    },
+    {
+      "id": 7152,
+      "type": "tool.started",
+      "tool_name": "read",
+      "success": null,
+      "message": "执行远程 read",
+      "created_at": "2026-09-24T02:22:00.33+00:00"
+    },
+    {
+      "id": 7153,
+      "type": "tool.completed",
+      "tool_name": "read",
+      "success": "false",
+      "message": "远程工具未完成",
+      "created_at": "2026-09-24T02:22:00.336+00:00"
+    },
+    {
+      "id": 7154,
+      "type": "tool.started",
+      "tool_name": "read",
+      "success": null,
+      "message": "执行远程 read",
+      "created_at": "2026-09-24T02:22:00.344+00:00"
+    },
+    {
+      "id": 7155,
+      "type": "tool.completed",
+      "tool_name": "read",
+      "success": "false",
+      "message": "远程工具未完成",
+      "created_at": "2026-09-24T02:22:00.349+00:00"
+    },
+    {
+      "id": 7157,
+      "type": "tool.started",
+      "tool_name": "bash",
+      "success": null,
+      "message": "执行远程 bash",
+      "created_at": "2026-09-24T02:22:04.145+00:00"
+    },
+    {
+      "id": 7159,
+      "type": "tool.completed",
+      "tool_name": "bash",
+      "success": "true",
+      "message": "远程工具完成",
+      "created_at": "2026-09-24T02:22:04.399+00:00"
+    },
+    {
+      "id": 7161,
+      "type": "tool.started",
+      "tool_name": "bash",
+      "success": null,
+      "message": "执行远程 bash",
+      "created_at": "2026-09-24T02:22:08.332+00:00"
+    },
+    {
+      "id": 7163,
+      "type": "tool.completed",
+      "tool_name": "bash",
+      "success": "true",
+      "message": "远程工具完成",
+      "created_at": "2026-09-24T02:22:08.578+00:00"
+    },
+    {
+      "id": 7165,
+      "type": "tool.started",
+      "tool_name": "read",
+      "success": null,
+      "message": "执行远程 read",
+      "created_at": "2026-09-24T02:22:13.551+00:00"
+    },
+    {
+      "id": 7166,
+      "type": "tool.completed",
+      "tool_name": "read",
+      "success": "false",
+      "message": "远程工具未完成",
+      "created_at": "2026-09-24T02:22:13.557+00:00"
+    },
+    {
+      "id": 7167,
+      "type": "tool.started",
+      "tool_name": "read",
+      "success": null,
+      "message": "执行远程 read",
+      "created_at": "2026-09-24T02:22:13.563+00:00"
+    },
+    {
+      "id": 7168,
+      "type": "tool.completed",
+      "tool_name": "read",
+      "success": "false",
+      "message": "远程工具未完成",
+      "created_at": "2026-09-24T02:22:13.576+00:00"
+    },
+    {
+      "id": 7169,
+      "type": "tool.started",
+      "tool_name": "read",
+      "success": null,
+      "message": "执行远程 read",
+      "created_at": "2026-09-24T02:22:13.588+00:00"
+    },
+    {
+      "id": 7170,
+      "type": "tool.completed",
+      "tool_name": "read",
+      "success": "false",
+      "message": "远程工具未完成",
+      "created_at": "2026-09-24T02:22:13.6+00:00"
+    },
+    {
+      "id": 7172,
+      "type": "tool.started",
+      "tool_name": "bash",
+      "success": null,
+      "message": "执行远程 bash",
+      "created_at": "2026-09-24T02:22:21.731+00:00"
+    },
+    {
+      "id": 7174,
+      "type": "tool.completed",
+      "tool_name": "bash",
+      "success": "true",
+      "message": "远程工具完成",
+      "created_at": "2026-09-24T02:22:21.986+00:00"
+    },
+    {
+      "id": 7176,
+      "type": "tool.started",
+      "tool_name": "read",
+      "success": null,
+      "message": "执行远程 read",
+      "created_at": "2026-09-24T02:22:26.298+00:00"
+    },
+    {
+      "id": 7178,
+      "type": "tool.completed",
+      "tool_name": "read",
+      "success": "true",
+      "message": "远程工具完成",
+      "created_at": "2026-09-24T02:22:26.549+00:00"
+    },
+    {
+      "id": 7180,
+      "type": "tool.started",
+      "tool_name": "read",
+      "success": null,
+      "message": "执行远程 read",
+      "created_at": "2026-09-24T02:22:29.688+00:00"
+    },
+    {
+      "id": 7182,
+      "type": "tool.completed",
+      "tool_name": "read",
+      "success": "true",
+      "message": "远程工具完成",
+      "created_at": "2026-09-24T02:22:29.981+00:00"
+    },
+    {
+      "id": 7184,
+      "type": "tool.started",
+      "tool_name": "write",
+      "success": null,
+      "message": "执行远程 write",
+      "created_at": "2026-09-24T02:25:03.954+00:00"
+    },
+    {
+      "id": 7186,
+      "type": "tool.completed",
+      "tool_name": "write",
+      "success": "true",
+      "message": "远程工具完成",
+      "created_at": "2026-09-24T02:25:04.226+00:00"
+    },
+    {
+      "id": 7188,
+      "type": "tool.started",
+      "tool_name": "edit",
+      "success": null,
+      "message": "执行远程 edit",
+      "created_at": "2026-09-24T02:25:20.04+00:00"
+    },
+    {
+      "id": 7190,
+      "type": "tool.completed",
+      "tool_name": "edit",
+      "success": "true",
+      "message": "远程工具完成",
+      "created_at": "2026-09-24T02:25:20.541+00:00"
+    },
+    {
+      "id": 7192,
+      "type": "tool.started",
+      "tool_name": "bash",
+      "success": null,
+      "message": "执行远程 bash",
+      "created_at": "2026-09-24T02:25:29.995+00:00"
+    },
+    {
+      "id": 7195,
+      "type": "tool.completed",
+      "tool_name": "bash",
+      "success": "true",
+      "message": "远程工具完成",
+      "created_at": "2026-09-24T02:25:33.962+00:00"
+    },
+    {
+      "id": 7197,
+      "type": "tool.started",
+      "tool_name": "bash",
+      "success": null,
+      "message": "执行远程 bash",
+      "created_at": "2026-09-24T02:25:36.692+00:00"
+    },
+    {
+      "id": 7200,
+      "type": "tool.completed",
+      "tool_name": "bash",
+      "success": "true",
+      "message": "远程工具完成",
+      "created_at": "2026-09-24T02:25:41.17+00:00"
+    },
+    {
+      "id": 7202,
+      "type": "tool.started",
+      "tool_name": "edit",
+      "success": null,
+      "message": "执行远程 edit",
+      "created_at": "2026-09-24T02:26:04.849+00:00"
+    },
+    {
+      "id": 7204,
+      "type": "tool.completed",
+      "tool_name": "edit",
+      "success": "true",
+      "message": "远程工具完成",
+      "created_at": "2026-09-24T02:26:05.461+00:00"
+    },
+    {
+      "id": 7206,
+      "type": "tool.started",
+      "tool_name": "bash",
+      "success": null,
+      "message": "执行远程 bash",
+      "created_at": "2026-09-24T02:26:08.862+00:00"
+    },
+    {
+      "id": 7211,
+      "type": "tool.completed",
+      "tool_name": "bash",
+      "success": "true",
+      "message": "远程工具完成",
+      "created_at": "2026-09-24T02:26:16.864+00:00"
+    },
+    {
+      "id": 7213,
+      "type": "run.phase",
+      "tool_name": null,
+      "success": null,
+      "message": "",
+      "created_at": "2026-09-24T02:26:27.077+00:00"
+    },
+    {
+      "id": 7214,
+      "type": "run.phase",
+      "tool_name": null,
+      "success": null,
+      "message": "",
+      "created_at": "2026-09-24T02:26:35.928+00:00"
+    },
+    {
+      "id": 7215,
+      "type": "role.completed",
+      "tool_name": null,
+      "success": null,
+      "message": "",
+      "created_at": "2026-09-24T02:26:35.935+00:00"
+    },
+    {
+      "id": 7216,
+      "type": "run.phase",
+      "tool_name": null,
+      "success": null,
+      "message": "",
+      "created_at": "2026-09-24T02:26:35.944+00:00"
+    },
+    {
+      "id": 7219,
+      "type": "run.phase",
+      "tool_name": null,
+      "success": null,
+      "message": "",
+      "created_at": "2026-09-24T02:26:36.011+00:00"
+    },
+    {
+      "id": 7220,
+      "type": "role.started",
+      "tool_name": null,
+      "success": null,
+      "message": "",
+      "created_at": "2026-09-24T02:26:36.023+00:00"
+    },
+    {
+      "id": 7221,
+      "type": "tool.started",
+      "tool_name": "source_read",
+      "success": null,
+      "message": "检查者执行 source_read",
+      "created_at": "2026-09-24T02:26:46.061+00:00"
+    },
+    {
+      "id": 7222,
+      "type": "tool.completed",
+      "tool_name": "source_read",
+      "success": "true",
+      "message": "检查工具已完成",
+      "created_at": "2026-09-24T02:26:46.07+00:00"
+    },
+    {
+      "id": 7223,
+      "type": "tool.started",
+      "tool_name": "source_read",
+      "success": null,
+      "message": "检查者执行 source_read",
+      "created_at": "2026-09-24T02:26:46.079+00:00"
+    },
+    {
+      "id": 7224,
+      "type": "tool.completed",
+      "tool_name": "source_read",
+      "success": "true",
+      "message": "检查工具已完成",
+      "created_at": "2026-09-24T02:26:46.087+00:00"
+    },
+    {
+      "id": 7225,
+      "type": "tool.started",
+      "tool_name": "source_read",
+      "success": null,
+      "message": "检查者执行 source_read",
+      "created_at": "2026-09-24T02:26:46.096+00:00"
+    },
+    {
+      "id": 7226,
+      "type": "tool.completed",
+      "tool_name": "source_read",
+      "success": "true",
+      "message": "检查工具已完成",
+      "created_at": "2026-09-24T02:26:46.105+00:00"
+    },
+    {
+      "id": 7227,
+      "type": "tool.started",
+      "tool_name": "browser_open",
+      "success": null,
+      "message": "检查者执行 browser_open",
+      "created_at": "2026-09-24T02:26:49.933+00:00"
+    },
+    {
+      "id": 7228,
+      "type": "tool.completed",
+      "tool_name": "browser_open",
+      "success": "true",
+      "message": "检查工具已完成",
+      "created_at": "2026-09-24T02:26:59.654+00:00"
+    },
+    {
+      "id": 7229,
+      "type": "tool.started",
+      "tool_name": "browser_resize",
+      "success": null,
+      "message": "检查者执行 browser_resize",
+      "created_at": "2026-09-24T02:27:05.335+00:00"
+    },
+    {
+      "id": 7230,
+      "type": "tool.completed",
+      "tool_name": "browser_resize",
+      "success": "true",
+      "message": "检查工具已完成",
+      "created_at": "2026-09-24T02:27:07.27+00:00"
+    },
+    {
+      "id": 7231,
+      "type": "tool.started",
+      "tool_name": "browser_screenshot",
+      "success": null,
+      "message": "检查者执行 browser_screenshot",
+      "created_at": "2026-09-24T02:27:11.41+00:00"
+    },
+    {
+      "id": 7232,
+      "type": "tool.completed",
+      "tool_name": "browser_screenshot",
+      "success": "true",
+      "message": "检查工具已完成",
+      "created_at": "2026-09-24T02:27:12.465+00:00"
+    },
+    {
+      "id": 7233,
+      "type": "tool.output",
+      "tool_name": null,
+      "success": null,
+      "message": "检查者请求第 1/6 次瞬态失败，1000ms 后重试",
+      "created_at": "2026-09-24T02:29:57.17+00:00"
+    },
+    {
+      "id": 7234,
+      "type": "tool.started",
+      "tool_name": "record_behavior",
+      "success": null,
+      "message": "检查者执行 record_behavior",
+      "created_at": "2026-09-24T02:30:13.372+00:00"
+    },
+    {
+      "id": 7235,
+      "type": "tool.completed",
+      "tool_name": "record_behavior",
+      "success": "true",
+      "message": "检查工具已完成",
+      "created_at": "2026-09-24T02:30:13.38+00:00"
+    },
+    {
+      "id": 7236,
+      "type": "tool.started",
+      "tool_name": "browser_click",
+      "success": null,
+      "message": "检查者执行 browser_click",
+      "created_at": "2026-09-24T02:30:17.601+00:00"
+    },
+    {
+      "id": 7237,
+      "type": "tool.completed",
+      "tool_name": "browser_click",
+      "success": "true",
+      "message": "检查工具已完成",
+      "created_at": "2026-09-24T02:30:19.139+00:00"
+    },
+    {
+      "id": 7238,
+      "type": "tool.started",
+      "tool_name": "browser_screenshot",
+      "success": null,
+      "message": "检查者执行 browser_screenshot",
+      "created_at": "2026-09-24T02:30:23.643+00:00"
+    },
+    {
+      "id": 7239,
+      "type": "tool.completed",
+      "tool_name": "browser_screenshot",
+      "success": "true",
+      "message": "检查工具已完成",
+      "created_at": "2026-09-24T02:30:24.786+00:00"
+    },
+    {
+      "id": 7240,
+      "type": "tool.started",
+      "tool_name": "record_behavior",
+      "success": null,
+      "message": "检查者执行 record_behavior",
+      "created_at": "2026-09-24T02:30:50.284+00:00"
+    },
+    {
+      "id": 7241,
+      "type": "tool.completed",
+      "tool_name": "record_behavior",
+      "success": "true",
+      "message": "检查工具已完成",
+      "created_at": "2026-09-24T02:30:50.306+00:00"
+    },
+    {
+      "id": 7242,
+      "type": "tool.started",
+      "tool_name": "browser_click",
+      "success": null,
+      "message": "检查者执行 browser_click",
+      "created_at": "2026-09-24T02:31:03.351+00:00"
+    },
+    {
+      "id": 7243,
+      "type": "tool.completed",
+      "tool_name": "browser_click",
+      "success": "false",
+      "message": "检查工具未完成（STALE_BROWSER_REF）",
+      "created_at": "2026-09-24T02:31:03.827+00:00"
+    },
+    {
+      "id": 7244,
+      "type": "tool.started",
+      "tool_name": "browser_observe",
+      "success": null,
+      "message": "检查者执行 browser_observe",
+      "created_at": "2026-09-24T02:31:08.899+00:00"
+    },
+    {
+      "id": 7245,
+      "type": "tool.completed",
+      "tool_name": "browser_observe",
+      "success": "true",
+      "message": "检查工具已完成",
+      "created_at": "2026-09-24T02:31:09.848+00:00"
+    },
+    {
+      "id": 7246,
+      "type": "tool.started",
+      "tool_name": "record_behavior",
+      "success": null,
+      "message": "检查者执行 record_behavior",
+      "created_at": "2026-09-24T02:31:26.88+00:00"
+    },
+    {
+      "id": 7247,
+      "type": "tool.completed",
+      "tool_name": "record_behavior",
+      "success": "false",
+      "message": "检查工具未完成（OBSERVATION_NOT_BOUND）",
+      "created_at": "2026-09-24T02:31:26.9+00:00"
+    },
+    {
+      "id": 7248,
+      "type": "tool.started",
+      "tool_name": "record_behavior",
+      "success": null,
+      "message": "检查者执行 record_behavior",
+      "created_at": "2026-09-24T02:31:26.916+00:00"
+    },
+    {
+      "id": 7249,
+      "type": "run.finished",
+      "tool_name": null,
+      "success": null,
+      "message": "",
+      "created_at": "2026-09-24T02:31:28.091+00:00"
+    }
+  ],
+  "checkCount": 0
+}
