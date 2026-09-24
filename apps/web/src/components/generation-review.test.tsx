@@ -174,7 +174,9 @@ it("labels a rejected candidate separately while the earlier accepted revision r
   expect(picker?.selectedOptions[0].textContent).toBe("v1 · 当前");
   await act(async () => { if (picker) { picker.value = revisionId; picker.dispatchEvent(new Event("change", { bubbles: true })); } });
   expect(view.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain("关键流程检查未通过");
-  expect(view.container.querySelector(".version-history-current")?.textContent).toBe("当前 v1");
+  const currentSummary = view.container.querySelector('[data-testid="current-version-summary"]');
+  expect(currentSummary?.textContent).toContain("当前成功版本");
+  expect(currentSummary?.querySelector("strong")?.textContent).toBe("v1");
 });
 
 it("explains that two failed repairs reached the limit while the accepted revision stays current", async () => {
