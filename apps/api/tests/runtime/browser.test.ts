@@ -218,6 +218,28 @@ test("Canvas direction and pause keys use official press with a fresh observatio
   }
 });
 
+test("Enter and Backspace pass through native press and ordered batch without fabricated state", async () => {
+  const f = await fixture();
+  try {
+    let observation = await f.browser.open();
+    for (const key of ["Enter", "Backspace"] as const) {
+      observation = await f.browser.act({ type: "press", key, observationId: observation.id });
+      expect(f.commands.some(({ command }) => command.endsWith(`'press' '${key}'`))).toBe(true);
+    }
+    f.state.batchResponse = [
+      { command: ["press", "Enter"], success: true, result: {} },
+      { command: ["wait", "50"], success: true, result: {} },
+      { command: ["press", "Backspace"], success: true, result: {} },
+    ];
+    const result = await f.browser.keyBatch({ observationId: observation.id, steps: [
+      { key: "Enter", waitMs: 50 }, { key: "Backspace", waitMs: 0 },
+    ] });
+    expect(result.steps.map(({ key, success }) => [key, success])).toEqual([["Enter", true], ["Backspace", true]]);
+    expect(f.commands.some(({ command }) => command.includes("'batch' '--bail'")
+      && command.includes("Enter") && command.includes("Backspace"))).toBe(true);
+  } finally { await f.cleanup(); }
+});
+
 test("Canvas key batch passes JSON argv to official agent-browser and returns ordered results plus a fresh observation", async () => {
   const f = await fixture();
   try {

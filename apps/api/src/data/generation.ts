@@ -193,10 +193,10 @@ const storedArtifactSchema = ReviewArtifactSchema.extend({ key: z.string().min(1
 const reviewEvidenceSchema = z.array(z.strictObject({
   id: z.uuid(), behaviorId: z.string().regex(/^B(?:0[1-9]|[1-9]\d)$/).nullable(),
   action: z.enum(["click", "fill", "select", "press", "scroll", "reload", "key_batch"]).nullable(), observationId: z.uuid(),
-  key: z.enum(["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space"]).optional(),
+  key: z.enum(["Enter", "Backspace", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space"]).optional(),
   batch: z.strictObject({ startedAt: z.iso.datetime(), finishedAt: z.iso.datetime(),
     steps: z.array(z.strictObject({ index: z.number().int().min(0).max(7),
-      key: z.enum(["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space"]),
+      key: z.enum(["Enter", "Backspace", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space"]),
       waitMs: z.number().int().min(0).max(1000), success: z.boolean() })).min(1).max(8) }).optional(),
   url: z.url().max(4000), tree: z.string().max(12000), text: z.string().max(12000), truncated: z.boolean(),
 })).max(256);

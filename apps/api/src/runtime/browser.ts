@@ -23,7 +23,7 @@ const value = z
   .string()
   .max(2000)
   .refine((text) => !text.includes("\0") && !/^\s*-(?:-|[a-z])/i.test(text));
-export const BrowserPressKeySchema = z.enum(["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space"]);
+export const BrowserPressKeySchema = z.enum(["Enter", "Backspace", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space"]);
 const keyBatchSchema = z.strictObject({
   observationId,
   steps: z.array(z.strictObject({ key: BrowserPressKeySchema, waitMs: z.number().int().min(0).max(1000) })).min(1).max(8),
