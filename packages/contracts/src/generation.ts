@@ -2,7 +2,10 @@ import { z } from "zod";
 import { ClarificationSchema, PlanSchema, RoleRunSchema } from "./planning.js";
 
 export const RunStateSchema = z.enum([
-  "accepted", "planning", "building", "verifying", "repairing", "finalizing",
+  // "queued" is a persisted, not-yet-dispatched task: it holds no sandbox, no
+  // model call, no execution budget and no idle timeout until the scheduler
+  // claims it and moves it to "accepted".
+  "queued", "accepted", "planning", "building", "verifying", "repairing", "finalizing",
   "cancel_requested", "completed", "needs_changes", "needs_input", "failed", "cancelled", "interrupted",
 ]);
 export type RunState = z.infer<typeof RunStateSchema>;
@@ -157,3 +160,20 @@ export const ProjectQuotaSchema = z.object({
   dailyAccepted: z.number().int().nonnegative(),
 });
 export type ProjectQuota = z.infer<typeof ProjectQuotaSchema>;
+
+/**
+ * One row of the caller's own task list. "queuedAt" and "queuePosition" only
+ * carry real scheduler values; a task that is already executing reports
+ * queuePosition null instead of a fabricated estimate.
+ */
+export const TaskListItemSchema = z.object({
+  runId: z.uuid(), projectId: z.uuid(), projectTitle: z.string().min(1).max(120),
+  state: RunStateSchema, phase: RunPhaseSchema,
+  queuedAt: z.iso.datetime().nullable(), queuePosition: z.number().int().positive().nullable(),
+  cancelable: z.boolean(), modelProfileId: z.uuid(), modelConfigVersion: z.number().int().positive(),
+  modelId: z.string().max(160).nullable().default(null),
+  error: RunErrorSchema.nullable(),
+});
+export type TaskListItem = z.infer<typeof TaskListItemSchema>;
+export const TaskListResponseSchema = z.object({ tasks: z.array(TaskListItemSchema) });
+export type TaskListResponse = z.infer<typeof TaskListResponseSchema>;
