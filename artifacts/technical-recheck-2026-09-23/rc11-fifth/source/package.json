@@ -1,0 +1,23 @@
+{
+  "name": "workspace",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173 --strictPort"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "typescript": "5.9.3",
+    "vite": "8.3.0"
+  }
+}

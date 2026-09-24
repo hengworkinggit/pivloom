@@ -1,0 +1,193 @@
+{
+  "goal": "构建一个中文 Canvas 贪吃蛇小游戏：方向键四向控制、禁止立即反向、空格暂停/继续、开始与重新开始、吃食物增长加分、撞墙或撞身结束，并显示当前分数、最高分（刷新保留）与操作说明。",
+  "groups": [
+    {
+      "id": "G1",
+      "title": "游戏核心流程",
+      "behaviorIds": [
+        "B02",
+        "B03",
+        "B04"
+      ]
+    },
+    {
+      "id": "G2",
+      "title": "方向与控制",
+      "behaviorIds": [
+        "B05",
+        "B06",
+        "B07",
+        "B08"
+      ]
+    },
+    {
+      "id": "G3",
+      "title": "结束与重开",
+      "behaviorIds": [
+        "B09",
+        "B10",
+        "B11"
+      ]
+    },
+    {
+      "id": "G4",
+      "title": "分数与记录",
+      "behaviorIds": [
+        "B01",
+        "B12",
+        "B13",
+        "B14"
+      ]
+    },
+    {
+      "id": "G5",
+      "title": "画面与说明",
+      "behaviorIds": [
+        "B15",
+        "B16"
+      ]
+    }
+  ],
+  "behaviors": [
+    {
+      "id": "B01",
+      "title": "初始页面状态",
+      "action": "查看页面初始状态。",
+      "expected": "Canvas 棋盘可见，当前分数为 0，最高分显示（首次为 0 或上次保留值），中文操作说明可见，存在“开始”按钮。",
+      "required": true,
+      "precondition": "首次打开页面或已刷新，游戏未开始。"
+    },
+    {
+      "id": "B02",
+      "title": "点击开始游戏运行",
+      "action": "点击“开始”按钮并等待一个 tick。",
+      "expected": "蛇头在 Canvas 上向前移动一格，食物显示在棋盘空格中，游戏进入运行状态。",
+      "required": true,
+      "precondition": "页面已加载，游戏未开始。"
+    },
+    {
+      "id": "B03",
+      "title": "吃食物蛇变长且加分",
+      "action": "按方向键使蛇头进入食物所在格子。",
+      "expected": "食物消失并在新的空格出现，蛇身长度比吃前多一格，当前分数增加（如 +10）。",
+      "required": true,
+      "precondition": "游戏运行中，蛇头邻近食物。"
+    },
+    {
+      "id": "B04",
+      "title": "食物生成在空格上",
+      "action": "观察新出现的食物位置。",
+      "expected": "新食物位于蛇身以外的空格，未与蛇体重叠。",
+      "required": true,
+      "precondition": "刚吃完一个食物。"
+    },
+    {
+      "id": "B05",
+      "title": "方向键四向控制",
+      "action": "依次按上、下、左、右方向键中合法的转向键。",
+      "expected": "蛇在下一个 tick 按最后合法方向移动。",
+      "required": true,
+      "precondition": "游戏运行中。"
+    },
+    {
+      "id": "B06",
+      "title": "禁止立即反向",
+      "action": "按下左方向键。",
+      "expected": "蛇继续保持向右移动，未掉头向左穿过自己。",
+      "required": true,
+      "precondition": "游戏运行中，蛇正向右移动且长度不少于 2。"
+    },
+    {
+      "id": "B07",
+      "title": "空格暂停游戏",
+      "action": "按下空格键。",
+      "expected": "蛇停止移动，页面显示暂停状态或提示。",
+      "required": true,
+      "precondition": "游戏运行中。"
+    },
+    {
+      "id": "B08",
+      "title": "空格继续游戏",
+      "action": "再次按下空格键。",
+      "expected": "蛇恢复移动，暂停提示消失。",
+      "required": true,
+      "precondition": "游戏已暂停。"
+    },
+    {
+      "id": "B09",
+      "title": "撞墙结束游戏",
+      "action": "按方向键使蛇头撞向棋盘边界。",
+      "expected": "游戏结束，显示“游戏结束”提示并提供重新开始入口。",
+      "required": true,
+      "precondition": "游戏运行中。"
+    },
+    {
+      "id": "B10",
+      "title": "撞到自己结束游戏",
+      "action": "按方向键让蛇头撞到自己的身体。",
+      "expected": "游戏结束，显示“游戏结束”提示并提供重新开始入口。",
+      "required": true,
+      "precondition": "蛇长度不少于 4 且有足够空间盘绕。"
+    },
+    {
+      "id": "B11",
+      "title": "游戏结束后重新开始",
+      "action": "点击“重新开始”按钮。",
+      "expected": "当前分数清零，蛇重置为初始状态，游戏重新进入可运行状态。",
+      "required": true,
+      "precondition": "游戏结束画面已显示。"
+    },
+    {
+      "id": "B12",
+      "title": "当前分数实时显示",
+      "action": "吃食物使分数变化。",
+      "expected": "页面上“当前分数”显示与实际得分一致。",
+      "required": true,
+      "precondition": "游戏运行中。"
+    },
+    {
+      "id": "B13",
+      "title": "最高分更新",
+      "action": "继续吃食物让分数超过最高分。",
+      "expected": "“最高分”显示同步更新为新的最高分数值。",
+      "required": true,
+      "precondition": "当前分数已超过显示的最高分。"
+    },
+    {
+      "id": "B14",
+      "title": "最高分刷新后保留",
+      "action": "刷新浏览器页面。",
+      "expected": "页面加载后“最高分”仍显示刷新前的最高分数值。",
+      "required": true,
+      "precondition": "已产生新的最高分并结束游戏。"
+    },
+    {
+      "id": "B15",
+      "title": "Canvas 绘制棋盘、蛇和食物",
+      "action": "观察 Canvas 内容。",
+      "expected": "可见棋盘/网格背景、蛇身（与蛇头可区分）和食物。",
+      "required": true,
+      "precondition": "任意游戏状态。"
+    },
+    {
+      "id": "B16",
+      "title": "中文操作说明显示",
+      "action": "查看页面文字说明区域。",
+      "expected": "显示中文操作说明，包括方向键移动、空格暂停/继续、开始/重新开始等内容。",
+      "required": true,
+      "precondition": "页面加载完成。"
+    }
+  ],
+  "outOfScope": [
+    "真实的在线支付、多人联机、后端排行榜或跨设备数据同步。",
+    "移动端触屏操作、音效、难度等级选择。"
+  ],
+  "assumptions": [
+    "界面语言为中文；棋盘、速度、食物分值、颜色使用合理默认值（如 20×20 格、每食物 +10 分）。",
+    "最高分使用 localStorage 在同一浏览器内持久化。",
+    "游戏未提供任何测试专用加分、改坐标或跳过碰撞的按钮。"
+  ],
+  "replacements": [],
+  "changeSummary": "初始计划，覆盖 Canvas 绘制、方向控制、暂停/继续、碰撞结束、分数/最高分 persistence 与中文操作说明等全部需求。",
+  "schemaVersion": 2
+}
