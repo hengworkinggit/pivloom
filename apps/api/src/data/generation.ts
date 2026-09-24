@@ -14,7 +14,7 @@ import { ApiFailure } from "../routes/errors.js";
 import { assertVerifiedSourceSnapshot, type SourceReference, type VerifiedSourceSnapshot } from "../storage/source.js";
 import { assertVerifiedReviewReceipt, type VerifiedReviewReceipt } from "../generation/review.js";
 import type { StoredArtifact } from "../storage/artifacts.js";
-import { DAILY_ACCEPTED_LIMIT, MODEL_REQUEST_TIMEOUT_MS, RUN_IDLE_TIMEOUT_MS, RUN_TOOL_LIMIT } from "../runtime/budgets.js";
+import { DAILY_ACCEPTED_LIMIT, MODEL_REQUEST_TIMEOUT_MS, PROVIDER_RETRY_POLICY, RUN_IDLE_TIMEOUT_MS, RUN_TOOL_LIMIT } from "../runtime/budgets.js";
 import { BrowserPressKeySchema } from "../runtime/browser.js";
 
 export interface StoredRun extends Run {
@@ -570,8 +570,21 @@ export function createGenerationRepository(
     appendEvent: (ownerId, runId, input) => owned(ownerId, async (client) => {
       const { current } = await lockedRun(client, ownerId, runId);
       if (!input.progress) return event(client, current, input);
+      const retryRequestNumber = input.payload.retryRequestNumber;
+      const retryAttempt = input.payload.retryAttempt;
+      const retryMaxAttempts = input.payload.retryMaxAttempts;
+      const retryDelayMs = input.payload.retryDelayMs;
+      const boundedRetry = input.type === "tool.output" && input.payload.progressKind === "provider_retry"
+        && input.payload.success === false
+        && typeof retryRequestNumber === "number" && Number.isSafeInteger(retryRequestNumber) && retryRequestNumber >= 1
+        && typeof retryAttempt === "number" && Number.isSafeInteger(retryAttempt) && retryAttempt >= 1
+        && typeof retryMaxAttempts === "number" && retryMaxAttempts === PROVIDER_RETRY_POLICY.maxRetries
+        && retryAttempt <= retryMaxAttempts
+        && typeof retryDelayMs === "number" && Number.isSafeInteger(retryDelayMs)
+        && retryDelayMs >= 0 && retryDelayMs <= PROVIDER_RETRY_POLICY.maxAgentDelayMs;
       const trusted = input.type === "tool.completed" && input.payload.success === true
-        || input.type === "tool.output" && input.payload.progressKind === "model_stream" && input.payload.success === true;
+        || input.type === "tool.output" && input.payload.progressKind === "model_stream" && input.payload.success === true
+        || boundedRetry;
       if (!trusted || !input.roleRunId) throw new ApiFailure(422, "INVALID_PROGRESS", "无效的运行进展事件。");
       if (current.executor_boot_id !== options.executorBootId) throw new ApiFailure(409, "RUN_NOT_ACTIVE", "任务执行者已变化。");
       const role = (await client.query("SELECT * FROM nano.role_runs WHERE owner_id=$1 AND run_id=$2 AND id=$3",

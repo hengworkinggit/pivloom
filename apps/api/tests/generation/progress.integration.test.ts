@@ -70,6 +70,14 @@ describe.skipIf(process.env.PIVLOOM_PROGRESS_INTEGRATION !== '1')('rolling Run p
         type:'tool.completed',roleRunId:roleId,payload:{toolName:'browser_observe',success:true},
       });
       expect((await repo.getRun(ownerId, runId)).deadlineAt).toBe(advanced.deadlineAt);
+      await admin.query("UPDATE nano.runs SET deadline_at=now()+interval '1 minute' WHERE id=$1", [runId]);
+      const beforeRetry = await repo.getRun(ownerId, runId);
+      await repo.appendEvent(ownerId, runId, { type:'tool.output',roleRunId:roleId,progress:true,
+        payload:{progressKind:'provider_retry',success:false,retryRequestNumber:2,retryAttempt:1,retryMaxAttempts:6,retryDelayMs:1000} });
+      expect(Date.parse((await repo.getRun(ownerId, runId)).deadlineAt)).toBeGreaterThan(Date.parse(beforeRetry.deadlineAt));
+      await expect(repo.appendEvent(ownerId, runId, { type:'tool.output',roleRunId:roleId,progress:true,
+        payload:{progressKind:'provider_retry',success:false,retryRequestNumber:2,retryAttempt:7,retryMaxAttempts:7,retryDelayMs:9000} }))
+        .rejects.toMatchObject({code:'INVALID_PROGRESS'});
       await admin.query("UPDATE nano.runs SET state='building',phase='implement',deadline_at=now()-interval '1 second' WHERE id=$1", [runId]);
       await expect(repo.setPhase(ownerId, runId, { phase:'build',state:'building' }))
         .rejects.toMatchObject({code:'RUN_TIMEOUT'});

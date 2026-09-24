@@ -727,7 +727,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
       if(signal.aborted)return;
       void appendEvent({id:randomUUID(),at:new Date().toISOString(),roleRunId:binding.roleRunId,sessionId:input.sessionId,
         type:'model.stream.started',success:false,message:`检查者请求第 ${event.attempt}/${event.maxAttempts} 次瞬态失败，${event.delayMs}ms 后重试`,
-        requestNumber:event.attempt}).catch(()=>{});
+        requestNumber:modelTurn}).catch(()=>{});
     });
     session.agent.subscribe(event=>{
       if(event.type==='tool_execution_start'){

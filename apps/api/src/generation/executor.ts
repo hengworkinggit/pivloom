@@ -13,7 +13,7 @@ import { ApiFailure } from "../routes/errors.js";
 import { destroyCandidateSandbox, runCandidate, type CandidateSnapshot } from "./candidate.js";
 import { restorePreview } from "./restore.js";
 import type { PreviewGateway } from "./preview.js";
-import { createMeaningfulProgressGate, createRunProgressWatchdog } from "./progress-watchdog.js";
+import { boundedProviderRetry, createMeaningfulProgressGate, createRunProgressWatchdog } from "./progress-watchdog.js";
 import { OpenSandboxWorkspace } from "../runtime/workspace.js";
 
 interface Resource {
@@ -160,6 +160,7 @@ export function createGenerationExecutor(options: {
         const phases = { creating: "provision", generating: "implement", building: "build", previewing: "persist", checking: "review", ready: "persist", cleaning: "cleanup" } as const;
         if (event.type === "stage" && event.stage) await setPhase(phases[event.stage]);
         if (event.type !== "tool.start" && event.type !== "tool.end" && event.type !== "tool.output" && event.type !== "model.stream.started") return;
+        const retry = boundedProviderRetry(event);
         const progress = meaningfulProgress(roleRunId, event);
         const saved = await repository.appendEvent(run.ownerId, run.id, {
           type: event.type === "tool.start" ? "tool.started" : event.type === "tool.end" ? "tool.completed" : "tool.output",
@@ -170,7 +171,9 @@ export function createGenerationExecutor(options: {
           // their contents and split UTF-8 output before it reaches SSE.
           payload: { message: event.type === "tool.output" ? event.message : safeMessage(event.message), toolName: event.toolName, toolCallId: event.toolCallId,
             success: event.success, exitCode: event.exitCode, truncated: event.truncated,
-            progressKind: event.type === "model.stream.started" ? "model_stream" : undefined },
+            progressKind: retry ? "provider_retry" : event.type === "model.stream.started" ? "model_stream" : undefined,
+            ...(retry ? { retryRequestNumber: retry.requestNumber, retryAttempt: retry.attempt,
+              retryMaxAttempts: retry.maxAttempts, retryDelayMs: retry.delayMs } : {}) },
         });
         if (progress) watchdog.touch(new Date(Date.parse(saved.createdAt) + RUN_IDLE_TIMEOUT_MS - 1_000).toISOString());
       };

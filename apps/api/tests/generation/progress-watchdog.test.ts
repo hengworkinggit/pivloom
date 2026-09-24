@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { createMeaningfulProgressGate, createRunProgressWatchdog } from '../../src/generation/progress-watchdog.js';
+import { boundedProviderRetry, createMeaningfulProgressGate, createRunProgressWatchdog } from '../../src/generation/progress-watchdog.js';
 import { RUN_IDLE_TIMEOUT_MS } from '../../src/runtime/budgets.js';
 
 afterEach(() => vi.useRealTimers());
@@ -68,6 +68,28 @@ test('read-only polling and duplicate stream events cannot outlive the rolling i
     expect(progress('reviewer-role', { type:'tool.end', toolName:'browser_observe', success:true, message:'poll' })).toBe(false);
   }
   expect(controller.signal.aborted).toBe(true);
+  expect(controller.signal.reason).toBe('RUN_TIMEOUT');
+  watchdog.close();
+});
+
+test('one bounded Pi provider retry extends the rolling lease once, while duplicates and malformed retries do not', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-09-24T00:00:00.000Z'));
+  const controller = new AbortController();
+  const watchdog = createRunProgressWatchdog(new Date(Date.now() + RUN_IDLE_TIMEOUT_MS).toISOString(), controller);
+  const progress = createMeaningfulProgressGate();
+  const retry = { type:'model.stream.started' as const, requestNumber:2, success:false,
+    message:'检查者请求第 1/6 次瞬态失败，1000ms 后重试' };
+  expect(boundedProviderRetry(retry)).toEqual({requestNumber:2,attempt:1,maxAttempts:6,delayMs:1000});
+  await vi.advanceTimersByTimeAsync(3 * 60_000 + 30_000);
+  if(progress('reviewer-role',retry))watchdog.touch(new Date(Date.now()+RUN_IDLE_TIMEOUT_MS).toISOString());
+  expect(progress('reviewer-role',retry)).toBe(false);
+  expect(progress('reviewer-role',{...retry,message:'检查者请求第 7/7 次瞬态失败，1000ms 后重试'})).toBe(false);
+  expect(progress('reviewer-role',{...retry,message:'检查者请求第 2/6 次瞬态失败，9000ms 后重试'})).toBe(false);
+  await vi.advanceTimersByTimeAsync(3 * 60_000);
+  expect(controller.signal.aborted).toBe(false); // Past the original six-minute deadline.
+  await vi.advanceTimersByTimeAsync(3 * 60_000);
+  expect(controller.signal.aborted).toBe(true); // Still finite without another real event.
   expect(controller.signal.reason).toBe('RUN_TIMEOUT');
   watchdog.close();
 });

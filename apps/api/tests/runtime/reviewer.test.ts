@@ -5,6 +5,7 @@ import { allowsRenderOnlyEvidence } from '@pivloom/contracts';
 import { runReviewer, assertReviewerResult, deliveredScreenshotIdsFromRequest, type ReviewBrowser, type ReviewCheckpoint } from '../../src/runtime/reviewer.js';
 import { RuntimeError, type ModelConfig, type ProbeEvent } from '../../src/runtime/types.js';
 import { classifyReviewerModelFailure } from '../../src/runtime/reviewer.js';
+import { boundedProviderRetry } from '../../src/generation/progress-watchdog.js';
 import { parseReviewEvidence } from '../../src/data/generation.js';
 import { MODEL_REQUEST_TIMEOUT_MS, PROVIDER_RETRY_POLICY, RUN_IDLE_TIMEOUT_MS, SANDBOX_LEASE_SEGMENT_MS } from '../../src/runtime/budgets.js';
 
@@ -708,6 +709,7 @@ test('one successful key cannot clear a failed multi-key Canvas sequence',async(
 });
 
 test('a transient provider failure is retried with bounded backoff and still reaches a real check',{timeout:90_000},async()=>{
+  const retryEvents:ProbeEvent[]=[];
   const f=setup((request,n)=>{
     const last=request.messages.filter(m=>m.role==='tool').at(-1);
     const data=last?JSON.parse(last.content):null;
@@ -717,8 +719,12 @@ test('a transient provider failure is retried with bounded backoff and still rea
     return {name:'submit_review',args:report([data.id])};
   });
   const started=Date.now();
-  const result=await runReviewer(f.input);
+  const result=await runReviewer({...f.input,onEvent:event=>{
+    if(event.type==='model.stream.started'&&event.success===false)retryEvents.push(event);
+  }});
   expect(result.result.items[0].verdict).toBe('passed');
+  expect(retryEvents).toHaveLength(1);
+  expect(boundedProviderRetry(retryEvents[0])).toEqual({requestNumber:1,attempt:1,maxAttempts:6,delayMs:1000});
   expect(f.stats()).toEqual({calls:4,actions:1,closes:1});
   // The retry must have waited the policy's first backoff step, not spun.
   expect(Date.now()-started).toBeGreaterThanOrEqual(900);
