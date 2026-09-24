@@ -1,6 +1,6 @@
 # RC-04 · Reviewer 图像输入与视觉能力
 
-状态：实现及独立真实模型/沙箱探针通过；生产部署与模型设置页面 E31 浏览器验收待同一 SHA 发布后执行。
+状态：实现、真实 Provider/OpenSandbox 图像链与同一 SHA 的生产模型设置 E31 均已复核。下文早期“发布门槛”记录最初未执行状态，最终补证见末节。
 
 ## 实现
 
@@ -24,3 +24,9 @@
 2. 用测试账号 A 的有效会话调用公开 `POST /api/v1/model-profiles/{id}/test`，只通过产品服务写入该配置版本的测试结果。核对返回及重新 GET 的 `vision=verified`，并确认 API SHA；不得直接修改数据库能力字段。
 3. 发布 Web，同步核对 Web/API SHA。独立浏览器实际打开模型设置与工作台，检查 `unknown/verified/unsupported/failed` 的可读状态；用未验证配置或不同 modelId 提交时，应在创建 Run 前收到明确 422，不能留下半途项目。
 4. 生产产品 Reviewer 再走一次隔离 Canvas 候选的 E33；核对 Run/Revision/sourceHash、截图工件、Check 和最终资源清理。上述生产 E31/E33 UI 项未执行前，本票不能关闭。
+
+## 同一 SHA 生产与真实远端补证（2026-09-24）
+
+- Web/API `4733d3a2c860418f6c71a95535c800887d055be2` 的 [CI](https://github.com/hengworkinggit/pivloom/actions/runs/35934415450) 两项全绿。独立生产浏览器在桌面和390px读取测试账号 A 已保存的 profile v2：实际 `modelId=kimi-k2.7-code`，streaming/tools/vision 均 verified、lastTest passed，工作台选择器与冻结配置可核对。[E31 只读页面和截图](rc04-production-e31-4733.md)。profile 显示名仍是旧的“火山方舟 · GLM 5.3 Flash”，但实际模型 ID 在详情与运行元数据中明确展示；测试没有更改用户配置或重新调用模型。
+- 同一代码提交的独立工作树上，以已验证的真实 Provider 配置和真实 OpenSandbox 跑产品 `RemoteBrowser`/Pi Reviewer 受控 Canvas E33：原生四向键及 Space、前后两张 PNG 实际进入成功的模型请求，正例由真实模型给出 `passed`；Run/Revision/sourceHash/浏览器 Session、动作观察和动作后截图工件全部绑定。另一条独立远端空白 Canvas 例执行真实按键后，真实模型依据图像判 `failed`，未把 HUD 变化冒充画面。两条临时沙箱均 kill confirmed、独立 SDK getInfo 404。[原始正反例和清理记录](rc05-real-reviewer.md)。这些是受控候选而非正式生成贪吃蛇，完整玩法与其他负例归 #21/#27。
+- 离线 ImageContent、图像能力真假探针、compaction 后截图重读和错误能力阻断仍由上述原始报告及当前 CI 回归覆盖；公开证据只含脱敏请求结构/图像工件，不含 Key/token。
