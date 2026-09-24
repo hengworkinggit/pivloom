@@ -1,0 +1,11 @@
+[
+  {"name":"own-project-list","status":200,"projectCount":0},
+  {"name":"project-dialogue","status":404},
+  {"name":"versions","status":404},
+  {"name":"source-manifest","status":404},
+  {"name":"source-file","status":404},
+  {"name":"check","status":404},
+  {"name":"check-artifact","status":404},
+  {"name":"preview-metadata","status":404},
+  {"name":"run","status":404}
+]

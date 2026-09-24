@@ -1,0 +1,48 @@
+[
+  {
+    "name": "own-project-list",
+    "status": 200
+  },
+  {
+    "currentRevisionId": "923781bd-6bcf-4282-b738-9c182c0320ce",
+    "messageCount": 61,
+    "name": "project-dialogue",
+    "status": 200
+  },
+  {
+    "name": "versions",
+    "revisionCount": 17,
+    "status": 200
+  },
+  {
+    "fileCount": 7,
+    "name": "source-manifest",
+    "sourceHash": "f3b8a06507e5b56ac9075617a5a0f6d4b9f1f09a610e09cc7ec9823f810fa197",
+    "status": 200
+  },
+  {
+    "name": "source-file",
+    "sourceLength": 8340,
+    "sourceSha256": "3dab85f793c1c60cf143261292c99f27f4d34d9d3026390a9b31a46d63f37752",
+    "status": 200
+  },
+  {
+    "name": "check",
+    "status": 200,
+    "verdict": "passed"
+  },
+  {
+    "name": "check-artifact",
+    "status": 200
+  },
+  {
+    "name": "preview-metadata",
+    "previewState": "expired",
+    "status": 200
+  },
+  {
+    "name": "run",
+    "runState": "completed",
+    "status": 200
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "projectId": "bfbbe5cc-4207-4d3e-9620-84df5035e1bc",
+  "revisionId": "09f842ad-1060-4654-9dc8-833bd6ec6193",
+  "sessionResults": [
+    {"session":"A1 after workbench grant","pageStatus":200,"markerStatus":200},
+    {"session":"new anonymous browser","pageStatus":403},
+    {"session":"temporary B browser","pageStatus":403,"grantStatus":404},
+    {"session":"separate A2 after workbench grant","pageStatus":200},
+    {"session":"A1 after UI logout, same old direct URL","pageStatus":403},
+    {"session":"A2 after A1 logout, same direct URL","pageStatus":200}
+  ],
+  "temporaryBAuth404Confirmed": true,
+  "reviewerSandboxUntouched": true
+}
