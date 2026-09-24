@@ -65,7 +65,8 @@ export interface BuildFailureInput {
 export interface BuildFailureCompletion { run: StoredRun; revision: StoredRevision; repairNextAttempt: number | null }
 export interface StoredRestore {
   id: string; projectId: string; revisionId: string; sourceHash: string;
-  status: "pending" | "ready" | "failed"; sandboxId: string | null;
+  /** 'queued' waits for a capacity slot; 'pending' is in flight. */
+  status: "queued" | "pending" | "ready" | "failed"; sandboxId: string | null;
   error: { code: string; message: string } | null;
 }
 export interface StoredCheckArtifact { artifact: StoredArtifact; source: SourceReference; checkId: string }
@@ -155,6 +156,12 @@ export interface GenerationRepository {
   markRestoreSandboxDestroyed(ownerId: string, projectId: string, restoreId: string, sandboxId: string): Promise<void>;
   bindRestore(ownerId: string, projectId: string, restoreId: string, input: { sandboxId: string; expiresAt: string }): Promise<StoredRestore>;
   failRestore(ownerId: string, projectId: string, restoreId: string, input: { code: string; message: string }): Promise<StoredRestore | null>;
+  /**
+   * Starts one restore that was waiting for capacity by reserving a slot and
+   * moving it to 'pending'. Instance-wide, because capacity is instance-wide:
+   * the caller does not choose whose request runs next.
+   */
+  claimNextQueuedRestore(): Promise<{ restore: StoredRestore; revision: StoredRevision } | null>;
   getActiveRestore(ownerId: string, projectId: string, revisionId: string): Promise<StoredRestore | null>;
   revisionExists(revisionId: string): Promise<boolean>;
 }
@@ -1359,6 +1366,19 @@ export function createGenerationRepository(
       await event(client, changed, { type: "run.phase", payload: { state: "building", phase: "implement", attempt: input.attempt, reason: "repair" } });
       return storedRole(inserted.rows[0]);
     }),
+    claimNextQueuedRestore: async () => {
+      if (!database.system) throw new Error("Restore dispatch requires the system connection");
+      const claimed = await database.system(async (client) => client.query(
+        "SELECT * FROM nano.claim_next_queued_restore($1)", [options.maxSandboxes ?? 1]));
+      const restore = claimed.rows[0];
+      if (!restore) return null;
+      // The revision is read through an owner-scoped transaction because that is
+      // the only way row level security lets this process see it, and the
+      // executor needs the saved source to rebuild the preview.
+      const savedRevision = await owned(restore.owner_id as string, async (client) =>
+        storedRevision(await revision(client, restore.owner_id as string, restore.revision_id as string)));
+      return { restore: storedRestore(restore), revision: savedRevision };
+    },
     beginRestore: (ownerId, projectId, input) => owned(ownerId, async (client) => {
       const parent = await project(client, ownerId, projectId, true);
       if (!z.uuid().safeParse(input.idempotencyKey).success) throw new ApiFailure(422, "INVALID_INPUT", "恢复请求标识格式不正确。");
@@ -1371,15 +1391,16 @@ export function createGenerationRepository(
       }
       if (parent.operation_id) throw new ApiFailure(409, "PROJECT_BUSY", "当前项目仍有执行或清理操作。", true);
       if (saved.build_status !== "passed") throw new ApiFailure(422, "PREVIEW_NOT_RESTORABLE", "这个版本的构建未通过，只能查看已保存的源码与诊断。");
-      // A restore is about to create a sandbox. Taking the slot from the shared
-      // ledger here is what keeps it from overselling the ceiling while a queued
-      // generation task is still waiting for one.
-      if ((await client.query("SELECT nano.reserve_generation_capacity($1) AS admitted", [options.maxSandboxes ?? 1])).rows[0].admitted !== true)
-        throw new ApiFailure(409, "SERVICE_BUSY", "沙箱容量已满，请在当前预览结束后重试。", true);
-      const id = randomUUID();
-      const inserted = (await client.query(`INSERT INTO nano.preview_restores
-        (id,owner_id,project_id,revision_id,source_hash,idempotency_key,status) VALUES($1,$2,$3,$4,$5,$6,'pending') RETURNING *`,
-      [id, ownerId, projectId, input.revisionId, saved.source_hash, input.idempotencyKey])).rows[0];
+      // A restore needs a sandbox, so it draws on the same ledger as generation.
+      // Admission and the row commit together: 'pending' means it holds a slot
+      // and starts now, 'queued' means it waits for one. Deciding that here
+      // instead of in a separate statement is what stops another operation from
+      // taking the same slot in between. Either way it holds the project
+      // operation lock, because it is the project's current operation.
+      const inserted = (await client.query(
+        `SELECT * FROM nano.reserve_restore_slot($1,$2,$3,$4,$5,$6)`,
+        [ownerId, projectId, input.revisionId, saved.source_hash, input.idempotencyKey, options.maxSandboxes ?? 1])).rows[0];
+      const id = inserted.id;
       await client.query("UPDATE nano.projects SET operation_kind='restore',operation_id=$3,operation_started_at=now(),updated_at=now() WHERE owner_id=$1 AND id=$2", [ownerId, projectId, id]);
       return { restore: storedRestore(inserted), revision: storedRevision(saved), replayed: false };
     }),

@@ -58,7 +58,18 @@ export function createGenerationService(options: {
   let wakeQueue: () => void = () => {};
   const executor = createGenerationExecutor({ repository, models: options.models, sources, artifacts, previews,
     sandbox: options.sandbox, maxSandboxes: options.maxSandboxes, onTaskSettled: () => wakeQueue() }, options.generationBoundaries);
-  const scheduler = createGenerationScheduler({ repository, start: (run) => executor.start(run) });
+  const scheduler = createGenerationScheduler({ repository, start: (run) => executor.start(run),
+    // A restore that waited for capacity is handed to the same executor path
+    // that consumes a freshly admitted one.
+    startRestore: (restore, revision) => void executor.restore(restore, revision),
+    // A rollback that waited for capacity is handed to the rollback executor,
+    // which only accepts a record already in 'preparing'.
+    startRollback: async () => {
+      const claimed = await rollbacks.claimNextQueued();
+      if (!claimed) return false;
+      rollbackExecutor.start(claimed);
+      return true;
+    } });
   wakeQueue = () => scheduler.wake();
   const rollbackExecutor = createRollbackExecutor({ repository: rollbacks, generation: repository, sources, previews,
     sandbox: options.sandbox }, options.generationBoundaries);
@@ -82,6 +93,11 @@ export function createGenerationService(options: {
       return { state: "restoring", revisionId: revision.id, sourceHash: revision.sourceHash, url: null, expiresAt: null,
         error: restore.error ? "预览恢复未完成，远端清理待确认；源码仍已保存，确认回收后可以重试。"
           : "正在从已保存的源码重建预览，不会调用模型。" };
+    // Waiting for a sandbox slot is not a failure and needs no user action: the
+    // scheduler starts it as soon as capacity frees.
+    if (restore?.status === "queued")
+      return { state: "queued", revisionId: revision.id, sourceHash: revision.sourceHash, url: null, expiresAt: null,
+        error: "沙箱容量已满，已排队等待；资源可用后会自动开始重建预览，不会调用模型。" };
     const expired = binding && (binding.state === "expired" || binding.state === "destroyed" || Date.parse(binding.expiresAt) <= Date.now());
     const failure = restore?.status === "failed" ? restore.error : null;
     return { state: expired ? "expired" : "unavailable", revisionId: revision.id, sourceHash: revision.sourceHash,
@@ -285,6 +301,9 @@ export function createGenerationService(options: {
       // A replayed key returns the already stored result; a key-less retry after
       // the sandbox expired must be a new request so cost is never silent.
       if (!replayed && restore.status === "pending") void executor.restore(restore, revision);
+      // A queued restore was already claimed by the scheduler when capacity
+      // allowed it; nothing more to start here.
+      if (!replayed && restore.status === "queued") wakeQueue();
       const binding = await repository.getPreviewBinding(ownerId, projectId, revision.id);
       return RestorePreviewResponseSchema.parse({ operationId: restore.id,
         preview: previewView(ownerId, revision, binding, restore) });
@@ -293,7 +312,10 @@ export function createGenerationService(options: {
       targetRevisionId: string; expectedCurrentRevisionId: string; idempotencyKey: string;
     }) {
       const accepted = await rollbacks.begin(ownerId, projectId, input);
-      if (!accepted.replayed) rollbackExecutor.start(accepted.operation);
+      // A rollback admitted immediately starts here; one that is waiting for
+      // capacity is picked up by the scheduler, so only the queue is woken.
+      if (!accepted.replayed && accepted.operation.status === "preparing") rollbackExecutor.start(accepted.operation);
+      if (!accepted.replayed && accepted.operation.status === "queued") wakeQueue();
       return RollbackResponseSchema.parse(accepted);
     },
     async rollbackStatus(ownerId: string, projectId: string, operationId: string) {

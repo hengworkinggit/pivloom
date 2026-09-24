@@ -1,4 +1,4 @@
-import type { GenerationRepository, StoredRun } from "../data/generation.js";
+import type { GenerationRepository, StoredRestore, StoredRevision, StoredRun } from "../data/generation.js";
 
 /**
  * Single-process dispatcher for the durable admission queue.
@@ -13,6 +13,16 @@ import type { GenerationRepository, StoredRun } from "../data/generation.js";
 export function createGenerationScheduler(options: {
   repository: GenerationRepository;
   start: (run: StoredRun) => void;
+  /**
+   * Hands a preview restore that was waiting for capacity to the executor. Both
+   * queues draw on the same ceiling, so one sweep serves whichever has a slot.
+   */
+  startRestore?: (restore: StoredRestore, revision: StoredRevision) => void;
+  /**
+   * Claims one rollback that was waiting for capacity and starts it. Returns
+   * whether one was claimed, so the sweep can count it.
+   */
+  startRollback?: () => Promise<boolean>;
   /** Safety-net interval; accepted tasks and settled runs wake the queue directly. */
   sweepMs?: number;
   /** Ceiling on claims per wake-up so one backlog cannot starve the event loop. */
@@ -50,6 +60,21 @@ export function createGenerationScheduler(options: {
     return 1;
   }
 
+  /** Claims one restore for a free slot; a failure here must not stall runs. */
+  async function dispatchRestoreOnce(): Promise<number> {
+    if (!options.startRestore) return 0;
+    const claimed = await options.repository.claimNextQueuedRestore();
+    if (!claimed) return 0;
+    options.startRestore(claimed.restore, claimed.revision);
+    return 1;
+  }
+
+  /** Claims one waiting rollback for a free slot, under the same ceiling. */
+  async function dispatchRollbackOnce(): Promise<number> {
+    if (!options.startRollback) return 0;
+    return (await options.startRollback()) ? 1 : 0;
+  }
+
   function tick(): Promise<number> {
     if (running) return running;
     running = (async () => {
@@ -57,6 +82,10 @@ export function createGenerationScheduler(options: {
       // slot. Parking those first is what lets the loop advance instead of
       // stopping at the stuck task on every sweep.
       await options.repository.recoverStrandedClaims().catch(report);
+      // A waiting restore takes a slot from the same ledger, so it is tried once
+      // per sweep: it either gets a slot or leaves capacity for a run.
+      await dispatchRestoreOnce().catch(report);
+      await dispatchRollbackOnce().catch(report);
       let dispatched = 0;
       while (!closing && dispatched < maxPerTick) {
         let claimed = 0;

@@ -71,7 +71,7 @@ export const RevisionSchema = z.object({
 });
 export type Revision = z.infer<typeof RevisionSchema>;
 export const PreviewSchema = z.object({
-  state: z.enum(["ready", "expired", "unavailable", "restoring"]),
+  state: z.enum(["ready", "expired", "unavailable", "restoring", "queued"]),
   revisionId: z.uuid(), sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
   url: z.url().nullable(), expiresAt: z.iso.datetime().nullable(), error: z.string().max(2000).nullable(),
 });
@@ -147,7 +147,7 @@ export type RollbackRequest = z.infer<typeof RollbackRequestSchema>;
 export const RollbackOperationSchema = z.object({
   id: z.uuid(), projectId: z.uuid(), fromRevisionId: z.uuid(), targetRevisionId: z.uuid(),
   sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
-  status: z.enum(["preparing", "prepared", "cancel_requested", "cleanup_pending", "committed", "failed", "cancelled"]),
+  status: z.enum(["queued", "preparing", "prepared", "cancel_requested", "cleanup_pending", "committed", "failed", "cancelled"]),
   error: z.object({ code: z.string(), message: z.string() }).nullable(),
   createdAt: z.iso.datetime(), finishedAt: z.iso.datetime().nullable(),
 });

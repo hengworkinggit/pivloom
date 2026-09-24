@@ -93,6 +93,12 @@ describe.skipIf(process.env.PIVLOOM_QUEUE_INTEGRATION !== "1")("durable generati
       error_code='CANCELLED',error_message='queue fixture reset',error_retryable=true,finished_at=coalesce(finished_at,now())
       WHERE project_id=ANY($1::uuid[]) AND state IN ('queued','accepted','planning','building','verifying','repairing','finalizing','cancel_requested')`,
     [projectIds]);
+    // A restore claimed into 'pending' holds a capacity slot until its sandbox
+    // is registered or it is failed; leaving one behind would shrink the ceiling
+    // every later case sees. Its own case cleans up, this is the safety net.
+    await admin.query(`UPDATE nano.preview_restores SET status='failed',error_code='FIXTURE_RESET',
+      error_message='queue fixture reset',finished_at=coalesce(finished_at,now())
+      WHERE project_id=ANY($1::uuid[]) AND status IN ('queued','pending')`, [projectIds]);
     await admin.query(`UPDATE nano.projects SET operation_kind=NULL,operation_id=NULL,operation_started_at=NULL
       WHERE id=ANY($1::uuid[]) AND operation_id IS NOT NULL`, [projectIds]);
   });
@@ -147,6 +153,9 @@ describe.skipIf(process.env.PIVLOOM_QUEUE_INTEGRATION !== "1")("durable generati
         await admin.query("DELETE FROM nano.messages WHERE project_id=ANY($1::uuid[])", [projectIds]);
         await admin.query("DELETE FROM nano.sandboxes WHERE project_id=ANY($1::uuid[])", [projectIds]);
         await admin.query("DELETE FROM nano.checks WHERE project_id=ANY($1::uuid[])", [projectIds]);
+        // Restores and rollbacks reference revisions, so they go before them.
+        await admin.query("DELETE FROM nano.preview_restores WHERE project_id=ANY($1::uuid[])", [projectIds]);
+        await admin.query("DELETE FROM nano.rollbacks WHERE project_id=ANY($1::uuid[])", [projectIds]);
         await admin.query("DELETE FROM nano.role_runs WHERE project_id=ANY($1::uuid[])", [projectIds]);
         await admin.query("DELETE FROM nano.revisions WHERE project_id=ANY($1::uuid[])", [projectIds]);
         const runs = await admin.query("DELETE FROM nano.runs WHERE project_id=ANY($1::uuid[]) RETURNING id", [projectIds]);
@@ -281,6 +290,66 @@ describe.skipIf(process.env.PIVLOOM_QUEUE_INTEGRATION !== "1")("durable generati
     const candidate = await capacity.getReviewRetryCandidate(ownerA, queued.run.id, prior.run.id);
     expect(candidate).not.toBeNull();
     await capacity.finishCancelled(ownerA, queued.run.id, { cleanupState: "confirmed", summary: "queue fixture complete" });
+  }, 120_000);
+
+  test("a preview restore waits durably at full capacity and starts when a slot frees", async () => {
+    const before = await occupiedSlots();
+    const filler = await project();
+    await occupy(ownerA, filler, 1);
+    // Ceiling of exactly the live count: the restore has no room and must wait.
+    const capacity = repository(before + 1);
+    const target = await project();
+    const revisionId = randomUUID();
+    const savedRunId = randomUUID();
+    const leaseId = randomUUID();
+    const profile = profiles.get(ownerA)!;
+    // A saved successful run is the parent every revision needs; the restore
+    // only reads the snapshot, so the run never executes.
+    await admin.query(`INSERT INTO nano.model_credential_leases(id,owner_id,profile_id,config_version,reference_id,released_at)
+      VALUES($1,$2,$3,$4,$5,now())`, [leaseId, ownerA, profile.id, profile.configVersion, savedRunId]);
+    // The run comes first: the role and the coordinator back-reference are both
+    // foreign keys into rows that do not exist yet.
+    await admin.query(`INSERT INTO nano.runs(id,owner_id,project_id,idempotency_key,request_hash,request_text,kind,
+        model_profile_id,model_config_version,credential_lease_id,state,phase,budget_json,deadline_at,executor_boot_id,finished_at)
+      VALUES($1,$2,$3,$4,repeat('a',64),'Saved snapshot fixture','generate',$5,$6,$7,'completed','persist','{}'::jsonb,
+        now()+interval '30 minutes',$8,now())`,
+    [savedRunId, ownerA, target, randomUUID(), profile.id, profile.configVersion, leaseId, randomUUID()]);
+    const coordinatorRoleId = randomUUID();
+    await admin.query(`INSERT INTO nano.role_runs(id,owner_id,project_id,run_id,role,attempt,session_id,state,input_json)
+      VALUES($1,$2,$3,$4,'coordinator',0,$5,'succeeded','{}'::jsonb)`,
+    [coordinatorRoleId, ownerA, target, savedRunId, randomUUID()]);
+    await admin.query("UPDATE nano.runs SET coordinator_role_run_id=$2 WHERE id=$1", [savedRunId, coordinatorRoleId]);
+    await admin.query(`INSERT INTO nano.revisions(id,owner_id,project_id,run_id,revision_no,attempt,source_key,source_hash,
+        template_version,manifest_json,source_bytes,compressed_bytes,build_status,build_json,status)
+      VALUES($1,$2,$3,$4,1,0,$5,$6,'fixture','[]'::jsonb,10,10,'passed','{}'::jsonb,'accepted')`,
+    [revisionId, ownerA, target, savedRunId, `${ownerA}/${target}/fixture.tar.gz`, "c".repeat(64)]);
+    const idempotencyKey = randomUUID();
+    const requested = await capacity.beginRestore(ownerA, target, { revisionId, idempotencyKey });
+    // It is stored, not refused, and it reports that it is waiting.
+    expect(requested.restore.status).toBe("queued");
+    expect((await capacity.getActiveRestore(ownerA, target, revisionId))?.status).toBe("queued");
+    // Waiting holds the project operation, so the project stays serial, but no
+    // capacity slot and no sandbox.
+    expect((await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [target])).rows[0].operation_id).toBe(requested.restore.id);
+    expect(await capacity.claimNextQueuedRestore()).toBeNull();
+    expect((await admin.query("SELECT count(*)::int AS n FROM nano.sandboxes WHERE project_id=$1", [target])).rows[0].n).toBe(0);
+    // The same key returns the same waiting request; a different key is refused
+    // because the project already has a restore, which is what keeps one project
+    // to one restore at a time whether that restore waits or runs.
+    const replay = await capacity.beginRestore(ownerA, target, { revisionId, idempotencyKey });
+    expect(replay.restore.id).toBe(requested.restore.id);
+    await expect(capacity.beginRestore(ownerA, target, { revisionId, idempotencyKey: randomUUID() }))
+      .rejects.toMatchObject({ code: "PROJECT_BUSY" });
+    // Freeing the slot lets the scheduler claim it into the state the executor runs.
+    await admin.query("UPDATE nano.sandboxes SET state='destroyed' WHERE remote_id=$1", [sandboxIds.at(-1)]);
+    const claimed = await capacity.claimNextQueuedRestore();
+    expect(claimed?.restore.id).toBe(requested.restore.id);
+    expect(claimed?.restore.status).toBe("pending");
+    expect(claimed?.revision.id).toBe(revisionId);
+    expect(await capacity.claimNextQueuedRestore()).toBeNull();
+    // Release the slot this case took, so the next case starts from the ceiling
+    // it expects.
+    await capacity.failRestore(ownerA, target, requested.restore.id, { code: "FIXTURE_DONE", message: "queue fixture complete" });
   }, 120_000);
 
   test("a claim publishes a durable dispatch event so a waiting client stops reading queued", async () => {

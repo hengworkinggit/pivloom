@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { PoolClient, QueryResultRow } from "pg";
 import type { RollbackOperation } from "@pivloom/contracts";
@@ -75,18 +74,29 @@ export function createRollbackRepository(
         [ownerId, projectId, input.targetRevisionId])).rows[0];
         if (!target) throw new ApiFailure(409, "ROLLBACK_TARGET_NOT_ACCEPTED", "只能回滚到本项目已验收且通过检查的版本。");
         // A rollback rebuilds and re-checks the target revision in its own
-        // sandbox, so it takes a slot from the same capacity ledger the
-        // generation queue reserves from instead of overselling the ceiling.
-        if ((await client.query("SELECT nano.reserve_generation_capacity($1) AS admitted", [maxSandboxes])).rows[0].admitted !== true)
-          throw new ApiFailure(409, "SERVICE_BUSY", "沙箱容量已满，请在当前预览结束后重试。", true);
-        const id = randomUUID();
-        const row = (await client.query(`INSERT INTO nano.rollbacks
-          (id,owner_id,project_id,from_revision_id,target_revision_id,source_hash,idempotency_key,status)
-          VALUES($1,$2,$3,$4,$5,$6,$7,'preparing') RETURNING *`,
-        [id, ownerId, projectId, input.expectedCurrentRevisionId, input.targetRevisionId, target.source_hash, input.idempotencyKey])).rows[0];
-        await client.query("UPDATE nano.projects SET operation_kind='rollback',operation_id=$3,operation_started_at=now(),updated_at=now() WHERE owner_id=$1 AND id=$2", [ownerId, projectId, id]);
+        // sandbox, so it draws on the same capacity ledger as generation.
+        // Admission and the row commit together: 'preparing' means it holds a
+        // slot and starts now, 'queued' means it waits for one. Deciding that
+        // here instead of in a separate statement is what stops another
+        // operation from taking the same slot in between.
+        const row = (await client.query(
+          `SELECT * FROM nano.reserve_rollback_slot($1,$2,$3,$4,$5,$6,$7)`,
+          [ownerId, projectId, input.expectedCurrentRevisionId, input.targetRevisionId, target.source_hash,
+            input.idempotencyKey, maxSandboxes])).rows[0];
+        await client.query("UPDATE nano.projects SET operation_kind='rollback',operation_id=$3,operation_started_at=now(),updated_at=now() WHERE owner_id=$1 AND id=$2", [ownerId, projectId, row.id]);
         return { operation: stored(row), replayed: false };
       });
+    },
+    /**
+     * Starts one rollback that was waiting for capacity by reserving a slot and
+     * moving it to 'preparing', the state the executor consumes. Instance-wide,
+     * because capacity is instance-wide.
+     */
+    async claimNextQueued(): Promise<StoredRollback | null> {
+      if (!database.system) throw new Error("Rollback dispatch requires the system connection");
+      const claimed = await database.system(async (client) => client.query(
+        "SELECT * FROM nano.claim_next_queued_rollback($1)", [maxSandboxes]));
+      return claimed.rows[0] ? stored(claimed.rows[0]) : null;
     },
     async get(ownerId: string, projectId: string, id: string): Promise<StoredRollback> {
       return database.owned(ownerId, async (client) => {

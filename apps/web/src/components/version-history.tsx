@@ -12,6 +12,7 @@ export interface RollbackActions {
 }
 
 const rollbackPhases: Record<RollbackOperation["status"], [string, string]> = {
+  queued: ["沙箱容量已满，已排队等待；资源可用后会自动开始。", "Queued for sandbox capacity; it starts by itself once capacity is free."],
   preparing: ["正在准备源码与独立预览…", "Preparing source and isolated preview…"],
   prepared: ["预览已准备，正在切换当前版本…", "Preview prepared; switching current version…"],
   cancel_requested: ["正在取消，等待资源清理…", "Cancelling and cleaning up…"],
@@ -129,7 +130,7 @@ export function VersionHistoryPanel({ revisions, currentRevisionId, selectedRevi
       <div className="version-history-rollback-actions">
         {rollback.unknown && <button type="button" onClick={rollback.confirm}>{ui.text("确认提交结果", "Confirm submission result")}</button>}
         {rollback.busy && !rollback.unknown && rollback.error && <button type="button" onClick={rollback.confirm}>{ui.text("重新读取操作", "Retry operation lookup")}</button>}
-        {rollback.operation && ["preparing", "prepared"].includes(rollback.operation.status) && <button type="button" onClick={rollback.cancel}>{ui.text("取消回滚", "Cancel rollback")}</button>}
+        {rollback.operation && ["queued", "preparing", "prepared"].includes(rollback.operation.status) && <button type="button" onClick={rollback.cancel}>{ui.text("取消回滚", "Cancel rollback")}</button>}
         {!rollback.busy && rollback.operation && ["committed", "failed", "cancelled"].includes(rollback.operation.status)
           && <button type="button" onClick={rollback.clearResult}>{ui.text("关闭提示", "Dismiss")}</button>}
       </div>

@@ -126,7 +126,7 @@ async function main() {
     // GITHUB_ENV is the runner's private step handoff, not a committed env file.
     stage = 'runner environment handoff';
     await appendFile(process.env.GITHUB_ENV,
-      `DATABASE_URL=${urls[0]}\nMIGRATION_DATABASE_URL=${urls[0]}\nPIVLOOM_RECOVERY_DATABASE_URL=${urls[1]}\nPIVLOOM_ROLLBACK_DATABASE_URL=${urls[2]}\n`
+      `DATABASE_URL=${urls[0]}\nMIGRATION_DATABASE_URL=${urls[0]}\nPIVLOOM_REPAIR_DATABASE_URL=${urls[0]}\nPIVLOOM_RECOVERY_DATABASE_URL=${urls[1]}\nPIVLOOM_ROLLBACK_DATABASE_URL=${urls[2]}\n`
       + `PIVLOOM_EXECUTOR_DATABASE_URL=${urls[3]}\nPIVLOOM_EXECUTOR_OWNER_ID=${executorOwnerId}\n`
       + `PIVLOOM_EXECUTOR_ENVIRONMENT_ID=${executorEnvironmentId}\n`
       + `PIVLOOM_REVIEW_DATABASE_URL=${urls[4]}\nPIVLOOM_REVIEW_ENVIRONMENT_ID=${reviewEnvironmentId}\n`

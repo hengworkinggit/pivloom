@@ -119,6 +119,38 @@ describe.skipIf(process.env.PIVLOOM_ROLLBACK_INTEGRATION !== "1")("atomic rollba
     expect((await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [projectId])).rows[0].operation_id).toBeNull();
   });
 
+  test("a rollback waits durably at full capacity and starts when a slot frees", async () => {
+    const { projectId, revisions } = await fixture();
+    const input = request(revisions[0], revisions[2]);
+    // A live sandbox row is a real occupied slot: capacity is counted from the
+    // durable registry, not from an in-process ledger.
+    const remoteId = randomUUID();
+    await admin.query(`INSERT INTO nano.sandboxes(owner_id,project_id,run_id,attempt,remote_id,purpose,state,expires_at)
+      SELECT $1,$2,r.id,0,$3,'preview','active',now()+interval '10 minutes'
+      FROM nano.runs r WHERE r.project_id=$2 ORDER BY r.created_at, r.id LIMIT 1`, [owner, projectId, remoteId]);
+    const liveBefore = (await admin.query("SELECT nano.live_sandbox_count() AS live")).rows[0].live as number;
+    // A ceiling of exactly the live count leaves the rollback no room.
+    const full = createRollbackRepository(database, { maxSandboxes: liveBefore });
+    const queued = await full.begin(owner, projectId, input);
+    expect(queued.replayed).toBe(false);
+    expect(queued.operation.status).toBe("queued");
+    // Waiting is durable and holds the project operation, but no capacity slot.
+    expect((await admin.query("SELECT status FROM nano.rollbacks WHERE id=$1", [queued.operation.id])).rows[0].status).toBe("queued");
+    expect((await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [projectId])).rows[0].operation_id).toBe(queued.operation.id);
+    expect(await full.claimNextQueued()).toBeNull();
+    // A replayed key still returns the same waiting request instead of a second one.
+    expect((await full.begin(owner, projectId, input)).operation.id).toBe(queued.operation.id);
+    // Freeing the slot lets the scheduler claim it into the state the executor runs.
+    await admin.query("UPDATE nano.sandboxes SET state='destroyed' WHERE remote_id=$1", [remoteId]);
+    const claimed = await full.claimNextQueued();
+    expect(claimed?.id).toBe(queued.operation.id);
+    expect(claimed?.status).toBe("preparing");
+    // A second claimer cannot take the same rollback twice.
+    expect(await full.claimNextQueued()).toBeNull();
+    await repo.fail(owner, projectId, queued.operation.id, { code: "FIXTURE_FAIL", message: "No sandbox created" });
+    expect((await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [projectId])).rows[0].operation_id).toBeNull();
+  }, 120_000);
+
   test("prepare and commit switch exact old version once; retained history and conversation remain separate from Runs", async () => {
     const { projectId, revisions, sources } = await fixture();
     const input = request(revisions[0], revisions[2]);
