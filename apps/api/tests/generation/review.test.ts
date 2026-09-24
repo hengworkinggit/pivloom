@@ -4,7 +4,7 @@ import { createSourceStore } from '../../src/storage/source.js';
 import { createArtifactStore } from '../../src/storage/artifacts.js';
 import { createSourceSnapshot } from '../../src/runtime/snapshot.js';
 import { createRunTokenBudget } from '../../src/runtime/token-budget.js';
-import { runReview, assertVerifiedReviewReceipt } from '../../src/generation/review.js';
+import { runReview, assertVerifiedReviewReceipt, type DurableReviewCheckpoint } from '../../src/generation/review.js';
 import { RuntimeError } from '../../src/runtime/types.js';
 import type { SandboxConnection } from '../../src/runtime/workspace.js';
 
@@ -124,3 +124,35 @@ test('an unverified vision model leaves the candidate blocked without pretending
   expect(receipt.chromeClosed).toBe(true);
   expect(f.stats().calls).toBe(0);
 });
+
+test('provisional progress keeps private artifact locations after a later provider failure',async()=>{
+  const f=await fixture(),saved:DurableReviewCheckpoint[]=[];
+  let calls=0;
+  f.input.handoff.plan.behaviors.push({...f.input.handoff.plan.behaviors[0],id:'B02',title:'尚未检查'});
+  f.input.modelConfig.fetch=async(_url,init)=>{
+    if(++calls>2)return new Response(JSON.stringify({error:{message:'Fixture rejected request',type:'invalid_request_error'}}),{status:400,headers:{'content-type':'application/json'}});
+    const request=JSON.parse(String(init?.body));
+    const first=request.messages.find((message:{role:string})=>message.role==='user');
+    const text=Array.isArray(first.content)?first.content.find((part:{type:string})=>part.type==='text').text:first.content;
+    const initial=JSON.parse(text).initialReview;
+    const last=request.messages.filter((message:{role:string})=>message.role==='tool').at(-1);
+    const step=last?JSON.parse(last.content).checkpoints?.[0]:undefined;
+    const choice=calls===1?{name:'browser_steps',args:{observationId:initial.observationId,steps:[
+      {type:'click',role:'button',name:'添加',behaviorIds:['B01'],capture:true},
+    ]}}:{name:'record_behavior',args:{behaviorId:'B01',verdict:'passed',expected:'书名显示',actual:'实际操作并查看了表单',
+      observationEventIds:[step.evidence[0].reportEvidenceId],screenshotIds:[step.artifactId],reproSteps:['点击添加并查看截图']}};
+    const chunk={id:'checkpoint-fixture',object:'chat.completion.chunk',created:1,model:'fixture',choices:[{index:0,delta:{role:'assistant',tool_calls:[
+      {index:0,id:'checkpoint-call-'+calls,type:'function',function:{name:choice.name,arguments:JSON.stringify(choice.args)}},
+    ]},finish_reason:null}]};
+    return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({...chunk,choices:[{index:0,delta:{},finish_reason:'tool_calls'}],usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15}})}\n\ndata: [DONE]\n\n`,{headers:{'content-type':'text/event-stream'}});
+  };
+  await expect(runReview({...f.input,onCheckpoint:async checkpoint=>{saved.push(checkpoint);}},f.boundaries)).rejects.toMatchObject({code:'MODEL_FAILED'});
+  expect(saved).toHaveLength(1);
+  expect(saved[0]).toMatchObject({provisional:true,item:{behaviorId:'B01',verdict:'passed'},completedBehaviorIds:['B01'],totalBehaviors:2});
+  expect(saved[0].artifacts).toHaveLength(1);
+  const artifact=saved[0].artifacts[0];
+  expect(artifact.key).toContain(`${f.input.source.revisionId}/checks/${artifact.id}.png`);
+  expect(artifact.bytes).toBeGreaterThan(8);
+  const image=await f.input.artifacts.load(f.input.source,artifact);
+  expect(createHash('sha256').update(image).digest('hex')).toBe(artifact.sha256);
+},10_000);

@@ -90,6 +90,16 @@ export interface ReviewObservationEvent {
   url: string; tree: string; text: string; truncated: boolean; key?: string;
   batch?: Pick<BrowserKeyBatchResult, 'startedAt' | 'finishedAt' | 'steps'>;
 }
+/** A validated item, not a completed Check or permission to promote a revision. */
+export interface ReviewCheckpoint {
+  provisional: true;
+  binding: ReviewBinding;
+  item: ReviewItem;
+  completedBehaviorIds: string[];
+  totalBehaviors: number;
+  evidence: ReviewObservationEvent[];
+  artifacts: CheckArtifact[];
+}
 export interface ReviewerInput {
   binding: ReviewBinding; sessionId: string; handoff: Handoff;
   browser: ReviewBrowser; files: ReadonlyArray<{ path: string; content: string }>;
@@ -99,6 +109,7 @@ export interface ReviewerInput {
   /** Service supplies the actual initial page and image before the first model request. */
   bootstrap?: boolean;
   onEvent?: ProbeEventSink;
+  onCheckpoint?(checkpoint: ReviewCheckpoint): Promise<void>;
   assertActive(): Promise<void>;
   saveScreenshot(image: { base64: string; mimeType: 'image/png'; sha256: string }): Promise<CheckArtifact>;
 }
@@ -429,8 +440,19 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
           } else if(name==='record_behavior'){
             const item=canonicalItem(ReviewItemSchema.parse(params));
             const problem=itemProblem(item);if(problem)throw invalid(problem);
-            if(JSON.stringify(item).includes(input.modelConfig.apiKey))throw invalid('SECRET_OUTPUT');
-            completedBehaviors.set(item.behaviorId,bindExpected(item));
+            const recorded=bindExpected(item);
+            if(JSON.stringify(recorded).includes(input.modelConfig.apiKey))throw invalid('SECRET_OUTPUT');
+            completedBehaviors.set(item.behaviorId,recorded);
+            if(input.onCheckpoint){
+              const observationIds=new Set(recorded.observationEventIds),screenshotIds=new Set(recorded.screenshotIds);
+              const checkpoint:ReviewCheckpoint={provisional:true,binding,item:recorded,
+                completedBehaviorIds:handoff.plan.behaviors.filter(behavior=>completedBehaviors.has(behavior.id)).map(behavior=>behavior.id),
+                totalBehaviors:handoff.plan.behaviors.length,
+                evidence:evidence.filter(event=>observationIds.has(event.id)),
+                artifacts:artifacts.filter(artifact=>screenshotIds.has(artifact.id))};
+              try { await input.onCheckpoint(structuredClone(checkpoint)); }
+              catch { throw fail(new RuntimeError('EVENT_APPEND_FAILED','检查进度保存失败')); }
+            }
             // A shared scenario may have already produced valid evidence for
             // other targets. Prompt for those at this turn boundary instead of
             // discarding the whole scene when one target is recorded.

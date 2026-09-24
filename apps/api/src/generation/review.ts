@@ -3,7 +3,7 @@ import { ReviewBindingSchema, type ReviewBinding, type ReviewResult, type Handof
 import { OpenSandboxWorkspace, type SandboxConnector } from '../runtime/workspace.js';
 import { RemoteBrowser } from '../runtime/browser.js';
 import { sourceHash } from '../runtime/generation.js';
-import { runReviewer, assertReviewerResult, type ReviewObservationEvent } from '../runtime/reviewer.js';
+import { runReviewer, assertReviewerResult, type ReviewObservationEvent, type ReviewCheckpoint } from '../runtime/reviewer.js';
 import { RuntimeError, type ModelConfig, type SandboxConfig, type ProbeEventSink } from '../runtime/types.js';
 import { SANDBOX_LEASE_RENEW_THRESHOLD_MS, SANDBOX_LEASE_SEGMENT_MS } from '../runtime/budgets.js';
 import { type TokenUsage, type RunTokenBudget } from '../runtime/token-budget.js';
@@ -33,11 +33,15 @@ export function assertVerifiedReviewReceipt(receipt:VerifiedReviewReceipt){
   if(!receipts.has(receipt))throw new RuntimeError('INVALID_REVIEW_RECEIPT','检查结果未经版本和浏览器证据校验');
   assertVerifiedSourceSnapshot(receipt.source);
 }
+export interface DurableReviewCheckpoint extends Omit<ReviewCheckpoint,'artifacts'> {
+  artifacts:StoredArtifact[];
+}
 export interface ReviewInput {
   binding:ReviewBinding;sessionId:string;handoff:Handoff;expiresAt:string;
   source:VerifiedSourceSnapshot;sources:SourceStore;artifacts:ArtifactStore;
   sandboxConfig:SandboxConfig;modelConfig:ModelConfig;signal:AbortSignal;
   tokenBudget?:RunTokenBudget;maxToolCalls?:number;onEvent?:ProbeEventSink;assertActive():Promise<void>;
+  onCheckpoint?(checkpoint:DurableReviewCheckpoint):Promise<void>;
   onLeaseRenewed(expiresAt:string):Promise<void>;
 }
 function freeze<T>(value:T):T{
@@ -99,6 +103,12 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     const reviewed=await runReviewer({binding,sessionId:input.sessionId,handoff:input.handoff,browser,files,bootstrap:true,
       modelConfig:input.modelConfig,signal,tokenBudget:input.tokenBudget,maxToolCalls:input.maxToolCalls,
       onEvent:async(event)=>{await ensureLease();await input.onEvent?.(event);},assertActive:active,
+      onCheckpoint:input.onCheckpoint?async(checkpoint)=>{
+        await active();
+        const screenshotIds=new Set(checkpoint.item.screenshotIds);
+        await input.onCheckpoint!({...checkpoint,artifacts:artifacts.filter(artifact=>screenshotIds.has(artifact.id))});
+        await active();
+      }:undefined,
       async saveScreenshot(image){
         await active();const artifact=await input.artifacts.save(input.source,image,signal);await active();artifacts.push(artifact);
         return {id:artifact.id,mimeType:artifact.mimeType,sha256:artifact.sha256};

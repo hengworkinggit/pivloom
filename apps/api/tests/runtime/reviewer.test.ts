@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
 import { allowsRenderOnlyEvidence } from '@pivloom/contracts';
-import { runReviewer, assertReviewerResult, deliveredScreenshotIdsFromRequest, type ReviewBrowser } from '../../src/runtime/reviewer.js';
+import { runReviewer, assertReviewerResult, deliveredScreenshotIdsFromRequest, type ReviewBrowser, type ReviewCheckpoint } from '../../src/runtime/reviewer.js';
 import { RuntimeError, type ModelConfig, type ProbeEvent } from '../../src/runtime/types.js';
 import { classifyReviewerModelFailure } from '../../src/runtime/reviewer.js';
 import { parseReviewEvidence } from '../../src/data/generation.js';
@@ -50,6 +50,49 @@ function setup(turn: (request: { messages: Array<{ role: string; content: string
   return { input, stats:()=>({calls,actions,closes}) };
 }
 const report=(ids:string[])=>({revisionId,sourceHash,items:[{behaviorId:'B01',verdict:'passed',expected:'出现书名',actual:'已出现',observationEventIds:ids,screenshotIds:[],reproSteps:['点击添加']}],summary:'通过'});
+test('a validated provisional item remains saved when a later provider request fails',async()=>{
+  const saved:ReviewCheckpoint[]=[];
+  let sawImage=false,requests=0;
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_steps',args:{observationId:data.observationId,steps:[
+      {type:'click',role:'button',name:'添加',behaviorIds:['B01'],capture:true},
+    ]}};
+    sawImage=JSON.stringify(request.messages).includes('iVBORw0KGgoAAAANSUhEUg');
+    const checkpoint=data.checkpoints[0];
+    return {name:'record_behavior',args:{...report([checkpoint.evidence[0].reportEvidenceId]).items[0],screenshotIds:[checkpoint.artifactId]}};
+  });
+  f.input.handoff.plan={...plan,behaviors:[plan.behaviors[0],{...plan.behaviors[0],id:'B02',title:'尚未检查'}]};
+  const provider=f.input.modelConfig.fetch;
+  f.input.modelConfig.fetch=async(url,init)=>++requests>3
+    ?new Response(JSON.stringify({error:{message:'Fixture request rejected',type:'invalid_request_error'}}),{status:400,headers:{'content-type':'application/json'}})
+    :provider(url,init);
+  await expect(runReviewer({...f.input,requireVisionEvidence:true,onCheckpoint:async checkpoint=>{saved.push(checkpoint);}})).rejects.toMatchObject({code:'MODEL_FAILED'});
+  expect(sawImage).toBe(true);
+  expect(saved).toHaveLength(1);
+  expect(saved[0]).toMatchObject({provisional:true,binding:f.input.binding,item:{behaviorId:'B01',verdict:'passed',expected:plan.behaviors[0].expected},completedBehaviorIds:['B01'],totalBehaviors:2});
+  expect(saved[0].item.observationEventIds).toEqual(saved[0].evidence.map(event=>event.id));
+  expect(saved[0].evidence[0]).toMatchObject({behaviorId:'B01',action:'click'});
+  expect(saved[0].item.screenshotIds).toEqual(saved[0].artifacts.map(artifact=>artifact.id));
+  expect(f.stats()).toEqual({calls:3,actions:1,closes:1});
+},10_000);
+
+test('checkpoint persistence failure cannot return a successful review',async()=>{
+  let persistenceCalls=0;
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)return {name:'browser_open',args:{}};
+    if(n===2)return {name:'browser_click',args:{behaviorId:'B01',observationId:data.observationId,ref:'e1'}};
+    return {name:'record_behavior',args:report([data.reportEvidenceId]).items[0]};
+  });
+  await expect(runReviewer({...f.input,onCheckpoint:async()=>{persistenceCalls++;throw new Error('private storage failure');}})).rejects.toMatchObject({code:'EVENT_APPEND_FAILED',message:'检查进度保存失败'});
+  expect(persistenceCalls).toBe(1);
+  expect(f.stats()).toEqual({calls:3,actions:1,closes:1});
+},10_000);
+
 test('a scenario checks two behaviors with fresh controls and delivered checkpoint images in three model turns',async()=>{
   const f=setup((request,n)=>{
     const last=request.messages.filter(m=>m.role==='tool').at(-1);
