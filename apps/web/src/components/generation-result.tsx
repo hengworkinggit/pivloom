@@ -18,8 +18,8 @@ interface PreviewAuthorization {
   revisionId: string;
   generation: GenerationApi;
   retry: number;
-  leaseExpiresAt: number;
-  cookieExpiresAt: number;
+  leaseExpiresAt: number | null;
+  cookieExpiresAt: number | null;
   accepted: boolean;
 }
 
@@ -101,13 +101,16 @@ export function GenerationResult({ projectId, revision, preview, generation, act
   const accessKey = `${projectId}:${revisionId ?? "empty"}:${url ?? "empty"}:${accessRetry}`;
   const previewError = accessError?.key === accessKey ? accessError.message : "";
   useEffect(() => {
-    if (!url || !revisionId || !preview?.expiresAt || previewError) return;
-    const leaseExpiresAt = Date.parse(preview.expiresAt);
-    if (!Number.isFinite(leaseExpiresAt) || leaseExpiresAt <= Date.now()) return;
+    if (!url || !revisionId || previewError) return;
+    const leaseExpiresAt = preview?.expiresAt ? Date.parse(preview.expiresAt) : null;
+    if (leaseExpiresAt !== null && (!Number.isFinite(leaseExpiresAt) || leaseExpiresAt <= Date.now())) return;
     const bound = authorization?.url === url && authorization.projectId === projectId
       && authorization.revisionId === revisionId && authorization.generation === generation
       && authorization.retry === accessRetry;
-    if (bound) {
+    // Older ready Preview responses may have no expiry. They still need the
+    // initial private session exchange; renewal starts once a lease appears.
+    if (bound && leaseExpiresAt === null) return;
+    if (bound && leaseExpiresAt !== null && authorization.leaseExpiresAt !== null && authorization.cookieExpiresAt !== null) {
       const extended = leaseExpiresAt > authorization.leaseExpiresAt;
       const acceptedExtension = extended && revision?.status === "accepted" && !authorization.accepted;
       const refreshAt = authorization.cookieExpiresAt - PREVIEW_COOKIE_REFRESH_WINDOW_MS;
@@ -129,7 +132,7 @@ export function GenerationResult({ projectId, revision, preview, generation, act
         setAuthorization({ url: ready, projectId, revisionId, generation, retry: accessRetry,
           // The gateway floors Cookie Max-Age to whole seconds. This estimate
           // stays conservative and never outlives the lease shown by the API.
-          leaseExpiresAt, cookieExpiresAt: leaseExpiresAt - 1_000,
+          leaseExpiresAt, cookieExpiresAt: leaseExpiresAt === null ? null : leaseExpiresAt - 1_000,
           accepted: revision?.status === "accepted" });
         setAccessError(null);
       }
