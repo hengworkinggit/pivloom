@@ -149,6 +149,37 @@ test('Pi checkpoint steers a long unrecorded scenario without accepting an unobs
   expect(result.evidence.some(event=>event.id===actionEventId&&event.action==='click')).toBe(true);
   expect(f.stats()).toEqual({calls:5,actions:1,closes:1});
 },30_000);
+test('Pi checkpoint keeps another unrecorded behavior from the same real scene after the first record',async()=>{
+  let firstEvidence='',secondEvidence='',artifactId='',checkpoint='';
+  const f=setup((request,n)=>{
+    const user=request.messages.find(message=>message.role==='user');
+    const parts=user?.content as unknown as Array<{type:string;text?:string}>;
+    const initial=JSON.parse(parts.find(part=>part.type==='text')!.text!).initialReview;
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    const data=last?JSON.parse(last.content):null;
+    if(n===1)return {name:'browser_steps',args:{observationId:initial.observationId,steps:[
+      {type:'click',role:'button',name:'添加',behaviorIds:['B01','B02'],capture:true},
+    ]}};
+    if(n===2){
+      const step=data.checkpoints[0];
+      firstEvidence=step.evidence.find((item:{behaviorId:string})=>item.behaviorId==='B01').reportEvidenceId;
+      secondEvidence=step.evidence.find((item:{behaviorId:string})=>item.behaviorId==='B02').reportEvidenceId;
+      artifactId=step.artifactId;
+      return {name:'record_behavior',args:{...report([firstEvidence]).items[0],screenshotIds:[artifactId]}};
+    }
+    checkpoint=JSON.stringify(request.messages);
+    expect(data).toMatchObject({recorded:true,accepted:false,remainingBehaviorIds:['B02']});
+    return {name:'record_behavior',args:{...report([secondEvidence]).items[0],behaviorId:'B02',
+      screenshotIds:[artifactId],actual:'同一真实点击后观察到目标状态'}};
+  });
+  f.input.handoff.plan={...plan,behaviors:[plan.behaviors[0],{...plan.behaviors[0],id:'B02',title:'关联展示'}]};
+  const result=await runReviewer({...f.input,bootstrap:true,requireVisionEvidence:true});
+  expect(checkpoint).toContain('Recorded: B01. Remaining: B02.');
+  expect(checkpoint).toContain('New action-and-screenshot evidence exists for B02.');
+  expect(result.result.items.map(item=>[item.behaviorId,item.verdict])).toEqual([['B01','passed'],['B02','passed']]);
+  expect(result.evidence.filter(item=>item.action==='click').map(item=>item.behaviorId)).toEqual(['B01','B02']);
+  expect(f.stats()).toEqual({calls:3,actions:1,closes:1});
+},30_000);
 test('a fabricated passing report cannot replace actual browser actions and observations',async()=>{
   const f=setup(()=>({name:'submit_review',args:report([randomUUID()])}));
   await expect(runReviewer(f.input)).rejects.toMatchObject({code:'AGENT_OUTPUT_INVALID'});

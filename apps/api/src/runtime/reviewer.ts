@@ -217,7 +217,8 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   const completedBehaviors = new Map<string, ReviewItem>();
   const failedInputBehaviors = new Map<string, string>();
   let pendingBehaviorId: string | undefined, unrecordedActions = 0;
-  let browserToolsSinceRecord = 0, recordedEvidenceCount = 0, checkpointEvidenceCount = 0;
+  const checkpointToolInterval = 3;
+  let browserToolsSinceRecord = 0, checkpointEvidenceCount = 0;
   // One calculator expression may need clear + parentheses + several operands.
   // Switching behaviors is still forbidden until the current one is recorded.
   const MAX_UNRECORDED_ACTIONS = 32;
@@ -304,10 +305,10 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   /** Pi delivers steer only after the current tool turn. It asks for a real
    * per-scenario verdict; it never creates one or skips a sealed plan item. */
   const steerScenarioCheckpoint = () => {
-    if (!session || decision || signal.aborted || browserToolsSinceRecord < 3 || toolCount >= maxTools
+    if (!session || decision || signal.aborted || browserToolsSinceRecord < checkpointToolInterval || toolCount >= maxTools
       || evidence.length <= checkpointEvidenceCount) return;
     const capturedObservations = new Set([...screenshots.values()].map(capture => capture.observationId));
-    const ready = [...new Set(evidence.slice(recordedEvidenceCount)
+    const ready = [...new Set(evidence
       .filter(event => event.behaviorId && event.action && event.action !== 'scroll'
         && !(event.action === 'press' && event.key === 'Tab')
         && capturedObservations.has(event.observationId) && !completedBehaviors.has(event.behaviorId))
@@ -430,7 +431,10 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             const problem=itemProblem(item);if(problem)throw invalid(problem);
             if(JSON.stringify(item).includes(input.modelConfig.apiKey))throw invalid('SECRET_OUTPUT');
             completedBehaviors.set(item.behaviorId,bindExpected(item));
-            browserToolsSinceRecord=0; recordedEvidenceCount=evidence.length; checkpointEvidenceCount=evidence.length;
+            // A shared scenario may have already produced valid evidence for
+            // other targets. Prompt for those at this turn boundary instead of
+            // discarding the whole scene when one target is recorded.
+            browserToolsSinceRecord=checkpointToolInterval; checkpointEvidenceCount=0;
             if(pendingBehaviorId===item.behaviorId){pendingBehaviorId=undefined;unrecordedActions=0;}
             if(completedBehaviors.size===handoff.plan.behaviors.length){
               const logs=await input.browser.logs();
