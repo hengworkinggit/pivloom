@@ -1,0 +1,23 @@
+[
+  {
+    "component": "api",
+    "release": "2e6f917-20260924T1116Z",
+    "commit": "2e6f917449a7c2b80d3a2897c9dd27d1acec3bc3",
+    "builtAt": "2026-09-24T11:15:48.326149Z",
+    "worktreeDirty": false,
+    "createdAt": "2026-09-24T11:16:37.011857+00:00",
+    "archiveSha256": "fd8aa1f030aa871ce1eb2f60bfe67ecbf17e87d4e1b8cc44e6bd2a5b0876cc88",
+    "files": 127
+  },
+  {
+    "component": "web",
+    "release": "2e6f917-20260924T1116Z",
+    "commit": "2e6f917449a7c2b80d3a2897c9dd27d1acec3bc3",
+    "builtAt": "2026-09-24T11:15:48.326149Z",
+    "worktreeDirty": false,
+    "createdAt": "2026-09-24T11:16:39.568865+00:00",
+    "archiveSha256": "1ef9d1c2f248c4683cc020468f924dccccc3d40cca4ad6826009ff21a420bc2d",
+    "files": 1775,
+    "buildId": "2e6f917449a7c2b80d3a2897c9dd27d1acec3bc3"
+  }
+]

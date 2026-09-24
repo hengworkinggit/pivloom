@@ -16,17 +16,17 @@
 | E04 | P | v5 真实模型生成计算器，v6 同源码候选重建复检后 accepted；真实/复检边界和 5/5 在[三版报告](rc10-three-version/report.md)。 |
 | E05 | P | v6 产品 12/12，独立浏览器实际操作优先级、括号、小数、退格、错误恢复、键盘。 |
 | E06 | P | 已验收版本工作台预览/新标签、marker 与 sourceHash、窄屏切换和刷新；临时沙箱过期另按设计处理。 |
-| E07 | Q | v6/v7/v8 全七文件经认证 API 下载并逐文件比较；旧 [RC-08](rc08-version-history.md)实测代码 UI，只差最终 v8 的代码页刷新/只读屏幕同链。 |
+| E07 | P | v6/v7/v8 全七文件经认证 API 下载并逐文件比较；最终成对部署上的[全新 A 会话](rc12-final-session/report.md)打开 v8 代码页、重进页面、读取 src/App.tsx，七文件和只读版本标识保持一致。 |
 | E08 | P | A1 同项目 v6→v7 真实 modify，历史创建、重用、刷新、清空和旧功能 Check 17/17。 |
 | E09 | P | A2 同项目 v7→v8 真实 modify，仅 CSS 改动；390px 深色/橙键/等宽结果、历史与旧功能 Check 21/21。 |
 | E10 | R | 旧[交付矩阵](../../docs/test-runs/2026-09-23-delivery-matrix.md)有活动 Run 刷新同 ID；本版 A1/A2 未特意中途重刷。 |
-| E11 | W | [账号矩阵](rc12-account-matrix/rc12-account-matrix.md)已证独立 A、重登、B 隔离和私有 Preview；主任务正补最终 v8 项目/对话/源码/版本/Preview 五类数据。 |
+| E11 | P | [账号矩阵](rc12-account-matrix/rc12-account-matrix.md)已证独立 A、重登、B 隔离和私有 Preview；最终同 SHA 的[全新 A 会话](rc12-final-session/report.md)已核对 v8 项目、增量/回滚对话、七文件源码、历史版本与重建后的 Preview，并实际计算 2+3=5。 |
 | E12 | W | 真实 Canvas 贪吃蛇与独立玩法有 #27 原件，正式产品 Check 尚未给出完成终态。 |
 | E13 | R | [RC-02](rc02-lifecycle.md)实际 UI 停 Coordinator/Builder/Reviewer，模型等待由受控 fixture，另有真实 Provider abort。 |
 | E14 | R | RC-02 在真实 OpenSandbox 停长命令及子进程，保留旧 current/Preview。 |
 | E15 | R | [RC-03 真实 Provider 关联重试](rc03-e15-925-real-provider.md)首轮受控401、次轮真模型5/5；A0 本轮还证同源码关联复检。 |
 | E16 | R | 旧[交付矩阵](../../docs/test-runs/2026-09-23-delivery-matrix.md)的首产物 TS 故障 fixture→真实修复；不冒充初版真实模型自然错误。 |
-| E17 | Q | 旧 v4 候选预览过期后恢复、真实回滚重建 marker 已实测；最终 v8 过期后“重新启动预览”由 E11 补。 |
+| E17 | P | 最终 v8 临时预览已过期；[正常点击“重新启动预览”](rc12-final-session/report.md)后相同 v8 地址加载，实际按钮计算与历史可用，没有提交模型生成。 |
 | E18 | R | [固定 SHA 隔离 API SIGKILL](rc03-e18-4733-acceptance.md)中断落库、旧 current/源码留存、沙箱404、关联新 Run。 |
 | E19 | Q | 项目级互斥/额度真实 PG 和历史 UI 有证；最终两个标签并发发送/草稿保留的完整屏幕链未复跑。 |
 | E20 | R | [RC-03](rc03-progress.md)真实浏览器定点断 SSE 后恢复同 Run，31 个唯一事件；只重用连接模块证据。 |
@@ -41,7 +41,7 @@
 | E29 | Q | Coordinator 澄清/范围外说明旧模块已有；本版未用无业务公式 Prompt 走完整 UI 父子 Run。 |
 | E30 | R | [短截止/清理](rc03-e30-e40-local-fault.md)加[真远端首次销毁失败](rc03-real-opensandbox-fault.md)的 pending→confirmed/404。 |
 | E31 | Q | [生产 BYOK UI/真实连接](rc04-production-e31-4733.md)已核对模型、掩码/390px；A/B 全 CRUD、轮换和错连更正没有同轮完整 UI 原件。 |
-| E32 | W | [RC-01 来源机制](rc01-deployment-sha.md)已有；最终 `2e6f9174…` Web/API `/version` 已一致，主任务补页面复制 SHA 与健康/产物对照。 |
+| E32 | P | [RC-01 来源机制](rc01-deployment-sha.md)已有；最终双 `/version`、[工作台实际徽标和干净构建产物记录](rc12-final-session/report.md)均为 `2e6f9174…`。复制行为沿用未变组件测试，不把这次屏幕读取说成新执行复制测试。 |
 | E33 | R | [真实图像探针](rc04-reviewer-image.md)和[Canvas 正反例](rc05-real-reviewer.md)证明 PNG 入成功模型请求；#27 自然生成蛇另列。 |
 | E34 | R | [远端七键](rc05-e34-seven-key-cancel.md)、[首键取消](rc05-real-cancel-925.md)与本轮计算器键盘输入；不是全套最终 SHA 重跑。 |
 | E35 | P（简化范围） | 真实 UI v7→v6→v7：current、七文件 manifest、Preview marker、对话、零模型调用一致；A2 确从恢复的 v7 base/plan 修改。原契约“第三版→第一版”未做，按用户后续简化授权记录。 |
@@ -72,7 +72,7 @@
 | I13 | R | [真 Provider PNG](rc04-reviewer-image.md)及[Canvas正反例](rc05-real-reviewer.md)。 |
 | I14 | R | [A1旧grant403/A2新grant200](rc12-account-matrix/rc12-account-matrix.md)，与公开发布分域。 |
 | I15 | P（简化范围） | [同构 PG 回滚/幂等/CAS](rc09-isolated-e2e.md) + [生产两版本往返](rc09-live-roundtrip/report.md)；不宣称线上注入提交响应丢失。 |
-| I16 | W | 构建来源旧模块已验，最终 Web/API 相同 SHA 已读；主任务补归档 manifest/页面徽标。 |
+| I16 | P | [最终干净构建的 API/Web 包摘要](rc12-final-session/release-summary.json)、公网版本和[工作台徽标](rc12-final-session/fresh-a-v8-preview.png)一致，代码 SHA `2e6f9174…`。 |
 | I17 | R | [真实 PG 失败终态](rc03-real-postgres-outage.md)、事件 drain 与首次远端销毁失败。 |
 | I18 | P（简化范围） | [Unicode/新增/删除/残留隔离测试](rc09-isolated-e2e.md) + 真实三版七文件 hash/diff + 往返 marker。 |
 | I19 | R | [Pi retry/abort/settled](rc02-lifecycle.md)与真 Provider 错误/成功边界，版本仍固定0.86.1。 |
@@ -85,7 +85,7 @@
 | ID | 状态 | 实际情况 |
 | --- | --- | --- |
 | D01 | W | HTTPS 工作台与测试账号/公开仓库可用，最终成对 SHA 已读；等主任务最后健康、评审入口与作品可达性复核。 |
-| D02 | R | README、本地启动/迁移说明及干净 CI 构建测试已有；最终提交的 CI/包校验由主任务收口，不称 CI 绿等于完整本地生成。 |
+| D02 | R | README、本地启动/迁移说明及干净 CI 构建测试已有；最终代码 SHA `2e6f9174…` 的 [CI](https://github.com/hengworkinggit/pivloom/actions/runs/35992009113)与[干净构建包摘要](rc12-final-session/release-summary.json)已通过；不称 CI 绿等于完整本地生成。 |
 | D03 | P | README 与另建的同标题交付文档说明当前功能、两层持久化、临时预览/主动永久发布和蛇待验收边界；无凭据写入仓库。 |
 | D04 | P（待归档） | 仓库公开；主任务已 fresh 查新交付文档任何人可读/外部开放/可评论，并有两张实图。测试账号只在交付文档，不在仓库。实际对外发送另列 D05。 |
 | D05 | F（历史时限） | 用户要求的 2026-09-24 17:30 CST“全部真实完成”未达成，不能倒填 PASS；后来用户允许先交文档、继续慢慢验证 #27。最终实际完成/发送时间和适用范围由主任务如实填写。 |

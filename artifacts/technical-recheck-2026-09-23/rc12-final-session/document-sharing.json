@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "permission_public": {
+      "comment_entity": "anyone_can_view",
+      "copy_entity": "anyone_can_view",
+      "external_access_entity": "open",
+      "link_share_entity": "anyone_readable",
+      "lock_switch": false,
+      "manage_collaborator_entity": "collaborator_can_view",
+      "security_entity": "anyone_can_view",
+      "share_entity": "anyone"
+    }
+  }
+}

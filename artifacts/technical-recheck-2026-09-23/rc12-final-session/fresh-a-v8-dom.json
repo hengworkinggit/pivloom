@@ -1,0 +1,36 @@
+{
+  "url": "https://pivloom-69-5-7-187.sslip.io/projects/bfbbe5cc-4207-4d3e-9620-84df5035e1bc",
+  "title": "做一个中文计算器网页，从空业务工程实现。支持数字、小数、加减乘除、括号和标准运算优先级；有清空、退格、等号按钮，也能用键盘数字、运算符、Enter、Backspace、Escape操作。除零和无效表达式有明确提示，清空后能继续计算。显示当前",
+  "current": "当前成功版本v8作品源码 hash424bd83f1d55…复制完整 hash查看完整源码 hash424bd83f1d55475c0a6acc038e69e6a2e59b121328575dcc199b84d2ee872e2d这是作品源码版本标识，不是平台部署 SHA。",
+  "sourceHash": "424bd83f1d55475c0a6acc038e69e6a2e59b121328575dcc199b84d2ee872e2d",
+  "versions": [
+    "v8 · 当前",
+    "v7 · 已验收",
+    "v6 · 已验收",
+    "v5 · 候选",
+    "v4 · 候选",
+    "v3 · 候选",
+    "v2 · 候选",
+    "v1 · 候选"
+  ],
+  "conversationArticles": 21,
+  "hasHistoryIncrement": true,
+  "hasVisualIncrement": true,
+  "rollbackMessages": [
+    "已从 v7 回滚到 v6。后续修改将以 v6 为基线。",
+    "已从 v6 回滚到 v7。后续修改将以 v7 为基线。"
+  ],
+  "files": [
+    "index.html",
+    "package-lock.json",
+    "package.json",
+    "src/App.tsx",
+    "src/main.tsx",
+    "src/style.css",
+    "tsconfig.json"
+  ],
+  "sourcePanel": "文件 7index.htmlpackage-lock.jsonpackage.jsonsrc/App.tsxsrc/main.tsxsrc/style.csstsconfig.jsonsrc/App.tsxv8 · 只读1import { useCallback, useEffect, useState } from 'react';2 3type Token =4  | { type: 'num'; value: number }5  | { type: 'op'; value: string }6  | { type: 'paren'; value: string };7 8type HistoryItem = {9  expression: string;10  result: string;11};12 13const HISTORY_KEY = 'calculator-history';14 15class CalcError extends Error {16  constructor(message: string) {17    super(message);18    this.name = 'CalcError';19  }20}21 22function tokenize(input: string): Token[] {23  const tokens: Token[] = [];24  let i = 0;25  while (i < input.length) {26    const ch = input[i];27    if (/\\s/.test(ch)) {28      i++;29      continue;30    }31    if (/\\d/.test(ch) || ch === '.') {32      let num = '';33      let dotCount = 0;34      while (i < input.length && (/\\d/.test(input[i]) || input[i] === '.')) {35        if (input[i] === '.') dotCount++;36        num += input[i];37        i++;38      }39      if (num === '.' || dotCount > 1 || !/^\\d+\\.?\\d*$/.test(num)) {40        throw new CalcError('表达式无效');41      }42      tokens.push({ type: 'num', value: parseFloat(num) });43      continue;44    }45    if (ch === '+' || ch === '-' || ch === '*' || ch === '/') {46      tokens.push({ type: 'op', value: ch });47      i++;48      continue;49    }50    if (ch === '(' || ch === ')') {51      tok",
+  "shownCheck": "关键流程检查通过 · 5/5 组通过v8候选版本完整保留了中文计算器的全部核心功能，并按要求完成了深色主题视觉改造。全部 21 项计划行为均通过实际操作验证：运算优先级、括号、小数、键盘输入、清空退格、错误提示与恢复、表达式/结果双显示、历史记录增删用及 localStorage 刷新持久化均正确；深色背景、橙色运算键、等宽结果区样式符合预期；375px 与 390px 窄屏下均无横向滚动且按键可点击。浏览器控制台无异常。查看 5 组 / 21 项完整子检查与截图G1 · 核心计算结果通过3/3 子项通过 · 3 项必需B01通过预期结果结果区域显示 14，表达式区域显示 2+3×4（或等价表示），证明先乘除后加减。实际观察点击 2+3×4= 后，表达式区显示 2+3×4，结果区显示 14，且历史记录出现 2+3×4=14。操作步骤依次点击 2、+、3、×、4、=已保存 1 条浏览器观察关联截图：2B02通过预期结果结果区域显示 20，表达式区域显示 (2+3)×4（或等价表示）。实际观察点击 (2+3)×4= 后，表达式区显示 (2+3)×4，结果区显示 20，历史记录出现 (2+3)×4=20。操作步骤依次点击 (、2、+、3、)、×、4、=已保存 1 条浏览器观察关联截图：3B03通过预期结果结果区域显示 3（或 3.0），表达式区域显示 1.5×2（或等价表示）。实际观察点击 1.5×2= 后，表达式区显示 1.5×2，结果区显示 3，历史记录出现 1.5×2=3。操作步骤依次点击 1、.、5、×、2、=已保存 1 条浏览器观察关联截图：4G2 · 输入与键盘控制通过5/5 子项通过 · 5 项必需B04通过预期结果显示区域实时显示 1+2，无自动计算结果。实际观察依次点击 1、+、2 后，表达式区实时显示 1+2，结果区为空，未自动计算。操作步骤依次点击 1、+、",
+  "deployment": "部署版本Web 2e6f9174API 2e6f9174",
+  "capturedAt": "2026-09-24T11:26:07.475901+00:00"
+}
