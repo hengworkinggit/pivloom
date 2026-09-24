@@ -7,12 +7,22 @@ import { expect, test } from "vitest";
 import { GroupedPlanSchema } from "@pivloom/contracts";
 import { PivloomDatabase } from "../../src/data/database.js";
 import { createProjectRepository } from "../../src/data/projects.js";
-import { createGenerationRepository } from "../../src/data/generation.js";
+import { createGenerationRepository, type GenerationRepository } from "../../src/data/generation.js";
 import type { ModelProfileService } from "../../src/models/service.js";
 import { createSourceStore, prepareSourceSnapshot } from "../../src/storage/source.js";
 import { runReview } from "../../src/generation/review.js";
 import { REACT_TEMPLATE_VERSION } from "../../src/runtime/snapshot.js";
 import type { SandboxConnection } from "../../src/runtime/workspace.js";
+
+/** Claims one specific queued task exactly as the scheduler does, so this case can
+ *  drive the repository directly. Returns null when capacity or the project is busy. */
+async function claimForTest(repo: GenerationRepository, ownerId: string, runId: string) {
+  const claimed = await repo.claimNextQueuedRun(runId);
+  if (!claimed) return null;
+  const prepared = await repo.prepareDispatch(ownerId, claimed.id);
+  if (prepared.outcome !== "ready") throw Error(`fixture task parked: ${prepared.run.error?.code ?? "unknown"}`);
+  return prepared.run;
+}
 
 test.skipIf(process.env.PIVLOOM_GROUPS_INTEGRATION !== "1")(
   "five service-derived blocked groups persist with the exact version and never promote current",
@@ -41,11 +51,26 @@ test.skipIf(process.env.PIVLOOM_GROUPS_INTEGRATION !== "1")(
       if (target.rows[0]?.environment_id !== env.PIVLOOM_ENVIRONMENT_ID) throw Error("Database target mismatch");
       const migrated = await admin.query("SELECT column_name FROM information_schema.columns WHERE table_schema='nano' AND table_name='checks' AND column_name='group_results_json'");
       if (migrated.rowCount !== 1) throw Error("Group migration 015 is required");
-      const profile = (await admin.query("SELECT profile_id,config_version FROM nano.model_profile_versions WHERE owner_id=$1 ORDER BY config_version DESC LIMIT 1", [ownerA])).rows[0];
-      if (!profile) throw Error("A fixture profile version is required; no model will be called");
+      // Dispatch validates the frozen model configuration before a claimed task
+      // may start, so the fixture must pick a version that can really pass that
+      // check: current, not deleted, credentialed and fully verified. No model is
+      // ever called; the capability values only satisfy the dispatch precondition.
+      const profile = (await admin.query(`SELECT v.profile_id, v.config_version FROM nano.model_profile_versions v
+        JOIN nano.model_profiles p ON p.id=v.profile_id AND p.owner_id=v.owner_id AND p.current_version=v.config_version
+        WHERE v.owner_id=$1 AND p.deleted_at IS NULL
+          AND v.capabilities->>'streaming'='verified' AND v.capabilities->>'tools'='verified'
+          AND v.capabilities->>'vision'='verified'
+          AND EXISTS (SELECT 1 FROM nano.model_credentials c
+            WHERE c.owner_id=v.owner_id AND c.profile_id=v.profile_id AND c.config_version=v.config_version)
+        ORDER BY v.config_version DESC LIMIT 1`, [ownerA])).rows[0];
+      if (!profile) throw Error("A dispatchable fixture profile version is required; no model will be called");
       const models = {
         async freezeInTransaction(client: PoolClient, ownerId: string, profileId: string, configVersion: number, runId: string) {
           if (ownerId !== ownerA || profileId !== profile.profile_id || configVersion !== profile.config_version) throw Error("Fixture model scope mismatch");
+          // Dispatch freezes the same task a second time, exactly as the real
+          // service does: one lease per run is returned instead of a duplicate.
+          const existing = await client.query("SELECT id FROM nano.model_credential_leases WHERE owner_id=$1 AND reference_id=$2", [ownerId, runId]);
+          if (existing.rows[0]) return { id: existing.rows[0].id as string };
           const leaseId = randomUUID();
           await client.query(`INSERT INTO nano.model_credential_leases(id,owner_id,profile_id,config_version,reference_id)
             VALUES($1,$2,$3,$4,$5)`, [leaseId, ownerId, profileId, configVersion, runId]);
@@ -56,12 +81,17 @@ test.skipIf(process.env.PIVLOOM_GROUPS_INTEGRATION !== "1")(
           await client.query("UPDATE nano.model_credential_leases SET released_at=now() WHERE owner_id=$1 AND id=$2", [ownerId, leaseId]);
         },
       } as unknown as ModelProfileService;
-      const repository = createGenerationRepository(database, models, { executorBootId: randomUUID() });
+      const repository = createGenerationRepository(database, models, { executorBootId: randomUUID(),
+        maxSandboxes: 5, dailyLimitByOwner: { [ownerA]: 1000 } });
       const project = await createProjectRepository(database).create(ownerA, title);
       projectIds.push(project.id); await save();
       const accepted = await repository.accept(ownerA, project.id, { idempotencyKey: randomUUID(), text: "仅用于五组检查事务的诊断夹具",
         expectedCurrentRevisionId: null, modelProfileId: profile.profile_id, modelConfigVersion: profile.config_version });
       runIds.push(accepted.run.id); await save();
+      // Admission persists the request as a queued task; this case drives the
+      // repository by hand, so it claims the run the way the scheduler would.
+      const claimed = await claimForTest(repository, ownerA, accepted.run.id);
+      expect(claimed).toMatchObject({ id: accepted.run.id, state: "accepted" });
       const plan = GroupedPlanSchema.parse({ schemaVersion: 2, goal: "诊断夹具", changeSummary: "验证五组持久化", assumptions: [], outOfScope: [],
         behaviors: ["B01", "B02", "B03", "B04", "B05"].map((id) => ({ id, title: `检查 ${id}`,
           precondition: "页面已打开", action: `操作 ${id}`, expected: `观察 ${id}`, required: true })),

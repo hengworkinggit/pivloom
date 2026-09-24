@@ -8,7 +8,7 @@ import { PivloomDatabase } from "../../src/data/database.js";
 import { createProjectRepository } from "../../src/data/projects.js";
 import { createModelProfileService } from "../../src/models/service.js";
 import { createCredentialVault } from "../../src/models/credentials.js";
-import { createGenerationRepository } from "../../src/data/generation.js";
+import { createGenerationRepository, type GenerationRepository } from "../../src/data/generation.js";
 import { createSourceStore, prepareSourceSnapshot } from "../../src/storage/source.js";
 
 describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real generation persistence boundaries", () => {
@@ -40,16 +40,18 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
     if (target.rows[0]?.environment_id !== environmentId) throw Error("Database target mismatch");
     database = new PivloomDatabase(process.env.DATABASE_URL);
     models = createModelProfileService(database, createCredentialVault(process.env.MODEL_CREDENTIALS_ENCRYPTION_KEY));
-    // This suite accepts real runs, so it must act as an account that still has
-    // daily quota. Which account that is changes as the day is consumed, so the
-    // A/B roles are assigned from the live counter instead of being assumed.
+    // This suite accepts real runs, so it must act as an account whose default
+    // profile is genuinely verified. The fixture repositories raise the daily
+    // ceiling above the production default so a shared account cannot run out of
+    // quota mid-suite; the A/B roles are still chosen from the live counter
+    // instead of being assumed.
     const verifiedFor = async (owner: string) => (await models.list(owner))
       .find((profile) => profile.isDefault && profile.capabilities.streaming === "verified" && profile.capabilities.tools === "verified" && profile.capabilities.vision === "verified");
     const [aProfile, aQuota, bProfile, bQuota] = await Promise.all([
       verifiedFor(userA),
-      createGenerationRepository(database, models, { executorBootId: randomUUID() }).quota(userA),
+      createGenerationRepository(database, models, { executorBootId: randomUUID(), dailyLimitByOwner: { [userA]: 1000 } }).quota(userA),
       verifiedFor(userB),
-      createGenerationRepository(database, models, { executorBootId: randomUUID() }).quota(userB),
+      createGenerationRepository(database, models, { executorBootId: randomUUID(), dailyLimitByOwner: { [userB]: 1000 } }).quota(userB),
     ]);
     const useB = !!bProfile && bQuota.dailyAccepted < bQuota.dailyLimit && (!aProfile || aQuota.dailyAccepted >= aQuota.dailyLimit);
     const verified = useB ? bProfile : aProfile;
@@ -57,7 +59,8 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
     ownerA = useB ? userB : userA;
     ownerB = useB ? userA : userB;
     model = verified;
-    generation = createGenerationRepository(database, models, { executorBootId: randomUUID() });
+    generation = createGenerationRepository(database, models, { executorBootId: randomUUID(),
+      maxSandboxes: 5, dailyLimitByOwner: { [ownerA]: 1000, [ownerB]: 1000 } });
     sources = createSourceStore({ url: process.env.SUPABASE_URL!, secret: process.env.SUPABASE_SECRET_KEY! });
     const directory = resolve("../../.cache/generation", environmentId);
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -78,6 +81,17 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
     idempotencyKey: randomUUID(), text, expectedCurrentRevisionId: null,
     modelProfileId: model.id, modelConfigVersion: model.configVersion,
   });
+
+  /** Claims one specific queued task exactly as the scheduler does, so this suite
+   *  can drive the repository directly. Returns null when capacity or the project
+   *  is busy. */
+  async function claimForTest(repo: GenerationRepository, ownerId: string, runId: string) {
+    const claimed = await repo.claimNextQueuedRun(runId);
+    if (!claimed) return null;
+    const prepared = await repo.prepareDispatch(ownerId, claimed.id);
+    if (prepared.outcome !== "ready") throw Error(`fixture task parked: ${prepared.run.error?.code ?? "unknown"}`);
+    return prepared.run;
+  }
 
   afterAll(async () => {
     if (admin && projectIds.length) {
@@ -132,7 +146,9 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
     expect(first.replayed).toBe(false);
     expect(replay.replayed).toBe(true);
     expect(replay.run.id).toBe(first.run.id);
-    expect(first.run.state).toBe("accepted");
+    // Admission is durable, not executing: the task waits until the scheduler
+    // claims the project lock and a capacity slot for it.
+    expect(first.run.state).toBe("queued");
     expect(first.run.coordinatorRoleRunId).toEqual(expect.any(String));
     expect(first.run.builderRoleRunId).toBeNull();
     expect(first.run.credentialLeaseId).toEqual(expect.any(String));
@@ -143,6 +159,8 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ schemaVersion: 1, type: "run.accepted", runId: first.run.id });
     await expect(generation.accept(ownerA, id, { ...input, text: "不同输入" })).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+    const claimed = await claimForTest(generation, ownerA, first.run.id);
+    expect(claimed).toMatchObject({ id: first.run.id, state: "accepted" });
     await generation.finishFailed(ownerA, first.run.id, { code: "CHECK_BLOCKED", message: "检查组件尚未接入", retryable: false, cleanupState: "confirmed" });
     expect((await createProjectRepository(database).get(ownerA, id)).currentRevisionId).toBeNull();
   }, 90_000);
@@ -150,6 +168,8 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
   test("a verified private snapshot becomes an immutable candidate and CHECK_BLOCKED never promotes current", async () => {
     const id = await project();
     const accepted = await generation.accept(ownerA, id, request("保存候选快照"));
+    const claimed = await claimForTest(generation, ownerA, accepted.run.id);
+    expect(claimed).toMatchObject({ id: accepted.run.id, state: "accepted" });
     await generation.setPhase(ownerA, accepted.run.id, { state: "building", phase: "snapshot" });
     const files = [{ path: "README.md", content: "hello" }, { path: "src/App.tsx", content: "export default function App(){return <main>fixture</main>}" }];
     const prepared = prepareSourceSnapshot("fixture-template-1", files);
@@ -182,6 +202,10 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
     const id = await project();
     const accepted = await generation.accept(ownerA, id, request("沙箱租约边界验证"));
     const runId = accepted.run.id;
+    // A sandbox can only be registered against a claimed task: the queue holds
+    // the project operation lock that fences every lease update below.
+    const claimed = await claimForTest(generation, ownerA, runId);
+    expect(claimed).toMatchObject({ id: runId, state: "accepted" });
     const remoteId = randomUUID();
     const firstExpiry = new Date(Date.now() + 300_000).toISOString();
     const renewedExpiry = new Date(Date.now() + 600_000).toISOString();
@@ -209,13 +233,13 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
     await generation.finishCancelled(ownerA, runId, { cleanupState: "confirmed", summary: "fixture cleanup" });
   }, 90_000);
 
-  test("full sandbox capacity rejects new work without changing an accepted request replay", async () => {
+  test("a full sandbox ceiling persists new work as queued, replays without another slot and dispatches it once capacity frees", async () => {
     const id = await project();
     const input = request("容量测试");
     const accepted = await generation.accept(ownerA, id, input);
-    // The global index allows one active run at a time, so this run must reach a
-    // terminal state before the capacity assertion can be attributed correctly.
-    await generation.finishFailed(ownerA, accepted.run.id, { code: "CHECK_BLOCKED", message: "fixture terminal", retryable: false, cleanupState: "confirmed" });
+    // Waiting is durable and free: a queued task holds no sandbox, no model call
+    // and no capacity slot while the ceiling is occupied.
+    expect(accepted.run.state).toBe("queued");
     // Capacity is counted from the durable registry, so the fixture is a real
     // live sandbox row (the external boundary) rather than an injected predicate.
     const fixtureSandbox = randomUUID();
@@ -224,27 +248,45 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
     const liveBefore = (await admin.query("SELECT nano.live_sandbox_count() AS live")).rows[0].live as number;
     await admin.query(`INSERT INTO nano.sandboxes(owner_id,project_id,run_id,attempt,remote_id,purpose,state,expires_at)
       VALUES($1,$2,$3,0,$4,'preview','active',now()+interval '10 minutes')`, [ownerA, id, accepted.run.id, fixtureSandbox]);
-    let releasedRunId: string | null = null;
+    let claimedRunId: string | null = null;
     try {
-      const full = createGenerationRepository(database, models, { executorBootId: randomUUID(), maxSandboxes: liveBefore + 1 });
-      // An idempotent replay is still served: it never claimed a new sandbox.
-      expect((await full.accept(ownerA, id, input)).run.id).toBe(accepted.run.id);
+      const full = createGenerationRepository(database, models, { executorBootId: randomUUID(),
+        maxSandboxes: liveBefore + 1, dailyLimitByOwner: { [ownerA]: 1000 } });
+      // An idempotent replay is still served: it never consumed another slot and
+      // never stored a second task.
+      const replay = await full.accept(ownerA, id, input);
+      expect(replay.replayed).toBe(true);
+      expect(replay.run.id).toBe(accepted.run.id);
+      expect(replay.run.state).toBe("queued");
+      expect((await admin.query("SELECT count(*)::int AS n FROM nano.runs WHERE project_id=$1", [id])).rows[0].n).toBe(1);
+      // A request that cannot be dispatched yet is not refused: it is persisted
+      // as a queued task with its request text, and the ceiling only postpones it.
       const emptyProject = await project();
-      await expect(full.accept(ownerA, emptyProject, request())).rejects.toMatchObject({ code: "SERVICE_BUSY" });
-      expect(await generation.getLatestRun(ownerA, emptyProject)).toBeNull();
-      expect(await generation.listProjectMessages(ownerA, emptyProject)).toEqual([]);
+      const waiting = await full.accept(ownerA, emptyProject, request("容量释放后执行"));
+      expect(waiting.run.state).toBe("queued");
+      expect(waiting.run.id).not.toBe(accepted.run.id);
+      expect((await generation.getLatestRun(ownerA, emptyProject))?.id).toBe(waiting.run.id);
+      expect((await generation.listProjectMessages(ownerA, emptyProject)).map((message) => message.kind)).toEqual(["user"]);
+      // With the ceiling reached the claim takes nothing and leaves the durable
+      // task untouched, so no executor can be handed a half-admitted run.
+      expect(await full.claimNextQueuedRun(accepted.run.id)).toBeNull();
+      expect(await full.claimNextQueuedRun(waiting.run.id)).toBeNull();
+      expect((await generation.getRun(ownerA, waiting.run.id)).state).toBe("queued");
+      expect((await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [emptyProject])).rows[0].operation_id).toBeNull();
       // A reclaimed sandbox stops counting immediately, even before its expiry.
       await admin.query("UPDATE nano.sandboxes SET state='destroyed' WHERE remote_id=$1", [fixtureSandbox]);
-      const released = await full.accept(ownerA, emptyProject, request("容量释放后"));
-      expect(released.run.state).toBe("accepted");
-      releasedRunId = released.run.id;
+      const claimed = await full.claimNextQueuedRun(waiting.run.id);
+      claimedRunId = claimed?.id ?? null;
+      expect(claimed).toMatchObject({ id: waiting.run.id, state: "accepted" });
     } finally {
-      // An accepted run holds the single global generation slot until it reaches
-      // a terminal state, so it must never outlive this case.
-      if (releasedRunId) {
-        await generation.cancel(ownerA, releasedRunId);
-        await generation.finishCancelled(ownerA, releasedRunId, { cleanupState: "confirmed", summary: "fixture cleanup" });
+      // A claimed run holds the project operation lock and the capacity slot
+      // until it reaches a terminal state, so it must never outlive this case.
+      if (claimedRunId) {
+        await generation.cancel(ownerA, claimedRunId);
+        await generation.finishCancelled(ownerA, claimedRunId, { cleanupState: "confirmed", summary: "fixture cleanup" });
       }
+      // The first request never left the queue and holds nothing.
+      await generation.cancel(ownerA, accepted.run.id);
       await admin.query("DELETE FROM nano.sandboxes WHERE remote_id=$1", [fixtureSandbox]);
     }
   }, 90_000);
@@ -252,6 +294,8 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
   test("a failed upload and a real database rollback never reference an unavailable snapshot and leave identifiable orphans", async () => {
     const id = await project();
     const accepted = await generation.accept(ownerA, id, request("保存边界故障验证"));
+    const claimed = await claimForTest(generation, ownerA, accepted.run.id);
+    expect(claimed).toMatchObject({ id: accepted.run.id, state: "accepted" });
     const files = [{ path: "README.md", content: "snapshot boundary fixture" }];
     const failedUpload = createSourceStore({ url: process.env.SUPABASE_URL!, secret: process.env.SUPABASE_SECRET_KEY!, objects: {
       upload: async () => { throw Error("injected external Storage upload failure"); },
@@ -286,30 +330,68 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("real genera
     await generation.finishFailed(ownerA, accepted.run.id, { code: "SNAPSHOT_SAVE_FAILED", message: "fixture boundary failure", retryable: true, cleanupState: "confirmed" });
   }, 120_000);
 
-  test("owner isolation, global capacity and cleanup pending prevent duplicate or overlapping accepted work", async () => {
+  test("owner isolation and cleanup pending keep queued work serial and prevent duplicate or overlapping accepted work", async () => {
     const firstProject = await project();
     const secondProject = await project();
     const input = request("并发请求");
-    const outcomes = await Promise.allSettled([
+    // Admission is durable for both requests: a second request for a project
+    // that already has one waiting task is stored, not refused. Serialisation is
+    // decided at dispatch, by the project operation lock.
+    const [first, second] = await Promise.all([
       generation.accept(ownerA, firstProject, input),
       generation.accept(ownerA, firstProject, { ...input, idempotencyKey: randomUUID() }),
     ]);
-    const accepted = outcomes.find((result) => result.status === "fulfilled");
-    if (!accepted || accepted.status !== "fulfilled") throw Error("No accepted concurrent request");
-    expect(outcomes.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    const rejected = outcomes.find((result) => result.status === "rejected");
-    expect(rejected?.status === "rejected" && rejected.reason.code).toBe("PROJECT_BUSY");
-    const runId = accepted.value.run.id;
-    expect((await generation.listProjectMessages(ownerA, firstProject)).filter((message) => message.kind === "user")).toHaveLength(1);
+    expect([first.replayed, second.replayed]).toEqual([false, false]);
+    expect([first.run.state, second.run.state]).toEqual(["queued", "queued"]);
+    expect(first.run.id).not.toBe(second.run.id);
+    const runId = first.run.id;
+    // A replay of the first key returns the same durable task and never stores a
+    // second copy of that request.
+    const replay = await generation.accept(ownerA, firstProject, input);
+    expect(replay.replayed).toBe(true);
+    expect(replay.run.id).toBe(runId);
+    expect((await generation.listProjectMessages(ownerA, firstProject)).filter((message) => message.kind === "user")).toHaveLength(2);
     await expect(generation.getRun(ownerB, runId)).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(generation.accept(ownerB, firstProject, input)).rejects.toMatchObject({ code: "NOT_FOUND" });
-    await expect(generation.accept(ownerA, secondProject, request())).rejects.toMatchObject({ code: "SERVICE_BUSY" });
+    // Capacity is a dispatch decision now, so another project's request is
+    // durable as well and is not blocked by this project's pair.
+    const independent = await generation.accept(ownerA, secondProject, request());
+    expect(independent.run.state).toBe("queued");
     await expect(generation.accept(ownerA, secondProject, { ...request(), expectedCurrentRevisionId: randomUUID() })).rejects.toMatchObject({ code: "STALE_BASE" });
-    await expect(generation.appendEvent(ownerA, runId, { type: "tool.output", payload: { output: "a".repeat(16 * 1024) } })).rejects.toMatchObject({ code: "EVENT_TOO_LARGE" });
-    await generation.finishFailed(ownerA, runId, { code: "REMOTE_CLEANUP_PENDING", message: "fixture remote cleanup pending", retryable: true, cleanupState: "pending" });
-    await expect(generation.accept(ownerA, secondProject, request())).rejects.toMatchObject({ code: "SERVICE_BUSY" });
-    await generation.confirmCleanup(ownerA, runId);
-    const next = await generation.accept(ownerA, secondProject, request());
-    await generation.finishFailed(ownerA, next.run.id, { code: "CHECK_BLOCKED", message: "fixture terminal", retryable: false, cleanupState: "confirmed" });
+    try {
+      // Exactly one of the two sibling tasks can hold the project operation at a
+      // time; the other stays queued, blocked by its own project and not by the
+      // global ceiling.
+      const claimed = await claimForTest(generation, ownerA, runId);
+      expect(claimed).toMatchObject({ id: runId, state: "accepted" });
+      expect((await admin.query("SELECT blocked FROM nano.queue_candidates() WHERE run_id=$1", [second.run.id])).rows[0].blocked).toBe(true);
+      expect(await generation.claimNextQueuedRun(second.run.id)).toBeNull();
+      expect((await generation.getRun(ownerA, second.run.id)).state).toBe("queued");
+      // A different project is dispatchable at the same time, so one project's
+      // backlog occupies its own lock and not the whole ceiling.
+      const third = await claimForTest(generation, ownerA, independent.run.id);
+      expect(third).toMatchObject({ id: independent.run.id, state: "accepted" });
+      await expect(generation.appendEvent(ownerA, runId, { type: "tool.output", payload: { output: "a".repeat(16 * 1024) } })).rejects.toMatchObject({ code: "EVENT_TOO_LARGE" });
+      // An unsettled cleanup keeps both the project lock and the sibling task:
+      // the next request in this project must not start on reclaimed resources.
+      const pending = await generation.finishFailed(ownerA, runId, { code: "REMOTE_CLEANUP_PENDING", message: "fixture remote cleanup pending", retryable: true, cleanupState: "pending" });
+      expect(pending.cleanupState).toBe("pending");
+      expect((await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [firstProject])).rows[0].operation_id).toBe(runId);
+      expect(await generation.claimNextQueuedRun(second.run.id)).toBeNull();
+      // Confirming the cleanup releases the project and lets the waiting task run.
+      await generation.confirmCleanup(ownerA, runId);
+      const next = await claimForTest(generation, ownerA, second.run.id);
+      expect(next).toMatchObject({ id: second.run.id, state: "accepted" });
+      await generation.finishFailed(ownerA, second.run.id, { code: "CHECK_BLOCKED", message: "fixture terminal", retryable: false, cleanupState: "confirmed" });
+      await generation.finishFailed(ownerA, independent.run.id, { code: "CHECK_BLOCKED", message: "fixture terminal", retryable: false, cleanupState: "confirmed" });
+    } finally {
+      // A claimed task must never outlive this case with the project lock and the
+      // capacity slot still held.
+      await admin.query(`UPDATE nano.runs SET state='cancelled',phase='cleanup',cleanup_state='confirmed',
+        error_code='CANCELLED',error_message='fixture cleanup',error_retryable=true,finished_at=coalesce(finished_at,now())
+        WHERE project_id=ANY($1::uuid[]) AND state NOT IN ('completed','needs_changes','needs_input','failed','cancelled','interrupted')`,
+      [[firstProject, secondProject]]);
+      await admin.query("UPDATE nano.projects SET operation_kind=NULL,operation_id=NULL,operation_started_at=NULL WHERE id=ANY($1::uuid[])", [[firstProject, secondProject]]);
+    }
   }, 120_000);
 });

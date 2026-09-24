@@ -5,7 +5,7 @@ import { Pool, type PoolClient } from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import type { GroupedPlan, Plan, RoleUsage, RunEvent } from "@pivloom/contracts";
 import { PivloomDatabase } from "../../src/data/database.js";
-import { createGenerationRepository } from "../../src/data/generation.js";
+import { createGenerationRepository, type GenerationRepository } from "../../src/data/generation.js";
 import { createProjectRepository } from "../../src/data/projects.js";
 import { createModelProfileService } from "../../src/models/service.js";
 import { createCredentialVault } from "../../src/models/credentials.js";
@@ -57,7 +57,8 @@ describe.skipIf(process.env.PIVLOOM_PLANNING_INTEGRATION !== "1")("planning thro
     } catch (error) { await admin.query("ROLLBACK"); throw error; }
     models = createModelProfileService(database, vault);
     model = { id: fixtureProfileId, configVersion: 1 };
-    generation = createGenerationRepository(database, models, { executorBootId: randomUUID() });
+    generation = createGenerationRepository(database, models, { executorBootId: randomUUID(),
+      maxSandboxes: 5, dailyLimitByOwner: { [ownerA]: 1000 } });
   }, 30_000);
 
   async function project() {
@@ -67,6 +68,17 @@ describe.skipIf(process.env.PIVLOOM_PLANNING_INTEGRATION !== "1")("planning thro
     return created.id;
   }
   const request = (text = "生成活动报名页") => ({ text, idempotencyKey: randomUUID(), expectedCurrentRevisionId: null, modelProfileId: model.id, modelConfigVersion: model.configVersion });
+
+  /** Claims one specific queued task exactly as the scheduler does, so this suite
+   *  can drive the repository directly. Returns null when capacity or the project
+   *  is busy. */
+  async function claimForTest(repo: GenerationRepository, ownerId: string, runId: string) {
+    const claimed = await repo.claimNextQueuedRun(runId);
+    if (!claimed) return null;
+    const prepared = await repo.prepareDispatch(ownerId, claimed.id);
+    if (prepared.outcome !== "ready") throw Error(`fixture task parked: ${prepared.run.error?.code ?? "unknown"}`);
+    return prepared.run;
+  }
   const plan: GroupedPlan = { schemaVersion: 2, goal: "收集活动报名", changeSummary: "增加报名表与明确提交反馈", assumptions: ["演示数据仅保存在当前浏览器"],
     outOfScope: ["真实支付与跨用户数据库"], behaviors: [
       { id: "B01", title: "提交报名", precondition: "报名表已打开", action: "填写姓名后点击报名", expected: "显示报名成功和填写的姓名", required: true },
@@ -136,7 +148,11 @@ describe.skipIf(process.env.PIVLOOM_PLANNING_INTEGRATION !== "1")("planning thro
     const projectId = await project();
     const input = request("  请生成活动报名页\n保留我的原文。  ");
     const accepted = await generation.accept(ownerA, projectId, input);
-    expect(accepted.run).toMatchObject({ state: "accepted", phase: "plan", requestText: input.text.trim(), builderRoleRunId: null });
+    // Admission persists the request as a queued task; only a claim turns it into
+    // a dispatchable run whose coordinator may start.
+    expect(accepted.run).toMatchObject({ state: "queued", phase: "plan", requestText: input.text.trim(), builderRoleRunId: null });
+    const claimed = await claimForTest(generation, ownerA, accepted.run.id);
+    expect(claimed).toMatchObject({ id: accepted.run.id, state: "accepted", phase: "plan" });
     const snapshot = await generation.readRunSnapshot(ownerA, accepted.run.id);
     expect(snapshot.roles).toHaveLength(1);
     expect(snapshot.roles[0]).toMatchObject({ role: "coordinator", state: "queued", predecessorId: null });
@@ -150,6 +166,8 @@ describe.skipIf(process.env.PIVLOOM_PLANNING_INTEGRATION !== "1")("planning thro
   test("only the current coordinator can atomically save a bounded plan and one durable builder handoff", async () => {
     const projectId = await project();
     const accepted = await generation.accept(ownerA, projectId, request());
+    const claimed = await claimForTest(generation, ownerA, accepted.run.id);
+    expect(claimed).toMatchObject({ id: accepted.run.id, state: "accepted" });
     const coordinator = await generation.startCoordinator(ownerA, accepted.run.id);
     expect(coordinator).toMatchObject({ role: "coordinator", state: "running", attempt: 0 });
     const reference = { roleRunId: coordinator.id, attempt: coordinator.attempt };
@@ -196,6 +214,8 @@ describe.skipIf(process.env.PIVLOOM_PLANNING_INTEGRATION !== "1")("planning thro
   test("clarification commits one question and releases resources, while the answer creates a new linked run with the full accepted context", async () => {
     const projectId = await project();
     const original = await generation.accept(ownerA, projectId, request("为线下读书会收集报名，需要确认谁可参加"));
+    const originalClaim = await claimForTest(generation, ownerA, original.run.id);
+    expect(originalClaim).toMatchObject({ id: original.run.id, state: "accepted" });
     const coordinator = await generation.startCoordinator(ownerA, original.run.id);
     const input = { roleRunId: coordinator.id, attempt: 0, question: "哪些人可以报名：所有访客，还是持邀请码的成员？" };
     const published: RunEvent[] = [];
@@ -218,14 +238,18 @@ describe.skipIf(process.env.PIVLOOM_PLANNING_INTEGRATION !== "1")("planning thro
     expect((await generation.listProjectMessages(ownerA, projectId)).filter((message) => message.kind === "question")).toMatchObject([{ runId: original.run.id, content: input.question }]);
     const otherProject = await project();
     const independent = await generation.accept(ownerA, otherProject, request("资源释放后可接受独立任务"));
+    const independentClaim = await claimForTest(generation, ownerA, independent.run.id);
+    expect(independentClaim).toMatchObject({ id: independent.run.id, state: "accepted" });
     await generation.finishFailed(ownerA, independent.run.id, { code: "FIXTURE_COMPLETE", message: "No model invoked", retryable: false, cleanupState: "confirmed" });
     const reply = { ...request(" 所有人均可参加，最多 20 人。 "), parentRunId: original.run.id };
     const child = await generation.accept(ownerA, projectId, reply);
-    expect(child.run).toMatchObject({ parentRunId: original.run.id, requestText: reply.text.trim(), state: "accepted" });
+    expect(child.run).toMatchObject({ parentRunId: original.run.id, requestText: reply.text.trim(), state: "queued" });
     expect(child.run.id).not.toBe(original.run.id);
     expect((await generation.accept(ownerA, projectId, reply)).run.id).toBe(child.run.id);
     const context = await generation.getPlanningContext(ownerA, child.run.id);
     expect(context).toMatchObject({ originalRequest: original.run.requestText, requestText: reply.text.trim(), clarificationTurns: [{ parentRunId: original.run.id, question: input.question, answer: reply.text.trim() }] });
+    const childClaim = await claimForTest(generation, ownerA, child.run.id);
+    expect(childClaim).toMatchObject({ id: child.run.id, state: "accepted", parentRunId: original.run.id });
     const childCoordinator = await generation.startCoordinator(ownerA, child.run.id);
     const handed = await generation.submitPlan(ownerA, child.run.id, { roleRunId: childCoordinator.id, attempt: 0, plan });
     for (const acceptedText of [original.run.requestText, input.question, reply.text.trim()]) expect(handed.handoff.task).toContain(acceptedText);
@@ -235,7 +259,9 @@ describe.skipIf(process.env.PIVLOOM_PLANNING_INTEGRATION !== "1")("planning thro
     await expect(generation.accept(ownerA, otherProject, { ...request("其它项目的父任务"), parentRunId: original.run.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
     const retry = await generation.accept(ownerA, projectId, { ...request("以新任务重试"), retryOfRunId: child.run.id });
     try {
-      expect(retry.run).toMatchObject({ projectId, state: "accepted" });
+      expect(retry.run).toMatchObject({ projectId, state: "queued" });
+      const retryClaim = await claimForTest(generation, ownerA, retry.run.id);
+      expect(retryClaim).toMatchObject({ id: retry.run.id, state: "accepted" });
       expect((await admin.query("SELECT retry_of FROM nano.runs WHERE id=$1", [retry.run.id])).rows[0].retry_of).toBe(child.run.id);
     } finally {
       await generation.finishFailed(ownerA, retry.run.id, { code: "FIXTURE_COMPLETE", message: "No model invoked", retryable: false, cleanupState: "confirmed" });
@@ -246,6 +272,8 @@ describe.skipIf(process.env.PIVLOOM_PLANNING_INTEGRATION !== "1")("planning thro
   test("a modification must preserve an existing observable behavior from its exact current revision", async () => {
     const projectId = await project();
     const prior = await generation.accept(ownerA, projectId, request());
+    const priorClaim = await claimForTest(generation, ownerA, prior.run.id);
+    expect(priorClaim).toMatchObject({ id: prior.run.id, state: "accepted" });
     const coordinator = await generation.startCoordinator(ownerA, prior.run.id);
     await generation.submitPlan(ownerA, prior.run.id, { roleRunId: coordinator.id, attempt: 0, plan });
     await generation.finishFailed(ownerA, prior.run.id, { code: "FIXTURE_COMPLETE", message: "Contract fixture; no model or source build", retryable: false, cleanupState: "confirmed" });
@@ -269,6 +297,8 @@ describe.skipIf(process.env.PIVLOOM_PLANNING_INTEGRATION !== "1")("planning thro
     } catch (error) { await admin.query("ROLLBACK"); throw error; }
     const next = await generation.accept(ownerA, projectId, { ...request("增加姓名搜索，保留报名提交"), expectedCurrentRevisionId: revisionId });
     expect((await generation.getPlanningContext(ownerA, next.run.id)).previousPlan).toEqual(legacyPlan);
+    const nextClaim = await claimForTest(generation, ownerA, next.run.id);
+    expect(nextClaim).toMatchObject({ id: next.run.id, state: "accepted", baseRevisionId: revisionId });
     const nextCoordinator = await generation.startCoordinator(ownerA, next.run.id);
     const reference = { roleRunId: nextCoordinator.id, attempt: 0 };
     const search = { id: "B06", title: "搜索姓名", precondition: "已有报名记录", action: "输入一个姓名", expected: "仅显示匹配姓名的报名记录", required: true };
@@ -288,6 +318,8 @@ describe.skipIf(process.env.PIVLOOM_PLANNING_INTEGRATION !== "1")("planning thro
 
   test("failure preserves observed running-role usage without overwriting completed or foreign roles", async () => {
     const previous = await generation.accept(ownerA, await project(), request("已完成协调者用量"));
+    const previousClaim = await claimForTest(generation, ownerA, previous.run.id);
+    expect(previousClaim).toMatchObject({ id: previous.run.id, state: "accepted" });
     const completed = await generation.startCoordinator(ownerA, previous.run.id);
     const completedUsage: RoleUsage = { modelCalls: 1, toolCalls: 1, inputTokens: 5, outputTokens: 2, cachedTokens: null, totalTokens: 7, elapsedMs: 23, source: "partial" };
     const invalidUsage = { ...completedUsage, rawProviderResponse: { unchecked: true } };
@@ -302,6 +334,8 @@ describe.skipIf(process.env.PIVLOOM_PLANNING_INTEGRATION !== "1")("planning thro
     await generation.finishFailed(ownerA, previous.run.id, { code: "FIXTURE_COMPLETE", message: "Preserve completed usage", retryable: false, cleanupState: "confirmed",
       roleUsage: { roleRunId: completed.id, usage: { ...completedUsage, inputTokens: 999, outputTokens: 999, totalTokens: 1998 } } });
     const accepted = await generation.accept(ownerA, await project(), request("模型失败时保留已消耗用量"));
+    const acceptedClaim = await claimForTest(generation, ownerA, accepted.run.id);
+    expect(acceptedClaim).toMatchObject({ id: accepted.run.id, state: "accepted" });
     const coordinator = await generation.startCoordinator(ownerA, accepted.run.id);
     const usage: RoleUsage = { modelCalls: 1, toolCalls: 0, inputTokens: 37, outputTokens: null, cachedTokens: null, totalTokens: null, elapsedMs: 125, source: "partial" };
     const failure = { code: "TOKEN_BUDGET_EXCEEDED", message: "Fixture budget stop after observed usage", retryable: false, cleanupState: "confirmed" as const,

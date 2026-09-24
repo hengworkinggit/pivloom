@@ -6,7 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import type { GroupedPlan } from "@pivloom/contracts";
 import { PivloomDatabase } from "../../src/data/database.js";
-import { createGenerationRepository } from "../../src/data/generation.js";
+import { createGenerationRepository, type GenerationRepository } from "../../src/data/generation.js";
 import { createProjectRepository } from "../../src/data/projects.js";
 import { createModelProfileService } from "../../src/models/service.js";
 import { createCredentialVault } from "../../src/models/credentials.js";
@@ -49,12 +49,18 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
 
   afterEach(async () => {
     if (!targetVerified || !generation) return;
-    const active = await admin.query(`SELECT id FROM nano.runs WHERE owner_id=$1
-      AND state IN ('accepted','planning','building','verifying','repairing','finalizing','cancel_requested')`, [ownerA]);
-    for (const run of active.rows) await generation.finishFailed(ownerA, run.id, {
-      code: "FIXTURE_TEST_ENDED", message: "Review fixture ended before terminal settlement", retryable: false,
-      cleanupState: "confirmed",
-    });
+    const active = await admin.query(`SELECT id,state FROM nano.runs WHERE owner_id=$1
+      AND state IN ('queued','accepted','planning','building','verifying','repairing','finalizing','cancel_requested')`, [ownerA]);
+    for (const run of active.rows) {
+      // A queued task never held a project lock, so cancel settles it immediately
+      // and terminally; everything the queue dispatched is failed out as fixture
+      // cleanup.
+      if (run.state === "queued") await generation.cancel(ownerA, run.id);
+      else await generation.finishFailed(ownerA, run.id, {
+        code: "FIXTURE_TEST_ENDED", message: "Review fixture ended before terminal settlement", retryable: false,
+        cleanupState: "confirmed",
+      });
+    }
   });
 
   beforeAll(async () => {
@@ -86,9 +92,23 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     } catch (error) { await admin.query("ROLLBACK"); throw error; }
     models = createModelProfileService(database, vault);
     model = { id: fixtureProfileId, configVersion: 1 };
-    generation = createGenerationRepository(database, models, { executorBootId: randomUUID() });
+    // The suite never tests the capacity ceiling, but every fixture keeps its
+    // candidate-preview sandbox row active for the whole Preview TTL, so the
+    // ceiling must not become the fixture's own failure mode.
+    generation = createGenerationRepository(database, models, { executorBootId: randomUUID(), maxSandboxes: 20,
+      dailyLimitByOwner: { [ownerA]: 1000 } });
     sources = createSourceStore({ url: process.env.SUPABASE_URL!, secret: process.env.SUPABASE_SECRET_KEY! });
   }, 30_000);
+
+  /** Claims one specific queued task the way the scheduler does, so a test can
+   *  drive the executor directly. Returns null when capacity/project is busy. */
+  async function claimForTest(repo: GenerationRepository, ownerId: string, runId: string) {
+    const claimed = await repo.claimNextQueuedRun(runId);
+    if (!claimed) return null;
+    const prepared = await repo.prepareDispatch(ownerId, claimed.id);
+    if (prepared.outcome !== "ready") throw Error(`fixture task parked: ${prepared.run.error?.code ?? "unknown"}`);
+    return prepared.run;
+  }
 
   async function candidate(inMemoryObjects = false) {
     const objects = new Map<string, Uint8Array>();
@@ -100,21 +120,25 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     projectIds.push(project.id); await save();
     const accepted = await generation.accept(ownerA, project.id, { idempotencyKey: randomUUID(), text: "添加书名并展示书单", expectedCurrentRevisionId: null, modelProfileId: model.id, modelConfigVersion: model.configVersion });
     runIds.push(accepted.run.id); leaseIds.push(accepted.run.credentialLeaseId); await save();
-    const coordinator = await generation.startCoordinator(ownerA, accepted.run.id);
-    await generation.submitPlan(ownerA, accepted.run.id, { roleRunId: coordinator.id, attempt: 0, plan });
-    const builder = await generation.startBuilder(ownerA, accepted.run.id);
-    await generation.completeBuilder(ownerA, accepted.run.id, { summary: "Explicit build fixture" });
+    // No scheduler runs in this suite: claim this exact queued task the way
+    // dispatch would before any role may start on it.
+    const claimed = await claimForTest(generation, ownerA, accepted.run.id);
+    if (!claimed) throw Error("review fixture task was not claimable");
+    const coordinator = await generation.startCoordinator(ownerA, claimed.id);
+    await generation.submitPlan(ownerA, claimed.id, { roleRunId: coordinator.id, attempt: 0, plan });
+    const builder = await generation.startBuilder(ownerA, claimed.id);
+    await generation.completeBuilder(ownerA, claimed.id, { summary: "Explicit build fixture" });
     const source = await sourceStore.save({ ownerId: ownerA, projectId: project.id, revisionId: randomUUID() }, REACT_TEMPLATE_VERSION, files);
     if (!inMemoryObjects) { sourceKeys.push(source.key); await save(); }
-    const revision = await generation.saveCandidate(ownerA, accepted.run.id, { source, buildStatus: "passed", build: {
+    const revision = await generation.saveCandidate(ownerA, claimed.id, { source, buildStatus: "passed", build: {
       schemaVersion: 1, sourceHash: source.sourceHash,
       typecheck: { command: "node /workspace/node_modules/typescript/bin/tsc --noEmit", exitCode: 0, durationMs: 1, stdoutTail: "Explicit successful typecheck fixture", stderrTail: "" },
       build: { command: "node /workspace/node_modules/vite/bin/vite.js build", exitCode: 0, durationMs: 1, stdoutTail: "Explicit successful build fixture", stderrTail: "" },
     } });
     const sandbox = { sandboxId: `review-fixture-${randomUUID()}`, expiresAt: new Date(Date.now() + 600_000).toISOString() };
-    await generation.registerSandbox(ownerA, accepted.run.id, sandbox);
-    await generation.bindPreview(ownerA, accepted.run.id, { ...sandbox, revisionId: revision.id, sourceHash: revision.sourceHash, markerVerified: true, writeRevoked: true, chromeClosed: true });
-    return { project, run: accepted.run, builder, revision, source, sandbox, sourceStore, artifactStore, inMemoryObjects };
+    await generation.registerSandbox(ownerA, claimed.id, sandbox);
+    await generation.bindPreview(ownerA, claimed.id, { ...sandbox, revisionId: revision.id, sourceHash: revision.sourceHash, markerVerified: true, writeRevoked: true, chromeClosed: true });
+    return { project, run: claimed, builder, revision, source, sandbox, sourceStore, artifactStore, inMemoryObjects };
   }
 
   async function reviewed(fixture: Awaited<ReturnType<typeof candidate>>, verdict: "passed" | "failed" | "blocked" = "passed", action: "click" | "press" | "reload" = "click", browserFault?: "BROWSER_BLOCKED" | "BROWSER_TIMEOUT") {
@@ -317,14 +341,19 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
       text: "retry linked blocked candidate", expectedCurrentRevisionId: null,
       modelProfileId: model.id, modelConfigVersion: model.configVersion, retryOfRunId: fixture.run.id });
     runIds.push(accepted.run.id); leaseIds.push(accepted.run.credentialLeaseId); await save();
-    await expect(generation.getReviewRetryCandidate(ownerB, accepted.run.id, fixture.run.id))
+    expect(accepted.run.state).toBe("queued");
+    // Reuse is decided for a dispatched task, so claim it the way the scheduler
+    // would: the claim is what moves it out of the queue and takes the lock.
+    const claimed = await claimForTest(generation, ownerA, accepted.run.id);
+    if (!claimed) throw Error("linked retry fixture task was not claimable");
+    await expect(generation.getReviewRetryCandidate(ownerB, claimed.id, fixture.run.id))
       .rejects.toMatchObject({ code: "NOT_FOUND" });
-    const reused = await generation.getReviewRetryCandidate(ownerA, accepted.run.id, fixture.run.id);
+    const reused = await generation.getReviewRetryCandidate(ownerA, claimed.id, fixture.run.id);
     expect(reused?.revision).toMatchObject({ id: fixture.revision.id, sourceHash: fixture.revision.sourceHash,
       buildStatus: "passed", status: "candidate" });
     expect(reused?.plan).toEqual(plan);
-    expect(await generation.getReviewRetryCandidate(ownerA, accepted.run.id, randomUUID())).toBeNull();
-    await generation.finishCancelled(ownerA, accepted.run.id, { cleanupState: "confirmed", summary: "Isolated retry cancelled" });
+    expect(await generation.getReviewRetryCandidate(ownerA, claimed.id, randomUUID())).toBeNull();
+    await generation.finishCancelled(ownerA, claimed.id, { cleanupState: "confirmed", summary: "Isolated retry cancelled" });
     expect((await generation.getRevision(ownerA, fixture.revision.id)).sourceHash).toBe(fixture.revision.sourceHash);
     expect((await admin.query("SELECT current_revision_id FROM nano.projects WHERE id=$1", [fixture.project.id]))
       .rows[0].current_revision_id).toBeNull();
@@ -343,13 +372,17 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
       modelProfileId: model.id, modelConfigVersion: model.configVersion, retryOfRunId: reviewedCandidate.run.id });
     runIds.push(retry.run.id); leaseIds.push(retry.run.credentialLeaseId); await save();
     expect(retry.run.requestText).toBe(reviewedCandidate.run.requestText);
-    await expect(generation.getReviewRetryCandidate(ownerB, retry.run.id, reviewedCandidate.run.id))
+    // Claim first: without it the task is queued and holds no project lock, and
+    // the reuse check below is only meaningful for a dispatched task.
+    const claimedRetry = await claimForTest(generation, ownerA, retry.run.id);
+    if (!claimedRetry) throw Error("reviewer retry fixture task was not claimable");
+    await expect(generation.getReviewRetryCandidate(ownerB, claimedRetry.id, reviewedCandidate.run.id))
       .rejects.toMatchObject({ code: "NOT_FOUND" });
-    const reused = await generation.getReviewRetryCandidate(ownerA, retry.run.id, reviewedCandidate.run.id);
+    const reused = await generation.getReviewRetryCandidate(ownerA, claimedRetry.id, reviewedCandidate.run.id);
     expect(reused?.revision).toMatchObject({ id: reviewedCandidate.revision.id,
       sourceHash: reviewedCandidate.revision.sourceHash, buildStatus: "passed", status: "candidate" });
     expect(reused?.plan).toEqual(plan);
-    await generation.finishCancelled(ownerA, retry.run.id, { cleanupState: "confirmed", summary: "Fixture retry cancelled" });
+    await generation.finishCancelled(ownerA, claimedRetry.id, { cleanupState: "confirmed", summary: "Fixture retry cancelled" });
 
     const builderCandidate = await candidate(true);
     await generation.markDestroyed(ownerA, builderCandidate.run.id, builderCandidate.sandbox.sandboxId);
@@ -359,8 +392,13 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
       text: "retry", expectedCurrentRevisionId: null,
       modelProfileId: model.id, modelConfigVersion: model.configVersion, retryOfRunId: builderCandidate.run.id });
     runIds.push(builderRetry.run.id); leaseIds.push(builderRetry.run.credentialLeaseId); await save();
-    expect(await generation.getReviewRetryCandidate(ownerA, builderRetry.run.id, builderCandidate.run.id)).toBeNull();
-    await generation.finishCancelled(ownerA, builderRetry.run.id, { cleanupState: "confirmed", summary: "Fixture retry cancelled" });
+    expect(builderRetry.run.state).toBe("queued");
+    // Claiming keeps this case's original intent: the task is dispatched and the
+    // null below comes from the missing Reviewer, not from the queue state.
+    const claimedBuilderRetry = await claimForTest(generation, ownerA, builderRetry.run.id);
+    if (!claimedBuilderRetry) throw Error("builder retry fixture task was not claimable");
+    expect(await generation.getReviewRetryCandidate(ownerA, claimedBuilderRetry.id, builderCandidate.run.id)).toBeNull();
+    await generation.finishCancelled(ownerA, claimedBuilderRetry.id, { cleanupState: "confirmed", summary: "Fixture retry cancelled" });
   }, 300_000);
 
   test("only an active exact-version review can atomically promote, with owner-isolated checks and private artifacts", async () => {

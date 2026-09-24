@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import type { RunEvent } from "@pivloom/contracts";
 import { PivloomDatabase } from "../../src/data/database.js";
 import { createProjectRepository } from "../../src/data/projects.js";
-import { createGenerationRepository } from "../../src/data/generation.js";
+import { createGenerationRepository, type GenerationRepository } from "../../src/data/generation.js";
 import { createCredentialVault } from "../../src/models/credentials.js";
 import { createModelProfileService } from "../../src/models/service.js";
 import { createGenerationService } from "../../src/generation/service.js";
@@ -60,6 +60,9 @@ describe.skipIf(process.env.PIVLOOM_EVENTS_INTEGRATION !== "1")("durable generat
   let cleanupVerifiedAt: string | null = null;
   let tokenA: string;
   let tokenB: string;
+  /** One process boot id: a claimed task only accepts progress events from the
+   *  boot that dispatched it, and every fixture service here is that same boot. */
+  let bootId: string;
   let service: ReturnType<typeof createGenerationService>;
   let app: FastifyInstance;
   let origin: string;
@@ -97,7 +100,9 @@ describe.skipIf(process.env.PIVLOOM_EVENTS_INTEGRATION !== "1")("durable generat
       return result.data.session.access_token;
     }));
     [tokenA, tokenB] = tokens;
-    service = createGenerationService({ database, models, identity: configuration.value, bootId: randomUUID(), maxSandboxes: 2,
+    bootId = randomUUID();
+    service = createGenerationService({ database, models, identity: configuration.value, bootId, maxSandboxes: 2,
+      dailyLimitByOwner: { [ownerId]: 1000 },
       previewOrigin: "http://localhost:45311", sandbox: { baseUrl: "http://127.0.0.1:1", apiKey: "never-used-fixture-sandbox-key", image: "never-create-sandbox" } });
     app = Fastify();
     app.decorateRequest("identity", null);
@@ -120,6 +125,18 @@ describe.skipIf(process.env.PIVLOOM_EVENTS_INTEGRATION !== "1")("durable generat
     await saveManifest();
     return item.id;
   }
+
+  /** Claims one specific queued task exactly as the scheduler does, so this suite
+   *  can drive the repository directly. Returns null when capacity or the project
+   *  is busy. */
+  async function claimForTest(repo: GenerationRepository, runId: string) {
+    const claimed = await repo.claimNextQueuedRun(runId);
+    if (!claimed) return null;
+    const prepared = await repo.prepareDispatch(ownerId, claimed.id);
+    if (prepared.outcome !== "ready") throw Error(`fixture task parked: ${prepared.run.error?.code ?? "unknown"}`);
+    return prepared.run;
+  }
+
   afterAll(async () => {
     await app?.close();
     await service?.close();
@@ -164,12 +181,18 @@ describe.skipIf(process.env.PIVLOOM_EVENTS_INTEGRATION !== "1")("durable generat
       // An ordinary subscriber cannot hold a committed state transition hostage.
       return new Promise<void>(() => {});
     };
-    const generation = createGenerationRepository(database, models, { executorBootId: randomUUID(), onCommittedEvent: publish });
+    const generation = createGenerationRepository(database, models, { executorBootId: randomUUID(),
+      maxSandboxes: 5, dailyLimitByOwner: { [ownerId]: 1000 }, onCommittedEvent: publish });
     const accepted = await generation.accept(ownerId, await project(), {
       text: "durable event boundary", expectedCurrentRevisionId: null, idempotencyKey: randomUUID(),
       modelProfileId: profile.id, modelConfigVersion: profile.configVersion,
     });
     expect(observed.map((event) => event.type)).toEqual(["run.accepted"]);
+    // Admission is durable but not dispatched; only a claim turns the task into a
+    // run whose executor may append committed progress.
+    expect(accepted.run.state).toBe("queued");
+    const claimed = await claimForTest(generation, accepted.run.id);
+    expect(claimed).toMatchObject({ id: accepted.run.id, state: "accepted" });
     // The payload alone fits 16 KiB, but the complete durable envelope does not.
     await expect(generation.appendEvent(ownerId, accepted.run.id, { type: "tool.output", payload: { message: "x".repeat(16_250) } }))
       .rejects.toMatchObject({ code: "EVENT_TOO_LARGE" });
@@ -188,7 +211,13 @@ describe.skipIf(process.env.PIVLOOM_EVENTS_INTEGRATION !== "1")("durable generat
     expect(observed.map((event) => event.type)).toEqual(["run.accepted", "run.phase", "run.finished"]);
     const durable = await Promise.all(durableReads);
     observed.forEach((event, index) => expect(durable[index].some((saved) => saved.eventId === event.eventId)).toBe(true));
-    expect((await generation.listEvents(ownerId, accepted.run.id)).map((event) => event.eventId)).toEqual(observed.map((event) => event.eventId));
+    // The queue claim writes one extra durable run.accepted event through the
+    // dispatch connection. It is never published to this hub, so the published
+    // stream is exactly the durable stream without it, in the same order, with no
+    // duplicate and no trace of the rolled-back transaction.
+    const stored = await generation.listEvents(ownerId, accepted.run.id);
+    expect(stored.map((event) => event.type)).toEqual(["run.accepted", "run.accepted", "run.phase", "run.finished"]);
+    expect(stored.filter((event) => event.payload.dispatched !== true).map((event) => event.eventId)).toEqual(observed.map((event) => event.eventId));
   }, 60_000);
 
   test("a terminal commit during the history handoff is delivered once and a reconnect resumes its durable cursor", async () => {
@@ -207,7 +236,10 @@ describe.skipIf(process.env.PIVLOOM_EVENTS_INTEGRATION !== "1")("durable generat
     });
     await reached;
     try {
-      await service.repository.finishFailed(ownerId, accepted.run.id, { code: "FIXTURE_COMPLETE", message: "Terminal committed in the history handoff", retryable: false, cleanupState: "confirmed" });
+      // The terminal write must not wait for the stream: a queued task with no
+      // remote work settles immediately and durably.
+      const cancelled = await service.repository.cancel(ownerId, accepted.run.id);
+      expect(cancelled).toMatchObject({ state: "cancelled", cleanupState: "confirmed" });
     } finally { releaseRead(); }
     const response = await responsePromise;
     expect(response.status).toBe(200);
@@ -226,6 +258,10 @@ describe.skipIf(process.env.PIVLOOM_EVENTS_INTEGRATION !== "1")("durable generat
       text: "SSE transport limits fixture", expectedCurrentRevisionId: null, idempotencyKey: randomUUID(),
       modelProfileId: profile.id, modelConfigVersion: profile.configVersion,
     });
+    // Progress events belong to the boot that dispatched the task, so this run is
+    // claimed exactly as the scheduler would claim it before any event is written.
+    const claimed = await claimForTest(service.repository, accepted.run.id);
+    expect(claimed).toMatchObject({ id: accepted.run.id, state: "accepted" });
     const configuration = readIdentityConfig(process.env);
     if (!configuration.ready) throw Error("Identity configuration unavailable");
     const identity = configuration.value;
@@ -235,7 +271,9 @@ describe.skipIf(process.env.PIVLOOM_EVENTS_INTEGRATION !== "1")("durable generat
     expect(future.headers.get("content-type")).not.toContain("text/event-stream");
 
     async function fixtureServer(eventLimits?: RunEventLimits, authOrigin?: string) {
-      const generation = createGenerationService({ database, models, identity, bootId: randomUUID(), maxSandboxes: 2,
+      // The same boot id as the claim above: these listeners are the same process
+      // with smaller stream limits, not a second executor.
+      const generation = createGenerationService({ database, models, identity, bootId, maxSandboxes: 2,
         previewOrigin: "http://localhost:45311", eventLimits,
         sandbox: { baseUrl: "http://127.0.0.1:1", apiKey: "never-used-fixture-sandbox-key", image: "never-create-sandbox" } });
       const http = Fastify();
@@ -294,6 +332,8 @@ describe.skipIf(process.env.PIVLOOM_EVENTS_INTEGRATION !== "1")("durable generat
       expect(await response.text()).toContain(": heartbeat\n\n");
       expect(Date.now() - started).toBeGreaterThanOrEqual(15_000);
       expect(Date.now()).toBeLessThan(expiry * 1000 + 1000);
+      // The claimed run keeps its dispatch state across a heartbeat stream and an
+      // aborted one: reading events never cancels or settles the task.
       expect((await service.repository.getRun(ownerId, accepted.run.id)).state).toBe("accepted");
       const departed = new AbortController();
       const connection = await fetch(`${origin}${endpoint}?after=${head.eventId}`, { headers: { Authorization: `Bearer ${tokenA}` }, signal: departed.signal });

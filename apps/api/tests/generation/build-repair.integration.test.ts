@@ -3,7 +3,7 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import type { Plan } from "@pivloom/contracts";
 import { PivloomDatabase } from "../../src/data/database.js";
-import { createGenerationRepository } from "../../src/data/generation.js";
+import { createGenerationRepository, type GenerationRepository } from "../../src/data/generation.js";
 import { createProjectRepository } from "../../src/data/projects.js";
 import { createCredentialVault } from "../../src/models/credentials.js";
 import { createModelProfileService } from "../../src/models/service.js";
@@ -54,7 +54,8 @@ describe.skipIf(process.env.PIVLOOM_REPAIR_INTEGRATION !== "1")("build failure r
       await admin.query("COMMIT");
     } catch (error) { await admin.query("ROLLBACK"); throw error; }
     models = createModelProfileService(database, vault);
-    repo = createGenerationRepository(database, models, { executorBootId: randomUUID() });
+    repo = createGenerationRepository(database, models, { executorBootId: randomUUID(), maxSandboxes: 5,
+      dailyLimitByOwner: { [owner]: 1000 } });
   }, 60_000);
 
   afterAll(async () => {
@@ -74,19 +75,34 @@ describe.skipIf(process.env.PIVLOOM_REPAIR_INTEGRATION !== "1")("build failure r
     await database?.close();
   }, 60_000);
 
+  /** Claims one specific queued task the way the scheduler does, so a test can
+   *  drive the executor directly. Returns null when capacity/project is busy. */
+  async function claimForTest(repo: GenerationRepository, ownerId: string, runId: string) {
+    const claimed = await repo.claimNextQueuedRun(runId);
+    if (!claimed) return null;
+    const prepared = await repo.prepareDispatch(ownerId, claimed.id);
+    if (prepared.outcome !== "ready") throw Error(`fixture task parked: ${prepared.run.error?.code ?? "unknown"}`);
+    return prepared.run;
+  }
+
   async function building() {
     const project = await createProjectRepository(database).create(owner, "build-repair-fixture");
     const { run } = await repo.accept(owner, project.id, { text: "生成计数器", expectedCurrentRevisionId: null,
       modelProfileId: profile, modelConfigVersion: 1, idempotencyKey: randomUUID() });
-    const coordinator = await repo.startCoordinator(owner, run.id);
+    // No scheduler runs in this suite, so the test claims this exact queued task
+    // the way dispatch would before any role may start on it.
+    const claimed = await claimForTest(repo, owner, run.id);
+    if (!claimed) throw Error("build-repair fixture task was not claimable");
     try {
-      await repo.submitPlan(owner, run.id, { roleRunId: coordinator.id, attempt: 0, plan });
-      const builder = await repo.startBuilder(owner, run.id);
-      return { project, run, builder };
+      const coordinator = await repo.startCoordinator(owner, claimed.id);
+      await repo.submitPlan(owner, claimed.id, { roleRunId: coordinator.id, attempt: 0, plan });
+      const builder = await repo.startBuilder(owner, claimed.id);
+      return { project, run: claimed, builder };
     } catch (error) {
-      // A failed fixture setup must release the global generation slot before
-      // the next test, otherwise its failure masquerades as SERVICE_BUSY.
-      await repo.finishFailed(owner, run.id, { code: "FIXTURE_SETUP_FAILED", message: "Fixture setup failed", retryable: false,
+      // A failed fixture setup must settle the task it claimed, otherwise its
+      // capacity slot and project operation lock leak into the next test and
+      // that fixture can no longer be dispatched.
+      await repo.finishFailed(owner, claimed.id, { code: "FIXTURE_SETUP_FAILED", message: "Fixture setup failed", retryable: false,
         cleanupState: "confirmed" }).catch(() => undefined);
       throw error;
     }
@@ -179,8 +195,8 @@ describe.skipIf(process.env.PIVLOOM_REPAIR_INTEGRATION !== "1")("build failure r
   }, 120_000);
 
   test("an owner-specific daily quota is used consistently by admission and display without changing other owners", async () => {
-    const limited = createGenerationRepository(database, models, { executorBootId: randomUUID(), dailyLimitByOwner: { [owner]: 1 } });
-    const raised = createGenerationRepository(database, models, { executorBootId: randomUUID(), dailyLimitByOwner: { [owner]: 100 } });
+    const limited = createGenerationRepository(database, models, { executorBootId: randomUUID(), maxSandboxes: 5, dailyLimitByOwner: { [owner]: 1 } });
+    const raised = createGenerationRepository(database, models, { executorBootId: randomUUID(), maxSandboxes: 5, dailyLimitByOwner: { [owner]: 100 } });
     const before = await raised.quota(owner);
     expect(before.dailyLimit).toBe(100);
     expect((await raised.quota(otherOwner)).dailyLimit).toBe(20);
@@ -194,7 +210,9 @@ describe.skipIf(process.env.PIVLOOM_REPAIR_INTEGRATION !== "1")("build failure r
       expect((await limited.accept(owner, project.id, input)).run.id).toBe(accepted.run.id);
       expect((await raised.quota(owner)).dailyAccepted).toBe(before.dailyAccepted + 1);
     } finally {
-      await raised.finishFailed(owner, accepted.run.id, { code: "FIXTURE_DONE", message: "No external calls", retryable: false, cleanupState: "confirmed" });
+      // The task never started, so it holds no project operation lock: a queued
+      // run settles immediately and terminally through cancel.
+      await raised.cancel(owner, accepted.run.id);
     }
     const next = { ...input, idempotencyKey: randomUUID() };
     await expect(limited.accept(owner, project.id, next)).rejects.toMatchObject({ code: "QUOTA_EXCEEDED" });
@@ -204,7 +222,7 @@ describe.skipIf(process.env.PIVLOOM_REPAIR_INTEGRATION !== "1")("build failure r
       expect(admitted.replayed).toBe(false);
       expect((await raised.quota(owner)).dailyAccepted).toBe(before.dailyAccepted + 2);
     } finally {
-      await raised.finishFailed(owner, admitted.run.id, { code: "FIXTURE_DONE", message: "No external calls", retryable: false, cleanupState: "confirmed" });
+      await raised.cancel(owner, admitted.run.id);
     }
   }, 90_000);
 });

@@ -14,7 +14,7 @@ import { PivloomDatabase } from "../../src/data/database.js";
 import { createProjectRepository } from "../../src/data/projects.js";
 import { createCredentialVault } from "../../src/models/credentials.js";
 import { createModelProfileService } from "../../src/models/service.js";
-import { createGenerationRepository } from "../../src/data/generation.js";
+import { createGenerationRepository, type GenerationRepository } from "../../src/data/generation.js";
 
 /**
  * Real Postgres and the real repository: no model, sandbox or Storage call is
@@ -44,7 +44,11 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
 
   function repository(bootId = randomUUID()) {
     const models = createModelProfileService(database, createCredentialVault(process.env.MODEL_CREDENTIALS_ENCRYPTION_KEY!));
-    return createGenerationRepository(database, models, { executorBootId: bootId });
+    // The ceiling and the daily counter are raised above their production values
+    // so a shared account cannot exhaust this suite halfway through; the default
+    // limit itself is still asserted explicitly where it is the subject.
+    return createGenerationRepository(database, models, { executorBootId: bootId, maxSandboxes: 5,
+      dailyLimitByOwner: { [runOwner]: 1000 } });
   }
 
   beforeAll(async () => {
@@ -142,6 +146,17 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
     return accepted.run;
   }
 
+  /** Claims one specific queued task exactly as the scheduler does, so this suite
+   *  can drive the repository directly. Returns null when capacity or the project
+   *  is busy. */
+  async function claimForTest(repo: GenerationRepository, ownerId: string, runId: string) {
+    const claimed = await repo.claimNextQueuedRun(runId);
+    if (!claimed) return null;
+    const prepared = await repo.prepareDispatch(ownerId, claimed.id);
+    if (prepared.outcome !== "ready") throw Error(`fixture task parked: ${prepared.run.error?.code ?? "unknown"}`);
+    return prepared.run;
+  }
+
   /**
    * Builds an active run fixture directly, the way a previous process would have
    * left it. Recovery semantics do not depend on how the run was accepted, and
@@ -183,13 +198,54 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
     return runId;
   }
 
-  test("cancel is idempotent, then settles to cancelled and releases the project", async (context) => {
+  test("cancelling a queued task is immediate, terminal, idempotent and never dispatched", async (context) => {
+    if (!quotaLeft) { context.skip(); return; }
+    const repo = repository();
+    const target = await project();
+    const run = await accept(repo, target.id, "停止排队测试");
+    // A failure in this case must not leave an active row holding the global slot.
+    try {
+      expect(run.state).toBe("queued");
+      // A queued task holds no sandbox and no project lock, so stopping it is a
+      // terminal durable write: there is nothing remote to reclaim.
+      const cancelled = await repo.cancel(runOwner, run.id);
+      expect(cancelled).toMatchObject({ state: "cancelled", cleanupState: "confirmed", phase: "cleanup" });
+      expect(cancelled.finishedAt).not.toBeNull();
+      expect(cancelled.error).toMatchObject({ code: "CANCELLED" });
+      const second = await repo.cancel(runOwner, run.id);
+      expect(second.state).toBe("cancelled");
+      const events = await admin.query("SELECT count(*)::int AS n FROM nano.run_events WHERE run_id=$1 AND type='run.finished'", [run.id]);
+      expect(events.rows[0].n).toBe(1);
+      expect((await admin.query("SELECT state, dispatched_at FROM nano.runs WHERE id=$1", [run.id])).rows[0])
+        .toMatchObject({ state: "cancelled", dispatched_at: null });
+      // The preserved request stays readable as one user message and one result,
+      // and the project operation was never taken by the cancelled task.
+      const kinds = (await admin.query("SELECT kind FROM nano.messages WHERE run_id=$1 ORDER BY kind", [run.id])).rows.map((row) => row.kind);
+      expect(kinds).toEqual(["result", "user"]);
+      expect((await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [target.id])).rows[0].operation_id).toBeNull();
+      // Nothing about the cancellation blocks the project: the next request is
+      // accepted and dispatchable on its own.
+      const next = await accept(repo, target.id, "取消后可继续");
+      const claimed = await claimForTest(repo, runOwner, next.id);
+      expect(claimed).toMatchObject({ id: next.id, state: "accepted" });
+      await repo.finishCancelled(runOwner, next.id, { cleanupState: "confirmed", summary: "任务已停止。" });
+    } finally {
+      await admin.query("UPDATE nano.runs SET state='cancelled', cleanup_state='confirmed' WHERE project_id=$1 AND state NOT IN ('completed','cancelled','interrupted','needs_changes','failed','needs_input')", [target.id]);
+      await admin.query("UPDATE nano.projects SET operation_kind=NULL, operation_id=NULL WHERE id=$1", [target.id]);
+    }
+  }, CASE_TIMEOUT_MS);
+
+  test("stopping a running task goes through cancel_requested and settles only on one confirmed cleanup", async (context) => {
     if (!quotaLeft) { context.skip(); return; }
     const repo = repository();
     const target = await project();
     const run = await accept(repo, target.id, "停止测试");
     // A failure in this case must not leave an active row holding the global slot.
     try {
+    // Only a claimed task has remote work, so only it needs the two-step stop:
+    // request the cancellation, then confirm the cleanup.
+    const claimed = await claimForTest(repo, runOwner, run.id);
+    expect(claimed).toMatchObject({ id: run.id, state: "accepted" });
     const first = await repo.cancel(runOwner, run.id);
     expect(first.state).toBe("cancel_requested");
     const second = await repo.cancel(runOwner, run.id);
@@ -216,6 +272,10 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
     const target = await project();
     const run = await accept(repo, target.id, "延迟清理测试");
     try {
+      // A delayed cleanup only exists for a task that really started: a queued
+      // cancellation is already confirmed because it holds nothing remote.
+      const claimed = await claimForTest(repo, runOwner, run.id);
+      expect(claimed).toMatchObject({ id: run.id, state: "accepted" });
       await repo.cancel(runOwner, run.id);
       const pending = await repo.finishCancelled(runOwner, run.id, {
         cleanupState: "pending", summary: "任务已停止，远端资源回收尚未确认，已阻止新的任务。",
@@ -238,8 +298,13 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
   test("quota charges exactly one run per accepted request and never a replay", async (context) => {
     if (!quotaLeft) { context.skip(); return; }
     const repo = repository();
+    // The fixture repositories lift the daily ceiling, so the production default
+    // is read here through a repository built without that override.
+    const production = createGenerationRepository(database,
+      createModelProfileService(database, createCredentialVault(process.env.MODEL_CREDENTIALS_ENCRYPTION_KEY!)),
+      { executorBootId: randomUUID() });
     const target = await project();
-    const before = await repo.quota(runOwner);
+    const before = await production.quota(runOwner);
     expect(before.dailyLimit).toBe(20);
     const key = randomUUID();
     const body = { text: "额度测试", expectedCurrentRevisionId: null, modelProfileId: model.id,
@@ -275,6 +340,10 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
    const target = await project();
    const run = await accept(repo, target.id, "修复轮次测试");
     try {
+    // A repair only continues a task that was dispatched and has the project
+    // lock; the refusals below are about the missing candidate, not admission.
+    const claimed = await claimForTest(repo, runOwner, run.id);
+    expect(claimed).toMatchObject({ id: run.id, state: "accepted" });
     await admin.query("UPDATE nano.runs SET state='repairing', phase='implement' WHERE id=$1", [run.id]);
     const builder = await repo.startRepairBuilder(runOwner, run.id, {
       attempt: 1, previousRevisionId: randomUUID(), failedChecks: ["目标：筛选结果正确\n实际：筛选后总数错误"],
@@ -328,7 +397,8 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_INTEGRATION !== "1")("run lifecyc
         modelConfigVersion: model.configVersion, modelId: null, retryOfRunId: failed.id, parentRunId: null, idempotencyKey: randomUUID(),
       });
       runIds.push(retried.run.id);
-      expect(retried.run.state).toBe("accepted");
+      // The retry is admitted as a queued task, exactly like any other request.
+      expect(retried.run.state).toBe("queued");
       expect(retried.run.requestText).toBe("重试基线测试");
       // Planning reads its base from the same value the run stores, so a retry can
       // never start with a context the coordinator rejects.

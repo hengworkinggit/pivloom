@@ -129,7 +129,9 @@ BEGIN
     RAISE EXCEPTION 'claimed run left the queue before dispatch';
   END IF;
   -- The transition out of the queue is a durable event: without it a client that
-  -- is streaming would only learn about dispatch from the next phase update.
+  -- is streaming would only learn about dispatch from the next phase update. It
+  -- is written on the dispatch connection rather than a caller transaction, so
+  -- the scheduler re-reads it after the claim and publishes it to subscribers.
   INSERT INTO nano.run_events (owner_id, project_id, run_id, role_run_id, attempt, type, payload_json)
   SELECT r.owner_id, r.project_id, r.id, NULL, r.attempt, 'run.accepted',
     jsonb_build_object('state','accepted','phase','plan','dispatched',true)
@@ -163,9 +165,29 @@ AS $$
   ORDER BY r.dispatched_at;
 $$;
 
+-- Reads back the dispatch event a claim just wrote. The claim runs on the
+-- owner-less dispatch connection, where row level security on nano.run_events
+-- hides every row, so publishing the dispatch to an open stream needs the same
+-- kind of narrow SECURITY DEFINER reader the recovery scans already use.
+CREATE FUNCTION nano.claim_dispatch_event(p_run uuid)
+RETURNS SETOF nano.run_events
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = nano, pg_catalog
+AS $$
+  SELECT e.* FROM nano.run_events e
+  WHERE e.run_id = p_run AND e.type = 'run.accepted'
+    AND e.payload_json->>'dispatched' = 'true'
+  ORDER BY e.id DESC
+  LIMIT 1;
+$$;
+
 REVOKE ALL ON FUNCTION nano.queue_candidates() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION nano.claim_next_queued_run(uuid, integer, uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION nano.claim_stranded_runs(uuid, integer) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION nano.claim_dispatch_event(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION nano.queue_candidates() TO nano_api;
 GRANT EXECUTE ON FUNCTION nano.claim_next_queued_run(uuid, integer, uuid, uuid) TO nano_api;
 GRANT EXECUTE ON FUNCTION nano.claim_stranded_runs(uuid, integer) TO nano_api;
+GRANT EXECUTE ON FUNCTION nano.claim_dispatch_event(uuid) TO nano_api;

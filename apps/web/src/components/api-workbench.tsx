@@ -359,7 +359,10 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
             <button type="button" className="generation-inline-retry" onClick={() => setDrawer("tasks")}>{ui.text("查看任务", "View tasks")}</button>
           </p>}
           {actionError && <p className="inline-error" role="alert">{actionError}</p>}
-          {!state.active && run && run.error?.retryable && <p className="generation-retry-row" role="status">{run.error.message}<Button variant="outline" size="sm" disabled={pending || !modelReady} onClick={() => void retry()}>以新任务重试</Button></p>}
+          {/* A task parked by the scheduler is retryable; a task waiting for the
+              user's answer is not, and offering retry there would contradict the
+              clarification question shown next to it. */}
+          {!state.active && run && run.error?.retryable && !run.clarification?.question && <p className="generation-retry-row" role="status">{run.error.message}<Button variant="outline" size="sm" disabled={pending || !modelReady} onClick={() => void retry()}>以新任务重试</Button></p>}
           {submitError && <p className="inline-error" role="alert">{submitError}</p>}
           {unknownSubmission && <div className="run-notice" role="status"><div><strong>{ui.text("上次提交的结果尚未确认", "Previous submission is not confirmed")}</strong><p>{ui.text("确认会沿用原请求，不会把正在编辑的草稿重复发送。", "Confirming reuses the original request without sending your draft twice.")}</p></div><button disabled={pending} onClick={() => void send(unknownSubmission)}>{ui.text("确认提交结果", "Confirm submission")}</button></div>}
           {!state.active && (modelQuery.error || modelQuery.data && !modelReady) && <p className="generation-model-help" role="status">{modelQuery.error || (selectedModel ? "此配置尚未通过流式和工具调用测试。" : "先连接并测试你要使用的模型。")}{" "}<Link href="/settings/models">前往模型设置</Link></p>}

@@ -7,7 +7,7 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { PivloomDatabase } from "../../src/data/database.js";
 import { createProjectRepository } from "../../src/data/projects.js";
-import { createGenerationRepository } from "../../src/data/generation.js";
+import { createGenerationRepository, type GenerationRepository } from "../../src/data/generation.js";
 import { createCredentialVault } from "../../src/models/credentials.js";
 import { createModelProfileService } from "../../src/models/service.js";
 import { createSourceStore } from "../../src/storage/source.js";
@@ -88,6 +88,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     } catch (error) { await admin.query("ROLLBACK"); throw error; }
     model = { id: fixtureProfileId, configVersion: 1 };
     repository = createGenerationRepository(database, models, { executorBootId: randomUUID(), maxSandboxes: 5,
+      dailyLimitByOwner: { [owner]: 1000 },
       onCommittedEvent: (_owner, event) => { if (event.type === "run.finished") finished.get(event.runId)?.(); } });
   }, 30_000);
 
@@ -304,6 +305,16 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       allowCleanup() { cleanupUnavailable = false; }, onRelease(hook: () => Promise<void>) { closeHook = hook; } };
   }
 
+  /** Claims one specific queued task the way the scheduler does, so a test can
+   *  drive the executor directly. Returns null when capacity/project is busy. */
+  async function claimForTest(repo: GenerationRepository, ownerId: string, runId: string) {
+    const claimed = await repo.claimNextQueuedRun(runId);
+    if (!claimed) return null;
+    const prepared = await repo.prepareDispatch(ownerId, claimed.id);
+    if (prepared.outcome !== "ready") throw Error(`fixture task parked: ${prepared.run.error?.code ?? "unknown"}`);
+    return prepared.run;
+  }
+
   async function run(f: Awaited<ReturnType<typeof fixture>>, projectId?: string, closeAfter = true, retryOfRunId?: string) {
     const project = projectId ? await createProjectRepository(database).get(owner, projectId) : await createProjectRepository(database).create(owner, prefix);
     if (!projects.includes(project.id)) projects.push(project.id);
@@ -311,17 +322,22 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       expectedCurrentRevisionId: project.currentRevisionId, modelProfileId: model.id, modelConfigVersion: model.configVersion,
       retryOfRunId: retryOfRunId ?? null });
     leases.push(accepted.run.credentialLeaseId);
+    // No scheduler runs in this unit-level suite, so the test claims this exact
+    // queued task the way dispatch would and starts the claimed run.
+    const claimed = await claimForTest(repository, owner, accepted.run.id);
+    if (!claimed) throw Error("executor fixture was not claimable");
     await new Promise<void>((done, reject) => {
       const timer = setTimeout(() => reject(Error("Executor fixture did not finish")), 600_000);
-      finished.set(accepted.run.id, () => { clearTimeout(timer); finished.delete(accepted.run.id); done(); });
-      f.executor.start(accepted.run);
+      finished.set(claimed.id, () => { clearTimeout(timer); finished.delete(claimed.id); done(); });
+      f.executor.start(claimed);
     });
     if (closeAfter) await f.executor.close();
-    return { ...await repository.readRunSnapshot(owner, accepted.run.id), projectId: project.id };
+    return { ...await repository.readRunSnapshot(owner, claimed.id), projectId: project.id };
   }
 
-  test("capacity atomically admits two different projects, rejects a third, and keeps each project exclusive", async () => {
-    const capacity = createGenerationRepository(database, models, { executorBootId: randomUUID(), maxSandboxes: 2 });
+  test("capacity claims two projects at the ceiling, queues the rest durably, and keeps each project exclusive", async () => {
+    const capacity = createGenerationRepository(database, models, { executorBootId: randomUUID(), maxSandboxes: 2,
+      dailyLimitByOwner: { [owner]: 1000 } });
     const projectRepository = createProjectRepository(database);
     const p1 = await projectRepository.create(owner, prefix);
     const p2 = await projectRepository.create(owner, prefix);
@@ -329,20 +345,56 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     projects.push(p1.id, p2.id, p3.id);
     const request = () => ({ idempotencyKey: randomUUID(), text: "capacity fixture", expectedCurrentRevisionId: null,
       modelProfileId: model.id, modelConfigVersion: model.configVersion });
+    // Admission never refuses a legal request: both tasks are durable before any
+    // capacity exists, and neither holds a sandbox or a project operation lock.
     const [first, second] = await Promise.all([
       capacity.accept(owner, p1.id, request()), capacity.accept(owner, p2.id, request()),
     ]);
     leases.push(first.run.credentialLeaseId, second.run.credentialLeaseId);
-    expect(first.run.state).toBe("accepted");
-    expect(second.run.state).toBe("accepted");
-    await expect(capacity.accept(owner, p3.id, request())).rejects.toMatchObject({ code: "SERVICE_BUSY" });
-    await expect(capacity.accept(owner, p1.id, request())).rejects.toMatchObject({ code: "PROJECT_BUSY" });
-    await capacity.finishCancelled(owner, first.run.id, { cleanupState: "confirmed", summary: "Capacity fixture complete" });
-    await capacity.finishCancelled(owner, second.run.id, { cleanupState: "confirmed", summary: "Capacity fixture complete" });
+    expect(first.run.state).toBe("queued");
+    expect(second.run.state).toBe("queued");
+    // Claiming moves the run row, the capacity slot and the project operation
+    // lock together, so two different projects run side by side at a ceiling of
+    // two and each project keeps its own exclusive operation.
+    const claimedFirst = await capacity.claimNextQueuedRun(first.run.id);
+    const claimedSecond = await capacity.claimNextQueuedRun(second.run.id);
+    expect(claimedFirst).toMatchObject({ id: first.run.id, state: "accepted" });
+    expect(claimedSecond).toMatchObject({ id: second.run.id, state: "accepted" });
+    const locks = await admin.query("SELECT id,operation_id FROM nano.projects WHERE id=ANY($1::uuid[])", [[p1.id, p2.id, p3.id]]);
+    expect(locks.rows).toEqual(expect.arrayContaining([
+      { id: p1.id, operation_id: first.run.id },
+      { id: p2.id, operation_id: second.run.id },
+      { id: p3.id, operation_id: null },
+    ]));
+    // Both slots are taken, so a third project waits: its task stays queued with
+    // its request intact instead of being rejected.
     const third = await capacity.accept(owner, p3.id, request());
     leases.push(third.run.credentialLeaseId);
-    expect(third.run.state).toBe("accepted");
-    await capacity.finishCancelled(owner, third.run.id, { cleanupState: "confirmed", summary: "Capacity fixture complete" });
+    expect(third.run.state).toBe("queued");
+    expect(await capacity.claimNextQueuedRun(third.run.id)).toBeNull();
+    expect((await capacity.getRun(owner, third.run.id)).state).toBe("queued");
+    // One project executes one task at a time: a follow-up is still persisted,
+    // but it cannot be claimed while its project holds the operation lock.
+    const followUp = await capacity.accept(owner, p1.id, request());
+    leases.push(followUp.run.credentialLeaseId);
+    expect(followUp.run.state).toBe("queued");
+    expect(await capacity.claimNextQueuedRun(followUp.run.id)).toBeNull();
+    expect((await capacity.getRun(owner, followUp.run.id)).state).toBe("queued");
+    // Settling the second task frees a slot but not the first project's lock, so
+    // the follow-up is still refused for the exclusivity reason alone.
+    await capacity.finishCancelled(owner, claimedSecond!.id, { cleanupState: "confirmed", summary: "Capacity fixture complete" });
+    expect(await capacity.claimNextQueuedRun(followUp.run.id)).toBeNull();
+    // The freed slot goes to the third project instead, because that project is
+    // not locked, and the ceiling still holds at two.
+    const claimedThird = await capacity.claimNextQueuedRun(third.run.id);
+    expect(claimedThird).toMatchObject({ id: third.run.id, state: "accepted" });
+    // Settling the first task frees its project lock and one slot, so the work
+    // that waited for that project is claimable exactly then.
+    await capacity.finishCancelled(owner, claimedFirst!.id, { cleanupState: "confirmed", summary: "Capacity fixture complete" });
+    const claimedFollowUp = await capacity.claimNextQueuedRun(followUp.run.id);
+    expect(claimedFollowUp).toMatchObject({ id: followUp.run.id, state: "accepted" });
+    await capacity.finishCancelled(owner, claimedFollowUp!.id, { cleanupState: "confirmed", summary: "Capacity fixture complete" });
+    await capacity.finishCancelled(owner, claimedThird!.id, { cleanupState: "confirmed", summary: "Capacity fixture complete" });
   }, 120_000);
 
   test("a build failure repairs the saved candidate and preserves existing project files", async () => {
@@ -376,8 +428,12 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     const next = await repository.accept(owner, result.projectId, { idempotencyKey: randomUUID(), text: "修复后再试",
       expectedCurrentRevisionId: null, modelProfileId: model.id, modelConfigVersion: model.configVersion });
     leases.push(next.run.credentialLeaseId);
-    expect(next.run.state).toBe("accepted");
-    await repository.finishCancelled(owner, next.run.id, { cleanupState: "confirmed", summary: "隔离夹具已结束" });
+    // The failure released the candidate sandbox and the project lock, so the
+    // next task for this project is queued and immediately claimable again.
+    expect(next.run.state).toBe("queued");
+    const claimedNext = await claimForTest(repository, owner, next.run.id);
+    expect(claimedNext?.state).toBe("accepted");
+    await repository.finishCancelled(owner, claimedNext!.id, { cleanupState: "confirmed", summary: "隔离夹具已结束" });
   }, 900_000);
 
   test("linked retry rebuilds a blocked candidate without Coordinator or Builder model calls", async () => {
@@ -508,8 +564,15 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     expect([...remote.remotes.values()].map((sandbox) => sandbox.live)).toEqual([true]);
     expect((await repository.getRunCheck(owner, result.run.id))?.verdict).toBe("failed");
     expect((await createProjectRepository(database).get(owner, initial.projectId)).currentRevisionId).toBe(initial.run.resultRevisionId);
-    await expect(repository.accept(owner, initial.projectId, { idempotencyKey: randomUUID(), text: "重新尝试", expectedCurrentRevisionId: initial.run.resultRevisionId,
-      modelProfileId: model.id, modelConfigVersion: model.configVersion })).rejects.toMatchObject({ code: "PROJECT_BUSY" });
+    // A new request is still persisted, but it cannot be dispatched while this
+    // project owns an unconfirmed cleanup: the waiting task stays queued.
+    const waiting = await repository.accept(owner, initial.projectId, { idempotencyKey: randomUUID(), text: "重新尝试",
+      expectedCurrentRevisionId: initial.run.resultRevisionId, modelProfileId: model.id, modelConfigVersion: model.configVersion });
+    leases.push(waiting.run.credentialLeaseId);
+    expect(waiting.run.state).toBe("queued");
+    expect(await claimForTest(repository, owner, waiting.run.id)).toBeNull();
+    expect((await repository.getRun(owner, waiting.run.id)).state).toBe("queued");
+    await repository.cancel(owner, waiting.run.id);
   }, 900_000);
 
   test("stopping during Builder model streaming ends as cancelled after its candidate sandbox is destroyed", async () => {
@@ -521,10 +584,14 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       modelProfileId: model.id, modelConfigVersion: model.configVersion,
     });
     leases.push(accepted.run.credentialLeaseId);
+    // No scheduler runs in this suite: claim this exact queued task the way
+    // dispatch would before handing it to the executor.
+    const claimed = await claimForTest(repository, owner, accepted.run.id);
+    if (!claimed) throw Error("cancel test task was not claimable");
     const finishedRun = new Promise<void>((resolve) => {
-      finished.set(accepted.run.id, () => { finished.delete(accepted.run.id); resolve(); });
+      finished.set(claimed.id, () => { finished.delete(claimed.id); resolve(); });
     });
-    remote.executor.start(accepted.run);
+    remote.executor.start(claimed);
     let startedTimer: ReturnType<typeof setTimeout> | undefined;
     const reachedBuilder = await Promise.race([
       remote.builderStarted.then(() => true),
@@ -552,7 +619,9 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       modelProfileId: model.id, modelConfigVersion: model.configVersion,
     });
     leases.push(accepted.run.credentialLeaseId);
-    remote.executor.start(accepted.run);
+    const claimed = await claimForTest(repository, owner, accepted.run.id);
+    if (!claimed) throw Error("outage fixture task was not claimable");
+    remote.executor.start(claimed);
     await remote.builderStarted;
     expect((await repository.cancel(owner, accepted.run.id)).state).toBe("cancel_requested");
     expect(remote.executor.cancel(accepted.run.id)).toBe(true);
@@ -578,7 +647,9 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       modelProfileId: model.id, modelConfigVersion: model.configVersion,
     });
     leases.push(accepted.run.credentialLeaseId);
-    remote.executor.start(accepted.run);
+    const claimed = await claimForTest(repository, owner, accepted.run.id);
+    if (!claimed) throw Error("model failure fixture task was not claimable");
+    remote.executor.start(claimed);
     const deadline = Date.now() + 45_000;
     let settled = await repository.getRun(owner, accepted.run.id);
     while (settled.state !== "failed" && Date.now() < deadline) {
@@ -601,10 +672,12 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       modelProfileId: model.id, modelConfigVersion: model.configVersion,
     });
     leases.push(accepted.run.credentialLeaseId);
+    const claimed = await claimForTest(repository, owner, accepted.run.id);
+    if (!claimed) throw Error("cleanup retry fixture task was not claimable");
     const finishedRun = new Promise<void>((resolve) => {
-      finished.set(accepted.run.id, () => { finished.delete(accepted.run.id); resolve(); });
+      finished.set(claimed.id, () => { finished.delete(claimed.id); resolve(); });
     });
-    remote.executor.start(accepted.run);
+    remote.executor.start(claimed);
     await remote.builderStarted;
     expect((await repository.cancel(owner, accepted.run.id)).state).toBe("cancel_requested");
     expect(remote.executor.cancel(accepted.run.id)).toBe(true);
@@ -612,10 +685,15 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     const pending = await repository.getRun(owner, accepted.run.id);
     expect(pending).toMatchObject({ state: "cancelled", cleanupState: "pending" });
     expect([...remote.remotes.values()].map((sandbox) => sandbox.live)).toEqual([true]);
-    await expect(repository.accept(owner, project.id, {
+    // The pending destroy keeps the project operation lock, so follow-up work is
+    // persisted durably but cannot be claimed until the cleanup is confirmed.
+    const waiting = await repository.accept(owner, project.id, {
       idempotencyKey: randomUUID(), text: "retry", expectedCurrentRevisionId: null,
       modelProfileId: model.id, modelConfigVersion: model.configVersion,
-    })).rejects.toMatchObject({ code: "PROJECT_BUSY" });
+    });
+    leases.push(waiting.run.credentialLeaseId);
+    expect(waiting.run.state).toBe("queued");
+    expect(await claimForTest(repository, owner, waiting.run.id)).toBeNull();
     remote.allowCleanup();
     const deadline = Date.now() + 30_000;
     let settled = await repository.getRun(owner, accepted.run.id);
@@ -626,6 +704,11 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     expect(settled.cleanupState).toBe("confirmed");
     expect([...remote.remotes.values()].map((sandbox) => sandbox.live)).toEqual([false]);
     expect((await admin.query("SELECT operation_id FROM nano.projects WHERE owner_id=$1 AND id=$2", [owner, project.id])).rows[0].operation_id).toBeNull();
+    // Only the confirmed destroy frees the slot and the project lock, so the
+    // task that waited through it becomes claimable exactly now.
+    const claimedWaiting = await claimForTest(repository, owner, waiting.run.id);
+    expect(claimedWaiting?.state).toBe("accepted");
+    await repository.finishCancelled(owner, claimedWaiting!.id, { cleanupState: "confirmed", summary: "隔离夹具已结束" });
   }, 180_000);
 
   test("a short run deadline survives a terminal write outage and keeps the project locked until cleanup confirms", async () => {
@@ -639,11 +722,14 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       modelProfileId: model.id, modelConfigVersion: model.configVersion,
     });
     leases.push(accepted.run.credentialLeaseId);
+    // No scheduler runs in this suite: claim the queued task before dispatch.
+    const claimed = await claimForTest(repository, owner, accepted.run.id);
+    if (!claimed) throw Error("deadline fixture task was not claimable");
     // This database is dedicated to the test. Shorten only the accepted test
     // run's deadline before dispatch; production has no prompt-triggered fault.
     const shortDeadline = new Date(Date.now() + 2_000).toISOString();
-    await admin.query("UPDATE nano.runs SET deadline_at=$2 WHERE owner_id=$1 AND id=$3", [owner, shortDeadline, accepted.run.id]);
-    remote.executor.start({ ...accepted.run, deadlineAt: shortDeadline });
+    await admin.query("UPDATE nano.runs SET deadline_at=$2 WHERE owner_id=$1 AND id=$3", [owner, shortDeadline, claimed.id]);
+    remote.executor.start({ ...claimed, deadlineAt: shortDeadline });
     await remote.builderStarted;
 
     const pendingBy = Date.now() + 15_000;
@@ -659,10 +745,15 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     expect([...remote.remotes.values()].map((sandbox) => sandbox.live)).toEqual([true]);
     const providerCallsAtDeadline = remote.providerRequests();
     const pendingLock = (await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [project.id])).rows[0].operation_id;
-    await expect(repository.accept(owner, project.id, {
+    // The unconfirmed cleanup still owns the project operation lock, so the
+    // follow-up is persisted durably and waits instead of being refused.
+    const waiting = await repository.accept(owner, project.id, {
       idempotencyKey: randomUUID(), text: "retry", expectedCurrentRevisionId: null,
       modelProfileId: model.id, modelConfigVersion: model.configVersion,
-    })).rejects.toMatchObject({ code: "PROJECT_BUSY" });
+    });
+    leases.push(waiting.run.credentialLeaseId);
+    expect(await claimForTest(repository, owner, waiting.run.id)).toBeNull();
+    expect(waiting.run.state).toBe("queued");
     expect(pendingLock).toBe(accepted.run.id);
 
     remote.allowCleanup();
@@ -678,13 +769,23 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     expect((await admin.query("SELECT operation_id FROM nano.projects WHERE id=$1", [project.id])).rows[0].operation_id).toBeNull();
     expect((await createProjectRepository(database).get(owner, project.id)).currentRevisionId).toBeNull();
 
+    // The confirmed cleanup frees the slot and the project lock, so the task
+    // that waited through the outage is claimable exactly now.
+    const claimedWaiting = await claimForTest(repository, owner, waiting.run.id);
+    expect(claimedWaiting?.state).toBe("accepted");
+    await repository.finishCancelled(owner, claimedWaiting!.id, { cleanupState: "confirmed", summary: "隔离夹具已结束。" });
+
     const retried = await repository.accept(owner, project.id, {
       idempotencyKey: randomUUID(), text: "retry", expectedCurrentRevisionId: null,
       modelProfileId: model.id, modelConfigVersion: model.configVersion,
       retryOfRunId: accepted.run.id,
     });
     leases.push(retried.run.credentialLeaseId);
-    expect(retried.run).toMatchObject({ state: "accepted", requestText: accepted.run.requestText });
+    expect(retried.run).toMatchObject({ state: "queued", requestText: accepted.run.requestText });
+    // Claiming the retry is what proves the freed project really accepts new
+    // work; the evidence below keeps recording the dispatched state.
+    const claimedRetry = await claimForTest(repository, owner, retried.run.id);
+    if (!claimedRetry) throw Error("retry fixture task was not claimable");
     if (process.env.PIVLOOM_RC03_EVIDENCE_FILE) await writeFile(process.env.PIVLOOM_RC03_EVIDENCE_FILE, JSON.stringify({
       environmentId: process.env.PIVLOOM_ENVIRONMENT_ID, runId: accepted.run.id, projectId: project.id,
       injectedDeadlineAt: shortDeadline, pending: { state: pending.state, phase: pending.phase,
@@ -693,12 +794,12 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       settled: { state: settled.state, cleanupState: settled.cleanupState, errorCode: settled.error?.code,
         projectLock: null }, remoteLiveAfterRetry: false,
       providerCallsAtDeadline, providerCallsAfterCleanup: remote.providerRequests(),
-      retry: { id: retried.run.id, state: retried.run.state, retryOfRunId: accepted.run.id,
-        sameRequestText: retried.run.requestText === accepted.run.requestText },
+      retry: { id: claimedRetry.id, state: claimedRetry.state, retryOfRunId: accepted.run.id,
+        sameRequestText: claimedRetry.requestText === accepted.run.requestText },
     }, null, 2) + "\n", { mode: 0o600 });
-    await repository.cancel(owner, retried.run.id);
-    await repository.finishCancelled(owner, retried.run.id, { cleanupState: "confirmed", summary: "隔离夹具已结束。" });
-    await models.releaseForRun(owner, retried.run.credentialLeaseId);
+    await repository.cancel(owner, claimedRetry.id);
+    await repository.finishCancelled(owner, claimedRetry.id, { cleanupState: "confirmed", summary: "隔离夹具已结束。" });
+    await models.releaseForRun(owner, claimedRetry.credentialLeaseId);
   }, 60_000);
 
   function controlDisposablePostgres(action: "stop" | "start") {
@@ -728,8 +829,11 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
         modelProfileId: model.id, modelConfigVersion: model.configVersion,
       });
       leases.push(accepted.run.credentialLeaseId);
+      // No scheduler runs in this suite: claim before stopping the database.
+      const claimed = await claimForTest(repository, owner, accepted.run.id);
+      if (!claimed) throw Error("outage fixture task was not claimable");
       try {
-        remote.executor.start(accepted.run);
+        remote.executor.start(claimed);
         await outageStarted;
         await new Promise((resolve) => setTimeout(resolve, 600));
         expect(remote.providerRequests()).toBe(1);
@@ -769,8 +873,10 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
         modelProfileId: model.id, modelConfigVersion: model.configVersion,
       });
       leases.push(accepted.run.credentialLeaseId);
+      const claimed = await claimForTest(repository, owner, accepted.run.id);
+      if (!claimed) throw Error("cancellation outage fixture task was not claimable");
       try {
-        remote.executor.start(accepted.run);
+        remote.executor.start(claimed);
         await remote.builderStarted;
         expect((await repository.cancel(owner, accepted.run.id)).state).toBe("cancel_requested");
         const callsAtStop = remote.providerRequests();

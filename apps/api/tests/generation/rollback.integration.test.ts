@@ -30,7 +30,7 @@ describe.skipIf(process.env.PIVLOOM_ROLLBACK_INTEGRATION !== "1")("atomic rollba
     expect((await admin.query("SELECT current_database() AS name")).rows[0].name).toBe(dbName);
     expect((await admin.query("SELECT id FROM nano.runs LIMIT 1")).rowCount).toBe(0);
     database = new PivloomDatabase(process.env.DATABASE_URL);
-    repo = createRollbackRepository(database);
+    repo = createRollbackRepository(database, { maxSandboxes: Number(process.env.PIVLOOM_ROLLBACK_MAX_SANDBOXES ?? 2) });
     await admin.query("BEGIN");
     try {
       await admin.query("INSERT INTO auth.users(id) VALUES($1),($2)", [owner, stranger]);

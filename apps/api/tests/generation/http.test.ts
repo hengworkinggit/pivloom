@@ -845,11 +845,11 @@ describe.skipIf(process.env.PIVLOOM_GENERATION_DISCONNECT_INTEGRATION !== "1")(
       if (target.rows[0]?.environment_id !== environmentId)
         throw new Error("Database target mismatch");
       const occupied = await admin.query(
-        "SELECT id FROM nano.runs WHERE state IN ('accepted','planning','building','verifying','repairing','finalizing','cancel_requested') OR cleanup_state='pending'",
+        "SELECT id FROM nano.runs WHERE state IN ('queued','accepted','planning','building','verifying','repairing','finalizing','cancel_requested') OR cleanup_state='pending'",
       );
       if (occupied.rowCount)
         throw new Error(
-          "The global generation slot is occupied; do not interrupt another run",
+          "Another generation task is queued, running or awaiting cleanup; do not interrupt it",
         );
       const client = createClient(
         env.SUPABASE_URL,

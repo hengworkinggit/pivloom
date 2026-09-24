@@ -470,8 +470,18 @@ export function createGenerationRepository(
           if (retryOfRunId) {
             const prior = await run(client, ownerId, retryOfRunId);
             if (prior.project_id !== projectId) throw notFound();
-            if (["completed", "needs_input"].includes(prior.state) || !TerminalRunStates.has(prior.state)) {
-              throw new ApiFailure(422, "INVALID_RETRY_PARENT", "只能重试已结束的失败或需要修改的任务。");
+            // 'needs_input' covers two different endings. A task waiting for the
+            // user's answer has a clarification question and must be answered,
+            // not retried. A task the scheduler had to park (invalid model
+            // configuration, a baseline another operation changed, a stalled
+            // dispatch) has no question and only a reason, and that reason tells
+            // the user to retry — so retrying it has to be allowed, otherwise
+            // the recovery path the message promises does not exist.
+            const awaitingAnswer = prior.state === "needs_input" && Boolean(prior.clarification_json?.question);
+            if (prior.state === "completed" || awaitingAnswer || !TerminalRunStates.has(prior.state)) {
+              throw new ApiFailure(422, "INVALID_RETRY_PARENT", awaitingAnswer
+                ? "这个任务在等待你的补充信息，请回答后继续。"
+                : "只能重试已结束的失败或需要修改的任务。");
             }
             // A retry repeats the same request from the same base as any other
             // new modification: the project's current revision. Planning reads
@@ -534,9 +544,15 @@ export function createGenerationRepository(
       const { current, parent } = await lockedRun(client, ownerId, runId);
       if (current.retry_of !== priorRunId || !["accepted", "planning"].includes(current.state)) return null;
       const prior = await run(client, ownerId, priorRunId);
+      // The plan a task executes is fixed by its base revision, and dispatch
+      // rewrites base_revision_id and expected_current_revision_id together when
+      // a queued follow-up chains onto the version it waited for. Comparing the
+      // accepted expectation would therefore miss a retry of a chained task and
+      // silently rebuild a candidate that was already saved; the base is the
+      // value that stays comparable across that rewrite.
       if (prior.project_id !== current.project_id || prior.state !== "failed"
         || !["CHECK_BLOCKED", "AGENT_OUTPUT_INVALID", "GENERATION_FAILED", "RUN_TIMEOUT"].includes(prior.error_code)
-        || prior.expected_current_revision_id !== current.expected_current_revision_id
+        || prior.base_revision_id !== current.base_revision_id
         || parent.current_revision_id !== current.expected_current_revision_id
         || !prior.result_revision_id || !prior.plan_json) return null;
       const reviewer = (await client.query(`SELECT id FROM nano.role_runs WHERE owner_id=$1 AND run_id=$2
@@ -1211,9 +1227,24 @@ export function createGenerationRepository(
       if (!database.system) throw new Error("Queue dispatch requires the system connection");
       if (runId !== undefined && !z.uuid().safeParse(runId).success)
         throw new ApiFailure(422, "INVALID_INPUT", "任务标识格式不正确。");
-      const result = await database.system(async (client) => client.query(
-        "SELECT * FROM nano.claim_next_queued_run($1,$2,$3,$4)", [options.executorBootId, options.maxSandboxes ?? 1, runId ?? null, null]));
-      return result.rows[0] ? storedRun(result.rows[0]) : null;
+      const claimed = await database.system(async (client) => {
+        const run = await client.query("SELECT * FROM nano.claim_next_queued_run($1,$2,$3,$4)",
+          [options.executorBootId, options.maxSandboxes ?? 1, runId ?? null, null]);
+        if (!run.rows[0]) return null;
+        // The claim writes the dispatch event on this connection instead of a
+        // caller transaction, so it has to publish it itself: a stream that is
+        // already open must stop showing "已排队" when the task really starts.
+        // Row level security hides nano.run_events from this owner-less
+        // connection, so the read goes through the narrow definer function.
+        const dispatch = await client.query("SELECT * FROM nano.claim_dispatch_event($1)", [run.rows[0].id]);
+        return { run: storedRun(run.rows[0]), event: dispatch.rows[0] ? storedEvent(dispatch.rows[0]) : null };
+      });
+      if (!claimed) return null;
+      if (claimed.event) {
+        try { void Promise.resolve(options.onCommittedEvent?.(claimed.run.ownerId, claimed.event)).catch(() => {}); }
+        catch { /* An authenticated reconnect always replays the durable event. */ }
+      }
+      return claimed.run;
     },
     /**
      * Claims of this boot whose handoff never completed. They hold the project
