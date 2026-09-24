@@ -6,6 +6,7 @@ import { describe, expect, test } from 'vitest';
 import { PivloomDatabase } from '../../src/data/database.js';
 import { createProjectRepository } from '../../src/data/projects.js';
 import { createGenerationRepository } from '../../src/data/generation.js';
+import { summarizeReviewCheckpoint } from '../../src/generation/review-checkpoint.js';
 import type { ModelProfileService } from '../../src/models/service.js';
 
 describe.skipIf(process.env.PIVLOOM_PROGRESS_INTEGRATION !== '1')('rolling Run progress in isolated PostgreSQL', () => {
@@ -78,6 +79,26 @@ describe.skipIf(process.env.PIVLOOM_PROGRESS_INTEGRATION !== '1')('rolling Run p
       await expect(repo.appendEvent(ownerId, runId, { type:'tool.output',roleRunId:roleId,progress:true,
         payload:{progressKind:'provider_retry',success:false,retryRequestNumber:2,retryAttempt:7,retryMaxAttempts:7,retryDelayMs:9000} }))
         .rejects.toMatchObject({code:'INVALID_PROGRESS'});
+      const observationId = randomUUID(),screenshotId = randomUUID(),revisionId = randomUUID();
+      const reviewCheckpoint = summarizeReviewCheckpoint({
+        binding:{runId,roleRunId:roleId,attempt:0,revisionId,sourceHash:'a'.repeat(64),
+          sandboxId:randomUUID(),browserSessionId:`pivloom-${randomUUID()}`},
+        item:{behaviorId:'B09',verdict:'passed',expected:'真实自碰',actual:'截图显示游戏结束。'.repeat(200),
+          observationEventIds:[observationId],screenshotIds:[screenshotId],reproSteps:['空格暂停观察。'.repeat(100)]},
+        completedBehaviorIds:['B01','B09'],totalBehaviors:15,
+        evidence:[{id:observationId,behaviorId:'B09',action:'browser_key_batch',observationId:randomUUID(),
+          url:'https://example.invalid/',tree:'树'.repeat(30_000),text:'页面'.repeat(30_000),truncated:true}],
+        artifacts:[{id:screenshotId,mimeType:'image/png',sha256:'b'.repeat(64),bytes:1024,
+          key:`${ownerId}/${projectId}/${revisionId}/checks/${screenshotId}.png`}],
+      });
+      const deadlineBeforeCheckpoint = (await repo.getRun(ownerId, runId)).deadlineAt;
+      const savedCheckpoint = await repo.appendEvent(ownerId, runId, {type:'tool.output',roleRunId:roleId,
+        payload:{toolName:'review_checkpoint',message:'已保存经真实证据校验的暂存行为结论。',reviewCheckpoint}});
+      expect(savedCheckpoint.payload.reviewCheckpoint).toMatchObject({provisional:true,
+        binding:{runId,revisionId,sourceHash:'a'.repeat(64)},
+        item:{behaviorId:'B09',verdict:'passed',observationEventIds:[observationId],screenshotIds:[screenshotId]},
+        detailsTruncated:true});
+      expect((await repo.getRun(ownerId, runId)).deadlineAt).toBe(deadlineBeforeCheckpoint);
       await admin.query("UPDATE nano.runs SET state='building',phase='implement',deadline_at=now()-interval '1 second' WHERE id=$1", [runId]);
       await expect(repo.setPhase(ownerId, runId, { phase:'build',state:'building' }))
         .rejects.toMatchObject({code:'RUN_TIMEOUT'});
