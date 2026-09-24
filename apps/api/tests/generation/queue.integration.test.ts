@@ -399,14 +399,20 @@ describe.skipIf(process.env.PIVLOOM_QUEUE_INTEGRATION !== "1")("durable generati
     expect([queuedOne.run.state, queuedTwo.run.state]).toEqual(["queued", "queued"]);
     const waiting = (await capacity.listTasks(ownerA)).filter((task) => task.state === "queued");
     expect(waiting.map((task) => task.runId).sort()).toEqual([queuedOne.run.id, queuedTwo.run.id].sort());
-    expect(waiting.every((task) => typeof task.queuePosition === "number" && task.queuePosition! >= 1)).toBe(true);
-    const first = await capacity.claimNextQueuedRun();
-    expect(first?.id).toBe(queuedOne.run.id);
+    // Only the earliest sibling is competing for a slot, so only it reports a
+    // position; the one behind it is blocked by its own project rather than by
+    // capacity and must not claim a place in line it has not reached.
+    const first = waiting.find((task) => task.runId === queuedOne.run.id)!;
+    const second = waiting.find((task) => task.runId === queuedTwo.run.id)!;
+    expect(first.queuePosition).toBeGreaterThanOrEqual(1);
+    expect(second.queuePosition).toBeNull();
+    const claimedFirst = await capacity.claimNextQueuedRun();
+    expect(claimedFirst?.id).toBe(queuedOne.run.id);
     expect(await occupiedSlots()).toBe(before + 1);
     expect(await capacity.claimNextQueuedRun(queuedTwo.run.id)).toBeNull();
     await capacity.finishCancelled(ownerA, queuedOne.run.id, { cleanupState: "confirmed", summary: "queue fixture complete" });
-    const second = await capacity.claimNextQueuedRun();
-    expect(second?.id).toBe(queuedTwo.run.id);
+    const claimedSecond = await capacity.claimNextQueuedRun();
+    expect(claimedSecond?.id).toBe(queuedTwo.run.id);
     await capacity.finishCancelled(ownerA, queuedTwo.run.id, { cleanupState: "confirmed", summary: "queue fixture complete" });
   }, 120_000);
 

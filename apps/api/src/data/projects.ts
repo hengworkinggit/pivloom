@@ -74,8 +74,8 @@ export function createProjectRepository(database: PivloomDatabase) {
              WHERE r.owner_id = nano.projects.owner_id AND r.project_id = nano.projects.id AND r.state = 'queued'
              ORDER BY r.queued_at, r.id LIMIT 1)
            WHERE nano.projects.owner_id = $1
-           AND ($2::timestamptz IS NULL OR (updated_at, id) < ($2::timestamptz, $3::uuid))
-           ORDER BY updated_at DESC, id DESC LIMIT $4`,
+           AND ($2::timestamptz IS NULL OR (nano.projects.updated_at, nano.projects.id) < ($2::timestamptz, $3::uuid))
+           ORDER BY nano.projects.updated_at DESC, nano.projects.id DESC LIMIT $4`,
           [ownerId, after?.updatedAt ?? null, after?.id ?? null, limit + 1],
         );
         const projects = result.rows.slice(0, limit).map(summary);
