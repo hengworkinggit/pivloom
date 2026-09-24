@@ -38,6 +38,10 @@ function storedUsage(usage: TokenUsage): RoleUsage {
     totalTokens: usage.total, elapsedMs: usage.elapsedMs, source: usage.source,
   };
 }
+const reusedSourceUsage: TokenUsage = {
+  modelCalls: 0, toolCalls: 0, input: null, output: null, total: null,
+  cachedTokens: null, elapsedMs: 0, source: "unreported",
+};
 
 export function retainsAcceptedPreview(state: RunState): boolean {
   return state === "completed";
@@ -172,6 +176,18 @@ export function createGenerationExecutor(options: {
       };
       const coordinator = await repository.startCoordinator(run.ownerId, run.id);
       activeRoleId = coordinator.id;
+      const reused = run.retryOfRunId
+        ? await repository.getReviewRetryCandidate(run.ownerId, run.id, run.retryOfRunId) : null;
+      let planningUsage: TokenUsage;
+      if (reused) {
+        await repository.appendEvent(run.ownerId, run.id, { type: "tool.output", roleRunId: coordinator.id,
+          payload: { toolName: "reuse_candidate", message: "复用先前封存的计划与源码；协调者和 Builder 模型调用均为 0。",
+            sourceRunId: run.retryOfRunId, sourceRevisionId: reused.revision.id,
+            sourceHash: reused.revision.sourceHash, modelCalls: 0 } });
+        await repository.submitPlan(run.ownerId, run.id, { roleRunId: coordinator.id, attempt: coordinator.attempt,
+          plan: reused.plan, usage: storedUsage(reusedSourceUsage) });
+        planningUsage = reusedSourceUsage;
+      } else {
       const planning = await runCoordinator({
         runId: run.id, roleRunId: coordinator.id, sessionId: coordinator.sessionId,
         attempt: coordinator.attempt, baseRevisionId: run.baseRevisionId,
@@ -192,17 +208,21 @@ export function createGenerationExecutor(options: {
         },
       });
       if (planning.decision.kind === "clarification") return;
+      planningUsage = planning.usage;
+      }
       task.controller.signal.throwIfAborted();
       // Attempt 0 implements the plan. Every later attempt is a bounded repair of
       // a candidate the Reviewer rejected; all attempts share this run's rolling
       // inactivity lease
       // and its token and tool ledgers, and each owns an immutable revision.
       let attempt = run.attempt;
-      let seed: SourceFile[] | undefined = run.baseRevisionId
-        ? sourceBundleFiles(await sources.load((await repository.getRevision(run.ownerId, run.baseRevisionId)).source)) : undefined;
+      let seed: SourceFile[] | undefined = reused
+        ? sourceBundleFiles(await sources.load(await sources.verify(reused.revision.source)))
+        : run.baseRevisionId
+          ? sourceBundleFiles(await sources.load((await repository.getRevision(run.ownerId, run.baseRevisionId)).source)) : undefined;
       let failedChecks: string[] = [];
       let previousRevisionId: string | undefined;
-      let toolCalls = planning.usage.toolCalls;
+      let toolCalls = planningUsage.toolCalls;
       const remainingTools = () => {
         if (toolCalls >= toolLimit) throw new RuntimeError("TOOL_BUDGET_EXCEEDED", "本次任务工具调用预算已耗尽");
         return toolLimit - toolCalls;
@@ -222,6 +242,7 @@ export function createGenerationExecutor(options: {
         const result = await runCandidate({
           runId: run.id, revisionId: attemptRevisionId, roleRunId: role.id, sessionId: role.sessionId,
           previewBasePath: `/p/${attemptRevisionId}/`, prompt: run.requestText, handoff, seed,
+          ...(reused && attempt === run.attempt ? { recheckSourceHash: reused.revision.sourceHash } : {}),
           maxToolCalls: remainingTools(),
           sandboxConfig: sandbox, modelConfig, tokenBudget,
           signal: task.controller.signal, onEvent: recordEvent(role.id),
@@ -246,7 +267,8 @@ export function createGenerationExecutor(options: {
           },
         }, boundaries);
         toolCalls += result.usage?.toolCalls ?? result.toolCalls.length;
-        activeUsage = result.usage ? storedUsage(result.usage) : undefined;
+        activeUsage = result.usage ? storedUsage(result.usage)
+          : reused && attempt === run.attempt ? storedUsage(reusedSourceUsage) : undefined;
         if (result.status !== "candidate") {
           // runCandidate reports a cancelled Builder as a result after it has
           // attempted sandbox cleanup. Keep the user's stop as a cancellation;
@@ -285,7 +307,8 @@ export function createGenerationExecutor(options: {
           });
           return;
         }
-        await repository.completeBuilder(run.ownerId, run.id, { summary: "源码已生成并通过可信构建。", usage: activeUsage });
+        await repository.completeBuilder(run.ownerId, run.id, { summary: reused && attempt === run.attempt
+          ? "复用已保存候选源码；未调用 Builder 模型，已重新通过可信构建。" : "源码已生成并通过可信构建。", usage: activeUsage });
         const candidateRevision = await save(result.snapshot, "passed", result.trustedBuild);
         task.controller.signal.throwIfAborted();
         await repository.bindPreview(run.ownerId, run.id, {

@@ -308,6 +308,28 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     await generation.finishFailed(ownerA, fixture.run.id, { code: "FIXTURE_COMPLETE", message: "Rebinding assertions complete", retryable: false, cleanupState: "confirmed" });
   }, 180_000);
 
+  test("linked retry may reuse only its own blocked candidate, and cancellation leaves the old source untouched", async () => {
+    const fixture = await candidate(true);
+    const review = await reviewed(fixture, "passed", "click", "BROWSER_BLOCKED");
+    const blocked = await generation.finishReview(ownerA, fixture.run.id, { receipt: review.receipt });
+    expect(blocked.run).toMatchObject({ state: "failed", error: { code: "CHECK_BLOCKED" } });
+    const accepted = await generation.accept(ownerA, fixture.project.id, { idempotencyKey: randomUUID(),
+      text: "retry linked blocked candidate", expectedCurrentRevisionId: null,
+      modelProfileId: model.id, modelConfigVersion: model.configVersion, retryOfRunId: fixture.run.id });
+    runIds.push(accepted.run.id); leaseIds.push(accepted.run.credentialLeaseId); await save();
+    await expect(generation.getReviewRetryCandidate(ownerB, accepted.run.id, fixture.run.id))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
+    const reused = await generation.getReviewRetryCandidate(ownerA, accepted.run.id, fixture.run.id);
+    expect(reused?.revision).toMatchObject({ id: fixture.revision.id, sourceHash: fixture.revision.sourceHash,
+      buildStatus: "passed", status: "candidate" });
+    expect(reused?.plan).toEqual(plan);
+    expect(await generation.getReviewRetryCandidate(ownerA, accepted.run.id, randomUUID())).toBeNull();
+    await generation.finishCancelled(ownerA, accepted.run.id, { cleanupState: "confirmed", summary: "Isolated retry cancelled" });
+    expect((await generation.getRevision(ownerA, fixture.revision.id)).sourceHash).toBe(fixture.revision.sourceHash);
+    expect((await admin.query("SELECT current_revision_id FROM nano.projects WHERE id=$1", [fixture.project.id]))
+      .rows[0].current_revision_id).toBeNull();
+  }, 300_000);
+
   test("only an active exact-version review can atomically promote, with owner-isolated checks and private artifacts", async () => {
     const fixture = await candidate();
     const review = await reviewed(fixture);

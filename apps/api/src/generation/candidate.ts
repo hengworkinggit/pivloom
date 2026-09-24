@@ -60,6 +60,8 @@ export interface RunCandidateInput {
   handoff?: Handoff;
   /** Repair attempts start from the previous immutable snapshot, not a blank template. */
   seed?: SourceFile[];
+  /** Rebuild a saved candidate without a Builder model call; hash must survive initialization and build. */
+  recheckSourceHash?: string;
   maxToolCalls?: number;
   tokenBudget?: RunTokenBudget;
   modelConfig: ModelConfig;
@@ -253,6 +255,8 @@ export async function runCandidate(
     const handoff = input.handoff ? HandoffSchema.parse(input.handoff) : undefined;
     if (handoff && (handoff.runId !== input.runId || handoff.toRole !== "builder"))
       throw new RuntimeError("INVALID_HANDOFF", "交接目标与当前生成任务不一致");
+    if (input.recheckSourceHash && (!input.seed?.length || !/^[a-f0-9]{64}$/.test(input.recheckSourceHash)))
+      throw new RuntimeError("INVALID_RECHECK_SOURCE", "复检必须绑定已保存的完整源码哈希");
     const builderPrompt = handoff
       ? `${handoff.task}\n\n已保存的实现目标与行为约定：\n${JSON.stringify(handoff.plan)}${handoff.failedChecks?.length ? `\n\n上一轮实际失败与诊断（逐项修复，不可忽略）：\n${JSON.stringify(handoff.failedChecks)}` : ""}`
       : input.prompt;
@@ -281,24 +285,20 @@ export async function runCandidate(
     });
     await initializeReactWorkspace(workspace, handle, input.seed);
     signal.throwIfAborted();
-    await emit({
-      type: "stage",
-      stage: "generating",
-      message: "Builder 正在实现你的需求",
-    });
-    const built = await runBuilder({
-      workspace,
-      handle,
-      modelConfig: input.modelConfig,
-      prompt: builderPrompt,
-      signal,
-      onEvent: sink,
-      maxToolCalls: input.maxToolCalls ?? 80,
-      tokenBudget: input.tokenBudget,
-      sessionId: input.sessionId,
-      redactValues: [input.sandboxConfig.apiKey],
-    });
-    usage = built.usage;
+    if (input.recheckSourceHash) {
+      await emit({ type: "stage", stage: "generating", message: "复用已保存候选源码；未调用 Builder 模型" });
+      const restored = snapshotSources(await workspace.listSourceFiles(handle));
+      if (restored.snapshot.sourceHash !== input.recheckSourceHash)
+        throw new RuntimeError("RECHECK_SOURCE_MISMATCH", "复检源码与原候选不一致");
+    } else {
+      await emit({ type: "stage", stage: "generating", message: "Builder 正在实现你的需求" });
+      const built = await runBuilder({
+        workspace, handle, modelConfig: input.modelConfig, prompt: builderPrompt, signal,
+        onEvent: sink, maxToolCalls: input.maxToolCalls ?? 80, tokenBudget: input.tokenBudget,
+        sessionId: input.sessionId, redactValues: [input.sandboxConfig.apiKey],
+      });
+      usage = built.usage;
+    }
     await flush();
     signal.throwIfAborted();
     await boundaries.afterBuilderOutput?.({ runId: input.runId, attempt: handoff?.attempt ?? 0, workspace, handle, signal });
@@ -321,6 +321,8 @@ export async function runCandidate(
     );
     trustedBuild = safeBuild(candidate.trustedBuild);
     const { snapshot, manifest } = snapshotSources(candidate.files);
+    if (input.recheckSourceHash && snapshot.sourceHash !== input.recheckSourceHash)
+      throw new RuntimeError("RECHECK_SOURCE_MISMATCH", "构建后的复检源码与原候选不一致");
     const registration: CandidateSandboxRegistration = {
       ...handle,
       state: "preview_ready",

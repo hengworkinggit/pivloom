@@ -23,6 +23,7 @@ export interface StoredRun extends Run {
   builderRoleRunId: string | null;
   coordinatorRoleRunId: string | null;
   expectedCurrentRevisionId: string | null;
+  retryOfRunId: string | null;
 }
 export interface StoredRevision extends Revision { ownerId: string; source: SourceReference; build: Record<string, unknown> }
 export interface StoredRoleRun extends RoleRun { input: Handoff | null }
@@ -88,6 +89,7 @@ export interface GenerationRepository {
   appendEvent(ownerId: string, runId: string, input: AppendEventInput): Promise<RunEvent>;
   setPhase(ownerId: string, runId: string, input: { phase: RunPhase; state?: RunState }): Promise<StoredRun>;
   getPlanningContext(ownerId: string, runId: string): Promise<PlanningContext>;
+  getReviewRetryCandidate(ownerId: string, runId: string, priorRunId: string): Promise<{ revision: StoredRevision; plan: Plan } | null>;
   startCoordinator(ownerId: string, runId: string): Promise<StoredRoleRun>;
   assertRoleActive(ownerId: string, runId: string, input: RoleReference): Promise<void>;
   submitPlan(ownerId: string, runId: string, input: SubmitPlanInput): Promise<PlanSubmission>;
@@ -151,7 +153,8 @@ function storedRun(row: Row): StoredRun {
     plan: row.plan_json ?? null, clarification: row.clarification_json ?? null, parentRunId: row.parent_run_id ?? null,
     error: row.error_code ? { code: row.error_code, message: row.error_message, retryable: row.error_retryable } : null,
   }), ownerId: row.owner_id, credentialLeaseId: row.credential_lease_id, executorBootId: row.executor_boot_id,
-    builderRoleRunId: row.builder_role_run_id, coordinatorRoleRunId: row.coordinator_role_run_id ?? null, expectedCurrentRevisionId: row.expected_current_revision_id };
+    builderRoleRunId: row.builder_role_run_id, coordinatorRoleRunId: row.coordinator_role_run_id ?? null,
+    expectedCurrentRevisionId: row.expected_current_revision_id, retryOfRunId: row.retry_of ?? null };
 }
 function storedEvent(row: Row): RunEvent {
   return RunEventSchema.parse({ schemaVersion: 1, eventId: String(row.id), runId: row.run_id,
@@ -439,6 +442,26 @@ export function createGenerationRepository(
     },
     getRun: (ownerId, runId) => owned(ownerId, async (client) => storedRun(await run(client, ownerId, runId))),
     getPlanningContext: (ownerId, runId) => owned(ownerId, async (client) => planningContext(await run(client, ownerId, runId))),
+    getReviewRetryCandidate: (ownerId, runId, priorRunId) => owned(ownerId, async (client) => {
+      const { current, parent } = await lockedRun(client, ownerId, runId);
+      if (current.retry_of !== priorRunId || !["accepted", "planning"].includes(current.state)) return null;
+      const prior = await run(client, ownerId, priorRunId);
+      if (prior.project_id !== current.project_id || prior.state !== "failed"
+        || !["CHECK_BLOCKED", "AGENT_OUTPUT_INVALID"].includes(prior.error_code)
+        || prior.expected_current_revision_id !== current.expected_current_revision_id
+        || parent.current_revision_id !== current.expected_current_revision_id
+        || !prior.result_revision_id || !prior.plan_json) return null;
+      const reviewer = (await client.query(`SELECT id FROM nano.role_runs WHERE owner_id=$1 AND run_id=$2
+        AND role='reviewer' AND started_at IS NOT NULL LIMIT 1`, [ownerId, priorRunId])).rows[0];
+      if (!reviewer) return null;
+      const check = (await client.query(`SELECT verdict,source_hash FROM nano.checks WHERE owner_id=$1 AND run_id=$2
+        ORDER BY created_at DESC,id DESC LIMIT 1`, [ownerId, priorRunId])).rows[0];
+      if (check && check.verdict !== "blocked") return null;
+      const saved = await revision(client, ownerId, prior.result_revision_id);
+      if (saved.run_id !== priorRunId || saved.project_id !== current.project_id || saved.build_status !== "passed"
+        || saved.status !== "candidate" || (check && saved.source_hash !== check.source_hash)) return null;
+      return { revision: storedRevision(saved), plan: PlanSchema.parse(prior.plan_json) };
+    }),
     startCoordinator: (ownerId, runId) => owned(ownerId, async (client) => {
       const { current } = await lockedRun(client, ownerId, runId);
       if (date(current.deadline_at).getTime() <= Date.now()) throw new ApiFailure(409, "RUN_TIMEOUT", "任务长时间没有进展，已停止执行。");

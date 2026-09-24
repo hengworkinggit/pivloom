@@ -304,10 +304,12 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       allowCleanup() { cleanupUnavailable = false; }, onRelease(hook: () => Promise<void>) { closeHook = hook; } };
   }
 
-  async function run(f: Awaited<ReturnType<typeof fixture>>, projectId?: string, closeAfter = true) {
+  async function run(f: Awaited<ReturnType<typeof fixture>>, projectId?: string, closeAfter = true, retryOfRunId?: string) {
     const project = projectId ? await createProjectRepository(database).get(owner, projectId) : await createProjectRepository(database).create(owner, prefix);
     if (!projects.includes(project.id)) projects.push(project.id);
-    const accepted = await repository.accept(owner, project.id, { idempotencyKey: randomUUID(), text: "初始0，点击加一显示1", expectedCurrentRevisionId: project.currentRevisionId, modelProfileId: model.id, modelConfigVersion: model.configVersion });
+    const accepted = await repository.accept(owner, project.id, { idempotencyKey: randomUUID(), text: "初始0，点击加一显示1",
+      expectedCurrentRevisionId: project.currentRevisionId, modelProfileId: model.id, modelConfigVersion: model.configVersion,
+      retryOfRunId: retryOfRunId ?? null });
     leases.push(accepted.run.credentialLeaseId);
     await new Promise<void>((done, reject) => {
       const timer = setTimeout(() => reject(Error("Executor fixture did not finish")), 600_000);
@@ -351,6 +353,28 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     leases.push(next.run.credentialLeaseId);
     expect(next.run.state).toBe("accepted");
     await repository.finishCancelled(owner, next.run.id, { cleanupState: "confirmed", summary: "隔离夹具已结束" });
+  }, 900_000);
+
+  test("linked retry rebuilds a blocked candidate without Coordinator or Builder model calls", async () => {
+    const old = await run(await fixture("review-blocked"));
+    expect(old.run).toMatchObject({ state: "failed", error: { code: "CHECK_BLOCKED" } });
+    const original = await repository.getRevision(owner, old.run.resultRevisionId!);
+    const remote = await fixture("normal");
+    const retried = await run(remote, old.projectId, true, old.run.id);
+    expect(retried.run).toMatchObject({ state: "completed", attempt: 0, retryOfRunId: old.run.id });
+    expect(retried.run.resultRevisionId).not.toBe(original.id);
+    const revision = await repository.getRevision(owner, retried.run.resultRevisionId!);
+    expect(revision.sourceHash).toBe(original.sourceHash);
+    expect(remote.builderPrompts).toHaveLength(0);
+    expect(retried.roles.filter((role) => role.role === "coordinator" || role.role === "builder"))
+      .toHaveLength(2);
+    const roleUsage = await admin.query(`SELECT role,usage_json FROM nano.role_runs WHERE run_id=$1
+      AND role IN ('coordinator','builder') ORDER BY role`, [retried.run.id]);
+    expect(roleUsage.rows).toMatchObject([
+      { role: "builder", usage_json: { modelCalls: 0, toolCalls: 0 } },
+      { role: "coordinator", usage_json: { modelCalls: 0, toolCalls: 0 } },
+    ]);
+    expect((await repository.getRunCheck(owner, retried.run.id))?.verdict).toBe("passed");
   }, 900_000);
 
   test("one browser infrastructure failure rechecks the exact candidate with a fresh browser and completes", async () => {

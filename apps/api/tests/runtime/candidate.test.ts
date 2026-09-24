@@ -184,6 +184,42 @@ test("a bound fake sandbox is actually killed and independently absent after fai
   expect(remote.isLive()).toBe(false);
 });
 
+test("a saved candidate rebuilds for review with identical source and zero new Builder model calls", async () => {
+  const firstRemote = await remoteFixture();
+  const model = modelFixture("export default function App(){return <main>saved candidate</main>}");
+  const original = await runCandidate({ runId: randomUUID(), revisionId: randomUUID(), prompt: "make a page",
+    modelConfig: model.config, sandboxConfig, signal: new AbortController().signal }, { sandboxConnector: firstRemote.connector });
+  expect(original.status).toBe("candidate");
+  if (original.status !== "candidate") return;
+  const priorModelCalls = model.requests.length;
+  const secondRemote = await remoteFixture();
+  const rechecked = await runCandidate({ runId: randomUUID(), revisionId: randomUUID(), prompt: "make a page",
+    seed: original.snapshot.bundle.files.map((file) => ({ path: file.path, content: Buffer.from(file.content), sha256: file.sha256 })),
+    recheckSourceHash: original.snapshot.sourceHash,
+    modelConfig: model.config, sandboxConfig, signal: new AbortController().signal }, { sandboxConnector: secondRemote.connector });
+  expect(rechecked.status).toBe("candidate");
+  if (rechecked.status !== "candidate") return;
+  expect(rechecked.snapshot.sourceHash).toBe(original.snapshot.sourceHash);
+  expect(rechecked.revisionId).not.toBe(original.revisionId);
+  expect(model.requests).toHaveLength(priorModelCalls);
+  expect(secondRemote.commands.some((command) => command.includes("typescript/bin/tsc"))).toBe(true);
+  expect(secondRemote.commands.some((command) => command.includes("vite.js build"))).toBe(true);
+});
+
+test("cancelling a saved-candidate recheck before sandbox creation never calls the Builder model", async () => {
+  const remote = await remoteFixture();
+  const model = modelFixture("export default function App(){return null}");
+  const controller = new AbortController();
+  controller.abort("CANCELLED");
+  const result = await runCandidate({ runId: randomUUID(), revisionId: randomUUID(), prompt: "recheck",
+    seed: [{ path: "src/App.tsx", content: Buffer.from("export default function App(){return null}"), sha256: "a".repeat(64) }],
+    recheckSourceHash: "a".repeat(64), modelConfig: model.config, sandboxConfig, signal: controller.signal },
+  { sandboxConnector: remote.connector });
+  expect(result.status).toBe("cancelled");
+  expect(result.cleanup).toBe("not_created");
+  expect(model.requests).toHaveLength(0);
+});
+
 test("repair Builder receives the failed behavior and compiler diagnostic from its persisted handoff", async () => {
   const remote = await remoteFixture();
   const model = modelFixture("export default function App(){return <h1>修复候选</h1>}");
