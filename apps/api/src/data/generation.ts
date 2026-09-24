@@ -460,7 +460,8 @@ export function createGenerationRepository(
       const saved = await revision(client, ownerId, prior.result_revision_id);
       if (saved.run_id !== priorRunId || saved.project_id !== current.project_id || saved.build_status !== "passed"
         || saved.status !== "candidate" || (check && saved.source_hash !== check.source_hash)) return null;
-      return { revision: storedRevision(saved), plan: PlanSchema.parse(prior.plan_json) };
+      const plan = GroupedPlanSchema.safeParse(prior.plan_json);
+      return plan.success ? { revision: storedRevision(saved), plan: plan.data } : null;
     }),
     startCoordinator: (ownerId, runId) => owned(ownerId, async (client) => {
       const { current } = await lockedRun(client, ownerId, runId);
