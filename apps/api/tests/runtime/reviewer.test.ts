@@ -551,12 +551,16 @@ test('Canvas key batch binds every input result, fresh observation and delivered
   const f=setup((request,n)=>{
     const last=request.messages.filter(message=>message.role==='tool').at(-1);
     const data=last?JSON.parse(last.content) as Record<string,unknown>:null;
-    if(n===1)return {name:'browser_open',args:{}};
+    if(n===1){
+      expect(JSON.stringify(request)).toContain('For timer-driven Canvas games such as Snake');
+      expect(JSON.stringify(request)).toContain('Native short keyboard batch for timer-driven Canvas games');
+      return {name:'browser_open',args:{}};
+    }
     if(n===2)return {name:'browser_key_batch',args:{behaviorId:'B01',observationId:data?.observationId,
-      steps:[{key:'ArrowUp',waitMs:100},{key:'ArrowRight',waitMs:100},{key:'Space',waitMs:0}]}};
+      steps:[{key:'Space',waitMs:0},{key:'ArrowUp',waitMs:170},{key:'ArrowRight',waitMs:320},{key:'Space',waitMs:0}]}};
     if(n===3){batchEventId=String(data?.id);batchToolResult=data??undefined;return {name:'browser_screenshot',args:{}};}
     return {name:'record_behavior',args:{...report([batchEventId]).items[0],
-      screenshotIds:[data?.artifactId],actual:'Canvas 与 HUD 在键盘操作后更新',reproSteps:['上、右、空格']}};
+      screenshotIds:[data?.artifactId],actual:'Canvas 与 HUD 在键盘操作后更新',reproSteps:['空格继续、上、右、空格暂停']}};
   });
   f.input.browser.keyBatch=async({steps})=>{
     batchCalls++;
@@ -567,13 +571,14 @@ test('Canvas key batch binds every input result, fresh observation and delivered
   const result=await runReviewer({...f.input,requireVisionEvidence:true});
   expect(batchCalls).toBe(1);
   expect(batchToolResult).toMatchObject({revisionId,sourceHash,browserSessionId:f.input.browser.sessionId,
-    batch:{steps:[{index:0,key:'ArrowUp',success:true},{index:1,key:'ArrowRight',success:true},{index:2,key:'Space',success:true}]}});
+    batch:{steps:[{index:0,key:'Space',success:true},{index:1,key:'ArrowUp',success:true},{index:2,key:'ArrowRight',success:true},{index:3,key:'Space',success:true}]}});
   const evidence=result.evidence.find(event=>event.id===batchEventId);
   expect(evidence).toMatchObject({behaviorId:'B01',action:'key_batch',batch:{startedAt:'2026-09-23T18:00:00.000Z'}});
   expect(evidence?.batch?.steps).toMatchObject([
-    {index:0,key:'ArrowUp',waitMs:100,success:true},
-    {index:1,key:'ArrowRight',waitMs:100,success:true},
-    {index:2,key:'Space',waitMs:0,success:true},
+    {index:0,key:'Space',waitMs:0,success:true},
+    {index:1,key:'ArrowUp',waitMs:170,success:true},
+    {index:2,key:'ArrowRight',waitMs:320,success:true},
+    {index:3,key:'Space',waitMs:0,success:true},
   ]);
   expect(result.result.items[0].verdict).toBe('passed');
 });
