@@ -155,6 +155,28 @@ if(Buffer.byteLength(JSON.stringify([...evidence,event])) > 480*1024) throw fail
 
 这一条改完后只需重跑 C2 的定点复测（复用已保存候选、零重生成）与受影响的检查路径，不需要重跑 C0/C1。
 
+## 二之五、从 C2 回滚到 C1 ——**PASS**
+
+在 v7（C2）之后打开版本历史、选中 v2（C1）、确认方向 **v7 → v2** 并执行回滚：
+
+| 核对项 | 结果 |
+| --- | --- |
+| `current_revision_id` | **v2**，`source_hash` `1346ccafafc2…`（= C1 的 hash） |
+| `nano.rollbacks` | `status=committed`，`target_revision_id` = v2，`source_hash` 同为 `1346ccafafc2…` |
+| 对话基线 | 新增真实消息「已从 v7 回滚到 v2。后续修改将以 v2 为基线。」 |
+| C2 是否保留 | **保留在历史中**（v7 仍为 `accepted`，v3–v6 为其同源候选） |
+
+## 二之六、基于 C1 的 C3 ——**已提交，运行中**
+
+Run `17719c28`，Prompt 83 字。关键取证点在**冻结基线**：
+
+| 字段 | 值 |
+| --- | --- |
+| `base_revision_id` | **v2**（C1） |
+| `expected_current_revision_id` | **v2**（C1） |
+
+即 C3 从 **C1** 出发，而不是从回滚前的 C2（v7）。为让结果可判别，C3 的需求里明确写「保持现在的浅色配色不要改」——C2 正是把配色改成深色，因此若 C3 的结果是浅色并在此基础上增加「全部清除」与单条删除，即可证明基线确为 C1 而非误用 C2。版本号应继续递增（在 v7 之后产出新版本），这一条待其完成后核对。
+
 ## 三、S0（Canvas 贪吃蛇）——**FAIL / BLOCKED**
 
 项目 `85f84510-df6d-4419-bc13-4a38505c9fe4`，同样从空工程创建（创建时 revision 数 0），Run `8776b77a-ad2c-4380-88e0-10b581b474f0`，Prompt 151 字，`request_hash` `9c2f4ba9…`，同一冻结模型配置。
