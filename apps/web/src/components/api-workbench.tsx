@@ -238,7 +238,9 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
     const url = new URL(window.location.href);
     url.searchParams.delete("start");
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-    void send();
+    // Deferred by a microtask so the effect does not synchronously trigger the submitting
+    // state, which the lint rule forbids to avoid cascading renders.
+    void Promise.resolve().then(() => send());
   // New projects submit their saved initial draft once after project and verified model load.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.project.id, run?.id, busy, unknownSubmission, modelReady, selectedModel?.id, draft]);
