@@ -85,7 +85,41 @@ test('unknown diagnostic codes use the generic blocked message without reflectin
 - **catch 分支会丢弃全部已有进度**：`result.items` 由 `input.handoff.plan.behaviors` 全量重建为 `blocked`，因此 C2 显示的「0/44 通过」并不代表评审器什么都没做成——它实际产生了 43 与 62 条 `tool.output`。**进度在异常时被整体丢弃**，这也是类型系统里 `ReviewCheckpoint`（`provisional: true`）想要解决的问题，但复测路径没有用它。
 - **时间特征指向某个墙钟/空闲上限**：两次尝试都在**约 16–17 分钟**后失败，期间预览沙箱一直存活；对照 C1（38 项）整轮约 19 分钟却通过，而 C2 是 44 项、评审耗时最长。相关常量：`RUN_IDLE_TIMEOUT_MS = 360_000`（6 分钟空闲）、`SANDBOX_LEASE_SEGMENT_MS = 420_000`（7 分钟租约分段）、`REVIEW_TOOL_LIMIT = 280`（**已确定不是它**，实际只用 43/62 次）。
 
-**下一步的具体动作**：先加一条不泄露原始码的服务端诊断（脱敏指纹 + 内部字段），重跑一次 C2 定点复测读出真实码，再决定修法。在此之前不要猜着改评审预算——把上限调大可能会掩盖真正的异常，而 `RUN_IDLE_TIMEOUT_MS` 的存在正是为了防止任务无声停滞。
+### 根因已锁定（2026-09-25，加诊断后一次读出）
+
+按上一条的计划加了**脱敏指纹**诊断（提交 `a3ece36`：只记 `sha256(code)` 前 12 位与长度，不记原文，因此不违反 `review.test.ts` 钉住的不泄露原始数据不变量），部署后重跑 C2 定点复测，服务端日志给出：
+
+```
+[review] unclassified failure code=b09004710d57 length=13 reviewerStarted=true
+```
+
+把仓库里所有错误码字面量做同样的哈希比对，**唯一命中**：
+
+| 码 | 长度 | sha256 前 12 位 |
+| --- | --- | --- |
+| `CHECK_BLOCKED` | 13 | `b09004710d57` ✓ |
+
+而 `apps/api/src/runtime/reviewer.ts` 里抛 `CHECK_BLOCKED` 的四处**都不带 diagnosticCode**（266「浏览器观察来自错误会话或来源」、272「检查记录达到大小上限」、615「只能刷新本次候选预览」、797「检查浏览器关闭尚未确认」），因此它在 `review.ts` 里以裸码落入通用文案。
+
+与现场最吻合的是**第 272 行**：
+
+```
+if(Buffer.byteLength(JSON.stringify([...evidence,event])) > 480*1024) throw fail(new RuntimeError('CHECK_BLOCKED','检查记录达到大小上限'));
+```
+
+即**评审证据日志的 480 KB 上限**。这一条解释了全部观测：
+
+- C2 是行为最多的一轮（**44 项**；C0 为 28、C1 为 38），每个行为都要视觉证据，因此只有它撞上限；
+- 失败发生在做了大量工作之后（43/62 条工具调用），不是一开始；
+- 两次结果完全一致且都约 16–17 分钟——确定性上限，不是随机故障；
+- 异常路径把 `plan.behaviors` 全量重建为 `blocked`，所以显示 0/44，掩盖了真实进度。
+
+### 由此确定的两个修法（下一轮执行）
+
+1. **证据日志的容量**：480 KB 对「行为多 + 每项要截图」的检查不够用。应先看证据数组里重复存了什么（截图本身已作为 artifact 独立存储，证据里若再内嵌观察树/文本就是重复），优先**去掉重复载荷**，而不是简单调大上限。
+2. **让 `CHECK_BLOCKED` 说真话**：把这四个不带 diagnosticCode 的抛出点补上 diagnosticCode（或在 `blockedReasons` 里给 `CHECK_BLOCKED` 一个明确文案），否则任何一次检查中止都只会显示「浏览器或检查过程未完成」，运维与用户都无法判断该做什么。
+
+这两个修法都属于「定点修复」：改完后只需重跑 C2 的定点复测（复用已保存候选 v3/v4、零重生成）与受影响的检查路径，不需要重跑 C0/C1。
 
 ## 三、S0（Canvas 贪吃蛇）——**FAIL / BLOCKED**
 
