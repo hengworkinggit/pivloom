@@ -435,7 +435,21 @@ v7（C2，revision `2ea8d6bb`）的预览**当时仍然存活**（回滚测试�
 - 失败运行的 `error` 是**完整对象**（`code: "MODEL_FAILED"`，`retryable` 由契约 `packages/contracts/src/generation.ts:32` 保证），因此数据侧没有问题；
 - 而工作台的重试条件读的是 `state.view?.run`（`api-workbench.tsx:379` 的 `run.error?.retryable`）。
 
-所以需要确认 `state.view` 是怎么由 `activeRun`/`latestRun` 派生出来的（`generation-state.ts`），以及为什么在 `latestRun.state = "failed"` 时它没有暴露该运行。**结论未定之前不改代码**——我不想在没有足够上下文时提交一个半成品，这与我此前两次回退自己改动的判断一致。
+### 派生链已读出，但**结论与观测矛盾，故未改动**
+
+```
+41:  const snapshotRun  = project.activeRun ?? project.latestRun;
+43:  const detail       = runId ? await generation.getRun(runId) : null;
+57:  const refreshedRun = project.activeRun ?? project.latestRun;
+61:  const visibleRun   = refreshedRun && refreshedRun.id !== detail?.run.id && !snapshotNamesParent
+                          ? refreshedRun : detail?.run ?? refreshedRun;
+```
+
+按这条链：失败时 `activeRun` 为 `null`（`typeof null === "object"` 一度让我的探测看起来像对象，实际是空值）、`refreshedRun = latestRun`（那条失败运行），因此 `visibleRun` **应当是它**，`view.run` 也应当是它——**但页面上没有渲染重试入口**，与这条推理矛盾。
+
+矛盾没有解开之前我不改代码：可能的解释至少有三个（`detail.run` 与 `snapshotNamesParent` 分支的实际取值、`run.clarification` 是否非空、页面是否处于别的提交态），每一个都指向不同的改法。**在矛盾未澄清时提交改动就是在猜**，而这正是我此前两次主动回退自己改动的同一判断标准。
+
+这条属于**非阻塞的待查项**：它不影响 #37 的任何通过条件（我在复测时用 API 发出了与客户端完全相同的请求体，功能上不受影响），但用户从界面上重试失败任务会缺少入口，值得单独修。
 
 ## 三、S0（Canvas 贪吃蛇）——**FAIL / BLOCKED**
 
