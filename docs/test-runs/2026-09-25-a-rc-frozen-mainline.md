@@ -429,6 +429,14 @@ v7（C2，revision `2ea8d6bb`）的预览**当时仍然存活**（回滚测试�
 
 失败运行的 `error_retryable = t`、`cleanup_state = confirmed`，但工作台**没有渲染「以新任务重试」入口**。我没有停在这一点上——而是用 API 发出了与客户端**完全相同**的请求体（`retryOfRunId`、当前 revision、冻结的模型配置）并成功触发复测。该不一致值得单独确认，但它不阻塞本条主线。
 
+**已查到的具体层面**（供后续定点修复，不在配额窗口里冒险改动）：
+
+- API 项目详情的顶层字段是 `project, messages, currentRevision, activeRun, latestRun, latestCandidate, latestCheck, latestCheckHistorical, preview, quota` —— **没有 `run`**；
+- 失败运行的 `error` 是**完整对象**（`code: "MODEL_FAILED"`，`retryable` 由契约 `packages/contracts/src/generation.ts:32` 保证），因此数据侧没有问题；
+- 而工作台的重试条件读的是 `state.view?.run`（`api-workbench.tsx:379` 的 `run.error?.retryable`）。
+
+所以需要确认 `state.view` 是怎么由 `activeRun`/`latestRun` 派生出来的（`generation-state.ts`），以及为什么在 `latestRun.state = "failed"` 时它没有暴露该运行。**结论未定之前不改代码**——我不想在没有足够上下文时提交一个半成品，这与我此前两次回退自己改动的判断一致。
+
 ## 三、S0（Canvas 贪吃蛇）——**FAIL / BLOCKED**
 
 项目 `85f84510-df6d-4419-bc13-4a38505c9fe4`，同样从空工程创建（创建时 revision 数 0），Run `8776b77a-ad2c-4380-88e0-10b581b474f0`，Prompt 151 字，`request_hash` `9c2f4ba9…`，同一冻结模型配置。
