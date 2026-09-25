@@ -28,8 +28,16 @@ export const recoverableToolErrors: ReadonlySet<string> = new Set([
  * cumulative wall-clock ceiling; the owning Run watchdog handles inactivity.
  */
 export function classifyReviewerModelFailure(state: { errorMessage?: string }): RuntimeError {
-  return new RuntimeError(/timeout|timed out|abort/i.test(state.errorMessage ?? '') ? 'MODEL_REQUEST_TIMEOUT' : 'MODEL_FAILED',
-    '检查者模型请求未完成，请稍后重试');
+  const timedOut = /timeout|timed out|abort/i.test(state.errorMessage ?? '');
+  // The provider's own words used to be tested for a timeout and then discarded, so a
+  // failed request said only that it had failed. Keep them, redacted the same way the
+  // restore path redacts, so a run is diagnosable without leaking a key or a token.
+  const detail = (state.errorMessage ?? "").trim()
+    .replace(/sk-[A-Za-z0-9_-]{8,}/g, "[REDACTED]")
+    .replace(/Bearer\s+[^\s"']+/gi, "Bearer [REDACTED]")
+    .slice(0, 500);
+  return new RuntimeError(timedOut ? 'MODEL_REQUEST_TIMEOUT' : 'MODEL_FAILED',
+    detail ? `检查者模型请求未完成，请稍后重试（${detail}）` : '检查者模型请求未完成，请稍后重试');
 }
 /** Match a screenshot's own tool result to its image in either supported wire protocol. */
 export function deliveredScreenshotIdsFromRequest(body:string,captures:ReadonlyMap<string,{image:ImageContent}>):Set<string>{

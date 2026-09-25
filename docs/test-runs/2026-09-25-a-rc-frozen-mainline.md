@@ -280,7 +280,20 @@ expect(observed.tree.length).toBeLessThanOrEqual(12000);
 | 运行 token 预算 | **300k** | reviewer 到 236k 失败，**不是预算耗尽** |
 | 压缩阈值 | `piCompactionSettings(model.contextWindow)`（`reviewer.ts:386`） | 压缩按**模型声明的上下文窗口**校准，而非服务商实际可稳定服务的单次请求大小 |
 
-即：如果该模型声明了很大的窗口，Pi 会等到接近那个窗口才压缩，而 236k 的请求在压缩之前就已经超出服务商能可靠完成的规模——于是出现「检查者模型请求未完成」。
+**这一推断随后被我自己推翻**：`pi.ts:200` 的取值链是 `config.contextWindow ?? catalog?.contextWindow ?? 128000`，而 236k **大于** 128k——若有效窗口是 128k，Pi 早就该压缩。所以那 236k 更可能是**该角色所有请求的累计 input tokens**，而非单次请求大小。「单次请求过大」**证据不足，已撤回**。
+
+### 又一处同类缺陷：分类器丢掉了服务商的原因
+
+`reviewer.ts` 的 `classifyReviewerModelFailure` 只用正则测了一下 `state.errorMessage`，**然后把它丢掉**换成固定文案：
+
+```ts
+return new RuntimeError(/timeout|timed out|abort/i.test(state.errorMessage ?? '') ? 'MODEL_REQUEST_TIMEOUT' : 'MODEL_FAILED',
+  '检查者模型请求未完成，请稍后重试');
+```
+
+这与我先前修的 `executor.ts` 是同一类问题：**分类用到了原因，但对用户和运维都不保留它**。所以 `MODEL_FAILED` 至今无法定位。
+
+**已修**（沿用仓库既有的脱敏约定，见恢复路径的 `replaceAll(apiKey,"[REDACTED]")` 与 Bearer 脱敏）：把服务商原文按同样规则脱敏并截断后附在文案里；无内容时保持原句。全量测试 372 通过，仅剩已知的环境失败。
 
 **下一轮的具体动作**：核对 `kimi-k2.7-code` 在模型目录里声明的 `contextWindow`，与实测可完成请求的上限（236k 失败）比较；若声明值明显偏大，就把压缩按**两者中较小者**校准（或为该模型设置更保守的窗口），而不是动 12,000 那个观察界。这与 `47863f3` 的「用实测校准预算」是同一个方法论。
 
