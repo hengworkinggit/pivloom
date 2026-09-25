@@ -40,6 +40,29 @@ Run `c10ecdcd`，`base_revision_id` 与 `expected_current_revision_id` 都冻结
 | 构建与提升 | PASS | v2 `build_status=passed`、`status=accepted`，`current_revision_id` 提升为 v2；v1 保留在历史中 |
 | 真实模型调用 | PASS | coordinator / builder / reviewer 三角色 succeeded，Run `completed` |
 
+## 二之三、C2（视觉增量）——**BLOCKED（未通过，未提升）**
+
+Run `dcbafb9e`，`base`/`expected` 冻结在 C1 的 revision `cc4a7ee9`（v2），Prompt 141 字。生成与构建成功（v3、`source_hash` `9e636513e0a6…`、`build_status=passed`），但**产品检查两次都未完成**：
+
+| 轮次 | 结果 | 观测 |
+| --- | --- | --- |
+| 首次 `dcbafb9e` | `failed / CHECK_BLOCKED` | 五组全部 `blocked`、**0 项通过**；摘要「浏览器或检查过程未完成，当前候选尚未通过检查。」 |
+| 定点复测 `e0d848b3` | `failed / CHECK_BLOCKED` | 同上，44 项全 `blocked`、0 通过 |
+
+复测同样是**零重生成的定点复测**：事件「复用先前封存的计划与源码；协调者和 Builder 模型调用均为 0」，协调者与 Builder 的 token 用量为 0，v3 与 v4 的 `source_hash` 完全相同（`9e636513e0a6…`）。
+
+`current_revision_id` **仍为 v2**——C2 没有被提升，v3/v4 保持候选状态。
+
+### 已排除与尚未排除的原因
+
+- **不是工具预算耗尽**：`REVIEW_TOOL_LIMIT = 280`（`apps/api/src/runtime/budgets.ts:44`），而两次评审实际只产生了 43 与 62 条 `tool.output`（对照：通过的 C1 是 93 条），且事件流里没有任何 `TOOL_BUDGET_EXCEEDED`、也没有 `role.failed` 事件携带显式错误。
+- **不是重复生成**：两次产出同一源码 hash（见上）。
+- **不是全局故障**：同一时段 C0（28 项）与 C1（38 项）都完整跑完并通过。
+
+**最可能的原因**：C2 的可验证行为最多（**44 项**，C1 为 38 项）。评审器在只记录了部分行为的情况下结束了回合，于是返回通用兜底摘要——而**定点复测是从头重跑评审器（新浏览器会话），并不会从已保存的检查断点续跑**，所以行为集一大就反复无法完成。类型定义里其实已有检查断点的概念（`ReviewCheckpoint` 带 `provisional: true` 与 `completedBehaviorIds`），但复测路径没有使用它。
+
+这条如果成立，是一个真实的能力缺口：**大行为集永远无法通过复查**，因为每次重试都从零开始。修法应是把复测接到已保存的断点上（继续未完成的行为），而不是重启整个检查。这一步我没有在证据不足时擅自动手——需要先确认评审器结束回合时的实际原因（是模型自行停止，还是某个未上报的内部上限）。
+
 ## 三、S0（Canvas 贪吃蛇）——**FAIL / BLOCKED**
 
 项目 `85f84510-df6d-4419-bc13-4a38505c9fe4`，同样从空工程创建（创建时 revision 数 0），Run `8776b77a-ad2c-4380-88e0-10b581b474f0`，Prompt 151 字，`request_hash` `9c2f4ba9…`，同一冻结模型配置。
