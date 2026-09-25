@@ -28,6 +28,18 @@
 | 产品五组完整检查 | PASS | `verdict=passed`，**5 组 / 28 项全部通过**，31 个产物（截图等），摘要「已检查 28 项行为：28 项通过。」 |
 | 同一 revision/hash 的 Preview | PASS | 预览绑定到 v1 的 revision 与 source hash |
 
+## 二之二、C1（功能增量：历史记录 + 复制结果）——**PASS**
+
+Run `c10ecdcd`，`base_revision_id` 与 `expected_current_revision_id` 都冻结在 C0 的 revision `440a36bb`（v1），Prompt 161 字。
+
+| 验收点 | 结果 | 证据 |
+| --- | --- | --- |
+| 版本递增与基线正确 | PASS | 产出 **v2**（revision `cc4a7ee9`），`next_revision_no` 2→3；base/expected 同指 v1 |
+| 真实源码变更 | PASS | v2 `source_hash` `1346ccafafc2…` ≠ v1 `f68de02ca7fe…` |
+| 旧功能保留 + 新功能验收 | PASS | 检查 **38 项全部通过**（C0 为 28 项），新增 10 项覆盖历史记录面板与复制结果；摘要「已检查 38 项行为：38 项通过。」 |
+| 构建与提升 | PASS | v2 `build_status=passed`、`status=accepted`，`current_revision_id` 提升为 v2；v1 保留在历史中 |
+| 真实模型调用 | PASS | coordinator / builder / reviewer 三角色 succeeded，Run `completed` |
+
 ## 三、S0（Canvas 贪吃蛇）——**FAIL / BLOCKED**
 
 项目 `85f84510-df6d-4419-bc13-4a38505c9fe4`，同样从空工程创建（创建时 revision 数 0），Run `8776b77a-ad2c-4380-88e0-10b581b474f0`，Prompt 151 字，`request_hash` `9c2f4ba9…`，同一冻结模型配置。
