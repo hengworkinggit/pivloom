@@ -718,6 +718,18 @@ v7（C2，revision `2ea8d6bb`）的预览**当时仍然存活**（回滚测试�
 
 清理：核对完成后已释放预览沙箱（`live=0`），环境保持空闲以便收尾部署。
 
+## 二之三十四、三轮的 Preview 绑定逐轮核对（补齐第 3 条的「每轮…Preview」）
+
+第 3 条要求**每一轮**都核「版本号、base、完整源码 diff、sourceHash、**Preview**」。Preview 一项我此前只对 C1（v2）的恢复记录做过 hash 比对。补齐三轮：
+
+| 轮次 | 沙箱绑定 revision | 沙箱 `source_hash` | 该 revision 自身 hash | 一致 |
+| --- | --- | --- | --- | --- |
+| **v1（C0）** | `440a36bb` | `f68de02ca7fe` | `f68de02ca7fe` | **是** |
+| **v2（C1）** | `cc4a7ee9` | `1346ccafafc2` | `1346ccafafc2` | **是** |
+| **v7（C2）** | `2ea8d6bb` | `9e636513e0a6` | `9e636513e0a6` | **是** |
+
+三轮的预览沙箱都绑定**该轮自己的 revision**，且 `source_hash` 与该 revision 自身**逐字相同**，`purpose` 均为 `preview`。因此「每轮的 Preview 对应本轮源码」是逐轮取得的证据，而不是从一轮推及三轮。
+
 ## 四、尚未执行（本票剩余）
 
 - 计算器 C0→功能 C1→视觉 C2 → **回滚到 C1** → 基于 C1 的 C3（四次真实业务提交）。
