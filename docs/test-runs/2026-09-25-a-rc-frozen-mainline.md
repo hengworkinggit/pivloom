@@ -1052,6 +1052,25 @@ leaving no result at all.`]
 
 **下一步的具体入口**：`apps/api/src/runtime/reviewer.ts` 中 `imageDelivered` 的写入点与 `browser_screenshot`/`screenshot_read` 工具结果的返回形状，以及 Pi 会话如何把工具结果里的图片并入下一次请求。
 
+## 二之四十九、图片投递门控的判定方式已读清（下一次的诊断入口）
+
+`reviewer.ts` 的记账方式是**解析发往模型的请求体**，而非信任工具返回值：
+
+- 第 727–729 行：在 `fetch` 包装里，**仅当响应 `ok`** 时，用 `deliveredScreenshotIdsFromRequest(body, screenshots)` 从**请求体**中提取「已投递」的 artifactId；
+- 第 43–56 行 `deliveredScreenshotIdsFromRequest` 只承认**三种形状**：
+
+| # | 形状 |
+| --- | --- |
+| 1 | 一条 `role='tool'` 消息，其 `content` 能解析出 `artifactId`（或 `captures[].artifactId`），且**紧接**的 `role='user'` 消息的 `content` 数组中含 `type='image_url'` 且 data URL **逐字等于**该截图的 base64 |
+| 2 | 一条 `user` 消息，其首个文本部分解析出 `initialReview.artifactId`，且同一消息内含**逐字相同**的图片（`image_url` 或 `image.source`） |
+| 3 | 一条 `user` 消息内含 `type='tool_result'` 部件，其文本部分含 artifactId 且图片随之（Anthropic 风格） |
+
+**因此**：只要 Pi 实际发送的形状**不落在这三种之内**（例如图片与工具结果在**同一条** `tool` 消息里、或 `user` 消息与 `tool` 消息的先后顺序不同），`imageDelivered` 就**永远不会记录**该截图，门控也就会在评审器**确实看过图**的情况下仍然拒绝——这与 C3（`screenshot_read` 已调用）和 S0 的现象完全一致。
+
+**下一次的具体诊断（不再猜测）**：在门控拒绝的那一刻**导出实际请求体的消息形状**（角色序列、每个部件的 `type`、图片是否出现及在何处），与上表逐一对照。三种形状里命中了哪一种、还是都不命中，一次导出即可确定；确定后才谈修法。
+
+**本轮到此为止**：这一步需要一次带观测的运行，而我当前上下文不足以完成。工作树干净，全部改动已提交并测试通过。
+
 ## 四、尚未执行（本票剩余）
 
 - 计算器 C0→功能 C1→视觉 C2 → **回滚到 C1** → 基于 C1 的 C3（四次真实业务提交）。
