@@ -51,8 +51,20 @@ const actionSchema = z.discriminatedUnion("type", [
   }),
 ]);
 export type BrowserAction = z.infer<typeof actionSchema>;
+/**
+ * Indentation is the bulk of an accessibility snapshot, and a reviewer that keeps
+ * every observation needs that bulk to stay small: the same payload both feeds the
+ * model conversation and is retained for observation_read, so a 44-behaviour check
+ * reached 236k input tokens and failed with the record still under its ceiling.
+ * Halving the indent keeps every node, its order and its relative depth — which is
+ * what tells the model how things nest — while removing the redundant whitespace.
+ */
+function compactIndent(text: string): string {
+  return text.replace(/^ +/gm, (indent) => " ".repeat(Math.ceil(indent.length / 2)));
+}
 function boundedText(text: string, limit: number): string {
-  return text.slice(0, limit).replace(/[\ud800-\udbff]$/, "");
+  const compacted = compactIndent(text);
+  return (compacted.length <= limit ? compacted : compacted.slice(0, limit)).replace(/[\ud800-\udbff]$/, "");
 }
 export class RemoteBrowser {
   private readonly session: string;
