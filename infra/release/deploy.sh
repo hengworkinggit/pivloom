@@ -100,6 +100,15 @@ if [[ "$mode" = install ]]; then
   chmod -R a-w "$target"
 fi
 [[ -d "$target" ]] || { echo 'Release directory not found.' >&2; exit 2; }
+# A full disk stops Postgres completing crash recovery, which takes the API down with it; on
+# 2026-09-25 that happened after retained releases reached sixteen gigabytes. Check before
+# switching so the failure is a refused deploy instead of an outage.
+disk_limit="${PIVLOOM_DISK_MAX_PERCENT:-85}"
+used_percent=$(df -P "$root" | awk 'NR==2 {gsub(/%/,"",$5); print $5}')
+if [[ -n "$used_percent" ]] && (( used_percent >= disk_limit )); then
+  echo "Refusing to deploy: $root is ${used_percent}% full (limit ${disk_limit}%)." >&2
+  exit 3
+fi
 if [[ "$component" = api ]]; then
 # Only the API owns generation workers. Web-only releases preserve the API
 # process and let clients reconnect to the same durable run after refresh.
@@ -136,5 +145,15 @@ ready
 curl --fail --silent --show-error --retry 3 --retry-delay 1 --retry-all-errors --max-time 20 "${public_url%/}/login" >/dev/null
 curl --fail --silent --show-error --max-time 20 "${public_url%/}/api/v1/health/ready" >/dev/null
 curl --fail --silent --show-error --location --max-time 20 "$existing_site" >/dev/null
+# Keep the previous release so a rollback is one symlink away, but bound the archive: an
+# unbounded history is what filled the disk. Override with PIVLOOM_RELEASE_KEEP if needed.
+keep="${PIVLOOM_RELEASE_KEEP:-4}"
+archive="$root/$component-releases"
+if [[ -d "$archive" ]]; then
+  while IFS= read -r stale; do
+    [[ -n "$stale" && "$stale" != "$release" ]] || continue
+    rm -rf "$archive/$stale"
+  done < <(ls -1t "$archive" | tail -n +$((keep + 1)))
+fi
 printf '%s release ready: %s\nPrevious release retained: %s\n' "$component" "$release" "${previous:-none}"
 REMOTE
