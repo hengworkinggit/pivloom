@@ -585,6 +585,24 @@ v7（C2，revision `2ea8d6bb`）的预览**当时仍然存活**（回滚测试�
 
 临时 B 账号已删除并确认不存在，本地清单目录已清理。
 
+## 二之二十五、每轮的完整源码 diff（补齐第 3 条的间接覆盖）
+
+第 3 条要求「每轮核真实版本号、base、**完整源码 diff**、sourceHash、Preview 与五组全部 required 子项」。我此前只核了版本号、base、sourceHash 与检查项数，**没有为这一轮的计算器跑 diff**。现用 `GET /projects/:id/revisions/diff` 补上：
+
+| 转换 | `changes` | 首项 |
+| --- | --- | --- |
+| **C0→C1**（v1→v2） | **2 项** | `kind="modified"`，**`src/App.tsx`**（8380 字节 → …），带真实 patch |
+| **C1→C2**（v2→v7） | **1 项** | `kind="modified"`，**`src/style.css`**（3713 字节 → …），带真实 patch |
+
+响应结构为 `{projectId, fromRevision, toRevision, unchangedCount, changes[]}`，每项含 `kind`/`from{path,bytes,sha256}`/`to{...}`/`patch`；两次均为 `200`。
+
+**与需求的对应关系成立**：
+
+- C1 的需求是「历史记录面板 + 复制结果按钮」→ diff 落在**组件逻辑** `src/App.tsx`（另加一个文件）；
+- C2 的需求是「深色主题、按钮圆角、运算符与等号配色、结果字号与右对齐」→ diff 落在**样式表** `src/style.css`。
+
+即两轮的改动**既真实、又各自落在其需求该改的地方**，而不是靠改同一处来「看起来变了」。
+
 ## 四、尚未执行（本票剩余）
 
 - 计算器 C0→功能 C1→视觉 C2 → **回滚到 C1** → 基于 C1 的 C3（四次真实业务提交）。
