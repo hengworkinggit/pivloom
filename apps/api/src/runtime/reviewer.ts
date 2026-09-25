@@ -725,7 +725,24 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             // provider formats. Match that exact artifact/result pair: an
             // older identical PNG elsewhere in context cannot prove delivery
             // of a newly captured screenshot.
-            for(const id of deliveredScreenshotIdsFromRequest(body,screenshots))imageDelivered.add(id);
+            const seen=deliveredScreenshotIdsFromRequest(body,screenshots);
+            for(const id of seen)imageDelivered.add(id);
+            if(screenshots.size>0&&seen.size===0){
+              // Diagnostic only, no behaviour change: when screenshots exist but none is
+              // recognised as delivered, record the message shapes so the mismatch with
+              // deliveredScreenshotIdsFromRequest can be seen from the service log. Roles, part
+              // types and whether an artifact id or image appears are enough; no image data.
+              try{
+                const parsed=JSON.parse(body) as {messages?:Array<{role?:string;content?:unknown}>};
+                const shape=(parsed.messages??[]).map((message,index)=>{
+                  const parts=Array.isArray(message.content)?message.content:[];
+                  const kinds=parts.map((part)=>String((part as {type?:string})?.type??typeof part)).join('+');
+                  const text=typeof message.content==='string'?message.content:JSON.stringify(parts.filter((part)=>(part as {type?:string})?.type==='text'));
+                  return `${index}:${message.role}:${kinds||'string'}${/artifactId/.test(text)?'+id':''}`;
+                }).join(' ');
+                console.error(`[review] image delivery miss captures=${screenshots.size} messages=${parsed.messages?.length??0} ${shape}`);
+              }catch{ /* diagnostics must never break the run */ }
+            }
           }
           return response;
         },transport:'sse',timeoutMs:MODEL_REQUEST_TIMEOUT_MS,maxRetries:0,maxTokens:4096}));
