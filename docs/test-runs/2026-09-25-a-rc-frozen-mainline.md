@@ -40,7 +40,21 @@ Run `c10ecdcd`，`base_revision_id` 与 `expected_current_revision_id` 都冻结
 | 构建与提升 | PASS | v2 `build_status=passed`、`status=accepted`，`current_revision_id` 提升为 v2；v1 保留在历史中 |
 | 真实模型调用 | PASS | coordinator / builder / reviewer 三角色 succeeded，Run `completed` |
 
-## 二之三、C2（视觉增量）——**BLOCKED（未通过，未提升）**
+## 二之三、C2（视觉增量）——**PASS（已提升）**
+
+修好证据容量后（提交 `42a9037`：把内联的 480 KB 魔数改成具名且有依据的 `REVIEW_EVIDENCE_LIMIT_BYTES`），定点复测 Run `5a0e2b6e` **完成并通过**：
+
+| 验收点 | 结果 | 证据 |
+| --- | --- | --- |
+| 产品完整检查 | **PASS** | `verdict=passed`，**44 项全部通过**（「已检查 44 项行为：44 项通过。」），五组齐全 |
+| 版本递增与提升 | PASS | 产出 **v7**（`9e636513e0a6…`），`status=accepted`，`current_revision_id` 提升为 v7 |
+| 真实源码变更 | PASS | v7 的 `source_hash` `9e636513e0a6…` ≠ C1 的 `1346ccafafc2…` |
+| 零重复生成 | PASS | v3–v7 五个版本 `source_hash` **完全相同**，每次复测都复用已保存候选；协调者与 Builder 的模型调用为 0 |
+| 旧功能保留 | PASS | 44 项里包含 C0/C1 的运算优先级、括号、小数、键盘、错误恢复与历史记录面板等既有行为 |
+
+教训记录：这一条卡了四轮，前三次失败都只显示「浏览器或检查过程未完成」。**根因是评审证据容量，而不是作品行为**——真正的成本不在修复本身（一处具名常量），而在于没有任何诊断能指出它。补上诊断后一次就定位了。
+
+## 二之四、C2 的历史状态（失败轮次，保留备查）
 
 Run `dcbafb9e`，`base`/`expected` 冻结在 C1 的 revision `cc4a7ee9`（v2），Prompt 141 字。生成与构建成功（v3、`source_hash` `9e636513e0a6…`、`build_status=passed`），但**产品检查两次都未完成**：
 
