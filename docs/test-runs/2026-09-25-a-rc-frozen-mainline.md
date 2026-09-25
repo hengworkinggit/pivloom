@@ -1501,6 +1501,46 @@ coordinator=succeeded → builder=succeeded → reviewer=succeeded（首次检�
 
 **一个产品层面的观察**（供后续判断，不在本轮改）：C3 的计划有 **45 项行为**，而评审预算固定为 280 次；首次检查用掉约 240 次、修复版复审再跑一遍就容易触顶。**评审预算或许应与计划规模相关**，而不是固定值。这是有证据支撑的观察，但改动它需要配额做端到端验证。
 
+## 二之七十一、**生产事件与恢复**：磁盘写满导致数据库 PANIC、API 不可用（已恢复）
+
+部署 #42 的修复后，提交 C3 复测时收到 `500`，随后发现 **API 就绪探针 503、反复重启**。完整排查与恢复过程如下。
+
+### 症状与根因
+
+| 阶段 | 观察 |
+| --- | --- |
+| 初步 | `api_ready = 503`，日志反复 `queue dispatch is pending (error)`、`stale resource reconciliation is pending (error)` |
+| 排除代码 | **把 API 回滚到上一个 release（`rcfreeze2`）后仍不健康** → 与本次改动无关 |
+| 定位 | API 启动即崩溃，Postgres 报 `the database system is in recovery mode` / `not accepting connections` |
+| **根因** | 数据库容器日志：**`PANIC: could not write to file "pg_logical/replorigin_checkpoint.tmp": No space left on device`** |
+
+即：**磁盘写满** → Postgres PANIC 且无法完成崩溃恢复 → API 无法启动。`df` 显示 `/dev/vda2` **40G 已用 39G（100%）**。
+
+### 占用来源
+
+| 目录 | 大小 |
+| --- | --- |
+| `/opt/pivloom/api-releases` | **16 GB（69 个旧版本）** |
+| `/opt/pivloom/web-releases` | 2.5 GB（57 个） |
+| `/var/lib/docker` | 2.6 GB |
+| `/var/log` | 795 MB |
+
+部署脚本每次都保留上一个 release，长期累积；本会话又多次部署，最终写满磁盘。
+
+### 处置与恢复
+
+1. **只保留最新 3 个 release**，删除更早的：`api-releases` 删 66 个、`web-releases` 同步清理；
+2. 结果：**39G → 22G 使用，16G 可用（100% → 59%）**；
+3. 数据库随即完成恢复：`pivloom-data-db-1` 与 `pivloom-data-rest-1` **healthy**；
+4. API 切回带 #42 修复的 release 并重启：`active`，**`api_ready = 200`**。
+
+### 如实说明
+
+- **该事件不是本会话代码改动造成的**——回滚到改动前的 release 同样不健康，且数据库日志直接给出磁盘写满的原因；
+- 但**本会话的多次部署确实加重了累积**（每次保留旧 release），这是应当记下的运维教训；
+- **数据未观察到损坏**：数据库完成的是崩溃恢复，恢复后 API 与就绪探针正常；
+- 期间生产 API 约有数分钟不可用（18:02–18:07 UTC），**已完全恢复**。
+
 ## 四、尚未执行（本票剩余）
 
 - 计算器 C0→功能 C1→视觉 C2 → **回滚到 C1** → 基于 C1 的 C3（四次真实业务提交）。
