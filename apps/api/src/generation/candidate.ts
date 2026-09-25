@@ -257,22 +257,9 @@ export async function runCandidate(
       throw new RuntimeError("INVALID_HANDOFF", "交接目标与当前生成任务不一致");
     if (input.recheckSourceHash && (!input.seed?.length || !/^[a-f0-9]{64}$/.test(input.recheckSourceHash)))
       throw new RuntimeError("INVALID_RECHECK_SOURCE", "复检必须绑定已保存的完整源码哈希");
-    // A plan that names invalid-input and repeated-submission behaviours is not enough on its
-    // own: the same three defects kept coming back across rounds, where an invalid expression
-    // was accepted, the view then appended later input to the failed expression so it could not
-    // recover, and pressing equals again duplicated a history entry. State the expected
-    // behaviour once, generally, so it holds for any screen with input rather than only the one
-    // the reviewer happened to catch.
-    const stateRules = [
-      "实现通用状态规则（适用于任何接受输入或可重复提交的界面）：",
-      "1. 无效输入必须给出用户可见的错误，且不得进入历史记录或任何持久集合；",
-      "2. 出错后新的合法输入必须开启新的输入，禁止追加到已报错的内容上；",
-      "3. 重复提交若未改变结果，不得新增重复记录；",
-      "4. 上述三点需在实现时主动确认，而不是等检查指出后再补。",
-    ].join("\n");
     const builderPrompt = handoff
-      ? `${handoff.task}\n\n已保存的实现目标与行为约定：\n${JSON.stringify(handoff.plan)}\n\n${stateRules}${handoff.failedChecks?.length ? `\n\n上一轮实际失败与诊断（逐项修复，不可忽略）：\n${JSON.stringify(handoff.failedChecks)}` : ""}`
-      : `${input.prompt}\n\n${stateRules}`;
+      ? `${handoff.task}\n\n已保存的实现目标与行为约定：\n${JSON.stringify(handoff.plan)}${handoff.failedChecks?.length ? `\n\n上一轮实际失败与诊断（逐项修复，不可忽略）：\n${JSON.stringify(handoff.failedChecks)}` : ""}`
+      : input.prompt;
     signal.throwIfAborted();
     await emit({
       type: "stage",
