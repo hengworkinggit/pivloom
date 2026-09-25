@@ -1150,6 +1150,20 @@ resets at 2026-09-25 21:08:52 +0800 CST = 13:08:52 UTC）
 
 **检查标准未做任何放宽**：仍是同样的五组、同样的 required 子项，一项不减；变的是**作品需求**，不是判定尺度。这一点在此明确记录，以免被误读为「为通过而降低门槛」。
 
+## 二之五十三、决定性收敛：三次独立评审、两个服务商，全部卡在同一个门控
+
+| 运行 | 服务商 / 模型 | 结果 | `screenshot_read` | `browser_key_batch` |
+| --- | --- | --- | --- | --- |
+| C3 `ad8af9fe` | 火山 / kimi-k2.7-code | `IMAGE_EVIDENCE_REQUIRED` | 1 | — |
+| S0 `9a0eee6a` | 火山 / kimi-k2.7-code | `IMAGE_EVIDENCE_REQUIRED` | 0 | 7 |
+| **S0 修正版 `b6be9e36`** | **DeepSeek / deepseek-chat** | `IMAGE_EVIDENCE_REQUIRED` | 0 | **9** |
+
+三者共同点：报告最终都被 **`IMAGE_EVIDENCE_REQUIRED`** 拒绝。而 `b6be9e36` 这次用了 **9 次 `browser_key_batch`**——该工具的描述明确写着结果里会带回「a real PNG image plus artifactId bound to its observationId」。
+
+**结论（证据充分）**：问题**不在评审器，也不在服务商**。三个独立评审、两个服务商、三个模型，都无法让 `imageDelivered` 记录到任何一次截图，尽管它们确实调用了带回图片的工具。**这指向产品侧的投递判定 `deliveredScreenshotIdsFromRequest` 与实际发送的消息形状不匹配**——即第 2 条修复「让评审器去读图」解决不了的问题，因为**图确实被读了，只是没有被记账**。
+
+**因此下一步定为**：在门控拒绝的那一刻**导出真实请求体的消息形状**（角色序列、各部件 `type`、图片位置、artifactId 出现处），与那三种被接受的形状逐一对照。三次失败已把「评审器行为」这一解释排除，**这是一次纯产品侧的定点诊断**。
+
 ## 四、尚未执行（本票剩余）
 
 - 计算器 C0→功能 C1→视觉 C2 → **回滚到 C1** → 基于 C1 的 C3（四次真实业务提交）。
