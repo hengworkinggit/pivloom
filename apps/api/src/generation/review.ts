@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { ReviewBindingSchema, type ReviewBinding, type ReviewResult, type Handoff } from '@pivloom/contracts';
 import { OpenSandboxWorkspace, type SandboxConnector } from '../runtime/workspace.js';
@@ -120,6 +121,9 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     if(input.signal.aborted)throw error;
     if(error instanceof RuntimeError && ['AGENT_OUTPUT_INVALID','TOKEN_BUDGET_EXCEEDED','TOOL_BUDGET_EXCEEDED','ROLE_NOT_ACTIVE','MODEL_FAILED','MODEL_REQUEST_TIMEOUT'].includes(error.code))throw error;
     if(error instanceof RuntimeError&&error.usage)usage=error.usage;
+    // Declared once: the code classifies an infrastructure failure and also feeds
+    // the redacted diagnostic below.
+    const code=error instanceof RuntimeError?(error.diagnosticCode??error.code):undefined;
     if(reviewerStarted && error instanceof RuntimeError){
       const code=error.diagnosticCode??error.code;
       if(code==='BROWSER_BLOCKED'||code==='BROWSER_TIMEOUT'||code==='COMMAND_TIMEOUT'||code==='BROWSER_SESSION_LOST')
@@ -127,6 +131,16 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     }
     const versionMismatch=error instanceof RuntimeError&&error.code==='CHECK_VERSION_MISMATCH';
     const reason=error instanceof RuntimeError?blockedReasons.get(error.code)??blockedReasons.get(error.diagnosticCode??''):undefined;
+    if(!reason&&!versionMismatch){
+      // An unclassified code must not reach the user: it can itself carry raw
+      // provider data, which review.test.ts pins with a deliberately hostile code.
+      // It must not be logged verbatim for the same reason, so the diagnostic is a
+      // fingerprint that lets repeats be correlated without revealing the code. It
+      // is also the only record that this failure happened at all, because this
+      // path previously left no trace anywhere.
+      const fingerprint=code===undefined?'none':createHash('sha256').update(code).digest('hex').slice(0,12);
+      console.error(`[review] unclassified failure code=${fingerprint} length=${code?.length??0} reviewerStarted=${reviewerStarted}`);
+    }
     const message=versionMismatch?'候选源码或预览版本不一致，未接受检查结果。':reason??'浏览器或检查过程未完成，当前候选尚未通过检查。';
     result={revisionId:binding.revisionId,sourceHash:binding.sourceHash,summary:message,items:input.handoff.plan.behaviors.map(behavior=>({
       behaviorId:behavior.id,verdict:'blocked' as const,expected:behavior.expected,actual:message,observationEventIds:[],screenshotIds:[],reproSteps:[],
