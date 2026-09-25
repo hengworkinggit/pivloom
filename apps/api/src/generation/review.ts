@@ -26,6 +26,13 @@ const blockedReasons=new Map([
   ['COMMAND_TIMEOUT','浏览器操作超时，已停止后续操作，当前候选尚未通过检查。'],
   ['BROWSER_ORIGIN_REJECTED','浏览器离开了绑定的候选预览，已停止检查。'],
   ['BROWSER_SESSION_LOST','检查浏览器丢失了候选页面，需在新浏览器会话重新检查。'],
+  // These four used to abort a check with a bare CHECK_BLOCKED, which rendered as
+  // the same generic sentence no matter which one fired. Naming them is what makes
+  // an aborted check actionable.
+  ['REVIEW_OBSERVATION_UNBOUND','检查浏览器返回了不属于本次候选会话的观察，已停止检查。'],
+  ['REVIEW_EVIDENCE_TOO_LARGE','本次检查的证据记录达到容量上限，已停止检查；这是检查侧的限制，不是作品行为不通过。'],
+  ['REVIEW_PREVIEW_ORIGIN','检查浏览器离开了绑定的候选预览，已停止检查。'],
+  ['REVIEW_BROWSER_UNCLOSED','检查浏览器未能确认关闭，为避免影响后续检查已停止。'],
   ['BROWSER_BLOCKED','浏览器无法访问或完成页面操作，当前候选尚未通过检查。'],
   ['REVIEWER_TOOL_FAILED','浏览器无法访问或完成页面操作，当前候选尚未通过检查。'],
   ['VISION_NOT_VERIFIED','当前模型的图像能力未通过实际图片测试，请在模型设置中验证支持图像的配置；当前候选尚未完成视觉检查。'],

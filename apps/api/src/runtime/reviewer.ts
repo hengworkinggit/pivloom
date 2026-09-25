@@ -263,13 +263,13 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   };
   const observe = (observation: BrowserObservation, batch?: ReviewObservationEvent['batch']) => {
     if (observation.sessionId !== binding.browserSessionId || new URL(observation.url).origin !== 'http://127.0.0.1:4173')
-      throw fail(new RuntimeError('CHECK_BLOCKED','浏览器观察来自错误会话或来源'));
+      throw fail(new RuntimeError('CHECK_BLOCKED','浏览器观察来自错误会话或来源',undefined,undefined,'REVIEW_OBSERVATION_UNBOUND'));
     latestObservationId = observation.id;latestUrl=observation.url;latestRefs=observation.refs;latestRefsComplete=!observation.truncated;
     const event: ReviewObservationEvent = { id: randomUUID(), behaviorId: lastAction?.behaviorId ?? null, action: lastAction?.action ?? null,
       ...(lastAction?.key ? {key:lastAction.key}:{}), ...(batch ? {batch}:{}),
       observationId: observation.id, url: observation.url, tree: redact(observation.tree).slice(0,12000), text: redact(observation.text).slice(0,12000),
       truncated: observation.truncated || observation.tree.length > 12000 || observation.text.length > 12000 };
-    if(Buffer.byteLength(JSON.stringify([...evidence,event])) > 480*1024)throw fail(new RuntimeError('CHECK_BLOCKED','检查记录达到大小上限'));
+    if(Buffer.byteLength(JSON.stringify([...evidence,event])) > 480*1024)throw fail(new RuntimeError('CHECK_BLOCKED','检查记录达到大小上限',undefined,undefined,'REVIEW_EVIDENCE_TOO_LARGE'));
     evidence.push(event);
     return { ...event, reportEvidenceId: event.id, nextActionObservationId: observation.id, refs: observation.refs };
   };
@@ -612,7 +612,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
               throw new RuntimeError('INVALID_BEHAVIOR','行为不属于本计划');
             requireRecordBeforeAction(reload.behaviorId);
             const url=new URL(latestUrl);
-            if(url.origin!=='http://127.0.0.1:4173')throw fail(new RuntimeError('CHECK_BLOCKED','只能刷新本次候选预览'));
+            if(url.origin!=='http://127.0.0.1:4173')throw fail(new RuntimeError('CHECK_BLOCKED','只能刷新本次候选预览',undefined,undefined,'REVIEW_PREVIEW_ORIGIN'));
             lastAction=undefined;latestObservationId=undefined;
             const path=url.pathname+url.search+url.hash;
             let observation: BrowserObservation;
@@ -794,7 +794,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     session?.dispose();
     if(isolated)await rm(isolated,{recursive:true,force:true});
     const closed=await input.browser.close().catch(()=>({confirmed:false}));
-    if(!closed.confirmed)throw new RuntimeError('CHECK_BLOCKED','检查浏览器关闭尚未确认',undefined,tokens.usage());
+    if(!closed.confirmed)throw new RuntimeError('CHECK_BLOCKED','检查浏览器关闭尚未确认',undefined,tokens.usage(),'REVIEW_BROWSER_UNCLOSED');
   }
   verifiedResults.add(completed!);
   return completed!;
