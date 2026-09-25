@@ -127,7 +127,17 @@ if(Buffer.byteLength(JSON.stringify([...evidence,event])) > 480*1024) throw fail
 ### 修法进度
 
 2. ~~**让 `CHECK_BLOCKED` 说真话**~~：**已完成并实测确认**（提交 `4fb41c4`）。四个抛出点各自带上 diagnosticCode，`blockedReasons` 用用户能懂的话解释每一种；`review.test.ts` 仍 14/14 通过，故意敌对的未知码用例仍走通用文案，不泄露原始数据的不变量未被破坏。
-1. **证据日志的容量（下一轮）**：480 KB 对「行为多 + 每项要视觉证据」的检查不够用。应先看证据数组里重复存了什么——截图本身已作为 artifact 独立存储，证据里若再内嵌观察树与整页文本就是**重复载荷**，优先去重而不是简单调大上限（调大只会把上限推到下一次更大的检查）。
+1. **证据日志的容量（下一轮，约束已查清）**：480 KB 对「行为多 + 每项要视觉证据」的检查不够用。每次观察最多写入 12000 字符的可访问性树 + 12000 字符页面文本，因此上限只允许约 **20 次观察**，而 44 项行为的检查需要远多于此。
+
+**我尝试的清空办法被测试否决了（已完整回退）**：我先把旧条目的树与文本清空、只保留最新一条，理由是「只读回 id」。结果打破了 `apps/api/tests/runtime/reviewer.test.ts` 里三条**有意设计的**断言：
+
+- `earlier browser observations remain in Pi context until native compaction and saved evidence stays complete`
+- `native Pi compaction keeps a long review running and old observations remain readable by ID`
+- `Reviewer can retrieve an older complete observation without redoing its action`
+
+也就是说**较早的观察是被刻意保留可读的**（在 Pi 上下文里直到原生压缩，并且可以按 ID 取回而不必重做动作）。清空它们会让评审器无法回看早先证据，是真实的能力回退。已用 `git revert` 完整回退，测试恢复为仅剩已知的环境失败。
+
+**因此正确的修法必须同时满足两条**：容量有界，**且**旧观察仍可按 ID 取回完整内容。可行方向是把观察载荷移出这个有界数组、改存到按 ID 可检索的旁路存储（保留引用），而不是丢弃；或者作为阶段性办法调大上限，但要如实说明那只是把墙推到下一次更大的检查。
 
 这一条改完后只需重跑 C2 的定点复测（复用已保存候选、零重生成）与受影响的检查路径，不需要重跑 C0/C1。
 
