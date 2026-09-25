@@ -346,7 +346,12 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     checkpointEvidenceCount = evidence.length;
     browserToolsSinceRecord = 0;
   };
-  const itemProblem=(item:ReviewItem):ReportProblem|undefined=>{
+  // The delivery requirement is deferred when a single behaviour is recorded: an image is
+  // counted as delivered only once a later request carries it, so checking it at record time
+  // refuses a behaviour whose capture was taken in the same turn, and the reviewer then retries
+  // the same pairing until its budget is gone. The report-time check below is untouched, so a
+  // claim still needs a delivered image before it can be accepted.
+  const itemProblem=(item:ReviewItem,options?:{deferImageDelivery?:boolean}):ReportProblem|undefined=>{
     const target=handoff.plan.behaviors.find(b=>b.id===item.behaviorId);
     if(!target)return 'OBSERVATION_SCOPE';
     if(item.screenshotIds.some(id=>!artifacts.some(a=>a.id===id)))return 'ARTIFACT_SCOPE';
@@ -366,7 +371,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     // labels it passed. The Reviewer cannot change the sealed target's action.
     const renderedEvidence=allowsRenderOnlyEvidence(target) && observations.length>=1 && item.screenshotIds.length>0;
     if(item.verdict!=='blocked' && !actionEvidence && !renderedEvidence)return 'ACTION_EVIDENCE_REQUIRED';
-    if(input.requireVisionEvidence !== false && item.verdict==='passed'){
+    if(input.requireVisionEvidence !== false && item.verdict==='passed' && !options?.deferImageDelivery){
       const actionObservationIds=new Set(observations.filter(validAction).map(event=>event!.observationId));
       const referencedObservationIds=new Set(observations.map(event=>event!.observationId));
       const imageAfterRelevantObservation=item.screenshotIds.some(id=>{
@@ -451,7 +456,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             decision={...canonicalReport,items:canonicalReport.items.map(bindExpected)};value={accepted:true};
           } else if(name==='record_behavior'){
             const item=canonicalItem(ReviewItemSchema.parse(params));
-            const problem=itemProblem(item);if(problem)throw invalid(problem);
+            const problem=itemProblem(item,{deferImageDelivery:true});if(problem)throw invalid(problem);
             const recorded=bindExpected(item);
             if(JSON.stringify(recorded).includes(input.modelConfig.apiKey))throw invalid('SECRET_OUTPUT');
             completedBehaviors.set(item.behaviorId,recorded);
