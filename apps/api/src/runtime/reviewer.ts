@@ -10,7 +10,7 @@ import { HandoffSchema, ReviewResultSchema, ReviewItemSchema, MAX_CHECK_ARTIFACT
 import { createServiceModel } from './pi.js';
 import { RuntimeError, type ModelConfig, type ProbeEvent, type ProbeEventSink } from './types.js';
 import { createRoleTokenTracker, type RunTokenBudget, type TokenUsage } from './token-budget.js';
-import { MODEL_REQUEST_TIMEOUT_MS, REVIEW_TOOL_LIMIT, piCompactionSettings, providerRetrySettings } from './budgets.js';
+import { MODEL_REQUEST_TIMEOUT_MS, REVIEW_EVIDENCE_LIMIT_BYTES, REVIEW_TOOL_LIMIT, piCompactionSettings, providerRetrySettings } from './budgets.js';
 import { BrowserPressKeySchema, type BrowserAction, type BrowserKeyBatchResult, type BrowserObservation } from './browser.js';
 
 /**
@@ -269,7 +269,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
       ...(lastAction?.key ? {key:lastAction.key}:{}), ...(batch ? {batch}:{}),
       observationId: observation.id, url: observation.url, tree: redact(observation.tree).slice(0,12000), text: redact(observation.text).slice(0,12000),
       truncated: observation.truncated || observation.tree.length > 12000 || observation.text.length > 12000 };
-    if(Buffer.byteLength(JSON.stringify([...evidence,event])) > 480*1024)throw fail(new RuntimeError('CHECK_BLOCKED','检查记录达到大小上限',undefined,undefined,'REVIEW_EVIDENCE_TOO_LARGE'));
+    if(Buffer.byteLength(JSON.stringify([...evidence,event])) > REVIEW_EVIDENCE_LIMIT_BYTES)throw fail(new RuntimeError('CHECK_BLOCKED','检查记录达到大小上限',undefined,undefined,'REVIEW_EVIDENCE_TOO_LARGE'));
     evidence.push(event);
     return { ...event, reportEvidenceId: event.id, nextActionObservationId: observation.id, refs: observation.refs };
   };

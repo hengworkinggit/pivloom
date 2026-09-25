@@ -42,6 +42,17 @@ export const MODEL_REQUEST_TIMEOUT_MS = 210_000;
  */
 export const RUN_TOOL_LIMIT = 384;
 export const REVIEW_TOOL_LIMIT = 280;
+/**
+ * Serialized ceiling for one check's observation record. Each observation keeps up
+ * to 12000 characters of accessibility tree and 12000 of page text, both of which
+ * `observation_read` must be able to hand back after Pi compaction, so the record
+ * grows with the number of observations a check needs. At 480 KB that was roughly
+ * twenty observations: enough for the 28- and 38-behaviour checks, not for the
+ * 44-behaviour one, which aborted as REVIEW_EVIDENCE_TOO_LARGE. The real fix is to
+ * shrink the per-observation payload; until then this is raised to fit a large
+ * behaviour set, and it remains a genuine limit rather than a removed guard.
+ */
+export const REVIEW_EVIDENCE_LIMIT_BYTES = 2 * 1024 * 1024;
 
 /**
  * Accepted runs per account in a rolling 24 hours. Only a run the service
