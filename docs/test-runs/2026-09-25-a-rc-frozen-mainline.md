@@ -1389,6 +1389,40 @@ C3 本次运行 `177ff00f` 已保存候选：
 
 计划的字段集（`goal/groups/behaviors/outOfScope/assumptions/replacements/changeSummary/schemaVersion`）与 C1 的计划一致，说明同一套计划结构在增量轮次中被复用。
 
+## 二之六十六、交接快照（截至 2026-09-25 16:10Z）
+
+**已完成且已关单**：#29、#31–#36、#39、#40（九票）。
+
+**#37 的 8 条通过条件：7 条 PASS**，仅剩 **C3 的评审结论**。
+
+### 唯一未决项：C3
+
+| 项 | 值 |
+| --- | --- |
+| 运行 | `177ff00f-f1cf-4353-9dc0-4a04df50bb2b`（工程 `13dcc301…`） |
+| 模型 | **kimi-k2.7-code**（DeepSeek 上协调者稳定失败，已切回） |
+| 状态 | `verifying/review`，约 207/280 次工具调用，无错误 |
+| 候选 | `result_revision_id = 99a114fd…`，计划与基线已封存（**再复测无需重新生成**） |
+| 基线 | `base` 与 `expected` 均为 **C1（v2）** |
+
+### 收尾步骤（C3 有结果后按序执行）
+
+1. **读结论**：`SELECT verdict, group_results_json FROM nano.checks WHERE run_id='177ff00f…'`；
+2. **确认前置归零**（部署 preflight 要求两项均为 0）：
+   `nano.runs` 中 `state IN ('accepted','planning','building','verifying','repairing','finalizing','cancel_requested') OR cleanup_state='pending'`，以及 `nano.sandboxes` 中 `state NOT IN ('destroyed','expired')`（现各为 1，即该运行与其沙箱；必要时手动销毁沙箱）；
+3. **部署最终提交**：在 `/tmp/pivloom-build` 构建当前 HEAD → `package.py api|web` → `deploy.sh`，恢复**四处 SHA 一致**（现线上 `c8faf6d` vs HEAD 的文档提交漂移）；
+4. 更新 [验收矩阵](../e2e/a-rc-37-acceptance-2026-09-25.md) 为终版（计入 C3 结论）；
+5. 按证据关闭 **#37**；核对 **#30** 的 20 条 User Story 均由已关单模块覆盖后处理 **#30** 与 **#1**。
+
+### 已知的未决/已标注项
+
+| 项 | 状态 |
+| --- | --- |
+| 自碰结束（我的独立验证） | **NOT_RUN**（两次驱动未相交；产品检查 1/1 覆盖） |
+| 两处 `422` 探针 | 已按契约重做，**转为 404 且被拒**（写入面隔离完整） |
+| DeepSeek 配置 | 保留但**非默认**；默认已切回 kimi-k2.7-code |
+| 模型能力被我探测降级 | 已恢复为 verified |
+
 ## 四、尚未执行（本票剩余）
 
 - 计算器 C0→功能 C1→视觉 C2 → **回滚到 C1** → 基于 C1 的 C3（四次真实业务提交）。
