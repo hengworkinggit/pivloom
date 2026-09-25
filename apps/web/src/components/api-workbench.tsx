@@ -94,7 +94,13 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const [pending, setPending] = useState(false);
   const sending = useRef(false);
   const [unknownSubmission, setUnknownSubmission] = useState<RunSubmission | null>(() => readPendingSubmission(ownerId, projectId));
-  const autoStart = useRef(typeof window !== "undefined" && new URLSearchParams(window.location.search).get("start") === "1");
+  // Read the flag when the effect runs, not when the component mounts. The create page
+  // reaches this route with router.push, and this component can mount before the new
+  // query string is visible, so a mount-time snapshot stayed false and the saved first
+  // requirement was never submitted: the project appeared with its draft in the composer
+  // and ?start=1 still in the address bar. The ref now only records that the one-shot
+  // submission already happened.
+  const autoStarted = useRef(false);
   const [submitError, setSubmitError] = useState("");
   const [stopping, setStopping] = useState(false);
   const [stoppingTaskId, setStoppingTaskId] = useState<string | null>(null);
@@ -225,8 +231,10 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   }
 
   useEffect(() => {
-    if (!autoStart.current || !project || run || busy || unknownSubmission || !modelReady || !selectedModel || !draft.trim()) return;
-    autoStart.current = false;
+    if (autoStarted.current) return;
+    if (typeof window === "undefined" || new URLSearchParams(window.location.search).get("start") !== "1") return;
+    if (!project || run || busy || unknownSubmission || !modelReady || !selectedModel || !draft.trim()) return;
+    autoStarted.current = true;
     const url = new URL(window.location.href);
     url.searchParams.delete("start");
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);

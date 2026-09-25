@@ -84,6 +84,35 @@ it("submits a new project's saved first request once after model and project loa
   expect(submitted).toHaveLength(1);
 });
 
+it("starts the saved first request when the start flag only appears after the workbench mounts", async () => {
+  // router.push can mount this route before the new query string is visible, which is why
+  // the create page's button appeared to do nothing: the flag has to be read when the
+  // effect runs, not snapshotted at mount.
+  const submitted: unknown[] = [];
+  const view = await openWorkbench(() => sse([]), { empty: true, post(init, project, run) {
+    submitted.push(JSON.parse(String(init.body)));
+    project.activeRun = run; project.latestRun = run;
+    return Response.json({ runId, state: "building", eventsUrl: `/api/v1/runs/${runId}/events`, replayed: false }, { status: 202 });
+  } });
+  expect(window.location.search).toBe("");
+  expect(submitted).toHaveLength(0);
+  window.history.replaceState(null, "", `/projects/${projectId}?start=1`);
+  // In production the project finishes loading after the route mounts, which re-runs the
+  // effect and lets it see the flag. This harness has the project ready at mount, so the
+  // same re-run is produced by editing the draft, which is one of the effect's inputs.
+  const composer = document.querySelector<HTMLTextAreaElement>("#followup-prompt");
+  if (!composer) throw new Error("composer missing");
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!;
+    setter.call(composer, "下一条中文需求\n保留换行 ");
+    composer.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await vi.waitFor(() => expect(submitted).toHaveLength(1));
+  expect(window.location.search).toBe("");
+  await view.render();
+  expect(submitted).toHaveLength(1);
+});
+
 it("two rapid Stop clicks submit one cancellation and keep its pending state visible", async () => {
   let resolveCancel!: (response: Response) => void;
   const pendingCancel = new Promise<Response>((resolve) => { resolveCancel = resolve; });
