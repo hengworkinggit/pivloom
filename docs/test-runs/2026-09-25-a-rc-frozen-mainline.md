@@ -80,3 +80,18 @@ S0 的产品检查连续两轮 `blocked`，阻碍都在**评审器驱动实时 C
 2. 保持现状，把 S0 记为 FAIL/BLOCKED 并在票据上写明阻碍。
 
 我倾向第 1 条，因为它修的是真实能力缺口（评审器目前无法验收任何实时交互作品），而不是为了让某一条断言变绿；但它会改动 Reviewer 的策略，需要更新冻结提交并只重测受影响路径。这一点我先说明，不擅自扩大改动范围。
+
+## 六、更正（2026-09-25 复核后）
+
+上一条的判断不完整，此处更正：**评审器并不缺少批量交互能力**。核对 `apps/api/src/runtime/reviewer.ts` 后确认：
+
+- 工具面里已经有 `browser_key_batch`：「Native short keyboard batch for timer-driven Canvas games: 1–8 real key taps, each wait 0–1000ms, total wait at most 4000ms」（reviewer.ts:152、538-556）；
+- 提示词里有一整段专门针对贪吃蛇的策略（reviewer.ts:395）：明确说明 `browser_steps` 的逐键远程往返会超过 150ms 的游戏 tick、因此不适用于引导移动中的蛇；并规定了正确做法——「Once Start focus is known, use one native browser_key_batch for Tab if needed, Enter to activate the focused Start button, then Space to pause immediately, with no model turn or page observation between keys」；还要求每次吃到食物后暂停、看清新食物位置再规划下一段短路径。
+
+所以阻碍不是「没有能力」，而是**开始路径的原子性**：批量能力只发按键，启动游戏要么靠 `browser_click`（独占一轮模型往返，蛇在下一轮之前就已撞墙——评审器自述的「约 1.5 秒内即撞墙结束」正是这个症状），要么靠 Tab+Enter 落在「开始」按钮上。评审器两次都没能走通这条原子路径，于是退化成单独点击开始，随后无法挽回。
+
+这把修复方向从「新增能力」改成了两件更小的事之一：
+1. 让「开始」在键盘上可靠可达（确认/修正焦点顺序，使 Tab+Enter+Space 的三步批量真的能一次完成）；
+2. 或者让游戏本身在首次方向键/空格时才开始计时（开始前保持暂停），这样一次批量就能「开始并立即暂停」。
+
+第 2 条同时是更好的用户体验（玩家不会还没准备好就被时钟杀死），但它属于产品行为改动，需要新的生成，因此要按规则评估是否在 S0 的失败重测范围内。
