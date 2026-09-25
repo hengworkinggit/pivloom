@@ -446,7 +446,14 @@ export function createGenerationExecutor(options: {
         ? new ApiFailure(503, task.controller.signal.reason === "RUN_TIMEOUT" ? "RUN_TIMEOUT" : "SERVICE_RESTARTED", task.controller.signal.reason === "RUN_TIMEOUT" ? "任务长时间没有进展，已停止执行。" : "服务停止了本次执行，已保存的内容保留。", true)
         : error instanceof ApiFailure ? error
           : error instanceof RuntimeError && error.code === "AGENT_OUTPUT_INVALID"
-            ? new ApiFailure(503, "AGENT_OUTPUT_INVALID", phase === "review" ? "检查结果未通过格式或证据校验，请稍后重试。" : "需求整理结果未通过校验，请补充说明后重试。", true)
+            // The reviewer builds this message itself (a reason code plus a scope and
+            // a fixed explanation), so it is system-authored and carries none of the
+            // model's raw output. Replacing it with one sentence is what made C3's
+            // failure undiagnosable for a round, exactly as the evidence cap did for
+            // C2; the branch below already preserves error.message for the same class
+            // of failure.
+            ? new ApiFailure(503, "AGENT_OUTPUT_INVALID", error.message.trim()
+              || (phase === "review" ? "检查结果未通过格式或证据校验，请稍后重试。" : "需求整理结果未通过校验，请补充说明后重试。"), true)
             : error instanceof RuntimeError && error.code === "TOKEN_BUDGET_EXCEEDED"
               ? new ApiFailure(503, "TOKEN_BUDGET_EXCEEDED", "本次任务的模型用量预算已耗尽，请缩小需求后重试。", true)
             : error instanceof RuntimeError && ["TOOL_BUDGET_EXCEEDED", "MODEL_FAILED", "MODEL_REQUEST_TIMEOUT", "ROLE_NOT_ACTIVE"].includes(error.code)
