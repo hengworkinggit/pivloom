@@ -10,7 +10,7 @@ import { HandoffSchema, ReviewResultSchema, ReviewItemSchema, MAX_CHECK_ARTIFACT
 import { createServiceModel } from './pi.js';
 import { RuntimeError, type ModelConfig, type ProbeEvent, type ProbeEventSink } from './types.js';
 import { createRoleTokenTracker, type RunTokenBudget, type TokenUsage } from './token-budget.js';
-import { MODEL_REQUEST_TIMEOUT_MS, REVIEW_EVIDENCE_LIMIT_BYTES, REVIEW_TOOL_LIMIT, piCompactionSettings, providerRetrySettings } from './budgets.js';
+import { MODEL_REQUEST_TIMEOUT_MS, REVIEW_EVIDENCE_LIMIT_BYTES, REVIEW_TOOL_CALLS_PER_BEHAVIOR, REVIEW_TOOL_LIMIT, REVIEW_TOOL_LIMIT_CEILING, piCompactionSettings, providerRetrySettings } from './budgets.js';
 import { BrowserPressKeySchema, type BrowserAction, type BrowserKeyBatchResult, type BrowserObservation } from './browser.js';
 
 /**
@@ -228,7 +228,11 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   // check can be diagnosed from persisted events without echoing model input.
   let lastRejection: string | undefined;
   let receivedStream = false;
-  const maxTools = Math.min(REVIEW_TOOL_LIMIT, input.maxToolCalls ?? REVIEW_TOOL_LIMIT);
+  // Scale the budget with the plan (issue #42). An explicit caller limit still wins, which is
+  // what the small fixtures rely on, and the ceiling keeps any single review bounded.
+  const scaledLimit = Math.max(REVIEW_TOOL_LIMIT,
+    Math.min(handoff.plan.behaviors.length * REVIEW_TOOL_CALLS_PER_BEHAVIOR, REVIEW_TOOL_LIMIT_CEILING));
+  const maxTools = Math.min(scaledLimit, input.maxToolCalls ?? scaledLimit);
   if (!Number.isInteger(maxTools) || maxTools < 1) throw new RuntimeError("TOOL_BUDGET_EXCEEDED", "检查工具预算已耗尽");
   const evidence: ReviewObservationEvent[] = [], artifacts: CheckArtifact[] = [];
   const screenshots = new Map<string, { image: ImageContent; observationId: string | null }>();

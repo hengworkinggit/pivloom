@@ -43,6 +43,14 @@ export const MODEL_REQUEST_TIMEOUT_MS = 210_000;
 export const RUN_TOOL_LIMIT = 384;
 export const REVIEW_TOOL_LIMIT = 280;
 /**
+ * A review costs roughly this many tool calls per planned behaviour, and a repair pass repeats
+ * the work. A fixed limit therefore leaves larger plans unfinished: a forty-five behaviour plan
+ * used about 240 calls on its first pass and the repair pass then exceeded 280 without ever
+ * submitting a report. Scale with the plan instead, and cap it so no plan is unbounded.
+ */
+export const REVIEW_TOOL_CALLS_PER_BEHAVIOR = 8;
+export const REVIEW_TOOL_LIMIT_CEILING = 600;
+/**
  * Serialized ceiling for one check's observation record. Each observation keeps up
  * to 12000 characters of accessibility tree and 12000 of page text, both of which
  * `observation_read` must be able to hand back after Pi compaction, so the record
