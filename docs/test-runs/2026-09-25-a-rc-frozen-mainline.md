@@ -971,6 +971,35 @@ timeout 120 npx vitest run --root apps/api tests/runtime/reviewer.test.ts -t "re
 
 **本轮不做这个实现**：它仍需按「单用例 + 临时观测」的方式逐步验证，而我当前上下文不足以完成。工作树保持干净，评审器测试 113/113 通过。
 
+## 二之四十六、已落地的第一处修复：要求评审器**预留最后一次调用用于提交**
+
+按修正后的方向做了一步**最小且安全**的改动（不新增提示，因此不会触发挂起）：在**同一条初始提示**里明确告知工具预算并预留提交额度。
+
+```
+instruction: [..., `You have ${maxTools} tool calls in total. Reserve the last one for submit_review:
+a run that exhausts its budget without submitting a report is discarded entirely, so submit before
+the budget ends even if some behaviours remain unverified, and mark those honestly instead of
+leaving no result at all.`]
+```
+
+| 验证项 | 结果 |
+| --- | --- |
+| typecheck | 干净 |
+| 评审器测试 | **113/113 通过**（无回归、无挂起） |
+
+这与前面三次失败的区别：**不新增 `session.prompt`**，只改提示文本，因此既不改变停止条件、也不改变 `AGENT_OUTPUT_INVALID` 的语义。
+
+### 顺带查清了 S0 那条的机制（不再需要猜）
+
+读工具描述后发现两件事：
+
+1. `browser_screenshot` / `browser_key_batch` **本身就会在结果里带回真实 PNG 与 artifactId**（提示原文：「a real PNG image plus artifactId bound to its observationId; inspect it, then use reportEvidenceId and artifactId in record_behavior **without another screenshot call**」）——所以评审器**不需要**额外的 `screenshot_read` 就能拿到图；
+2. 但第 407 行明确写着：「Pi may summarize older turns when the context window fills. …**Reread the current revision's screenshot after compaction** instead of assuming the image survived the summary.」
+
+**因此 S0 的机制是**：那次评审消耗 **384K 输入 tokens**，上下文被压缩，**图片随旧轮次被摘要掉**，而评审器**没有重读**，于是「实际接收图片」的条件不成立，视觉门控**正确地**拒绝了它的报告。这比先前「评审器不读截图」的说法更准确——图**曾经**进过上下文，是被压缩掉的。
+
+**下一步**：把「为所报行为重读图片」的要求也写进同一条提示（同样只改文本、不新增提示），并再次跑测试确认无回归。本轮上下文不足以完成该改动与验证，故留待下一轮。
+
 ## 四、尚未执行（本票剩余）
 
 - 计算器 C0→功能 C1→视觉 C2 → **回滚到 C1** → 基于 C1 的 C3（四次真实业务提交）。

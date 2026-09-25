@@ -777,7 +777,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
       path:file.path,content:redact(file.content).slice(0,16000),truncated:file.content.length>16000,
     })):undefined;
     await session.prompt(redact(JSON.stringify({handoff,files:input.files.map(f=>f.path),sourceFiles,initialReview,
-      instruction:initialReview?'The service already opened the bound app and supplied its real initial observation and screenshot. Start testing from these refs; do not reopen or reread unchanged supplied source.':undefined,
+      instruction:[initialReview?'The service already opened the bound app and supplied its real initial observation and screenshot. Start testing from these refs; do not reopen or reread unchanged supplied source.':undefined,`You have ${maxTools} tool calls in total. Reserve the last one for submit_review: a run that exhausts its budget without submitting a report is discarded entirely, so submit before the budget ends even if some behaviours remain unverified, and mark those honestly instead of leaving no result at all.`].filter(Boolean).join(' '),
       revisionId:binding.revisionId,sourceHash:binding.sourceHash})),initialImage?{images:[initialImage]}:undefined);
     check();checkModelResult();
     if(!decision && invalidReports===0 && toolCount<maxTools){invalidReports++;await session.prompt('尚未提交有效检查报告。这是唯一纠正机会，请通过 submit_review 提交实际结果。');check();checkModelResult();}
