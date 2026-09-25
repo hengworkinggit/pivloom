@@ -269,16 +269,6 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
       ...(lastAction?.key ? {key:lastAction.key}:{}), ...(batch ? {batch}:{}),
       observationId: observation.id, url: observation.url, tree: redact(observation.tree).slice(0,12000), text: redact(observation.text).slice(0,12000),
       truncated: observation.truncated || observation.tree.length > 12000 || observation.text.length > 12000 };
-    // Record only the identifiers of an observation. record_behavior and
-    // submit_review cite ids, the model reads the current observation from this tool
-    // result, and the batch checkpoint reads its own local events, so nothing ever
-    // reads these two fields back. Keeping the redacted tree and page text for every
-    // observation cost up to 24 KB each and capped a check at roughly twenty
-    // observations, which a larger behaviour set cannot fit: that is what stopped the
-    // 44-behaviour calculator check as REVIEW_EVIDENCE_TOO_LARGE. The newest entry
-    // keeps them so the last thing the reviewer saw stays inspectable.
-    const previous = evidence.at(-1);
-    if (previous) { previous.tree = ''; previous.text = ''; }
     if(Buffer.byteLength(JSON.stringify([...evidence,event])) > 480*1024)throw fail(new RuntimeError('CHECK_BLOCKED','检查记录达到大小上限',undefined,undefined,'REVIEW_EVIDENCE_TOO_LARGE'));
     evidence.push(event);
     return { ...event, reportEvidenceId: event.id, nextActionObservationId: observation.id, refs: observation.refs };
