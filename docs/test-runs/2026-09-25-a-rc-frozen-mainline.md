@@ -61,7 +61,23 @@ Run `dcbafb9e`，`base`/`expected` 冻结在 C1 的 revision `cc4a7ee9`（v2）�
 
 **最可能的原因**：C2 的可验证行为最多（**44 项**，C1 为 38 项）。评审器在只记录了部分行为的情况下结束了回合，于是返回通用兜底摘要——而**定点复测是从头重跑评审器（新浏览器会话），并不会从已保存的检查断点续跑**，所以行为集一大就反复无法完成。类型定义里其实已有检查断点的概念（`ReviewCheckpoint` 带 `provisional: true` 与 `completedBehaviorIds`），但复测路径没有使用它。
 
-这条如果成立，是一个真实的能力缺口：**大行为集永远无法通过复查**，因为每次重试都从零开始。修法应是把复测接到已保存的断点上（继续未完成的行为），而不是重启整个检查。这一步我没有在证据不足时擅自动手——需要先确认评审器结束回合时的实际原因（是模型自行停止，还是某个未上报的内部上限）。
+这条如果成立，是一个真实的能力缺口：**大行为集永远无法通过复查**，因为每次重试都从零开始。
+
+### 继续定位（2026-09-25，本轮）
+
+找到了通用文案的产生位置：`apps/api/src/generation/review.ts` 的 `catch` 分支。只有当错误码**既不在重抛列表**（`AGENT_OUTPUT_INVALID` / `TOKEN_BUDGET_EXCEEDED` / `TOOL_BUDGET_EXCEEDED` / `ROLE_NOT_ACTIVE` / `MODEL_FAILED` / `MODEL_REQUEST_TIMEOUT`）**也不在** `blockedReasons` 映射表里时，才会用那句通用兜底文案，并把全部行为标为 `blocked`。所以 C2 是一次**未分类异常**，而不是「评审器自行结束回合」——我上一条的猜测同样不准确，此处再更正。
+
+**尝试过并已回退的改法**：把未分类的错误码写进摘要文案（`…未完成（CODE）…`）。这会立刻让下一次复测可诊断，但 `apps/api/tests/generation/review.test.ts` 里有一条**刻意写下的**断言否决它：
+
+```
+test('unknown diagnostic codes use the generic blocked message without reflecting raw data', …)
+  expect(receipt.result.summary).toBe('浏览器或检查过程未完成，当前候选尚未通过检查。');
+  expect(JSON.stringify(receipt)).not.toMatch(/RAW_SECRET|fixture-key|UNKNOWN_/);
+```
+
+夹具正是用一个形如 `UNKNOWN_RAW_SECRET_fixture-key` 的未知码来验证「未知码可能携带原始敏感数据，因此不得进入任何对外可见的结果」。这条不变量是对的，我的改法违背了它，因此**已完整回退**（`git checkout -- apps/api/src/generation/review.ts`，回退后测试恢复为仅剩已知的环境失败）。
+
+**正确的修法**（留给下一轮，需先确认现有日志通道）：把未分类的错误码记录在**服务端诊断通道**（日志或内部字段），而不是用户可见摘要。这样既保住不泄露原始数据的策略，又让「为什么这次检查没完成」可查。在没有这条通道之前，C2 会继续以通用文案失败。
 
 ## 三、S0（Canvas 贪吃蛇）——**FAIL / BLOCKED**
 
