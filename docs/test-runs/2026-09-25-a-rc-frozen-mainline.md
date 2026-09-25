@@ -425,44 +425,20 @@ v7（C2，revision `2ea8d6bb`）的预览**当时仍然存活**（回滚测试�
 
 **结论：在 08:06:15 UTC 重置之前不再重试。** 每次尝试只会快速失败并留下无意义的 `MODEL_FAILED` 记录；等配额恢复后跑一次干净的复测才有诊断价值。届时若再失败，服务商原文会直接指出原因。
 
-### 一个待查的 UI 现象（不阻塞）
+### 更正：不存在「UI 重试入口缺失」这个缺陷
 
-失败运行的 `error_retryable = t`、`cleanup_state = confirmed`，但工作台**没有渲染「以新任务重试」入口**。我没有停在这一点上——而是用 API 发出了与客户端**完全相同**的请求体（`retryOfRunId`、当前 revision、冻结的模型配置）并成功触发复测。该不一致值得单独确认，但它不阻塞本条主线。
+我曾记录「失败运行标着 `error_retryable = t`、页面却不渲染重试入口」，并花了力气追派生链（`generation-state.ts:41/57/61`），还因为「推理与观测矛盾」而停手未改。
 
-**已查到的具体层面**（供后续定点修复，不在配额窗口里冒险改动）：
-
-- API 项目详情的顶层字段是 `project, messages, currentRevision, activeRun, latestRun, latestCandidate, latestCheck, latestCheckHistorical, preview, quota` —— **没有 `run`**；
-- 失败运行的 `error` 是**完整对象**（`code: "MODEL_FAILED"`，`retryable` 由契约 `packages/contracts/src/generation.ts:32` 保证），因此数据侧没有问题；
-- 而工作台的重试条件读的是 `state.view?.run`（`api-workbench.tsx:379` 的 `run.error?.retryable`）。
-
-### 派生链已读出，但**结论与观测矛盾，故未改动**
-
-```
-41:  const snapshotRun  = project.activeRun ?? project.latestRun;
-43:  const detail       = runId ? await generation.getRun(runId) : null;
-57:  const refreshedRun = project.activeRun ?? project.latestRun;
-61:  const visibleRun   = refreshedRun && refreshedRun.id !== detail?.run.id && !snapshotNamesParent
-                          ? refreshedRun : detail?.run ?? refreshedRun;
-```
-
-按这条链：失败时 `activeRun` 为 `null`（`typeof null === "object"` 一度让我的探测看起来像对象，实际是空值）、`refreshedRun = latestRun`（那条失败运行），因此 `visibleRun` **应当是它**，`view.run` 也应当是它——**但页面上没有渲染重试入口**，与这条推理矛盾。
-
-矛盾没有解开之前我不改代码：可能的解释至少有三个（`detail.run` 与 `snapshotNamesParent` 分支的实际取值、`run.clarification` 是否非空、页面是否处于别的提交态），每一个都指向不同的改法。**在矛盾未澄清时提交改动就是在猜**，而这正是我此前两次主动回退自己改动的同一判断标准。
-
-这条属于**非阻塞的待查项**：它不影响 #37 的任何通过条件（我在复测时用 API 发出了与客户端完全相同的请求体，功能上不受影响），但用户从界面上重试失败任务会缺少入口，值得单独修。
-
-## 二之十七、S0 修法的取舍实验（不调用模型）
-
-为在「修正开始按钮键盘可达性」与「让游戏首次按键才开始」之间决定，恢复候选预览后实测：
+**那个矛盾的正确解释是：我的观测本身不可靠，而不是代码有问题。** 在页面**完全加载后**重测：
 
 | 观测 | 结果 |
 | --- | --- |
-| **加载瞬间** | 覆盖层已是「**游戏结束 本局分数：0 重新开始**」——在任何观察者能行动前就已撞墙，印证 `isRunning: true` |
-| 「重新开始」按钮 | `tabIndex = 0`、未禁用、`focus()` 后确为 `activeElement` → **键盘可达** |
-| 合成 `keydown Enter` | 未激活；但**此项不构成结论**——`dispatchEvent` 派发的 keydown 不触发浏览器默认激活，真实按键会 |
-| `.click()` | 覆盖层消失、游戏重新开始 → 按钮功能正常 |
+| 页面显示该失败运行的错误 | **是**（完整 429 文案） |
+| **重试入口 `.generation-retry-row`** | **存在** |
 
-**结论**：修法 1（键盘可达）的前提成立，但**加载即死亡**这一点无论如何存在；修法 2（首次方向键/空格前保持暂停）仍是更稳的一条，同时修掉「玩家还没准备好就被时钟杀死」的体验问题。修法 1 可作为附加改进，但不是充分条件。已回写 #40。
+即重试入口**本来就正常渲染**；我先前的两次「看不到」分别是**会话失效看到登录页**、以及**刚重新登录、视图尚未加载出该运行**。两处都不构成产品缺陷。
+
+这是我在同一话题上的**第二次误判**，两次都在动手前停住，因此没有把错误结论变成错误代码。教训与前次相同，且更具体：**在断言「界面上没有 X」之前，先确认页面处于哪个状态、视图是否已加载完成。**
 
 ## 三、S0（Canvas 贪吃蛇）——**FAIL / BLOCKED**
 
