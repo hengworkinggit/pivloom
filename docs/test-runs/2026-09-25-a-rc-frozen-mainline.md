@@ -1423,6 +1423,18 @@ C3 本次运行 `177ff00f` 已保存候选：
 | DeepSeek 配置 | 保留但**非默认**；默认已切回 kimi-k2.7-code |
 | 模型能力被我探测降级 | 已恢复为 verified |
 
+## 二之六十七、确认三处修复确实在**线上运行中的产物**里
+
+此前只验证了「测试通过 + 部署成功」，**没有直接核对运行中的代码**。直接在服务器上检查当前 release 的构建产物：
+
+```
+grep -c 'Reserve the last one for submit_review'      /opt/pivloom/api-current/apps/api/dist/runtime/reviewer.js → 1
+grep -c 'in its own turn, never in the same turn'     → 1
+grep -c 'screenshot_read rather than assuming it survived' → 1
+```
+
+三处修复**均已存在于线上产物**，因此 C3 本次评审**跑的就是修好的版本**，其结果可以直接用来判断修复是否有效——不需要再怀疑「改的东西有没有真的上线」。
+
 ## 四、尚未执行（本票剩余）
 
 - 计算器 C0→功能 C1→视觉 C2 → **回滚到 C1** → 基于 C1 的 C3（四次真实业务提交）。
