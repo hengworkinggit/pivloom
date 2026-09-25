@@ -1000,6 +1000,29 @@ leaving no result at all.`]
 
 **下一步**：把「为所报行为重读图片」的要求也写进同一条提示（同样只改文本、不新增提示），并再次跑测试确认无回归。本轮上下文不足以完成该改动与验证，故留待下一轮。
 
+## 二之四十七、第二处修复：要求为所报行为**确认图片已进入当前上下文**
+
+在同一句提示后追加（仍然只改文本、不新增提示）：
+
+> Before reporting a behaviour that needs looking, make sure an image for this revision was actually received in your current context; **after compaction, reread it with screenshot_read rather than assuming it survived**, because a report claiming visual verification without a delivered image is refused.
+
+| 验证项 | 结果 |
+| --- | --- |
+| typecheck | 干净 |
+| 评审器测试 | **113/113 通过** |
+| **API 全量测试** | **372 通过 / 1 失败**，唯一失败是 `generation/network-proxy.test.ts` 的「local E2E boundary」用例——**已知的环境性失败**（本会话早期即存在，与本次改动无关） |
+
+### 两处修复的合并效果
+
+| 缺陷（均由本轮真实运行定位） | 修法 |
+| --- | --- |
+| 评审器耗尽预算、从未提交报告（C3 的 `AGENT_OUTPUT_INVALID`） | 提示中告知预算并要求**预留最后一次调用用于提交** |
+| 图片被上下文压缩掉后仍声称视觉验证（S0 的 `IMAGE_EVIDENCE_REQUIRED`） | 提示中要求**确认图片已进入当前上下文，压缩后须重读** |
+
+**两者都只改提示文本**，不改停止条件、不改错误码、不新增 `session.prompt`——这正是绕开「额外提示会挂住」那条经验事实的方式。
+
+**下一步**：部署 API（含这两处修复），再对两个已保存候选做**定点复测**。
+
 ## 四、尚未执行（本票剩余）
 
 - 计算器 C0→功能 C1→视觉 C2 → **回滚到 C1** → 基于 C1 的 C3（四次真实业务提交）。
