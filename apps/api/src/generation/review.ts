@@ -1,11 +1,12 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { ReviewBindingSchema, type ReviewBinding, type ReviewResult, type Handoff } from '@pivloom/contracts';
 import { OpenSandboxWorkspace, type SandboxConnector } from '../runtime/workspace.js';
 import { RemoteBrowser } from '../runtime/browser.js';
 import { sourceHash } from '../runtime/generation.js';
 import { runReviewer, assertReviewerResult, type ReviewObservationEvent, type ReviewCheckpoint } from '../runtime/reviewer.js';
-import { RuntimeError, type ModelConfig, type SandboxConfig, type ProbeEventSink } from '../runtime/types.js';
+import { runScriptedPlan } from '../runtime/replay-plan.js';
+import { RuntimeError, type ModelConfig, type SandboxConfig, type ProbeEventSink, type ProbeEvent } from '../runtime/types.js';
 import { SANDBOX_LEASE_RENEW_THRESHOLD_MS, SANDBOX_LEASE_SEGMENT_MS } from '../runtime/budgets.js';
 import { type TokenUsage, type RunTokenBudget } from '../runtime/token-budget.js';
 import { assertVerifiedSourceSnapshot, type SourceStore, type VerifiedSourceSnapshot } from '../storage/source.js';
@@ -33,6 +34,10 @@ const blockedReasons=new Map([
   ['REVIEW_EVIDENCE_TOO_LARGE','本次检查的证据记录达到容量上限，已停止检查；这是检查侧的限制，不是作品行为不通过。'],
   ['REVIEW_PREVIEW_ORIGIN','检查浏览器离开了绑定的候选预览，已停止检查。'],
   ['REVIEW_BROWSER_UNCLOSED','检查浏览器未能确认关闭，为避免影响后续检查已停止。'],
+  // A budget stop is not an unexplained failure: without this entry the run is
+  // classified CHECK_BLOCKED with the generic sentence, and the persisted
+  // error_code no longer says that the check ran out of its own wall clock.
+  ['REVIEW_TIMEOUT','本次检查超过验收时间上限，已停止并保留未完成状态；这不代表候选通过。'],
   ['BROWSER_BLOCKED','浏览器无法访问或完成页面操作，当前候选尚未通过检查。'],
   ['REVIEWER_TOOL_FAILED','浏览器无法访问或完成页面操作，当前候选尚未通过检查。'],
   ['VISION_NOT_VERIFIED','当前模型的图像能力未通过实际图片测试，请在模型设置中验证支持图像的配置；当前候选尚未完成视觉检查。'],
@@ -108,25 +113,63 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     await verifyVersion();
     const files=(await input.sources.load(input.source)).files;
     reviewerStarted=true;
-    const reviewed=await runReviewer({binding,sessionId:input.sessionId,handoff:input.handoff,browser,files,bootstrap:true,
+    // Every event either layer emits has to walk the sandbox lease first: a
+    // scripted pass performs no model request, so this is the only place that
+    // notices the preview lease is close to expiry while the browser works.
+    const emitEvent=async(event:ProbeEvent)=>{await ensureLease();await input.onEvent?.(event);};
+    const saveScreenshot=async(image:{base64:string;mimeType:'image/png';sha256:string})=>{
+      await active();const artifact=await input.artifacts.save(input.source,image,signal);await active();artifacts.push(artifact);
+      return artifact;
+    };
+    const onCheckpoint=input.onCheckpoint?async(checkpoint:ReviewCheckpoint)=>{
+      await active();
+      const screenshotIds=new Set(checkpoint.item.screenshotIds);
+      await input.onCheckpoint!({...checkpoint,artifacts:artifacts.filter(artifact=>screenshotIds.has(artifact.id))});
+      await active();
+    }:undefined;
+    const modelPath=()=>runReviewer({binding,sessionId:input.sessionId,handoff:input.handoff,browser,files,bootstrap:true,
       modelConfig:input.modelConfig,signal,tokenBudget:input.tokenBudget,maxToolCalls:input.maxToolCalls,
-      onEvent:async(event)=>{await ensureLease();await input.onEvent?.(event);},assertActive:active,
-      onCheckpoint:input.onCheckpoint?async(checkpoint)=>{
-        await active();
-        const screenshotIds=new Set(checkpoint.item.screenshotIds);
-        await input.onCheckpoint!({...checkpoint,artifacts:artifacts.filter(artifact=>screenshotIds.has(artifact.id))});
-        await active();
-      }:undefined,
-      async saveScreenshot(image){
-        await active();const artifact=await input.artifacts.save(input.source,image,signal);await active();artifacts.push(artifact);
-        return {id:artifact.id,mimeType:artifact.mimeType,sha256:artifact.sha256};
-      }});
+      onEvent:emitEvent,assertActive:active,onCheckpoint,saveScreenshot});
+    // A layer: behaviors whose sealed plan carries executable steps and
+    // script-decidable assertions are driven by the model-free kernel. Nothing
+    // below this try is weakened — the model path is still the only reporter for
+    // any behavior the plan did not compile, and it remains the release gate.
+    let reviewed:Awaited<ReturnType<typeof runReviewer>>|undefined;
+    try{
+      const scripted=await runScriptedPlan({binding,handoff:input.handoff,browser,signal,
+        saveScreenshot,onEvent:emitEvent,onCheckpoint});
+      if(scripted.kind==='scripted')reviewed=scripted.result;
+      else{
+        // The fallback rate is the measured cost of unexecutable planning, so it
+        // is reported both to the operator log and into the run's own event
+        // stream. `replay_fallback` is deliberately not on the progress
+        // allowlist: this event records a decision, not reviewer work, and must
+        // not renew the inactivity lease by itself.
+        const reasons=scripted.uncompilable.reduce<Record<string,number>>((counts,item)=>{
+          counts[item.reason]=(counts[item.reason]??0)+1;return counts;},{});
+        const behaviors=scripted.uncompilable.map(item=>`${item.behaviorId}:${item.reason}`).join(',');
+        console.info(`[review] scripted replay fallback compiled=${scripted.compiled.length} uncompilable=${scripted.uncompilable.length} reasons=${JSON.stringify(reasons)}`);
+        await input.onEvent?.({id:randomUUID(),at:new Date().toISOString(),type:'tool.output',toolName:'replay_fallback',
+          message:`脚本回放退回模型路径：${scripted.compiled.length} 项已编译，${scripted.uncompilable.length} 项不可编译（${behaviors}）`});
+      }
+    }catch(error){
+      // The four transport codes the model path already treats as a lost browser
+      // are the only ones where falling back is honest: the scripted work is
+      // re-done on the same page, rather than reporting a candidate failure for
+      // an infrastructure fault. Everything else (a stale ref, a failed
+      // assertion, a corrupt plan) is a real result and must travel as one.
+      if(!(error instanceof RuntimeError&&['BROWSER_BLOCKED','BROWSER_TIMEOUT','COMMAND_TIMEOUT','BROWSER_SESSION_LOST'].includes(error.code)))throw error;
+      console.info(`[review] scripted replay infrastructure fallback code=${error.code}`);
+      await input.onEvent?.({id:randomUUID(),at:new Date().toISOString(),type:'tool.output',toolName:'replay_fallback',
+        message:`脚本回放因浏览器基础设施故障退回模型路径（${error.code}）`});
+    }
+    if(!reviewed)reviewed=await modelPath();
     assertReviewerResult(reviewed);usage=reviewed.usage;evidence=reviewed.evidence;result=reviewed.result;
     await verifyVersion();markerVerified=true;
   }catch(error){
     if(leaseFailure)throw leaseFailure;
     if(input.signal.aborted)throw error;
-    if(error instanceof RuntimeError && ['AGENT_OUTPUT_INVALID','TOKEN_BUDGET_EXCEEDED','TOOL_BUDGET_EXCEEDED','ROLE_NOT_ACTIVE','MODEL_FAILED','MODEL_REQUEST_TIMEOUT'].includes(error.code))throw error;
+    if(error instanceof RuntimeError && ['AGENT_OUTPUT_INVALID','TOKEN_BUDGET_EXCEEDED','TOOL_BUDGET_EXCEEDED','ROLE_NOT_ACTIVE','MODEL_FAILED','MODEL_REQUEST_TIMEOUT','REVIEW_TIMEOUT'].includes(error.code))throw error;
     if(error instanceof RuntimeError&&error.usage)usage=error.usage;
     // Declared once: the code classifies an infrastructure failure and also feeds
     // the redacted diagnostic below.

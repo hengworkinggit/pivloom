@@ -129,6 +129,16 @@ const verifiedResults = new WeakSet<object>();
 export function assertReviewerResult(value: ReviewerResult) {
   if (!verifiedResults.has(value)) throw new RuntimeError('INVALID_REVIEW_RECEIPT', '检查结果未经运行时证据校验');
 }
+/**
+ * Single write point of `verifiedResults`, exported for exactly one producer:
+ * the scripted-replay A layer (runtime/replay-plan.ts), which assembles the same
+ * ReviewerResult from real browser observations without a model. Keeping the
+ * mark internal would force a second, weaker accept path into review.ts, which
+ * is the outcome this shared assertion exists to prevent.
+ */
+export function markReviewerResultVerified(value: ReviewerResult): ReviewerResult {
+  verifiedResults.add(value);return value;
+}
 const ref = { observationId: z.uuid(), ref: z.string().regex(/^e\d+$/), behaviorId: z.string().regex(/^B\d{2}$/) };
 const stepScope = { behaviorIds: z.array(ref.behaviorId).min(1).max(20), capture: z.boolean().default(false) };
 const namedControl = { name: z.string().min(1).max(300), role: z.string().min(1).max(80).default('button') };
