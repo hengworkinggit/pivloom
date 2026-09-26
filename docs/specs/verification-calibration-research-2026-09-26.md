@@ -257,3 +257,41 @@ https://playwright.dev/docs/aria-snapshots 、https://playwright.dev/docs/api/cl
 
 **原则 12：验证预算必须显式（阈值 / 迭代上限 / 阻塞上限），且"先做完再验"与"边做边验"都是有先例的选择。**
 OpenHands 0.6/3 次、Claude Code 8 次阻塞上限、Factory 的成本公式都是先例；**我们的 10 分钟上限属于同一类，但必须写明并作为可配置项**，而不是散落的常量。
+
+## 十一、AI 原生 E2E 测试产品如何处理"不确定"（第五波调研）——**最贴近我们评审器的一类**
+
+| 产品 | 定位失败怎么办 | 是否展示"我没法确定" | 第三态 |
+|---|---|---|---|
+| **Momentic** | 三信号定位（DOM + 无障碍树 + 视口截图，**a11y 最可靠**）；step cache 多候选选择器 + **意图校验**；失配 → locator agent 重解（**只对本次运行生效，不改测试**）→ 失败恢复生成临时步骤（**一次运行最多 3 次**）→ 分类后**永久 heal** → **quarantine 隔离** | 是（分类 heal / warn / fail） | **近似**：`overrideExitCode=true` 时 heal/warn 退出码 0，即"非失败" |
+| **Octomind** | 失败后分析 Trace + DOM 快照区分"**真 bug vs UI 变更**"，语义重定位；修复以 **"auto-fix ready to review"** 呈现，**需人工 approve** 才落库 | 是 | **近似**：待审批提案；原则称 **"Zero Silent Commits"** |
+| **QA Wolf** | 失败分类 **Flakes / Bugs / Broken tests**；运行状态含 **Investigating / Needs investigation**，另有 "Do Not Investigate" 逃生口 | 是 | **近似**：Investigating 作为独立状态 |
+| **Autify** | 自愈优先 | 是 | **✅ 最明确**：官方原文 "If the AI determines that it needs to confirm that the element it found is what it was intended to be, it is treated as **neither a [Passed] nor a [Failed], but rather as a [Review Needed]**"，用户按钮 **Save as Passed / Save as Failed**；FAQ 原文 **"'Review Needed' does not necessarily mean failure."** |
+| **mabl** | 低置信 → **步骤失败**（不自愈到劣质匹配） | 是（Find summary 置信度、录制时 confidence rating） | ❌ 未找到 |
+| **Testim** | 多 locator 降级 + 置信分阈值 | 是（confidence score + High/Medium/Low） | ❌ 未找到（<70% 触发自动改进） |
+| **Reflect** | 多选择器按序尝试，**全部失败即判失败** | ❌ | ❌ 未找到 |
+
+出处：momentic.ai/docs/core-concepts/finding-elements、/reliability/auto-heal、/configuration/ai；octomind.dev/docs/maintain-tests/auto-fix、/product/playwright-self-healing；docs.qawolf.com（Diagnose / Interpret run results）；help.autify.com/docs/review-needed-flag、/workarounds-for-too-frequent-review-needed-flags；help.mabl.com（How auto-heal works、Creating resilient find steps…）；docs.tricentis.com（target element properties、locators-auto-improve）；support.smartbear.com/reflect/docs（resilient tests）
+
+### 十一.1 两条可以直接抄的东西
+
+**抄 1：第三态的官方措辞与交互（Autify）**
+
+> **"既不 [Passed] 也不 [Failed]，而是 [Review Needed]"**，并配 **Save as Passed / Save as Failed** 两个按钮；且明确 **"'Review Needed' 不代表失败"**。
+
+这与我们的 `blocked` 完全同构，而且**给了一个可以直接采用的措辞与交互范式**：**结论 + 两个人工出口 + 一句"这不等于失败"**。
+
+**抄 2：可公开的质量指标体系（mabl）**
+
+mabl 是八家中**唯一**公开自愈相关质量指标的：**flake rate、breakage rate、pass rate、stability、reliability、0–100 composite quality score**。https://help.mabl.com/hc/en-us/articles/46637937893524
+
+**这正是我们缺的那一层**：我们现在只报"单次运行的墙钟"，而业界报的是**可聚合的质量指标**。
+
+**同时注意一个反面事实**：**八家均未公开"自愈率/误报率"的官方承诺数字**（未找到官方依据）。也就是说，**曝光指标 ≠ 承诺指标**——我们应当**先做到可观测与可聚合**，而不是先给承诺。
+
+### 十一.2 本节新增的两条原则
+
+**原则 13：异构应用要靠"多信号定位"提高确定性覆盖，而不是靠更严的名称匹配。**
+Momentic 用 DOM + 无障碍树 + 视口截图三信号且实测 a11y 最可靠；Octomind 用 Trace + DOM 快照区分"真 bug vs UI 变更"。**我们只有单一信号（role + 名称），且要求逐字精确**——这是通用性最薄的一环。
+
+**原则 14：不确定性应当"隔离并复核"，而不是"拖垮整次"。**
+Momentic 有 **quarantine 隔离**与单次运行最多 3 次的恢复上限；Octomind 要求**人工 approve（Zero Silent Commits）**；QA Wolf 有 Investigating 与 Do Not Investigate 逃生口。**共同点是：不确定的东西被单独拎出来，而不是让整次运行卡死**——这正是我们缺的那一层（我们是整页否决 + 中止）。
