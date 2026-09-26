@@ -21,6 +21,17 @@ const palette: ReadonlyArray<string> = colors.map((color) => color.name);
  */
 const MAX_ATTEMPTS = 3;
 /**
+ * How many correct samples certify the capability. Accepting a single correct answer — which is
+ * what one sample did before, and what "any attempt passes" still did after retries were added —
+ * cannot separate a model that reads the tiles from one that names two of four colours by chance.
+ * A blind guess is right about once in sixteen per sample, so any-of-three certified such a model
+ * roughly eighteen percent of the time; measured against the official endpoint it verified once in
+ * three runs, which is exactly what a blind model looks like. Two correct samples put that near one
+ * percent while still tolerating one flaky answer, and a probe that only has budget for two samples
+ * must get both right.
+ */
+const REQUIRED_CORRECT_SAMPLES = 2;
+/**
  * probe.ts wraps this probe in a 40s abort, and retries must spend only the time left inside
  * that ceiling instead of extending it. Each sample therefore gets the remaining budget as
  * its own timeout, so a hung provider still ends the whole probe at 40s.
@@ -107,6 +118,7 @@ export async function probeModelVision(input: Connection, fetch: typeof globalTh
   };
   interface Sample { expected: string; observed: string | null; outboundImages: number }
   let attempts = 0;
+  let correct = 0;
   let verifiedOnAttempt: number | null = null;
   let answered: Sample | null = null;
   let lastSent: { expected: string; outboundImages: number } | null = null;
@@ -149,7 +161,13 @@ export async function probeModelVision(input: Connection, fetch: typeof globalTh
       }
       const answer = result?.content.filter((part) => part.type === "text").map((part) => part.text).join("").trim() ?? "";
       answered = { expected, observed: answer || null, outboundImages };
-      if (parseColorPair(answer) === expected) { verifiedOnAttempt = attempt; break; }
+      // Keep sampling until enough answers agree. A wrong sample neither certifies nor stops the
+      // probe, because the next sample draws a fresh pair and a single miss says nothing about a
+      // model that reads the tiles.
+      if (parseColorPair(answer) === expected) {
+        correct++;
+        if (correct >= REQUIRED_CORRECT_SAMPLES) { verifiedOnAttempt = attempt; break; }
+      }
     } catch (error) {
       lastSent = { expected, outboundImages };
       const message = error instanceof Error ? error.message : "";

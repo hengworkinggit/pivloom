@@ -62,9 +62,12 @@ function wrongFirstColor(expected: string) {
 test("Pi sends two real PNGs with image MIME, and only their pixel colors can verify vision", async () => {
   const answering = answers((expected) => expected);
   const result = await probeModelVision(input, answering.fetch, signal());
-  expect(result).toMatchObject({ state: "verified", declaredImageInput: true, outboundImages: 2, answerMatched: true, attempts: 1, verifiedOnAttempt: 1 });
+  // Two agreeing samples certify the capability, so a model that always reads the tiles is asked
+  // twice rather than once; the subject of the test — that the images really go out and that only
+  // their colours decide the verdict — is unchanged.
+  expect(result).toMatchObject({ state: "verified", declaredImageInput: true, outboundImages: 2, answerMatched: true, attempts: 2, verifiedOnAttempt: 2 });
   expect(result.observedAnswer).toBe(result.expectedAnswer);
-  expect(answering.calls()).toBe(1);
+  expect(answering.calls()).toBe(2);
 });
 
 test("a text-only or hallucinated color answer cannot verify the model", async () => {
@@ -72,21 +75,32 @@ test("a text-only or hallucinated color answer cannot verify the model", async (
   expect(result).toMatchObject({ state: "failed", outboundImages: 2, answerMatched: false, verifiedOnAttempt: null });
 });
 
-test("harmless punctuation around the right colors still verifies the first sample", async () => {
+test("harmless punctuation around the right colors still counts as a correct sample", async () => {
   // The real false negative: a capable model answered with spacing and a trailing full stop.
   const answering = answers((expected) => ` ${expected.toLowerCase().replace("=", " = ").replace(";", " ; ")}. `);
   const result = await probeModelVision(input, answering.fetch, signal());
-  expect(result).toMatchObject({ state: "verified", outboundImages: 2, answerMatched: true, attempts: 1, verifiedOnAttempt: 1 });
+  expect(result).toMatchObject({ state: "verified", outboundImages: 2, answerMatched: true, attempts: 2, verifiedOnAttempt: 2 });
   expect(result.observedAnswer).not.toBe(result.expectedAnswer);
   expect(result.observedAnswer?.endsWith(".")).toBe(true);
 });
 
-test("a wrong first sample is retried with a fresh pair and verifies on the second", async () => {
+test("a wrong first sample is retried with a fresh pair and verifies once enough samples agree", async () => {
   const answering = answers((expected, call) => call === 1 ? swapped(expected) : expected);
   const result = await probeModelVision(input, answering.fetch, signal());
-  expect(result).toMatchObject({ state: "verified", outboundImages: 2, answerMatched: true, attempts: 2, verifiedOnAttempt: 2 });
+  expect(result).toMatchObject({ state: "verified", outboundImages: 2, answerMatched: true, attempts: 3, verifiedOnAttempt: 3 });
   expect(result.observedAnswer).toBe(result.expectedAnswer);
-  expect(answering.calls()).toBe(2);
+  expect(answering.calls()).toBe(3);
+});
+
+test("a model that names the colours correctly only once cannot verify", async () => {
+  // The failure this guards: with a single correct answer accepted, a model that cannot see the
+  // tiles at all still certified about eighteen percent of the time by naming two of four colours
+  // by chance. Measured against the official endpoint it verified once in three runs, so a lucky
+  // sample must not be enough.
+  const answering = answers((expected, call) => call === 2 ? expected : swapped(expected));
+  const result = await probeModelVision(input, answering.fetch, signal());
+  expect(result).toMatchObject({ state: "failed", answerMatched: false, verifiedOnAttempt: null });
+  expect(result.attempts).toBe(3);
 });
 
 test("a wrong colour or a swapped order still fails after every sample", async () => {
