@@ -119,3 +119,28 @@ test("an explicit provider image rejection is unsupported; a transport failure s
   const unavailable = await probeModelVision(input, async () => { throw new Error("connection reset"); }, signal());
   expect(unavailable).toMatchObject({ state: "unknown", answerMatched: false });
 });
+
+test('a reasoning-first model can finish its pixel-derived answer instead of exhausting a short output allowance', async () => {
+  let calls=0;
+  const fetch:typeof globalThis.fetch=async(_url,init)=>{
+    calls++;
+    const body=JSON.parse(String(init?.body));
+    const images=body.messages.flatMap((message:{content:unknown})=>Array.isArray(message.content)
+      ?message.content.filter((part:{type:string})=>part.type==='image_url'):[]);
+    const [a,b]=images.map((part:{image_url:{url:string}})=>centerColor(part.image_url.url));
+    expect(a).toBeDefined();expect(b).toBeDefined();
+    // This external provider fixture spends 256 output tokens analysing the
+    // images before it can emit an answer. A length stop contains reasoning
+    // only, never an actual colour answer for the probe to accept.
+    const hasAnswerRoom=(body.max_completion_tokens??body.max_tokens)>256;
+    const chunk={id:'reasoning-vision',object:'chat.completion.chunk',created:1,model:input.modelId};
+    const parts=[{...chunk,choices:[{index:0,delta:{role:'assistant',reasoning_content:'Inspecting both image center squares.'},finish_reason:null}]}];
+    const final={...chunk,choices:[{index:0,delta:hasAnswerRoom?{content:`A=${a};B=${b}`}:{},finish_reason:hasAnswerRoom?'stop':'length'}]};
+    return new Response([...parts,final].map(part=>`data: ${JSON.stringify(part)}\n\n`).join('')+'data: [DONE]\n\n',
+      {headers:{'content-type':'text/event-stream'}});
+  };
+  const result=await probeModelVision(input,fetch,signal());
+  expect(result).toMatchObject({state:'verified',answerMatched:true,attempts:2,verifiedOnAttempt:2,outboundImages:2});
+  expect(result.observedAnswer).toBe(result.expectedAnswer);
+  expect(calls).toBe(2);
+});
