@@ -9,13 +9,14 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import {
-  BehaviorProgramSchema, GroupedPlanSchema, PlanningContextSchema, ClarificationRequestSchema, preservesPreviousBehavior,
-  type GroupedPlan, type Plan, type PlanningContext,
+  GroupedPlanSchema, PlanningContextSchema, ClarificationRequestSchema, preservesPreviousBehavior,
+  type Plan, type PlanningContext,
 } from "@pivloom/contracts";
 import { createServiceModel } from "./pi.js";
 import { RuntimeError, type ModelConfig, type ProbeEvent, type ProbeEventSink } from "./types.js";
 import { createRoleTokenTracker, type RunTokenBudget, type TokenUsage } from "./token-budget.js";
 import { MODEL_REQUEST_TIMEOUT_MS, piCompactionSettings, providerRetrySettings } from "./budgets.js";
+import { CoordinatorIncrementSchema, composeCoordinatorIncrement, coordinatorProjectSummary, inheritCoordinatorPrograms } from './coordinator-plan.js';
 
 export type CoordinatorDecision = { kind: "plan"; plan: Plan } | { kind: "clarification"; question: string };
 export interface CoordinatorMetadata {
@@ -39,12 +40,13 @@ export interface CoordinatorInput {
   tokenBudget?: RunTokenBudget;
 }
 
-const names = ["project_summary", "submit_plan", "request_clarification"] as const;
+const names = ["project_summary", "submit_plan", "submit_increment", "request_clarification"] as const;
 const planInput = z.strictObject({ plan: GroupedPlanSchema });
 const questionInput = ClarificationRequestSchema;
 const providerSchemas = new Map<string, TSchema>([
   ["project_summary", z.toJSONSchema(z.strictObject({})) as TSchema],
   ["submit_plan", z.toJSONSchema(planInput) as TSchema],
+  ["submit_increment", z.toJSONSchema(CoordinatorIncrementSchema, { io: "input" }) as TSchema],
   ["request_clarification", z.toJSONSchema(questionInput) as TSchema],
 ]);
 const schemaFields = new Set(["plan", "question", "schemaVersion", "goal", "changeSummary", "assumptions", "outOfScope", "behaviors", "groups", "behaviorIds", "replacements", "oldBehaviorId", "newBehaviorId", "userRequestQuote", "reason", "id", "title", "precondition", "action", "expected", "required",
@@ -52,26 +54,10 @@ const schemaFields = new Set(["plan", "question", "schemaVersion", "goal", "chan
   // reason as the prose ones: a rejected step must be named in the correction,
   // otherwise the Coordinator cannot tell which field to fix.
   "steps", "type", "path", "width", "height", "role", "name", "text", "value", "key", "ms",
-  "assertions", "kind", "negated", "evidence", "initialState", "target", "within", "match", "count", "keys", "repeat", "verificationMode"]);
-
-/** Omitted inherited fields reuse the sealed program; an explicitly changed field is still rejected. */
-function inheritPrograms(plan: GroupedPlan, previous: Plan | null): GroupedPlan {
-  const byId = new Map(previous?.behaviors.map(behavior => [behavior.id, behavior]));
-  return { ...plan, behaviors: plan.behaviors.map(behavior => {
-    const prior = byId.get(behavior.id);
-    if (!prior) return behavior;
-    return { ...behavior,
-      ...(behavior.steps === undefined && prior.steps ? { steps: prior.steps } : {}),
-      ...(behavior.assertions === undefined && prior.assertions ? { assertions: prior.assertions } : {}),
-      ...(behavior.initialState === undefined && prior.initialState ? { initialState: prior.initialState } : {}),
-      ...(behavior.evidence === undefined && prior.evidence ? { evidence: prior.evidence } : {}),
-    };
-  }) };
-}
+  "assertions", "kind", "negated", "evidence", "initialState", "target", "within", "match", "count", "keys", "repeat", "verificationMode", "additions", "groupId", "requirement"]);
 /**
- * Output floor for the coordinator. Sized from the measured cost of a stepped plan (5,120 tokens for the
- * cheapest possible one) with room for app-specific steps, which are longer than the repeated ones used
- * for that measurement.
+ * Preserve the established output allowance. Incremental composition reduces
+ * what the model must emit without introducing a smaller truncation boundary.
  */
 const COORDINATOR_OUTPUT_TOKENS = 16_384;
 
@@ -250,31 +236,29 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
       cwd: isolated, agentDir: isolated, settingsManager: settings, noExtensions: true, noSkills: true,
       noPromptTemplates: true, noThemes: true, noContextFiles: true,
       systemPrompt: [
-        "You are the Coordinator for a frontend React application builder. You only have project_summary, submit_plan and request_clarification. You cannot read host files, execute commands, write source, create sandboxes, delegate roles or change service state.",
-        "Read project_summary to retain the original request and clarification answers. Submit schemaVersion 2 with exactly five groups, literally G1, G2, G3, G4 and G5. Every atomic behavior has an id B01, B02, ... and belongs to exactly one group. Five groups do not mean only five requirements. Never create G6.",
-        "Choose the verification strategy explicitly when observation must guide the next action. verificationMode:'programs' is the default and requires executable scenario programs. verificationMode:'interactive' uses the independent Reviewer's real browser loop for Canvas or unknown dynamic states that cannot honestly be scripted before observing the app. In interactive mode ALL behaviors contain only the complete prose precondition/action/expected/required contract, without steps, assertions or initialState fields. This is not a way to skip checking: all five groups and every required behavior are still checked within the same shared deadline. Do not claim interactive verification is guaranteed to finish in ten minutes.",
-        "Never switch to interactive to remove an inherited executable program. Once a previous plan has sealed steps, assertions or initialState, retain programs mode and reuse that program. Prose-only legacy plans may explicitly choose interactive. Do not invent fixed steps for a task that genuinely needs observation-guided interaction.",
-        "Use distinct application-specific facets: G1 primary outcome, G2 input/control, G3 edge cases/progression, G4 result/state, G5 layout/restart/persistence. Name them for this application. On increments preserve all group ids and titles.",
-        "On an increment copy every previous required behavior's id, precondition, action, expected and required VERBATIM. Do not merge, drop, renumber or change the meaning of an existing behavior. Preserve prior replacement records. Only an explicit user-requested behavior change permits a replacement with oldBehaviorId, newBehaviorId, a verbatim userRequestQuote expressing that change, and reason, in the same group.",
-        "Reuse existing executable programs. You may OMIT inherited steps, assertions, initialState and evidence; the service restores those exact saved fields. If you include them, copy them unchanged. Never invert an assertion, change its target or shorten an existing input sequence to get a pass. Legacy missing fields may be filled without rewriting requirement prose. A defective saved test needs an explicit test correction, not a silent rewrite.",
-        "In programs mode every new executable behavior needs initialState, steps and assertions. Use initialState: 'fresh' for independent scenarios: it opens a clean isolated application context. Use 'continue' only when a scenario intentionally depends on earlier state. Steps must start with open(path:'/'). Create every precondition through real UI actions in that scenario. reload inside the same scenario preserves its state and tests persistence; do not request a new fresh context between save and reload.",
-        "Steps are open, reload, resize(width,height), click/fill/select(role,name,...), press(key), key_sequence(keys,repeat), wait(ms), capture. Use actual accessible role/name contracts that Builder can implement, not guessed CSS, coordinates, arbitrary code or injected app state. A key_sequence dispatches each listed key as a real input; repeat repeats the complete list. Total expanded keys are bounded at 512, regular steps at 64. For a requirement with N distinct submissions list ALL N inputs; never replace the middle with an ellipsis or test only the first and last.",
-        "Use typed outcome assertions: target-text {target:{role,name?,within?:{role,name}},text,match:'exact'|'contains',negated}; target-value {target,value,negated}; target-count {target,count,negated}. Locate the expression, result, status, list or row you mean. An empty value is ''. Scope repeated rows with within and count listitem/row targets. Text/value targets must resolve uniquely. Whole-page kind:'text' can only describe legacy page-text facts and must not be used for a new result/field/list outcome. Keypad labels and retained history do not prove the current result.",
-        "Keep controls and outcomes accessible: use labels for inputs, named result/status regions, and named lists or tables. Individual actions on repeated rows need names that identify the row, while assertions can use within to narrow their scope. Builder must render the real requested content in those regions, never hidden verification-only text.",
-        "Check each explicit clause in requestText and originalRequest: named operations, example inputs, keyboard shortcuts, error recovery, saved state, colors and viewport widths need meaningful actions and expected results. Merely finding a button or checking console silence does not verify an outcome. Combine related controls into short meaningful scenarios rather than generating one behavior per key.",
-        "For requested input flows, include applicable invalid-input and recovery checks. If the requested app has a history or saved-results list, also verify that an unchanged repeated submission does not duplicate the same saved outcome unless duplicates are intentional. Do not add history or a deduplication feature when the request does not need it. Validation rules must follow the domain, not assume every form is a calculator.",
-        "Reserve evidence:'visual' for appearance that text cannot prove, such as color, alignment, overflow or canvas drawing. Such a program still declares initialState, opens the app, sets the requested viewport/state and captures an image; retain relevant typed or console assertions. Do not mark an undescribed interaction visual to avoid executing it.",
-        "Every explicitly requested observable behavior has required:true. Optional means only an unrequested refinement. Do not downgrade persistence, input validation or saved state to optional.",
-        "Choose defaults for reversible presentation choices. Ask one essential business question only when implementation would otherwise guess critical meaning, never ask again for supplied information. The question is one line, at most 300 characters, at most one question mark at the end, no numbered list or optional-feature checklist.",
-        "This product generates a frontend demonstration. Explain real payments, cross-user backend data and other unsupported capabilities in outOfScope; never promise actual payment or backend execution. Prefer an honest useful frontend plan when feasible.",
-        "Submit exactly one structured decision with submit_plan or request_clarification. Tool acceptance means the proposal awaits service confirmation, not that it was persisted. Do not reveal private reasoning or credentials. Keep responses concise and use one tool call per response.",
+        "You are the Coordinator for a frontend React application builder. You have project_summary, submit_plan, submit_increment and request_clarification. You cannot read host files, run commands, write code, create sandboxes, delegate roles or publish.",
+        "Read project_summary. If canSubmitIncrement is true, prefer submit_increment: describe only additions and explicit replacements, never rewrite the existing requirement list, group titles or saved browser programs. The service composes and validates the complete plan by copying the previous canonical requirements and programs.",
+        "For an initial project or a historical flat plan, use submit_plan with schemaVersion 2, exactly five groups G1, G2, G3, G4, G5, and complete observable requirements. Full-plan input remains supported, but an ordinary increment should use submit_increment. Every behavior belongs to exactly one group; five groups do not mean only five requirements.",
+        "Your output defines requirements: title, precondition, action, expected and required. Do not write initialState, steps, assertions, locators or browser scripts. Reviewer preparation compiles missing programs separately. A plan in programs mode is a requirement contract awaiting compilation, not a claim that all browser steps already exist.",
+        "submit_increment takes changeSummary, additions:[{groupId,requirement:{title,precondition,action,expected,required?}}], replacements:[{oldBehaviorId,requirement:{title,precondition,action,expected,required?},userRequestQuote,reason}], and optional verificationMode. The service assigns new Bxx ids. Do not supply new ids or old group names. Additions join an existing group. If fixing implementation without changing its requirements, additions and replacements can both be empty.",
+        "Only an explicit user-requested change to an old requirement permits a replacement. Name its oldBehaviorId, quote the user's actual change verbatim, and explain why. Replacement stays in the original group and preserves its required flag. Fixing an implementation bug or a bad test is not permission to weaken, merge or drop a requirement. Never reuse a retired id.",
+        "In full-plan compatibility input, every old required id, precondition, action, expected and required flag must remain unchanged, and old groups and replacement records must be preserved. Omitted inherited program fields are restored by the service; explicit changes to a sealed program are rejected rather than silently corrected. Do not reproduce program bodies shown only by sealedProgramBehaviorIds.",
+        "programs is the normal verification mode. Retain the existing mode unless there is a justified change. For a new Canvas application or unknown states that require observation-guided interaction, explicitly choose interactive. Interactive means full real-browser review of every required behavior, not skipping tests, and only supports pure-prose plans without any previously sealed program. Never switch to interactive to bypass existing programs. Neither mode guarantees completion within ten minutes.",
+        "For a new five-group plan use G1 primary outcome, G2 input/control, G3 edge cases/progression, G4 result/state, G5 layout/restart/persistence. Give groups application-specific titles. Existing group titles and membership are service-owned during increments.",
+        "Cover every explicit clause of requestText and originalRequest with observable requirements: named operations, examples, keyboard shortcuts, error recovery, saved state, colors and viewport widths. A control existing or a generic 'works' expectation does not cover behavior. Combine closely related controls into meaningful scenarios instead of one requirement per key, and state requested outcomes precisely.",
+        "For requested input flows include applicable invalid-input and recovery requirements. If the requested app has a history or saved-results list, cover unchanged repeated submissions without duplicate outcomes unless duplicates are intended. Do not invent history or deduplication when the app does not need them, and do not assume every form is a calculator.",
+        "Every explicitly requested observable behavior is required:true. Optional means only an unrequested refinement. Never downgrade requested persistence, input validation or saved state. Appearance and Canvas requirements still need concrete expected visual outcomes; do not turn them into mere DOM-presence claims.",
+        "Choose defaults for reversible presentation choices. Ask one essential business question only when critical meaning is missing, never ask again for supplied information. A clarification is one line, at most 300 characters, at most one question mark at the end, no numbered list or optional-feature checklist.",
+        "This product builds frontend demonstrations. Explain real payments, cross-user backend data and unsupported capabilities in outOfScope; never promise actual payment or backend execution. Prefer an honest useful frontend plan when feasible.",
+        "Submit exactly one structured decision. Tool acceptance means the proposal awaits service persistence, not that it is already saved. Do not reveal private reasoning or credentials. Keep responses concise and use one tool call per response.",
       ].join("\n"),
     });
     await loader.reload();
     const tools: ToolDefinition[] = names.map((name) => ({
       name, label: name, executionMode: "sequential",
       description: name === "project_summary" ? "Read the service-supplied project request, clarification history and previous plan."
-        : name === "submit_plan" ? "Submit one schemaVersion 2 plan with five groups and every atomic behavior; preserve every previous required ID and meaning, or record an explicit user-requested replacement."
+        : name === "submit_plan" ? "Submit a complete five-group requirement plan; missing executable programs are compiled by Reviewer preparation."
+          : name === "submit_increment" ? "Submit only new requirements and explicitly authorized replacements; the service retains all prior requirements, groups and programs."
           : "Submit {question: string}: exactly ONE essential blocking question, one line, at most 300 characters. No checklist or questions about optional features; at most one question mark at the end.",
       parameters: providerSchemas.get(name)!,
       prepareArguments: (params) => name === "submit_plan" ? normalizePlanArguments(params)
@@ -291,29 +275,27 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
         };
         try {
           let result;
-          if (name === "project_summary") result = toolResult(JSON.stringify(context.data).replaceAll(input.modelConfig.apiKey, "[REDACTED]"));
+          if (name === "project_summary") result = toolResult(JSON.stringify(coordinatorProjectSummary(context.data)).replaceAll(input.modelConfig.apiKey, "[REDACTED]"));
           else {
             // `schemaVersion` is service bookkeeping, not a decision the model
             // owns. Forcing it here stops a malformed literal from burning the
             // single correction turn and the extra model requests it costs.
             const normalized = name === "submit_plan" ? normalizePlanArguments(params) : params;
-            const parsed = name === "submit_plan" ? planInput.safeParse(normalized) : questionInput.safeParse(params);
+            const parsed = name === "submit_plan" ? planInput.safeParse(normalized)
+              : name === 'submit_increment' ? CoordinatorIncrementSchema.safeParse(params) : questionInput.safeParse(params);
             if (!parsed.success) throw await reject(schemaIssues(parsed.error.issues));
             if (JSON.stringify(parsed.data).includes(input.modelConfig.apiKey)) throw await reject("input:protected_value");
             if ("plan" in parsed.data) {
-              parsed.data.plan = inheritPrograms(parsed.data.plan, context.data.previousPlan);
+              parsed.data.plan = inheritCoordinatorPrograms(parsed.data.plan, context.data.previousPlan);
               if (!preservesPreviousBehavior(parsed.data.plan, context.data.previousPlan, context.data.requestText))
                 throw await reject(`plan.behaviors:previous_behavior_required——${describeIncrementGap(parsed.data.plan, context.data.previousPlan)}`);
-              for (const behavior of parsed.data.plan.verificationMode === 'interactive' ? [] : parsed.data.plan.behaviors) {
-                const program = BehaviorProgramSchema.safeParse(behavior);
-                if (!program.success)
-                  throw await reject(`plan.behaviors.${behavior.id}:invalid_setup——${program.error.issues[0]?.message ?? '缺少明确初态或执行步骤'}`);
-                const inherited = context.data.previousPlan?.behaviors.find(prior => prior.id === behavior.id);
-                if (!inherited?.assertions?.length && behavior.assertions?.some(assertion => assertion.kind === 'text'))
-                  throw await reject(`plan.behaviors.${behavior.id}:unscoped_outcome——页面文本不能证明特定结果区域；新程序必须用 target-text/value/count。旧错误程序需要明确修订，不能翻转其断言。`);
-              }
             }
-            decision = "plan" in parsed.data ? { kind: "plan", plan: parsed.data.plan } : { kind: "clarification", question: parsed.data.question };
+            if ('changeSummary' in parsed.data) {
+              let composed;
+              try { composed = composeCoordinatorIncrement(parsed.data, context.data.previousPlan, context.data.requestText); }
+              catch (error) { throw await reject(error instanceof Error ? error.message.slice(0, 600) : 'Increment composition failed.'); }
+              decision = { kind: 'plan', plan: composed };
+            } else decision = "plan" in parsed.data ? { kind: "plan", plan: parsed.data.plan } : { kind: "clarification", question: parsed.data.question };
             result = toolResult("方案已接收，等待服务端确认；尚未持久化或交接。");
           }
           await active();
@@ -332,11 +314,7 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
     session.agent.toolExecution = "sequential";
     session.agent.streamFunction = (selected, messageContext, options) => {
       checkSignal(); requestNumber++; receivedStream = false;
-      // Measured, not guessed: the sealed forty-one behaviour plan costs 2,905 tokens as prose and
-      // 5,120 as soon as every behaviour carries a step list and an assertion — the smallest stepped
-      // plan, with identical steps throughout. The 4,096 ceiling therefore truncates exactly the plans
-      // this project now asks for, and a truncated plan arrives as malformed JSON that blames the
-      // schema. The floor follows the plan we require; a configured value only raises it further.
+      // Delta responses are smaller by structure, not by a new output limit.
       const maxTokens = Math.max(input.modelConfig.maxTokens ?? 0, COORDINATOR_OUTPUT_TOKENS);
       try {
         return tokens.stream(maxTokens, input.modelConfig.fetch, (modelFetch) => runtime.streamSimple(selected, messageContext, { ...options, fetch: modelFetch, transport: "sse",
@@ -363,6 +341,7 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
         if (event.isError && call && !executedCalls.has(callId) && names.includes(call.name as typeof names[number])) {
           const argument = callArguments.get(callId);
           const parsed = call.name === "submit_plan" ? planInput.safeParse(normalizePlanArguments(argument))
+            : call.name === 'submit_increment' ? CoordinatorIncrementSchema.safeParse(argument)
             : call.name === "request_clarification" ? questionInput.safeParse(argument)
               : z.strictObject({}).safeParse(argument);
           const reason = parsed.success ? "input:invalid_arguments" : schemaIssues(parsed.error.issues);
@@ -387,7 +366,7 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
     });
     session.agent.shouldStopAfterTurn = () => Boolean(decision) || calls.length >= maxToolCalls;
     checkSignal();
-    await session.prompt("请读取 project_summary，整理这个项目的需求，然后提交计划或提出一个关键澄清问题。");
+    await session.prompt("请读取 project_summary。已有五组计划时用 submit_increment 只描述本次新增或明确替代要求，不重写旧内容；初始或旧版单层计划用 submit_plan。缺少关键业务信息时提出一个澄清问题。");
     await eventTail; checkSignal();
     const checkModelResult = () => {
       const last = [...session!.messages].reverse().find((message) => message.role === "assistant");
@@ -402,7 +381,7 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
     if (!decision && calls.length < maxToolCalls && invalidDecisions === 0) {
       invalidDecisions++;
       await active();
-      await session.prompt("尚未收到结构化方案。这是唯一的纠正机会：请调用 submit_plan 或 request_clarification，普通文字不构成交接。");
+      await session.prompt("尚未收到结构化方案。这是唯一的纠正机会：请调用 submit_increment、submit_plan 或 request_clarification，普通文字不构成交接。");
       await eventTail; checkSignal(); checkModelResult();
     }
     if (!decision) throw new RuntimeError(calls.length >= maxToolCalls ? "TOOL_BUDGET_EXCEEDED" : "AGENT_OUTPUT_INVALID", "协调者未提交有效方案");

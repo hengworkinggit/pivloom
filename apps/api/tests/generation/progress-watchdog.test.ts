@@ -53,6 +53,8 @@ test('read-only polls and failed actions cannot keep a Reviewer run alive', () =
   expect(progress(role, { type:'tool.end', toolName:'browser_click', success:true, message:'clicked' })).toBe(true);
   expect(progress(role, { type:'tool.end', toolName:'record_behavior', success:true, message:'recorded' })).toBe(true);
   expect(progress('builder-role', { type:'tool.end', toolName:'write', success:true, message:'source saved' })).toBe(true);
+  expect(progress('coordinator-role', { type:'tool.end', toolName:'submit_increment', success:true, message:'increment accepted' })).toBe(true);
+  expect(progress('coordinator-role', { type:'tool.end', toolName:'submit_increment', success:false, message:'increment rejected' })).toBe(false);
 });
 
 test('read-only polling and duplicate stream events cannot outlive the rolling inactivity lease', async () => {

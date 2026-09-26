@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "vitest";
 import { normalizePlanArguments, runCoordinator } from "../../src/runtime/coordinator.js";
-import { preservesPreviousBehavior, type GroupedPlan, type Plan } from "@pivloom/contracts";
+import { GroupedPlanSchema, preservesPreviousBehavior, type GroupedPlan, type Plan } from "@pivloom/contracts";
 import { createRunTokenBudget } from "../../src/runtime/token-budget.js";
 import type { ProbeEvent } from "../../src/runtime/types.js";
 
@@ -228,7 +228,7 @@ test.each([null, { completion_tokens: 5 }, { prompt_tokens: 10 }])("incomplete p
   expect(budget.snapshot()).toMatchObject({ pendingRequests: 0, unreportedRequests: 1 });
 });
 
-test("Coordinator advertises only its three tools and cannot execute host shell or file writes", async () => {
+test("Coordinator advertises only its planning tools and cannot execute host shell or file writes", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pivloom-coordinator-test-"));
   const target = join(directory, "forbidden.txt");
   const model = provider([
@@ -249,7 +249,7 @@ test("Coordinator advertises only its three tools and cannot execute host shell 
     expect(result.decision).toEqual({ kind: "plan", plan });
     expect(result.sessionId).toBe(sessionId);
     expect(decisions).toHaveLength(1);
-    for (const request of model.requests) expect(request.tools.map((tool) => tool.function.name).sort()).toEqual(["project_summary", "request_clarification", "submit_plan"]);
+    for (const request of model.requests) expect(request.tools.map((tool) => tool.function.name).sort()).toEqual(["project_summary", "request_clarification", "submit_increment", "submit_plan"]);
     expect(JSON.stringify(model.requests)).toContain("Tool bash not found");
     expect(JSON.stringify(model.requests)).toContain("Tool write not found");
     await expect(access(target)).rejects.toMatchObject({ code: "ENOENT" });
@@ -513,20 +513,19 @@ test("failed tool-event persistence blocks the handoff transaction", async () =>
   expect(commits).toBe(0);
 });
 
-test("Coordinator rejects an incomplete scenario before handing work to Builder", async () => {
-  const executable = { ...plan, behaviors: plan.behaviors.map(behavior => ({ ...behavior, initialState: 'fresh' as const,
-    steps: [{ type: 'open' as const, path: '/' }, { type: 'press' as const, key: 'Enter' as const }],
-    assertions: [{ kind: 'target-count' as const, target: { role: 'listitem', within: { role: 'list', name: 'Books' } }, count: 1, negated: false }],
-  })) };
-  const incomplete = structuredClone(executable);
-  Reflect.deleteProperty(incomplete.behaviors[0], 'initialState');
-  const model = provider([[{ name: 'submit_plan', args: { plan: incomplete } }], [{ name: 'submit_plan', args: { plan: executable } }]]);
+test("Coordinator rejects an incomplete requirement while leaving browser compilation to Reviewer preparation", async () => {
+  const requirements = structuredClone(plan);
+  for (const behavior of requirements.behaviors)
+    for (const field of ['steps', 'assertions', 'initialState']) Reflect.deleteProperty(behavior, field);
+  const incomplete = structuredClone(requirements);
+  Reflect.deleteProperty(incomplete.behaviors[0], 'expected');
+  const model = provider([[{ name: 'submit_plan', args: { plan: incomplete } }], [{ name: 'submit_plan', args: { plan: requirements } }]]);
   const result = await runCoordinator({ runId: randomUUID(), roleRunId: randomUUID(), sessionId: randomUUID(), attempt: 0,
     baseRevisionId: null, modelConfig: model.modelConfig, signal: new AbortController().signal, context: context(),
     assertActive: async () => {}, onDecision: async () => {},
   });
   expect(result.toolCalls.map(call => call.success)).toEqual([false, true]);
-  expect(result.decision).toEqual({ kind: 'plan', plan: executable });
+  expect(result.decision).toEqual({ kind: 'plan', plan: requirements });
 });
 
 test('Coordinator reuses omitted inherited programs and identifies an attempted assertion change', async () => {
@@ -548,18 +547,18 @@ test('Coordinator reuses omitted inherited programs and identifies an attempted 
   expect(events.some(event => event.message.includes('B01.assertions'))).toBe(true);
 });
 
-test('new prose needs explicit interactive verification while an omitted mode remains strict programs', async () => {
+test.each([undefined, 'programs', 'interactive'] as const)('prose requirements can select %s verification without Coordinator generating scripts', async mode => {
   const prose = structuredClone(plan);
   for (const behavior of prose.behaviors)
     for (const field of ['steps', 'assertions', 'initialState']) Reflect.deleteProperty(behavior, field);
-  const interactive = { ...prose, verificationMode: 'interactive' as const };
-  const model = provider([[{ name: 'submit_plan', args: { plan: prose } }], [{ name: 'submit_plan', args: { plan: interactive } }]]);
+  const proposal = { ...prose, ...(mode ? { verificationMode: mode } : {}) };
+  const model = provider([[{ name: 'submit_plan', args: { plan: proposal } }]]);
   const result = await runCoordinator({ runId: randomUUID(), roleRunId: randomUUID(), sessionId: randomUUID(), attempt: 0,
     baseRevisionId: null, modelConfig: model.modelConfig, signal: new AbortController().signal, context: context(),
     assertActive: async () => {}, onDecision: async () => {},
   });
-  expect(result.toolCalls.map(call => call.success)).toEqual([false, true]);
-  expect(result.decision).toEqual({ kind: 'plan', plan: interactive });
+  expect(result.toolCalls.map(call => call.success)).toEqual([true]);
+  expect(result.decision).toEqual({ kind: 'plan', plan: proposal });
   expect(JSON.stringify(model.requests[0].tools)).toContain('verificationMode');
   expect(JSON.stringify(model.requests[0].tools)).toContain('interactive');
 });
@@ -578,4 +577,35 @@ test('Coordinator cannot switch to interactive to erase inherited executable cri
   });
   expect(result.toolCalls.map(call => call.success)).toEqual([false, true]);
   expect(result.decision).toEqual({ kind: 'plan', plan });
+});
+
+test('a small increment composes 38 saved prose requirements without asking the model to rewrite or compile them', async () => {
+  const behaviors = Array.from({ length: 38 }, (_, index) => ({ id: `B${String(index + 1).padStart(2, '0')}`,
+    title: `原有要求 ${index + 1}`, precondition: `原有前提 ${index + 1}`, action: `原有操作 ${index + 1}`,
+    expected: `原有结果 ${index + 1}`, required: true }));
+  const previousPlan = GroupedPlanSchema.parse({ ...plan, behaviors, groups: plan.groups.map((group, index) => ({
+    ...group, behaviorIds: behaviors.filter((_, position) => position % 5 === index).map(behavior => behavior.id),
+  })) });
+  const baseRevisionId = randomUUID();
+  const requirement = { title: '清空历史', precondition: '已有历史记录', action: '点击全部清除', expected: '历史记录为空', required: true };
+  const increment = { changeSummary: '增加清空历史', additions: [{ groupId: 'G4', requirement }], replacements: [] };
+  const model = provider([[{ name: 'project_summary', args: {} }], [{ name: 'submit_increment', args: increment }]]);
+  const result = await runCoordinator({ runId: randomUUID(), roleRunId: randomUUID(), sessionId: randomUUID(), attempt: 0,
+    baseRevisionId, modelConfig: model.modelConfig, signal: new AbortController().signal,
+    context: { ...context(), baseRevisionId, previousPlan, requestText: '为历史记录增加全部清除按钮' },
+    assertActive: async () => {}, onDecision: async () => {},
+  });
+  expect(result.decision.kind).toBe('plan');
+  if (result.decision.kind !== 'plan') return;
+  expect(result.decision.plan.behaviors.slice(0, 38)).toEqual(previousPlan.behaviors);
+  expect(result.decision.plan.behaviors[38]).toEqual({ id: 'B39', ...requirement });
+  expect(result.decision.plan.schemaVersion).toBe(2);
+  if (result.decision.plan.schemaVersion !== 2) return;
+  expect(result.decision.plan.groups.map(group => group.title)).toEqual(previousPlan.groups.map(group => group.title));
+  expect(result.decision.plan.groups[3].behaviorIds).toEqual([...previousPlan.groups[3].behaviorIds, 'B39']);
+  expect(result.toolCalls.map(call => call.success)).toEqual([true, true]);
+  expect(model.requests).toHaveLength(2);
+  const declaration = model.requests[0].tools.find(tool => tool.function.name === 'submit_increment');
+  expect(declaration?.function.parameters.properties).toHaveProperty('additions');
+  expect(JSON.stringify(increment)).not.toContain('原有结果');
 });
