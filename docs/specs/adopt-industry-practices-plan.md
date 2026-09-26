@@ -386,3 +386,37 @@ console.info(`[browser] ref payload fields: ${Object.keys(item).sort().join(',')
 - **整次运行口径**：5 次实测 = 9.1 / 8.7 / 8.3 / **11.0** / 8.8 → **4/5 达标**；唯一超标那次由**我自己的错误改动**造成，已修回；
 - **验收段（回放）口径**：已知值 8.4 / 7.2 分，**未超标**；
 - **两者都还是小样本**。要给出可信结论，需要**更多次运行**，并按分布报告（含中位数与最差一次）。
+
+---
+
+## 口径确定（所有者 2026-09-26）：**验收段 < 10 分钟**
+
+**验收段定义** = 从**回放开始**（该运行首个 `browser_steps` 事件）到**检查落库**（`nano.checks.created_at`）。
+即 **A+B 验收全过程**，**不含**计划生成与 Builder 编码。
+
+此前我用"整次运行时间"（`runs.created_at → finished_at`）报告，**属于口径错误**——那个数字包含计划与构建，比验收段长。
+
+### 按此口径的实测
+
+| 运行 | 回放开始 | 检查落库 | **验收段** | 判定 |
+|---|---|---|---|---|
+| `c064aa39` | 12:31:51 | 12:38:48 | **7.0 分** | 35 / 3 / 2 |
+| `b75f39a9` | 12:54:42 | 13:01:39 | **7.0 分** | **37 / 2 / 1** |
+| `9818ed23` | 13:28:03 | 13:35:28 | **7.4 分** | 35 / 4 / 1 |
+
+**三次实测全部 ≤10 分钟（7.0 / 7.0 / 7.4）。**
+
+### 可复现查询（口径写死，避免再次报错时间）
+
+```sql
+SELECT r.id,
+       (SELECT min(e.created_at) FROM nano.run_events e
+         WHERE e.run_id = r.id AND e.payload_json->>'toolName' = 'browser_steps') AS review_start,
+       (SELECT c.created_at FROM nano.checks c WHERE c.run_id = r.id LIMIT 1)   AS check_at,
+       round(extract(epoch FROM (
+         (SELECT c.created_at FROM nano.checks c WHERE c.run_id = r.id LIMIT 1)
+         - (SELECT min(e.created_at) FROM nano.run_events e
+             WHERE e.run_id = r.id AND e.payload_json->>'toolName' = 'browser_steps')
+       )) / 60, 1) AS review_minutes
+FROM nano.runs r WHERE r.id = '<run>';
+```
