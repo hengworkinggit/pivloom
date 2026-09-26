@@ -1,4 +1,6 @@
 import { act } from "react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ProjectDetailResponse, Revision, Run } from "@pivloom/contracts";
@@ -9,10 +11,15 @@ let dispose: (() => void) | undefined;
 afterEach(async () => {
   if (root) await act(async () => root?.unmount());
   root = undefined; dispose?.(); document.body.replaceChildren(); localStorage.clear(); sessionStorage.clear();
+  document.head.querySelector('style[data-candidate-test]')?.remove();
   vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.resetModules();
 });
 
 it("explicitly continues a saved candidate after reopening while preserving the accepted and published versions", async () => {
+  const styles = document.createElement('style');
+  styles.dataset.candidateTest = 'true';
+  styles.textContent = readFileSync(resolve(process.cwd(), 'src/app/a-interface.css'), 'utf8');
+  document.head.append(styles);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubEnv("NEXT_PUBLIC_APP_MODE", "api");
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://identity.example.test");
@@ -65,11 +72,18 @@ it("explicitly continues a saved candidate after reopening while preserving the 
   expect([...container.querySelectorAll("button")].some((button) => button.textContent === "重新启动预览")).toBe(true);
   await act(async () => continueButton!.click());
   expect(container.textContent).toContain("继续基线：候选 v2");
+  let selection = [...container.querySelectorAll<HTMLElement>('[role="status"]')]
+    .find(element => element.textContent?.includes('继续基线：候选 v2'))!;
+  expect(getComputedStyle(selection).display).not.toBe('none');
   expect(container.textContent).toContain("未验收");
   expect(mutations).toEqual([]);
   await act(async () => root?.render(null));
   await act(async () => root?.render(<ApiWorkbench projectId={projectId} />));
   expect(container.textContent).toContain("继续基线：候选 v2");
+  selection = [...container.querySelectorAll<HTMLElement>('[role="status"]')]
+    .find(element => element.textContent?.includes('继续基线：候选 v2'))!;
+  expect(getComputedStyle(selection).display).not.toBe('none');
+  expect(container.querySelector('button[aria-label="从候选 v2 继续开发"]')?.getAttribute('aria-pressed')).toBe('true');
   const textarea = container.querySelector<HTMLTextAreaElement>("textarea")!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "在候选上增加搜索");
@@ -78,5 +92,9 @@ it("explicitly continues a saved candidate after reopening while preserving the 
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="发送需求"]')!.click());
   expect(submissions).toEqual([expect.objectContaining({ text: "在候选上增加搜索", selectedBaseRevisionId: candidateId, expectedCurrentRevisionId: acceptedId })]);
   expect(mutations).toEqual([`/api/v1/projects/${projectId}/runs`]);
+  expect(project.project.currentRevisionId).toBe(acceptedId);
+  await act(async () => selection.querySelector<HTMLButtonElement>('button')!.click());
+  expect(container.textContent).not.toContain('继续基线：候选 v2');
+  expect(container.querySelector('button[aria-label="版本历史，正在查看 v1"]')).not.toBeNull();
   expect(project.project.currentRevisionId).toBe(acceptedId);
 });

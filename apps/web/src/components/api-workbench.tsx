@@ -367,7 +367,8 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
       <button type="button" className="a-toolbar-check" aria-label={`检查结果 ${checkBadge}`} onClick={() => setDrawer("checks")}><Check size={14} />{project.latestCheckHistorical && revision.id === project.project.currentRevisionId ? "历史检查" : checkBadge}</button>
       {revision.status !== "accepted" && revision.buildStatus === "passed" && <Button type="button" variant="outline" size="sm"
         disabled={busy || !!unknownSubmission} aria-label={`从候选 v${revision.revisionNo} 继续开发`}
-        onClick={() => chooseCandidateBase(revision)}>从此候选继续</Button>}
+        aria-pressed={candidateBase?.revisionId === revision.id}
+        onClick={() => chooseCandidateBase(revision)}>{candidateBase?.revisionId === revision.id ? "已设为继续基线" : "从此候选继续"}</Button>}
     </>}
     {project.latestCandidate && project.latestCandidate.id !== revision?.id && <Button type="button" variant="outline" size="sm"
       aria-label={`查看候选 v${project.latestCandidate.revisionNo}`} onClick={() => setSelectedRevisionId(project.latestCandidate!.id)}>查看候选 v{project.latestCandidate.revisionNo}</Button>}
@@ -435,10 +436,10 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
         </div>
       </section>
       <div className="generation-result-shell">
-        {candidateBase && <div className="previous-version-note" role="status">
-          {selectedBase ? `继续基线：候选 v${selectedBase.revisionNo} · 未验收` : "已保存的候选选择暂不可用，请重新选择"}
+        {candidateBase && <div className="candidate-base-selection" role="status">
+          <span>{selectedBase ? `继续基线：候选 v${selectedBase.revisionNo} · 未验收` : "已保存的候选选择暂不可用，请重新选择"}
           {selectedBaseStale ? " · 当前已验收版本已变化，请重新确认候选" : " · 当前已验收与已发布版本不变"}
-          {!candidateBaseStored && " · 选择未保存，请保持页面打开"}
+          {!candidateBaseStored && " · 选择未保存，请保持页面打开"}</span>
           <Button variant="ghost" size="sm" onClick={() => chooseCandidateBase(null)}>使用当前已验收版本</Button>
         </div>}
         {collapsed && <button className="generation-expand-chat icon-button" aria-label={ui.text("展开对话", "Expand chat")} onClick={() => setCollapsed(false)}><PanelLeftOpen size={16} /></button>}
