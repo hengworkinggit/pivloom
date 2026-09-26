@@ -84,6 +84,19 @@ test('the persisted entry cap is the schema’s own cap and is still a real boun
   expect(() => parseReviewEvidence([...Array.from({ length: REVIEW_EVIDENCE_ENTRY_LIMIT }, entry), entry()])).toThrow();
 });
 
+test('trusted native key sequences retain every input under one final observation', () => {
+  const observation = { ...entry(), action: 'key_batch', batch: {
+    startedAt: '2026-09-27T00:00:00.000Z', finishedAt: '2026-09-27T00:00:01.000Z',
+    steps: Array.from({ length: 512 }, (_, index) => ({ index, key: index === 511 ? 'Enter' : '1', waitMs: 0, success: true })),
+  } };
+  const persisted = parseReviewEvidence([observation]);
+  expect(persisted).toEqual([observation]);
+  expect(persisted[0].batch?.steps[511]).toEqual({ index: 511, key: 'Enter', waitMs: 0, success: true });
+  expect(() => parseReviewEvidence([{ ...observation, batch: { ...observation.batch,
+    steps: [...observation.batch.steps, { index: 512, key: 'Enter', waitMs: 0, success: true }],
+  } }])).toThrow();
+});
+
 test('the storage backstop cannot be tighter than the application bound it protects', () => {
   // This is where the drift actually bit: a 512 KiB literal in the application
   // and a 512 KiB CHECK on the same record, measured differently, so an array

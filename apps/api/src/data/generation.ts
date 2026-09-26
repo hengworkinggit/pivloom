@@ -288,9 +288,11 @@ const reviewEvidenceSchema = z.array(z.strictObject({
   action: z.enum(["click", "fill", "select", "press", "scroll", "reload", "key_batch", "wait"]).nullable(), observationId: z.uuid(),
   key: BrowserPressKeySchema.optional(),
   batch: z.strictObject({ startedAt: z.iso.datetime(), finishedAt: z.iso.datetime(),
-    steps: z.array(z.strictObject({ index: z.number().int().min(0).max(7),
+    // Trusted native replay records the whole bounded sequence; the model tool
+    // retains its separate eight-key interaction limit.
+    steps: z.array(z.strictObject({ index: z.number().int().min(0).max(511),
       key: BrowserPressKeySchema,
-      waitMs: z.number().int().min(0).max(1000), success: z.boolean() })).min(1).max(8) }).optional(),
+      waitMs: z.number().int().min(0).max(1000), success: z.boolean() })).min(1).max(512) }).optional(),
   url: z.url().max(4000), tree: z.string().max(12000), text: z.string().max(12000), truncated: z.boolean(),
 // The cap has to hold every observation a whole plan produces, not one behaviour: a forty-five
 // behaviour plan with a few interactions each overran the previous limit of 256, and because the
