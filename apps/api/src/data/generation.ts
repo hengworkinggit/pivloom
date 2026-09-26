@@ -207,6 +207,7 @@ function storedRun(row: Row): StoredRun {
     requestText: row.request_text, modelProfileId: row.model_profile_id, modelConfigVersion: row.model_config_version,
     modelId: row.model_id ?? null,
     baseRevisionId: row.base_revision_id, resultRevisionId: row.result_revision_id,
+    selectedBaseRevisionId: row.selected_base_revision_id ?? null,
     createdAt: date(row.created_at).toISOString(), deadlineAt: date(row.deadline_at).toISOString(), finishedAt: row.finished_at ? date(row.finished_at).toISOString() : null,
     cleanupState: row.cleanup_state, summary: row.summary,
     plan: row.plan_json ?? null, clarification: row.clarification_json ?? null, parentRunId: row.parent_run_id ?? null,
@@ -499,6 +500,7 @@ export function createGenerationRepository(
       const requestHash = createHash("sha256").update(JSON.stringify([
         normalized.text, normalized.expectedCurrentRevisionId, normalized.retryOfRunId, normalized.parentRunId,
         normalized.modelProfileId, normalized.modelConfigVersion, normalized.modelId,
+        ...(normalized.selectedBaseRevisionId ? [normalized.selectedBaseRevisionId] : []),
       ])).digest("hex");
       try {
         return await owned(ownerId, async (client) => {
@@ -519,9 +521,23 @@ export function createGenerationRepository(
           const dailyLimit = options.dailyLimitByOwner?.[ownerId] ?? DAILY_ACCEPTED_LIMIT;
           if (used >= dailyLimit)
             throw new ApiFailure(429, "QUOTA_EXCEEDED", `今日任务额度已用完（${dailyLimit} 个），请稍后再试。`, false);
+          const clarificationParent = normalized.parentRunId ? await run(client, ownerId, normalized.parentRunId) : null;
+          if (clarificationParent && clarificationParent.project_id !== projectId) throw notFound();
+          const selectedBaseRevisionId = normalized.selectedBaseRevisionId ?? clarificationParent?.selected_base_revision_id ?? null;
           let requestText = normalized.text;
-          let runKind: "generate" | "modify" | "retry" | "clarify" = normalized.parentRunId ? "clarify" : parent.current_revision_id ? "modify" : "generate";
-          const baseRevisionId = normalized.expectedCurrentRevisionId;
+          let runKind: "generate" | "modify" | "retry" | "clarify" = normalized.parentRunId ? "clarify" : selectedBaseRevisionId || parent.current_revision_id ? "modify" : "generate";
+          const baseRevisionId = selectedBaseRevisionId ?? normalized.expectedCurrentRevisionId;
+          if (selectedBaseRevisionId) {
+            const selected = await revision(client, ownerId, selectedBaseRevisionId);
+            if (selected.project_id !== projectId) throw notFound();
+            if (selected.build_status !== "passed" || selected.status === "accepted")
+              throw new ApiFailure(422, "INVALID_CANDIDATE_BASE", "只能从已保存且构建通过的未验收候选继续开发。");
+            const sourceRun = await run(client, ownerId, selected.run_id);
+            if (!TerminalRunStates.has(sourceRun.state) || sourceRun.cleanup_state === "pending")
+              throw new ApiFailure(409, "PROJECT_BUSY", "请先停止候选的任务并等待清理完成，再继续开发。", true);
+            if (!PlanSchema.safeParse(sourceRun.plan_json).success)
+              throw new ApiFailure(422, "INVALID_CANDIDATE_BASE", "这个候选缺少已保存的需求计划，不能作为增量基线。");
+          }
           const retryOfRunId: string | null = normalized.retryOfRunId;
           if (retryOfRunId) {
             const prior = await run(client, ownerId, retryOfRunId);
@@ -554,35 +570,38 @@ export function createGenerationRepository(
           // the retry link is ignored so the recorded request cannot drift.
           let originalRequest = requestText;
           let clarificationTurns: PlanningContext["clarificationTurns"] = [];
-          if (normalized.parentRunId) {
-            const previousRun = await run(client, ownerId, normalized.parentRunId);
-            if (previousRun.project_id !== projectId) throw notFound();
+          if (clarificationParent) {
+            const previousRun = clarificationParent;
             if (previousRun.state !== "needs_input" || !previousRun.clarification_json?.question) throw new ApiFailure(422, "INVALID_CLARIFICATION_PARENT", "只能回答当前项目中等待补充信息的任务。");
             const previousContext = planningContext(previousRun);
+            if (previousContext.baseRevisionId !== baseRevisionId)
+              throw new ApiFailure(409, "STALE_BASE", "回答必须继续原任务的源码基线，请恢复原候选选择后重试。");
             originalRequest = previousContext.originalRequest;
             clarificationTurns = [...previousContext.clarificationTurns, { parentRunId: previousRun.id, question: previousRun.clarification_json.question, answer: normalized.text }];
           }
-          const basePlan = parent.current_revision_id ? await client.query(`SELECT prior.plan_json FROM nano.revisions base
+          const basePlan = baseRevisionId ? await client.query(`SELECT prior.plan_json FROM nano.revisions base
             JOIN nano.runs prior ON prior.id=base.run_id AND prior.project_id=base.project_id AND prior.owner_id=base.owner_id
-            WHERE base.owner_id=$1 AND base.project_id=$2 AND base.id=$3`, [ownerId, projectId, parent.current_revision_id]) : null;
+            WHERE base.owner_id=$1 AND base.project_id=$2 AND base.id=$3`, [ownerId, projectId, baseRevisionId]) : null;
           const parsedContext = PlanningContextSchema.safeParse({ schemaVersion: 1, project: { id: projectId, title: parent.title },
-            requestText, originalRequest, clarificationTurns, baseRevisionId: parent.current_revision_id, previousPlan: basePlan?.rows[0]?.plan_json ?? null });
+            requestText, originalRequest, clarificationTurns, baseRevisionId, previousPlan: basePlan?.rows[0]?.plan_json ?? null });
           if (!parsedContext.success) throw new ApiFailure(422, "PLANNING_CONTEXT_LIMIT", "补充信息已超过任务可处理范围，请重新提交简洁需求。");
           const context = parsedContext.data;
           const lease = await models.freezeInTransaction(client, ownerId, normalized.modelProfileId, normalized.modelConfigVersion, id, normalized.modelId);
           const inserted = await client.query(`INSERT INTO nano.runs
             (id,owner_id,project_id,idempotency_key,request_hash,request_text,kind,expected_current_revision_id,base_revision_id,
-             model_profile_id,model_config_version,model_id,credential_lease_id,coordinator_role_run_id,state,phase,budget_json,deadline_at,executor_boot_id,planning_context_json,parent_run_id,retry_of,queued_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,$11,$12,$13,'queued','plan',$14,
-              now()+make_interval(secs=>$19),$15,$16,$17,$18,now()) RETURNING *`,
+             model_profile_id,model_config_version,model_id,credential_lease_id,coordinator_role_run_id,state,phase,budget_json,deadline_at,executor_boot_id,planning_context_json,parent_run_id,retry_of,queued_at,selected_base_revision_id)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$20,$9,$10,$11,$12,$13,'queued','plan',$14,
+              now()+make_interval(secs=>$19),$15,$16,$17,$18,now(),$21) RETURNING *`,
           [id, ownerId, projectId, idempotencyKey, requestHash, requestText, runKind,
-            baseRevisionId, normalized.modelProfileId, normalized.modelConfigVersion, normalized.modelId ?? null, lease.id, roleId,
+            normalized.expectedCurrentRevisionId, normalized.modelProfileId, normalized.modelConfigVersion, normalized.modelId ?? null, lease.id, roleId,
             { idleTimeoutMs: RUN_IDLE_TIMEOUT_MS, modelTimeoutMs: MODEL_REQUEST_TIMEOUT_MS, maxToolCalls: RUN_TOOL_LIMIT },
-            options.executorBootId, context, normalized.parentRunId, retryOfRunId, RUN_IDLE_TIMEOUT_MS / 1000]);
+            options.executorBootId, context, normalized.parentRunId, retryOfRunId, RUN_IDLE_TIMEOUT_MS / 1000, baseRevisionId, selectedBaseRevisionId]);
           await client.query(`INSERT INTO nano.role_runs (id,owner_id,project_id,run_id,role,attempt,session_id,state,input_json)
             VALUES ($1,$2,$3,$4,'coordinator',0,$5,'queued',$6)`, [roleId, ownerId, projectId, id, randomUUID(), context]);
           await client.query("INSERT INTO nano.messages (owner_id,project_id,run_id,kind,content) VALUES ($1,$2,$3,'user',$4)", [ownerId, projectId, id, requestText]);
-          await event(client, inserted.rows[0], { type: "run.accepted", payload: { state: "queued", phase: "plan" } });
+          await event(client, inserted.rows[0], { type: "run.accepted", payload: { state: "queued", phase: "plan",
+            baseRevisionId, expectedCurrentRevisionId: normalized.expectedCurrentRevisionId,
+            selectedBaseRevisionId } });
           return { run: storedRun(inserted.rows[0]), replayed: false };
         });
       } catch (error) {
@@ -1365,6 +1384,9 @@ export function createGenerationRepository(
         return { run: await parkClaim(client, current, { code: failure.code, message: failure.message }), outcome: "parked" as const };
       }
       if (parent.current_revision_id !== current.expected_current_revision_id) {
+        if (current.selected_base_revision_id)
+          return { run: await parkClaim(client, current, { code: "QUEUE_BASELINE_CHANGED",
+            message: "当前已验收版本已变化，所选候选基线已保留但未执行。请核对版本后重新提交。" }), outcome: "parked" as const };
         // A queued follow-up chains onto the version produced by the task it was
         // queued behind. Anything else changed the baseline, so the request is
         // preserved for the user instead of being pointed at an unrelated
