@@ -6,7 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import type { ImageContent, TSchema } from '@earendil-works/pi-ai';
 import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, type ToolDefinition } from '@earendil-works/pi-coding-agent';
-import { HandoffSchema, ReviewResultSchema, ReviewItemSchema, MAX_CHECK_ARTIFACTS, allowsRenderOnlyEvidence, type ReviewItem, type Handoff, type ReviewResult, type ReviewBinding, type CheckArtifact } from '@pivloom/contracts';
+import { HandoffSchema, ReviewResultSchema, ReviewItemSchema, MAX_CHECK_ARTIFACTS, allowsRenderOnlyEvidence, requiresVisualEvidence, type ReviewItem, type Handoff, type ReviewResult, type ReviewBinding, type CheckArtifact } from '@pivloom/contracts';
 import { createServiceModel } from './pi.js';
 import { RuntimeError, type ModelConfig, type ProbeEvent, type ProbeEventSink } from './types.js';
 import { createRoleTokenTracker, type RunTokenBudget, type TokenUsage } from './token-budget.js';
@@ -371,7 +371,14 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     // labels it passed. The Reviewer cannot change the sealed target's action.
     const renderedEvidence=allowsRenderOnlyEvidence(target) && observations.length>=1 && item.screenshotIds.length>0;
     if(item.verdict!=='blocked' && !actionEvidence && !renderedEvidence)return 'ACTION_EVIDENCE_REQUIRED';
-    if(input.requireVisionEvidence !== false && item.verdict==='passed' && !options?.deferImageDelivery){
+    // Screenshots are the evidence for what a screen looks like. Requiring a delivered image for
+    // every passed behaviour made each one cost a capture plus a turn in which the image arrives,
+    // which is the cost that put a single increment on the critical path for hours; ordinary
+    // behaviour is carried by the observation text the reviewer already receives. The guard stays
+    // fail-closed: requiresVisualEvidence only exempts an expectation whose text is plainly about
+    // appearance, so anything it cannot read still needs the image.
+    if(input.requireVisionEvidence !== false && item.verdict==='passed' && !options?.deferImageDelivery
+      && requiresVisualEvidence(target)){
       const actionObservationIds=new Set(observations.filter(validAction).map(event=>event!.observationId));
       const referencedObservationIds=new Set(observations.map(event=>event!.observationId));
       const imageAfterRelevantObservation=item.screenshotIds.some(id=>{

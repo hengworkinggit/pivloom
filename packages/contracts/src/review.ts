@@ -26,6 +26,21 @@ export const ReviewItemSchema = z.strictObject({
 export type ReviewItem = z.infer<typeof ReviewItemSchema>;
 /** A screenshot can substitute for an action only when the sealed target asks
  * solely to inspect a rendered page. Ambiguous plans require interaction. */
+// Whether a behaviour's expected result is judged by appearance at all. A reviewer that claims a
+// behaviour passed on a screen it never looked at is the failure this guards, so the default is
+// deliberately to require the image: only an expectation whose text is plainly about looks is
+// exempt, and anything the heuristics cannot read stays required. Screenshots remain the evidence
+// for appearance, colour, layout, sizing and position; ordinary behaviour such as arithmetic,
+// keyboard input, history contents or persistence is carried by the observation text the reviewer
+// already receives, which is how the widely used browser agents work.
+export function requiresVisualEvidence(target: Pick<BehaviorTarget, "expected">) {
+  const expected = target.expected ?? "";
+  const visual = /(?:颜色|配色|色调|主题|浅色|深色|样式|圆角|边框|阴影|字体|字号|加粗|对齐|居中|居右|居左|间距|留白|布局|排版|位置|尺寸|宽度|高度|大小|图标|图片|背景|渐变|透明|可见|隐藏|显示为|外观|视觉|美化|风格|设计)/u;
+  const comparing = /(?:一致|相同|不变|保持|符合|正确显示|正常显示)/u;
+  const visualVerb = /(?:显示|呈现|渲染|展示|看起来|观感)/u;
+  return visual.test(expected) || (visualVerb.test(expected) && comparing.test(expected));
+}
+
 export function allowsRenderOnlyEvidence(target: Pick<BehaviorTarget, "action">) {
   // An explicit instruction not to click or press any control still describes
   // observing the initial render. Strip only this terminal negative clause;
