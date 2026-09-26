@@ -115,9 +115,32 @@ export async function runPrograms(compiled: CompiledPlan, input: ReplayRunProgra
     input.signal.throwIfAborted();
     const target = expected.get(program.behaviorId);
     if (!target) throw new RuntimeError('REPLAY_PROGRAM_MISSING', '脚本程序缺少对应的封存行为');
-    const outcome = await runReplayProgram({ browser: input.browser, program, signal: input.signal,
-      target: { expected: target.expected }, rendersOnly: allowsRenderOnlyEvidence(target),
-      saveScreenshot: input.saveScreenshot });
+    let outcome;
+    try {
+      outcome = await runReplayProgram({ browser: input.browser, program, signal: input.signal,
+        target: { expected: target.expected }, rendersOnly: allowsRenderOnlyEvidence(target),
+        saveScreenshot: input.saveScreenshot });
+    } catch (error) {
+      input.signal.throwIfAborted();
+      // One broken program must not cost the whole increment. A measured run lost all forty behaviours
+      // because the second one threw: the replay aborted, every behaviour was recorded blocked, and the
+      // other thirty-five that had nothing wrong with them were never attempted - the opposite of
+      // rerunning only the affected path. The behaviour is blocked and the rest carry on. A cancellation
+      // or the evidence ceiling still aborts, because continuing would either ignore a stop or exceed a
+      // limit the caller enforces anyway.
+      // A deliberate `RuntimeError` is a classified failure the caller acts on: a stale control is
+      // retryable, the evidence ceiling is final, and turning either into a blocked behaviour would hide
+      // a run-level fact inside a per-behaviour verdict. Only an unexpected error - the driver throwing
+      // something it did not classify - is contained here.
+      if (error instanceof RuntimeError) throw error;
+      const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      items.set(program.behaviorId, { behaviorId: program.behaviorId, verdict: 'blocked' as const,
+        expected: target.expected,
+        actual: `脚本回放该行为时失败，未取得可判定证据：${detail.slice(0, 300)}`,
+        observationEventIds: [], screenshotIds: [], reproSteps: [] });
+      await input.onProgress?.(program, { assertionsPassed: false });
+      continue;
+    }
     // The evidence ceiling is the Reviewer's own constant: this layer produces
     // more, smaller observations than the model loop, and it must fail with the
     // same code and the same REVIEW_EVIDENCE_TOO_LARGE classification instead of
