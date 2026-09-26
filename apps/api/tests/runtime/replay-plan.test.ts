@@ -132,15 +132,24 @@ test('runPrograms reports each program to the progress hook only after it finish
   expect(result.artifacts.every((artifact) => artifact.sha256 === PNG_SHA256)).toBe(true);
 });
 
-test('a stale control during the scripted pass is reported as STALE_BROWSER_REF, not a blocked candidate', async () => {
+test('a stale control blocks the behaviour that named it and never clicks blindly', async () => {
+  // This replaces a test that required the whole scripted pass to reject. Two guarantees live here and
+  // both are kept. The first is the one that matters most: a control that does not resolve is never
+  // clicked anyway, which is also why Playwright's docs discourage first()/nth() - a changed page makes
+  // them hit the wrong element. The second is what changed: the failure belongs to the behaviour that
+  // named the missing control, so the other behaviours keep their results, as Momentic, Octomind and
+  // QA Wolf all do rather than discarding a whole run for one unresolvable element.
   const plan = fixturePlan({ steps: [{ type: 'open', path: '/' }, { type: 'click', role: 'button', name: '不存在' }] });
   const value = binding(randomUUID());
   const fixture = formFixture(SESSION);
-  await expect(runScriptedPlan({ binding: value, handoff: handoffFor(plan, value), browser: fixture.browser,
-    signal: new AbortController().signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save }))
-    .rejects.toMatchObject({ code: 'STALE_BROWSER_REF' });
-  // No completion event: the run is failing, and reporting progress for a program
-  // that never finished would keep a dead run alive.
+  const outcome = await runScriptedPlan({ binding: value, handoff: handoffFor(plan, value), browser: fixture.browser,
+    signal: new AbortController().signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save });
+  expect(outcome.kind).toBe('scripted');
+  if (outcome.kind !== 'scripted') return;
+  const [item] = outcome.result.result.items;
+  expect(item).toMatchObject({ behaviorId: 'B01', verdict: 'blocked' });
+  // The reason is machine-readable, not a bare 'something failed'.
+  expect(String(item.actual)).toContain('STALE_BROWSER_REF');
   expect(fixture.calls.act).toBe(0);
 });
 

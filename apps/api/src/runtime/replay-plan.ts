@@ -128,12 +128,19 @@ export async function runPrograms(compiled: CompiledPlan, input: ReplayRunProgra
       // rerunning only the affected path. The behaviour is blocked and the rest carry on. A cancellation
       // or the evidence ceiling still aborts, because continuing would either ignore a stop or exceed a
       // limit the caller enforces anyway.
-      // A deliberate `RuntimeError` is a classified failure the caller acts on: a stale control is
-      // retryable, the evidence ceiling is final, and turning either into a blocked behaviour would hide
-      // a run-level fact inside a per-behaviour verdict. Only an unexpected error - the driver throwing
-      // something it did not classify - is contained here.
-      if (error instanceof RuntimeError) throw error;
-      const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      // A classified failure is contained too, which is what the comparable products do: Momentic
+      // quarantines what it cannot resolve and caps recovery per run, Octomind holds a fix for human
+      // approval instead of stalling, QA Wolf gives the item its own Investigating state. None of them
+      // discards the behaviours that already ran because one control could not be addressed - and a
+      // measured replay had completed twenty-nine of thirty-nine when the thirtieth step named a button
+      // that matched nothing, which threw away the whole check. Only a cancellation or the evidence
+      // ceiling still aborts, because continuing would either ignore a stop or exceed a limit the caller
+      // enforces anyway.
+      if ((error as { classification?: unknown } | null)?.classification === 'REVIEW_EVIDENCE_TOO_LARGE') throw error;
+      // The code travels with the reason so the verdict says why, in a form a caller can act on, rather
+      // than only that something went wrong - the observability rule the comparable products follow.
+      const detail = error instanceof RuntimeError ? `${error.code}: ${error.message}`
+        : error instanceof Error ? `${error.name}: ${error.message}` : String(error);
       items.set(program.behaviorId, { behaviorId: program.behaviorId, verdict: 'blocked' as const,
         expected: target.expected,
         actual: `脚本回放该行为时失败，未取得可判定证据：${detail.slice(0, 300)}`,
