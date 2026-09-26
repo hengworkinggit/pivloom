@@ -3,7 +3,7 @@
   "realSandbox": true,
   "realChromium": true,
   "storage": "in-memory external boundary",
-  "elapsedMs": 58464,
+  "elapsedMs": 62747,
   "modelCalls": 0,
   "passed": 4,
   "blocked": 1,
@@ -38,46 +38,53 @@
   ],
   "events": [
     {
-      "id": "65071b15-6dfb-46a9-938a-3630041be18c",
-      "at": "2026-09-26T20:28:12.275Z",
+      "id": "da848fda-7a33-4779-963a-45c528a98685",
+      "at": "2026-09-26T20:52:42.123Z",
+      "type": "tool.output",
+      "toolName": "verification_admission",
+      "message": "脚本检查准入：5 项行为，13 步，134 次按键，显式等待 0ms；0 项程序需进一步处理。准入不代表通过。"
+    },
+    {
+      "id": "10159816-2551-42b1-a8b7-d60ad0040fcc",
+      "at": "2026-09-26T20:53:00.236Z",
       "type": "tool.start",
       "toolName": "browser_steps",
-      "toolCallId": "replay-587f42cd86f3372fdfcf2090",
+      "toolCallId": "replay-ae357c2f98799ccc0249a010",
       "message": "脚本回放开始：4/5 项行为可编译，行为判定不调用模型"
     },
     {
-      "id": "696140c2-33c6-4f42-b8a9-cf29f405033a",
-      "at": "2026-09-26T20:28:26.178Z",
+      "id": "696ac186-6321-468b-8545-9fdd2c073320",
+      "at": "2026-09-26T20:53:14.630Z",
       "type": "tool.end",
       "toolName": "browser_steps",
-      "toolCallId": "replay-63249fb88b6046e6b59079ca",
+      "toolCallId": "replay-0d952a681b8d53843f5b8df5",
       "success": true,
       "message": "脚本回放完成 B01"
     },
     {
-      "id": "81419fc9-154a-4d23-89d8-c50934c4c74e",
-      "at": "2026-09-26T20:28:29.409Z",
+      "id": "44f87e7c-71ea-4173-b7d7-7503270be7b4",
+      "at": "2026-09-26T20:53:18.917Z",
       "type": "tool.end",
       "toolName": "browser_steps",
-      "toolCallId": "replay-0ab3a43076e2c6cf77110c62",
+      "toolCallId": "replay-8cecd55613c153740de8b3e9",
       "success": true,
       "message": "脚本回放完成 B02"
     },
     {
-      "id": "6a6969f3-9a76-4165-b1fb-1bb5f33fe09f",
-      "at": "2026-09-26T20:28:31.754Z",
+      "id": "088de1e7-8e82-4b83-8e31-5b5f87a8bbef",
+      "at": "2026-09-26T20:53:21.982Z",
       "type": "tool.end",
       "toolName": "browser_steps",
-      "toolCallId": "replay-addf118810770faaef9bf951",
+      "toolCallId": "replay-541f8908dabdd2505c3a4b3b",
       "success": true,
       "message": "脚本回放完成 B03"
     },
     {
-      "id": "fe550e01-2624-407e-80f5-9b6e7af4af80",
-      "at": "2026-09-26T20:28:34.087Z",
+      "id": "38c2cf5a-0926-4601-a592-24bf63b4a065",
+      "at": "2026-09-26T20:53:25.060Z",
       "type": "tool.end",
       "toolName": "browser_steps",
-      "toolCallId": "replay-ed3ad3b31820a6eeb319b396",
+      "toolCallId": "replay-4e2e80a1081591f24ccd48f3",
       "success": true,
       "message": "脚本回放完成 B04"
     }
@@ -89,13 +96,13 @@
       "expected": "Result 42 and history contains 20 entries",
       "actual": "✓ 目标 status/\"Result\" 文本 \"42\"，预期 \"42\"；✓ 目标 listitem/\"*\" 数量 20，预期 20",
       "observationEventIds": [
-        "97387f38-bf88-481f-ac0b-7feb7562b145",
-        "82b329fe-1fac-4567-a937-8b3db06dcbcd",
-        "528c6e08-3226-4aab-93c8-6b2f05fe421a",
-        "5680558c-4a49-4518-ade3-545e5da52a4e"
+        "f8e1afb4-9a9e-46a6-b6d1-9dcd0cd523c5",
+        "9edc93de-debd-46c9-b7a7-09e68b7f92c8",
+        "2a5f1ae7-0eab-4131-9770-f50bb7e0eee3",
+        "2598ed07-5129-43d1-b6c7-78feb531bb25"
       ],
       "screenshotIds": [
-        "dcce100b-68cf-43d4-80a5-c216d10d18f8"
+        "cd7efcaf-32d8-4b47-aa2f-ab8673091b75"
       ],
       "reproSteps": [
         "打开 /",
@@ -109,13 +116,13 @@
       "expected": "Result 0 with 20 historical records",
       "actual": "✓ 目标 status/\"Result\" 文本 \"0\"，预期 \"0\"；✓ 目标 listitem/\"*\" 数量 20，预期 20",
       "observationEventIds": [
-        "61c8e2ec-b801-4066-aab7-8f292eae091b",
-        "a146baa8-eebc-4e2d-a990-e0473ad9e292",
-        "207ce49c-9841-41a6-8346-e29d63881020",
-        "f0a1712c-a833-452c-98b7-72735869dfde"
+        "1233bb91-76bf-47c2-8bed-b5f5e6a30769",
+        "874af337-d0cf-4323-9bfd-11be7b79d39b",
+        "27a4b331-f856-47ca-9896-fdb920dd0e1a",
+        "1db7e69c-4038-491d-ba49-531e22bd7acf"
       ],
       "screenshotIds": [
-        "938c1004-a148-466e-8fea-4828f811879b"
+        "43ee5bc8-2210-485f-a70e-7b3b8f7e2616"
       ],
       "reproSteps": [
         "打开 /",
@@ -129,11 +136,11 @@
       "expected": "Empty history in a new scenario",
       "actual": "✓ 目标 listitem/\"*\" 数量 0，预期 0",
       "observationEventIds": [
-        "fc99c839-9093-4236-95bf-b8d30d3d9f89",
-        "deda0e17-ff73-4d6c-96eb-a05d5a098f55"
+        "c9363bc1-2398-4574-ad78-1dd56ccaa440",
+        "c79300a9-05ef-40a6-b2b9-e22ce33a51e8"
       ],
       "screenshotIds": [
-        "0e252f8b-5eba-4c6a-988a-162728c10fa4"
+        "78ef92d8-dc6b-4556-b9f7-e01c952e4b73"
       ],
       "reproSteps": [
         "打开 /",
@@ -146,12 +153,12 @@
       "expected": "Scoped result zero even with keypad 2",
       "actual": "✓ 目标 status/\"Result\" 文本 \"0\"，预期 \"0\"",
       "observationEventIds": [
-        "a38d9c29-7ee0-45fb-97bc-1f042f0b5561",
-        "0edac398-d3ad-4ba0-8be5-b51751cf00b6",
-        "155d236d-3333-4983-a812-0a06dc8ecee6"
+        "55a37471-4e26-4f59-8fe6-d8815c84bf8a",
+        "0e18bfc8-80b2-468d-b071-1db460dd9060",
+        "161bd9c9-86a5-43c8-baae-e99324f2a5f0"
       ],
       "screenshotIds": [
-        "ba48a64f-71c1-4187-85eb-384ca56f6a9e"
+        "30f58ffd-a219-4bb3-903f-7e480cc32b06"
       ],
       "reproSteps": [
         "打开 /",

@@ -525,12 +525,15 @@ export class RemoteBrowser {
     this.operating = true;
     this.deadline = Date.now() + timeoutMs;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const operationSignal=this.signal?AbortSignal.any([this.stopController.signal,this.signal]):this.stopController.signal;
+    // External cancellation must also interrupt file downloads. Internal close
+    // is deliberately not raced: origin/parameter checks close before throwing
+    // their diagnostic, and a close signal must not replace that failure.
+    const operationSignal=this.signal;
     let onAbort:()=>void=()=>{};
     const interrupted=new Promise<never>((_resolve,reject)=>{
-      onAbort=()=>reject(operationSignal.reason);
-      operationSignal.addEventListener('abort',onAbort,{once:true});
-      if(operationSignal.aborted)onAbort();
+      onAbort=()=>reject(operationSignal?.reason);
+      operationSignal?.addEventListener('abort',onAbort,{once:true});
+      if(operationSignal?.aborted)onAbort();
     });
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
@@ -548,7 +551,7 @@ export class RemoteBrowser {
       throw error;
     } finally {
       clearTimeout(timer);
-      operationSignal.removeEventListener('abort',onAbort);
+      operationSignal?.removeEventListener('abort',onAbort);
       this.operating = false;
       this.deadline = 0;
     }
