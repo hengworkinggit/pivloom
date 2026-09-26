@@ -36,7 +36,7 @@ export function createVisualJudgePort(config: ModelConfig, signal: AbortSignal,
       const content = [{ type: "text" as const, text: prompt },
         ...images.map((image): ImageContent => ({ type: "image", data: image.base64, mimeType: image.mimeType }))];
       const context = { systemPrompt: "", messages: [{ role: "user" as const, content, timestamp: Date.now() }] };
-      const timeoutMs = options.deadlineAt === undefined ? 120_000 : Math.max(1, Math.min(120_000, options.deadlineAt - now()));
+      const timeoutMs = options.deadlineAt === undefined ? 120_000 : Math.max(1, Math.floor(Math.min(120_000, options.deadlineAt - now())));
       const streamOptions = { apiKey: config.apiKey, signal, maxTokens, timeoutMs, maxRetries: 0 };
       // The wire protocol is `config.api`, the field the service sets from the resolved profile; the
       // provider name is the credential lease's identity (`pivloom-byok` in production) and only
