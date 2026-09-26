@@ -469,7 +469,7 @@ export function createGenerationRepository(
       const result = await client.query(`SELECT r.*, to_jsonb(v) AS revision_json, to_jsonb(binding) AS binding_json,
         coalesce((SELECT jsonb_agg(to_jsonb(replay) || jsonb_build_object('id',replay.id::text) ORDER BY replay.id)
           FROM (SELECT e.* FROM nano.run_events e WHERE e.owner_id=r.owner_id AND e.run_id=r.id ORDER BY e.id DESC LIMIT 200) replay),'[]'::jsonb) AS events_json,
-        coalesce((SELECT jsonb_agg(to_jsonb(rr)-'input_json'-'output_json'-'usage_json' ORDER BY rr.attempt,CASE rr.role WHEN 'coordinator' THEN 0 WHEN 'builder' THEN 1 ELSE 2 END)
+        coalesce((SELECT jsonb_agg(to_jsonb(rr)-'input_json'-'output_json'-'usage_json' ORDER BY rr.attempt,CASE rr.role WHEN 'coordinator' THEN 0 WHEN 'builder' THEN 1 ELSE 2 END,rr.started_at NULLS LAST,rr.id)
           FROM nano.role_runs rr WHERE rr.owner_id=r.owner_id AND rr.run_id=r.id),'[]'::jsonb) AS roles_json
         FROM nano.runs r
         LEFT JOIN nano.revisions v ON v.owner_id=r.owner_id AND v.project_id=r.project_id AND v.id=r.result_revision_id

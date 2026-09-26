@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Pool } from "pg";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { PivloomDatabase } from "../../src/data/database.js";
 import { createProjectRepository } from "../../src/data/projects.js";
 import { createGenerationRepository, type GenerationRepository } from "../../src/data/generation.js";
@@ -17,6 +17,7 @@ import { createPreviewGateway } from "../../src/generation/preview.js";
 import type { SandboxConnection, SandboxConnector } from "../../src/runtime/workspace.js";
 import type { GroupedPlan } from "@pivloom/contracts";
 import { REACT_TEMPLATE_VERSION } from '../../src/runtime/snapshot.js';
+import { RUN_IDLE_TIMEOUT_MS } from '../../src/runtime/budgets.js';
 
 // This suite exercises the real interactive Reviewer loop, not a fixed replay program.
 const plan: GroupedPlan = { schemaVersion: 2, verificationMode: 'interactive', goal: "点击加一", changeSummary: "计数器", assumptions: [], outOfScope: [],
@@ -33,6 +34,9 @@ const plan: GroupedPlan = { schemaVersion: 2, verificationMode: 'interactive', g
     { id: "G4", title: "状态与刷新", behaviorIds: ["B04"] },
     { id: "G5", title: "视觉布局", behaviorIds: ["B05"] },
   ], replacements: [] };
+// Coordinator + Builder + Reviewer bootstrap + explicit open + 3 tools per behavior.
+// The first full review consumes this allowance, leaving no tools for its repair.
+const SHARED_TOOL_BUDGET = 1 + 1 + 2 + 1 + 3 * plan.behaviors.length;
 
 /** Real executor, Pi roles, repository transactions and snapshot validation.
  * Only provider SSE, remote processes/files/browser and object storage are fixtures.
@@ -169,7 +173,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
         remotes.set(id, remote);
         const connection: SandboxConnection = {
           sandboxId: id, kill: async () => {
-            if (mode === "cancel-builder-cleanup-fails" && cleanupUnavailable) throw new Error("Synthetic first destroy failure");
+            if (cleanupUnavailable) throw new Error("Synthetic destroy outage");
             remote.live = false;
           }, isRunning: async () => remote.live,
           renew: async (seconds) => { remote.renewals.push(seconds); }, close: async () => { const hook = closeHook; closeHook = undefined; await hook?.(); }, endpoint: async () => ({ url: `${origin}/v1/sandboxes/${id}/proxy/4173`, headers: {} }),
@@ -304,7 +308,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     const executor = createGenerationExecutor({ repository: executionRepository, models, sources, previews, sandbox: { baseUrl: origin, apiKey: "external-sandbox-secret-never-in-generated-source", image: "fixture" }, maxSandboxes: 5,
       artifacts: createArtifactStore({ url: "http://storage-fixture.invalid", secret: "fixture", objects: {
         upload: async (key, bytes) => { objects.set(key, bytes); }, download: async (key) => objects.get(key)!,
-      } }) }, { sandboxConnector: connector, modelFetch, ...(mode === "tool-budget" ? { maxToolCalls: 18 } : {}),
+      } }) }, { sandboxConnector: connector, modelFetch, ...(mode === "tool-budget" ? { maxToolCalls: SHARED_TOOL_BUDGET } : {}),
         ...(options.monotonicNow ? { monotonicNow: options.monotonicNow } : {}),
         ...(options.settlementRetryMs ? { settlementRetryMs: options.settlementRetryMs } : {}),
         ...(options.cleanupSweepMs ? { cleanupSweepMs: options.cleanupSweepMs } : {}) });
@@ -531,6 +535,13 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       expect(revisions).toHaveLength(1);
       expect(revisions[0]).toMatchObject({ id: result.run.resultRevisionId, status: "accepted" });
       expect(result.roles.filter((role) => role.role === "reviewer").map((role) => role.state)).toEqual(["failed", "succeeded"]);
+      // role_runs has no created_at column. Equal start times still need a
+      // deterministic order, independent of which row a retry last updated.
+      const reviewerIds = result.roles.filter(role => role.role === 'reviewer').map(role => role.id).sort();
+      await admin.query("UPDATE nano.role_runs SET started_at=$3 WHERE owner_id=$1 AND run_id=$2 AND role='reviewer'",
+        [owner, result.run.id, '2026-09-01T00:00:00.000Z']);
+      expect((await repository.readRunSnapshot(owner, result.run.id)).roles.filter(role => role.role === 'reviewer').map(role => role.id))
+        .toEqual(reviewerIds);
       expect((await repository.getRunCheck(owner, result.run.id))?.verdict).toBe("passed");
       expect([...remote.remotes.values()].map((sandbox) => sandbox.live)).toEqual([true]);
     } finally { await remote.executor.close(); }
@@ -569,7 +580,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     expect(result.run).toMatchObject({ state: "failed", attempt: 1, error: { code: "TOOL_BUDGET_EXCEEDED" } });
     const events = await repository.listEvents(owner, result.run.id, "0", 200);
     expect(events.length).toBeLessThan(200);
-    expect(events.filter((event) => event.type === "tool.started").length).toBeLessThanOrEqual(18);
+    expect(events.filter((event) => event.type === "tool.started").length).toBeLessThanOrEqual(SHARED_TOOL_BUDGET);
     expect((await createProjectRepository(database).get(owner, result.projectId)).currentRevisionId).toBeNull();
   }, 900_000);
 
@@ -773,6 +784,10 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
   }, 180_000);
 
   test("a short run deadline survives a terminal write outage and keeps the project locked until cleanup confirms", async () => {
+    // Clock/scheduler fault injection is confined to this isolated test. The
+    // production watchdog still handles its own real callback and abort reason.
+    const scheduledTimers = vi.spyOn(globalThis, 'setTimeout');
+    try {
     const remote = await fixture("cancel-builder-cleanup-fails", {
       failFailedWrites: 1, settlementRetryMs: 50, cleanupSweepMs: 50,
     });
@@ -792,6 +807,24 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     await admin.query("UPDATE nano.runs SET deadline_at=$2 WHERE owner_id=$1 AND id=$3", [owner, shortDeadline, claimed.id]);
     remote.executor.start({ ...claimed, deadlineAt: shortDeadline });
     await remote.builderStarted;
+
+    // Coordinator progress legitimately renewed the inactivity lease. Merely
+    // shortening the DB row cannot replace the already armed in-memory timer.
+    const renewed = await repository.getRun(owner, accepted.run.id);
+    expect(Date.parse(renewed.deadlineAt)).toBeGreaterThan(Date.parse(shortDeadline));
+    const idleTimer = [...scheduledTimers.mock.calls].reverse().find(([, delay]) =>
+      typeof delay === 'number' && delay >= RUN_IDLE_TIMEOUT_MS - 2_000 && delay <= RUN_IDLE_TIMEOUT_MS + 1_000);
+    expect(idleTimer).toBeDefined();
+    const expiredDeadlineAt = (await admin.query<{ deadline_at: Date }>(
+      "UPDATE nano.runs SET deadline_at=now()-interval '1 millisecond' WHERE owner_id=$1 AND id=$2 RETURNING deadline_at",
+      [owner, claimed.id])).rows[0].deadline_at.toISOString();
+    const expiredClock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(renewed.deadlineAt) + 1);
+    try {
+      const [expire, , ...args] = idleTimer!;
+      if (typeof expire !== 'function') throw Error('watchdog timer must be a callback');
+      expire(...args);
+    } finally { expiredClock.mockRestore(); }
+    scheduledTimers.mockRestore();
 
     const pendingBy = Date.now() + 15_000;
     let pending = await repository.getRun(owner, accepted.run.id);
@@ -849,7 +882,9 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     if (!claimedRetry) throw Error("retry fixture task was not claimable");
     if (process.env.PIVLOOM_RC03_EVIDENCE_FILE) await writeFile(process.env.PIVLOOM_RC03_EVIDENCE_FILE, JSON.stringify({
       environmentId: process.env.PIVLOOM_ENVIRONMENT_ID, runId: accepted.run.id, projectId: project.id,
-      injectedDeadlineAt: shortDeadline, pending: { state: pending.state, phase: pending.phase,
+      initialShortDeadlineAt: shortDeadline, renewedDeadlineAt: renewed.deadlineAt,
+      injectedDeadlineAt: expiredDeadlineAt, clockSchedulerFaultInjection: true,
+      pending: { state: pending.state, phase: pending.phase,
         cleanupState: pending.cleanupState, errorCode: pending.error?.code, projectLock: pendingLock },
       terminalWriteAttempts: remote.failedWrites(), remoteLiveAtPending: true,
       settled: { state: settled.state, cleanupState: settled.cleanupState, errorCode: settled.error?.code,
@@ -861,6 +896,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     await repository.cancel(owner, claimedRetry.id);
     await repository.finishCancelled(owner, claimedRetry.id, { cleanupState: "confirmed", summary: "隔离夹具已结束。" });
     await models.releaseForRun(owner, claimedRetry.credentialLeaseId);
+    } finally { scheduledTimers.mockRestore(); }
   }, 60_000);
 
   function controlDisposablePostgres(action: "stop" | "start") {
