@@ -66,9 +66,25 @@ test('an ambiguous control is a STALE_BROWSER_REF, never a guess at one of the m
   expect(fixture.actions).toHaveLength(0);
 });
 
-test('an incomplete observation stops a control step instead of resolving refs from a partial tree', async () => {
+test('a truncated observation still resolves a control it can match uniquely', async () => {
+  // Replaces a test that pinned the opposite rule. Playwright MCP fails only the call that used a stale
+  // reference and never refuses the page, browser-use marks a truncated payload explicitly rather than
+  // treating it as a veto, and refusing every control step on a truncated text window cost whole
+  // increments: a measured replay completed one behaviour and reported all forty as blocked. The button
+  // is present and unique, so the step runs.
   const fixture = formFixture(SESSION, { truncated: true });
-  await expect(run(fixture, program([open, clickAdd]))).rejects.toMatchObject({ code: 'STALE_BROWSER_REF' });
+  const { result } = await run(fixture, program([open, clickAdd]));
+  expect(fixture.calls.act).toBeGreaterThan(0);
+  expect(result.item.verdict).not.toBe('blocked');
+});
+
+test('a truncated observation still refuses a control it cannot resolve uniquely', async () => {
+  // The guarantee the replaced test was protecting, kept and made explicit: truncation is no longer a
+  // veto, but a control that genuinely does not resolve still fails as a stale reference rather than
+  // being guessed at - which is also what Playwright warns against when it discourages first()/nth().
+  const fixture = formFixture(SESSION, { truncated: true });
+  await expect(run(fixture, program([open, BehaviorStepSchema.parse({ type: 'click', role: 'button', name: '不存在的按钮' })])))
+    .rejects.toMatchObject({ code: 'STALE_BROWSER_REF' });
 });
 
 test('a control step before any observation is a stale ref rather than an implicit open', async () => {

@@ -228,7 +228,11 @@ test("a longer ref or non-ref attribute cannot grant membership to an absent ref
     f.state.refs = {e1:{role:'button',name:'不存在'},e10:{role:'button',name:'提交'}};
     const observation = await f.browser.open();
     expect(observation.refs).toEqual({e10:{role:'button',name:'提交'}});
-    expect(observation.truncated).toBe(true);
+    // Membership is still denied to the unmentioned ref, which is the guarantee this test exists for.
+    // What changed is only the consequence for the rest of the observation: a ref the compacted tree text
+    // did not mention no longer declares the whole inventory untrustworthy, because `data.refs` is the
+    // browser's own control list and the tree is evidence text beside it.
+    expect(observation.truncated).toBe(false);
     await expect(f.browser.act({type:'click',ref:'e1',observationId:observation.id})).rejects.toMatchObject({code:'STALE_BROWSER_REF'});
     expect(f.commands.some(({command})=>command.includes("'click'"))).toBe(false);
   } finally { await f.cleanup(); }

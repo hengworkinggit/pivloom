@@ -179,13 +179,19 @@ export class RemoteBrowser {
       if (
         Object.keys(refs).length >= 400 ||
         !/^e[0-9]{1,6}$/.test(key) ||
-        !treeRefs.has(key) ||
         typeof item !== "object" ||
         item === null
       ) {
         truncated = true;
         continue;
       }
+      if (!treeRefs.has(key)) continue;
+      // A ref the compacted tree text does not mention is dropped, as before, but it no longer marks the
+      // whole observation incomplete. `data.refs` is the browser's own inventory of controls; the tree is
+      // evidence text beside it. Letting a regex over that text declare the inventory untrustworthy
+      // flagged ordinary pages as incomplete, and because the replay used to refuse to resolve a control
+      // from an incomplete observation, that stopped every plan after its first behaviour. The cap and a
+      // malformed entry still mean the observation cannot be trusted.
       const metadata = item as Record<string, unknown>;
       const role =
         typeof metadata.role === "string"

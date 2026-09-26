@@ -244,7 +244,14 @@ export async function runReplayProgram(input: ReplayRunInput): Promise<ReplayPro
       observation = await browser.act({ type: 'press', key: step.key as never, observationId: freshest().id });
     else {
       const before = freshest();
-      if (before.truncated) throw new RuntimeError('STALE_BROWSER_REF', `页面观察不完整（原文 ${observedTextLength || '未知'} 字符，窗口 ${OBSERVATION_TEXT_LIMIT}），请重新观察后继续未完成步骤`);
+      // Industry practice, and the opposite of what this line did. Playwright MCP reports a stale
+      // reference only for the call that used it - "Ref <ref> not found in the current page snapshot.
+      // Try capturing new snapshot." - and never refuses the page; browser-use marks a truncated payload
+      // explicitly instead of treating it as a veto. A truncated text window says nothing about the
+      // control inventory, and refusing every control step because of it cost whole increments: a
+      // measured replay reported all forty behaviours blocked, having completed only the first. So
+      // resolution proceeds, and a control that genuinely cannot be resolved uniquely still fails in
+      // `resolveControl` below - which is the guarantee the stale-ref test pins.
       const ref = resolveControl(before.refs, step, index);
       observation = step.type === 'click' ? await browser.act({ type: 'click', ref, observationId: before.id })
         : step.type === 'fill' ? await browser.act({ type: 'fill', ref, observationId: before.id, text: step.text ?? '' })
