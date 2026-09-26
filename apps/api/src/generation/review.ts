@@ -6,6 +6,7 @@ import { RemoteBrowser } from '../runtime/browser.js';
 import { sourceHash } from '../runtime/generation.js';
 import { runReviewer, assertReviewerResult, type ReviewObservationEvent, type ReviewCheckpoint } from '../runtime/reviewer.js';
 import { runScriptedPlan } from '../runtime/replay-plan.js';
+import { createVisualJudgePort } from '../runtime/visual-judge-request.js';
 import { RuntimeError, type ModelConfig, type SandboxConfig, type ProbeEventSink, type ProbeEvent } from '../runtime/types.js';
 import { SANDBOX_LEASE_RENEW_THRESHOLD_MS, SANDBOX_LEASE_SEGMENT_MS } from '../runtime/budgets.js';
 import { type TokenUsage, type RunTokenBudget } from '../runtime/token-budget.js';
@@ -135,9 +136,19 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     // below this try is weakened — the model path is still the only reporter for
     // any behavior the plan did not compile, and it remains the release gate.
     let reviewed:Awaited<ReturnType<typeof runReviewer>>|undefined;
+    // A model whose image capability did not pass the platform's vision probe must not be asked to
+    // judge pixels. It cannot see them, and the judge accepts any citation that is not a restatement
+    // of the expectation, so a blind guess would be admitted as a pass — the exact failure the probe
+    // exists to prevent. With no port the appearance behaviours keep today's whole-plan fallback, and
+    // the Reviewer's own `VISION_NOT_VERIFIED` gate stops the check rather than letting it pass.
+    const visualJudge=input.modelConfig.supportsImages===true?createVisualJudgePort(input.modelConfig,signal):undefined;
     try{
       const scripted=await runScriptedPlan({binding,handoff:input.handoff,browser,signal,
-        saveScreenshot,onEvent:emitEvent,onCheckpoint});
+        saveScreenshot,onEvent:emitEvent,onCheckpoint,
+        // The appearance layer's one model call, built from the same configuration the review uses. It
+        // is injected here so the replay and judgement modules keep holding no provider client, and it
+        // sends no tools: the judge answers about the captured pixels and cannot drive the browser.
+        visualJudge});
       if(scripted.kind==='scripted')reviewed=scripted.result;
       else{
         // The fallback rate is the measured cost of unexecutable planning, so it
