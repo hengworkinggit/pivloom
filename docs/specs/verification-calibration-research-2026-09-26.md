@@ -98,3 +98,33 @@
 
 - 工具：agent-reach（Exa 搜索 + GitHub `gh` + `web_fetch` 直读官方文档与 issue/PR）。本机 `r.jina.ai` 对部分站点超时，改用内置抓取；`web_search` 因缺 `DEEPSEEK_API_KEY` 不可用。
 - 引用优先官方文档、issue、PR 与 arXiv 原文；**未找到官方依据的项均已标注**（如 Anthropic computer use 文档被 JS 壳拦截；Snyk 未见"数据不足"的独立门禁状态；Healenium 评分公式未公布）。
+
+## 八、确定性回放 vs 模型兜底：五个同类工具怎么做（第二波调研）
+
+| 工具 | 机制 | 被命中失败时 | 是否汇报"回退率" |
+|---|---|---|---|
+| **Stagehand**（Browserbase） | 服务端缓存 `act/observe/extract`；cache key = 指令 + **页面快照指纹** + 选项（**故意不含模型配置**）；命中即零 token 确定性执行 | 自动跑 LLM 并写新条目："Caching is best-effort… falls back to normal inference" | ❌ **无命中率仪表**；只有逐次 `metadata.cache.status=HIT/MISS/DISABLED`、`missReason`、省下 token |
+| **Midscene.js**（字节） | 缓存 AI 规划步骤（prompt 为 key）+ 元素 XPath；**默认关闭** | 不命中即回退 AI；缓存计划运行失败则清空旧 flow 且**不回写** | ❌ 无；HTML report 里标 cache 与耗时 |
+| **browser-use** | 结构化 "Interactive elements" 列表 + 可选截图；开源库**无决策缓存** | 定位走 **5 级降级**：EXACT → STABLE → XPATH → AX_NAME → ATTRIBUTE，逐级降级并打日志 | ❌ 未找到 |
+| **Skyvern** | `run_with="code"` 确定性重放录制动作；**per-block 缓存** | 页面变化自动回退 agent 并**重生成缓存**；官方称 "coverage builds up over time" | ❌ 无 |
+| **Shortest** | action caching **默认开启**（`--no-cache` 关闭） | 重放前按归一化组件串比对，不匹配即抛 `CacheError` → 回退完整 AI；状态标 `passedFromCache` / `executedFromCache` | ❌ 无 |
+| **AutoPlaywright** | 每步实时调 LLM，**无缓存/无回放** | — | — |
+
+出处：docs.stagehand.dev v4 caching 与 act；browserbase.com blog "Stagehand caching"；midscenejs.com/caching 与 consume-report-file；docs.browser-use.com all-parameters 与 Cloud scripts、`browser_use/dom/views.py`；skyvern.com code-caching；github.com/antiwork/shortest（runner）。
+
+### 八.1 三条新增原则
+
+**原则 6：确定性回放 + 模型兜底是共识，且兜底以"逐条状态"呈现，不以"比例仪表"呈现。**
+五个工具**没有一个**以"确定性覆盖率/回退率"命名指标；最接近的都是**逐条字段**（Stagehand 的 `cache.status`/`missReason`、Shortest 的 `passedFromCache`/`executedFromCache`、Midscene 报告里的 cache 标记）。这与学术侧"要一致性指标"并不矛盾：**逐条状态是可聚合的原始数据，比例是它的派生视图**——差别在于业内把原始数据暴露出来，让我们自己去聚合。
+
+**原则 7（第一方原文，直接支持 fail-closed）：宁可漏命中，不可错命中。**
+Stagehand 官方权衡原话：**"a wrong cached click is worse than a slow click"**，并明确 **"optimize for accuracy over hit rates"**；命中重放时**关闭自愈**。这为我们的"没有证据绝不通过"提供了同类产品的背书——**但注意它仍是"单次点击"层面的取舍，不是"整页否决"**。
+
+**原则 8：定位失败应当走"降级阶梯"，而不是"唯一匹配否则拒绝"。**
+browser-use 用 EXACT → STABLE → XPATH → AX_NAME → ATTRIBUTE 五级，逐级尝试并**记录走了哪一级**。我们的实现要求"role+name 恰好唯一匹配，否则不可编译/抛错"，缺少中间层级。
+
+### 八.2 对我们的直接含义
+
+- 我们的 `replay_fallback` 事件方向是对的（逐条状态），但**应当成为可聚合的一等数据**，并据此算出"确定性覆盖率"，而不是只报一次运行的墙钟；
+- 我们的 fail-closed 立场**有同类背书，不必动摇**；要改的仍是**作用域**（单动作 vs 整页）与**降级路径**（阶梯 vs 二元）；
+- browser-use 官方承认 **agent 自报的 `is_successful` 需要独立验证**——这是"确定性层 + 独立判定"存在的直接理由，也是我们 A 层价值的同类佐证。
