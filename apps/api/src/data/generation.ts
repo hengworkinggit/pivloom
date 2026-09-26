@@ -990,7 +990,15 @@ export function createGenerationRepository(
       assertReviewEvidenceFitsPersistence(evidence);
       if (receipt.chromeClosed !== true || binding.runId !== runId || result.revisionId !== binding.revisionId
         || result.sourceHash !== binding.sourceHash) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查结果尚未完成会话关闭或版本校验。");
-      return owned(ownerId, async (client) => {
+      let persistenceTimedOut=false;
+      const deadline=receipt.verification?Date.parse(receipt.verification.deadlineAt):undefined;
+      const persistReview=()=>owned(ownerId, async (client) => {
+        const remaining=deadline===undefined?undefined:Math.ceil(deadline-Date.now());
+        if(!persistenceTimedOut&&remaining!==undefined&&remaining>0){
+          // PostgreSQL owns the deadline through COMMIT, including time spent
+          // waiting for locks or inside a trigger after the application verdict.
+          await client.query("SELECT set_config('statement_timeout',$1,true), set_config('transaction_timeout',$1,true)",[String(remaining)]);
+        }
         const { current, parent } = await lockedRun(client, ownerId, runId);
         const role = await activeRole(client, current, { roleRunId: binding.roleRunId, attempt: binding.attempt, role: "reviewer" });
         const storedBinding = ReviewBindingSchema.parse(role.review_binding_json);
@@ -1041,7 +1049,7 @@ export function createGenerationRepository(
           try { groups = aggregateCheckGroups(plan, result.items); }
           catch { throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "检查结果未覆盖五组全部子检查及原始证据。"); }
         }
-        const verificationIncomplete = receipt.verification?.timedOut || receipt.verification?.incompleteReason
+        const verificationIncomplete = persistenceTimedOut || receipt.verification?.timedOut || receipt.verification?.incompleteReason
           || receipt.verification && Date.now() >= Date.parse(receipt.verification.deadlineAt);
         if (verificationIncomplete) result.summary = `${receipt.verification?.incompleteReason ?? 'REVIEW_TIMEOUT'}：已保留完成的检查，本次验收未完整完成，候选尚未通过。`;
         const verdict = verificationIncomplete || !receipt.markerVerified || groups?.some((group) => group.verdict === "blocked")
@@ -1065,7 +1073,10 @@ export function createGenerationRepository(
           error_code=$6,error_message=$7,error_retryable=$8,finished_at=now() WHERE owner_id=$1 AND id=$2 RETURNING *`,
         [ownerId, runId, state, repairNextAttempt ? "implement" : "persist", result.summary, verdict === "blocked" ? "CHECK_BLOCKED" : null, verdict === "blocked" ? result.summary : null, verdict === "blocked" ? true : null])).rows[0];
         if (verdict === "passed") {
-          await client.query("UPDATE nano.projects SET current_revision_id=$3 WHERE owner_id=$1 AND id=$2", [ownerId, current.project_id, saved.id]);
+          if(deadline!==undefined&&Date.now()>=deadline)throw new ApiFailure(503,'REVIEW_TIMEOUT','验收持久化超过统一时间上限',true);
+          const promoted=await client.query("UPDATE nano.projects SET current_revision_id=$3 WHERE owner_id=$1 AND id=$2 AND ($4::timestamptz IS NULL OR clock_timestamp()<$4::timestamptz)",
+            [ownerId,current.project_id,saved.id,receipt.verification?.deadlineAt??null]);
+          if(promoted.rowCount!==1)throw new ApiFailure(503,'REVIEW_TIMEOUT','验收持久化超过统一时间上限',true);
           await client.query("UPDATE nano.sandboxes SET purpose='preview' WHERE owner_id=$1 AND id=$2", [ownerId, sandbox.id]);
         }
         if (!repairNextAttempt) {
@@ -1076,6 +1087,7 @@ export function createGenerationRepository(
         await event(client, changed, { type: "role.completed", roleRunId: role.id, payload: { role: "reviewer", state: verdict === "blocked" ? "failed" : "succeeded", summary: result.summary } });
         const recordedVerification = receipt.verification ? CheckVerificationSchema.parse(receipt.verification) : undefined;
         const verification = recordedVerification ? { ...recordedVerification,
+          ...(persistenceTimedOut?{timedOut:true,incompleteReason:'REVIEW_TIMEOUT'}:{}),
           elapsedMs: Math.max(recordedVerification.elapsedMs, Date.now() - Date.parse(recordedVerification.startedAt)),
           phasesMs: { ...recordedVerification.phasesMs, persistence: Math.max(0, performance.now() - persistenceStartedAt) },
         } : undefined;
@@ -1086,8 +1098,19 @@ export function createGenerationRepository(
         if (!repairNextAttempt) {
           await event(client, changed, { type: "run.finished", payload: { state, revisionId: saved.id, checkId: check.id } });
         }
+        if(verdict==='passed'&&deadline!==undefined&&Date.now()>=deadline)
+          throw new ApiFailure(503,'REVIEW_TIMEOUT','验收提交超过统一时间上限',true);
         return { run: storedRun(changed), check: publicCheck, revision: storedRevision(changedRevision), repairNextAttempt };
       });
+      try{return await persistReview();}
+      catch(error){
+        const code=(error as {code?:unknown}|null)?.code;
+        if(deadline===undefined||!['57014','25P04','REVIEW_TIMEOUT'].includes(String(code)))throw error;
+        // The timed-out transaction rolled back. Persist the same evidence once
+        // as blocked; this recovery is never allowed to promote a candidate.
+        persistenceTimedOut=true;
+        return persistReview();
+      }
     },
     getCheck: (ownerId, checkId) => owned(ownerId, async (client) => {
       const row = (await client.query(`${checkReadProjection} WHERE c.owner_id=$1 AND c.id=$2`, [ownerId, checkId])).rows[0];

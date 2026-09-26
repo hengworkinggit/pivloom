@@ -537,4 +537,25 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
       expect((await generation.readProjectSnapshot(ownerA, fixture.project.id)).project.currentRevisionId).toBeNull();
     } finally { clock.mockRestore(); }
   }, 30_000);
+
+  test('a database delay after the verdict cannot commit a promotion past the verification deadline', async () => {
+    const fixture=await candidate(true);
+    const review=await reviewed(fixture);
+    await admin.query("UPDATE nano.runs SET deadline_at=now()+interval '2 hours' WHERE id=$1",[fixture.run.id]);
+    const name='deadline_'+randomUUID().replaceAll('-','');
+    await admin.query(`CREATE FUNCTION nano.${name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.run_id='${fixture.run.id}'::uuid THEN PERFORM pg_sleep(0.25); END IF; RETURN NEW; END $$;
+      CREATE TRIGGER ${name} BEFORE INSERT ON nano.checks FOR EACH ROW EXECUTE FUNCTION nano.${name}()`);
+    const started=performance.now(),deadline=Date.parse(review.receipt.verification!.deadlineAt);
+    const clock=vi.spyOn(Date,'now').mockImplementation(()=>deadline-100+(performance.now()-started));
+    try{
+      const finished=await generation.finishReview(ownerA,fixture.run.id,{receipt:review.receipt});
+      expect(finished.check.verdict).toBe('blocked');
+      expect(finished.check.items.every(item=>item.verdict==='passed')).toBe(true);
+      expect((await generation.readProjectSnapshot(ownerA,fixture.project.id)).project.currentRevisionId).toBeNull();
+    }finally{
+      clock.mockRestore();
+      await admin.query(`DROP TRIGGER ${name} ON nano.checks; DROP FUNCTION nano.${name}()`);
+    }
+  },30_000);
 });

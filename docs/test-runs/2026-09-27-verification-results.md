@@ -22,3 +22,13 @@ Red-green entry tests reproduced the original all-blocked visual failure, unreac
 ## Remaining acceptance work
 
 Root integration must provide real native-browser and real-model evidence and complete the original frozen-release matrix. The shadow capacity model still reports the former fixed run ledger until its `currentLimits` is updated to the new budget helper. This slice does not close #37 or claim the three-hour task complete.
+
+## Run-wide budget follow-up
+
+The window now starts immediately before the first Reviewer is queued and ends at terminal Check persistence. Initial Coordinator/Builder work is outside that window; infrastructure rebinds, all subsequent Reviewer attempts and repair Builder work are inside the same 600 seconds. Later reviews inherit the original start/deadline, while their role usage and phase durations still measure their own attempt. A repair interrupted by the budget is `REVIEW_TIMEOUT`, not user cancellation. The final ownership check remains under the hard timer.
+
+PostgreSQL 17 `transaction_timeout` and `statement_timeout` bind persistence to the remaining window, including COMMIT; promotion additionally checks the absolute deadline. An expired transaction rolls back and the same evidence can be saved once as blocked. Such post-timeout evidence recovery is not a successful or in-budget verification. Checked-out PG clients now handle backend timeout termination without an unhandled error or reusing the broken connection.
+
+Validation on the follow-up: real isolated executor suite **2 passed** (legacy persisted candidate → infrastructure rebind; failed check → repair Builder timeout), review persistence suite **6 passed**, review/deadline/terminal unit suite **43 passed**, API typecheck and ESLint passed. The database regression used a real 250ms INSERT trigger against a 100ms remaining window: before the change it promoted; afterwards it retained all items in a blocked Check without promotion. The fixture trigger was removed. Review DB received the already-committed migration 030 needed by the integrated candidate feature. No production mutation was made.
+
+The old general executor fixture still asks the new Coordinator to output a prose-only plan, so the remaining old executor cases need their own fixture migration before being claimed green. The new regression deliberately creates a real persisted legacy candidate through repository APIs and uses the supported retry route; it does not bypass Coordinator validation.

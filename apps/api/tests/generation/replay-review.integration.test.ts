@@ -375,7 +375,7 @@ test('user cancellation after a completed item returns no review receipt', async
   f.input.onEvent = async (event) => {
     if (event.toolName === 'browser_steps' && event.type === 'tool.end') controller.abort('CANCELLED');
   };
-  await expect(runReview(f.input, f.boundaries)).rejects.toBe('CANCELLED');
+  await expect(runReview(f.input, f.boundaries)).rejects.toMatchObject({code:'CANCELLED'});
   expect(f.remote.clicks).toBe(1);
 });
 
@@ -389,4 +389,20 @@ test('the screenshot capacity blocks only the later program and keeps a persista
   expect(receipt.result.items[0].verdict).toBe('passed');
   expect(receipt.result.items[1]).toMatchObject({verdict:'blocked',actual:expect.stringContaining('REVIEW_ARTIFACT_LIMIT')});
   expect(receipt.artifacts).toHaveLength(80);
+});
+
+test('the hard deadline remains armed during the last ownership check after Chrome cleanup', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+  try {
+    const f=await fixture(scriptedPlan);
+    const connection=await f.boundaries.sandboxConnector.connect();
+    let released=false;
+    connection.close=async()=>{released=true;};
+    f.input.assertActive=async()=>{if(released)await new Promise(()=>{});};
+    const pending=runReview(f.input,f.boundaries);
+    const completion=pending.then(()=>true,()=>true);
+    await vi.advanceTimersByTimeAsync(600_001);
+    expect(await Promise.race([completion,Promise.resolve(false)])).toBe(true);
+    await expect(pending).rejects.toMatchObject({code:'REVIEW_TIMEOUT'});
+  }finally{vi.useRealTimers();}
 });

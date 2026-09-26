@@ -16,6 +16,7 @@ import { createGenerationExecutor } from "../../src/generation/executor.js";
 import { createPreviewGateway } from "../../src/generation/preview.js";
 import type { SandboxConnection, SandboxConnector } from "../../src/runtime/workspace.js";
 import type { GroupedPlan } from "@pivloom/contracts";
+import { REACT_TEMPLATE_VERSION } from '../../src/runtime/snapshot.js';
 
 const plan: GroupedPlan = { schemaVersion: 2, goal: "点击加一", changeSummary: "计数器", assumptions: [], outOfScope: [],
   behaviors: [
@@ -124,6 +125,10 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
   async function fixture(mode: "normal" | "review-blocked" | "reviewer-infra-once" | "reviewer-infra-twice" | "build-once" | "tool-budget" | "cleanup-fails" | "restore-cleanup-fails" | "restore-build-fails" | "cancel-builder" | "cancel-builder-cleanup-fails" | "model-fails",
     options: { failCancelledWrites?: number; failFailedWrites?: number; failRestoreWrites?: number; settlementRetryMs?: number; cleanupSweepMs?: number;
       observeTerminalWrites?: boolean;
+      monotonicNow?: () => number;
+      onReviewerRequest?: (sessions: number) => void;
+      onBuilderRequest?: (sessions: number) => void;
+      failFirstReview?: boolean;
       beforeModelFailure?: () => Promise<void> } = {}) {
     const remotes = new Map<string, { files: Map<string, Buffer>; live: boolean; actions: number; url: string; index: number; renewals: number[] }>();
     let builderSessions = 0;
@@ -187,7 +192,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
               let data: Record<string, unknown> = {};
               if (command.includes("'open'")) remote.url = command.split("'open' '")[1]?.split("'")[0] ?? remote.url;
               if (command.endsWith("'get' 'url'")) data = { url: remote.url };
-              else if (command.endsWith("'get' 'text' 'body'")) data = { text: (mode === "tool-budget" || mode === "cleanup-fails") && remote.index === 0 ? "计数0" : `计数${remote.actions ? 1 : 0}` };
+              else if (command.endsWith("'get' 'text' 'body'")) data = { text: (options.failFirstReview || mode === "tool-budget" || mode === "cleanup-fails") && remote.index === 0 ? "计数0" : `计数${remote.actions ? 1 : 0}` };
               else if (command.endsWith("'snapshot' '-i'")) data = { snapshot: '- button "加一" [ref=e1]', refs: { e1: { role: "button", name: "加一" } } };
               else if (command.includes("'click'")) {
                 if ((mode === "reviewer-infra-once" && infrastructureFailures === 0)
@@ -232,11 +237,13 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       else if (tools.includes("write")) {
         if (!messages.some((message) => message.role === "assistant")) {
           builderSessions++; builderPrompts.push(JSON.stringify(messages));
+          options.onBuilderRequest?.(builderSessions);
           const count = mode === "tool-budget" && builderSessions > 1 ? 2 : 1;
           calls = Array.from({ length: count }, () => ({ name: "write", args: { path: "src/App.tsx", content: "export default function App(){return <button>加一</button>}" } }));
           if (mode === "normal") calls.push({ name: "write", args: { path: "README.md", content: "preserve this existing file across modifications" } });
         }
       } else if (tools.includes("browser_open")) {
+        options.onReviewerRequest?.(reviewerSessions.size);
         const priorCalls = messages.flatMap((message) => message.tool_calls ?? []).map((call) => call.function.name);
         const completed = priorCalls.filter((name) => name === "record_behavior").length;
         const section = priorCalls.slice(priorCalls.lastIndexOf("record_behavior") + 1);
@@ -254,7 +261,8 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
           expect(request.messages.some((message: { role: string; content: unknown }) => message.role === "user" && Array.isArray(message.content)
             && message.content.some((part: { type: string; image_url?: { url: string } }) => part.type === "image_url"
               && part.image_url?.url.startsWith("data:image/png;base64,")))).toBe(true);
-          const failed = completed === 0 && (mode === "tool-budget" || mode === "cleanup-fails") && builderSessions === 1;
+          const failed = completed === 0 && (options.failFirstReview ? reviewerSessions.size === 1
+            : (mode === "tool-budget" || mode === "cleanup-fails") && builderSessions === 1);
           const blocked = mode === "review-blocked" && completed === 0;
           calls = [{ name: "record_behavior", args: { behaviorId: current.id, verdict: blocked ? "blocked" : failed ? "failed" : "passed",
             expected: current.expected, actual: blocked ? "隔离夹具无法确认计数行为" : failed ? "点击后仍为0" : `点击后观察 ${current.id}`,
@@ -296,6 +304,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
       artifacts: createArtifactStore({ url: "http://storage-fixture.invalid", secret: "fixture", objects: {
         upload: async (key, bytes) => { objects.set(key, bytes); }, download: async (key) => objects.get(key)!,
       } }) }, { sandboxConnector: connector, modelFetch, ...(mode === "tool-budget" ? { maxToolCalls: 18 } : {}),
+        ...(options.monotonicNow ? { monotonicNow: options.monotonicNow } : {}),
         ...(options.settlementRetryMs ? { settlementRetryMs: options.settlementRetryMs } : {}),
         ...(options.cleanupSweepMs ? { cleanupSweepMs: options.cleanupSweepMs } : {}) });
     closers.push(async () => { await executor.close(); await previews.close(); });
@@ -334,6 +343,57 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     if (closeAfter) await f.executor.close();
     return { ...await repository.readRunSnapshot(owner, claimed.id), projectId: project.id };
   }
+
+  async function legacyCandidate() {
+    // A genuine persisted legacy candidate takes the supported reviewer-retry
+    // route, rather than asking the current Coordinator to invent a legacy plan.
+    const project=await createProjectRepository(database).create(owner,prefix);projects.push(project.id);
+    const accepted=await repository.accept(owner,project.id,{idempotencyKey:randomUUID(),text:'初始0，点击加一显示1',
+      expectedCurrentRevisionId:null,modelProfileId:model.id,modelConfigVersion:model.configVersion});
+    leases.push(accepted.run.credentialLeaseId);
+    const claimed=await claimForTest(repository,owner,accepted.run.id);if(!claimed)throw Error('legacy candidate not claimable');
+    const coordinator=await repository.startCoordinator(owner,claimed.id);
+    await repository.submitPlan(owner,claimed.id,{roleRunId:coordinator.id,attempt:0,plan});
+    await repository.startBuilder(owner,claimed.id);await repository.completeBuilder(owner,claimed.id,{summary:'Explicit legacy build fixture'});
+    const source=await sources.save({ownerId:owner,projectId:project.id,revisionId:randomUUID()},REACT_TEMPLATE_VERSION,
+      [{path:'src/App.tsx',content:'export default function App(){return <button>加一</button>}'}]);
+    const revision=await repository.saveCandidate(owner,claimed.id,{source,buildStatus:'passed',build:{schemaVersion:1,sourceHash:source.sourceHash,
+      typecheck:{command:'node /workspace/node_modules/typescript/bin/tsc --noEmit',exitCode:0,durationMs:1,stdoutTail:'Explicit fixture',stderrTail:''},
+      build:{command:'node /workspace/node_modules/vite/bin/vite.js build',exitCode:0,durationMs:1,stdoutTail:'Explicit fixture',stderrTail:''}}});
+    const sandbox={sandboxId:randomUUID(),expiresAt:new Date(Date.now()+600_000).toISOString()};
+    await repository.registerSandbox(owner,claimed.id,sandbox);
+    await repository.bindPreview(owner,claimed.id,{...sandbox,revisionId:revision.id,sourceHash:revision.sourceHash,markerVerified:true,writeRevoked:true,chromeClosed:true});
+    await repository.queueReviewer(owner,claimed.id,{revisionId:revision.id});await repository.startReviewer(owner,claimed.id);
+    await repository.markDestroyed(owner,claimed.id,sandbox.sandboxId);
+    await repository.finishFailed(owner,claimed.id,{code:'REVIEW_TIMEOUT',message:'Explicit legacy retry fixture',retryable:true,resultRevisionId:revision.id,cleanupState:'confirmed'});
+    return {project,runId:claimed.id};
+  }
+
+  test('infrastructure rebinds share the first Reviewer deadline instead of receiving another ten minutes', async () => {
+    const {project,runId}=await legacyCandidate();
+    let now=0;
+    const f=await fixture('reviewer-infra-once',{monotonicNow:()=>now,
+      onReviewerRequest:sessions=>{now=sessions===1?400_000:610_000;}});
+    const snapshot=await run(f,project.id,true,runId);
+    expect(f.reviewerSessions.size).toBe(2);
+    expect(snapshot.run.state).toBe('failed');
+    expect(snapshot.run.error?.code).toBe('REVIEW_TIMEOUT');
+    expect((await createProjectRepository(database).get(owner,snapshot.projectId)).currentRevisionId).toBeNull();
+  },30_000);
+
+  test('repair Builder time spends the same verification window and is classified as timeout, not cancellation', async () => {
+    const {project,runId}=await legacyCandidate();
+    let now=0;
+    const f=await fixture('normal',{monotonicNow:()=>now,failFirstReview:true,
+      onReviewerRequest:()=>{now=400_000;},onBuilderRequest:()=>{now=610_000;}});
+    const snapshot=await run(f,project.id,true,runId);
+    expect(f.builderPrompts).toHaveLength(1);
+    expect(f.reviewerSessions.size).toBe(1);
+    expect(snapshot.run.state).toBe('failed');
+    expect(snapshot.run.error?.code).toBe('REVIEW_TIMEOUT');
+    expect((await repository.getRunCheck(owner,snapshot.run.id))?.verdict).toBe('failed');
+    expect((await createProjectRepository(database).get(owner,project.id)).currentRevisionId).toBeNull();
+  },30_000);
 
   test("capacity claims two projects at the ceiling, queues the rest durably, and keeps each project exclusive", async () => {
     const capacity = createGenerationRepository(database, models, { executorBootId: randomUUID(), maxSandboxes: 2,

@@ -60,6 +60,8 @@ export interface ReviewInput {
   tokenBudget?:RunTokenBudget;maxToolCalls?:number;onEvent?:ProbeEventSink;assertActive():Promise<void>;
   onCheckpoint?(checkpoint:DurableReviewCheckpoint):Promise<void>;
   onLeaseRenewed(expiresAt:string):Promise<void>;
+  /** All review/rebind/repair attempts of one Run inherit this same monotonic window. */
+  verificationWindow?: { startedAt:number; deadlineAt:number; startedAtWall:number };
 }
 function freeze<T>(value:T):T{
   if(value&&typeof value==='object'&&!Object.isFrozen(value)){
@@ -69,8 +71,9 @@ function freeze<T>(value:T):T{
 /** The only receipt issuer verifies immutable objects, remote source + marker,
  * actual browser evidence and closing. Test injection is external sandbox/HTTP. */
 export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:SandboxConnector;previewFetch?:typeof fetch;monotonicNow?:()=>number}={}):Promise<{receipt:VerifiedReviewReceipt;usage?:TokenUsage}>{
-  const now=boundaries.monotonicNow??(()=>performance.now()),startedAt=now(),startedAtWall=Date.now();
-  const deadlineAt=startedAt+VERIFICATION_WALL_CLOCK_LIMIT_MS;
+  const now=boundaries.monotonicNow??(()=>performance.now()),attemptStartedAt=now();
+  const startedAt=input.verificationWindow?.startedAt??attemptStartedAt,startedAtWall=input.verificationWindow?.startedAtWall??Date.now();
+  const deadlineAt=input.verificationWindow?.deadlineAt??startedAt+VERIFICATION_WALL_CLOCK_LIMIT_MS;
   const workDeadlineAt=deadlineAt-REVIEW_FINALIZATION_RESERVE_MS;
   let preparationCompletedAt:number|undefined,executionCompletedAt:number|undefined,finishing=false;
   const binding=ReviewBindingSchema.parse(input.binding);
@@ -96,10 +99,12 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
   let incompleteReason:string|undefined;
   let evidence:ReviewObservationEvent[]=[],result:ReviewResult|undefined;
   async function bounded<T>(operation:()=>Promise<T>,scopeSignal=signal):Promise<T>{
-    expire();scopeSignal.throwIfAborted();
+    const abortReason=()=>scopeSignal.reason==='CANCELLED'?new RuntimeError('CANCELLED','检查已取消')
+      :scopeSignal.reason==='REVIEW_TIMEOUT'?new RuntimeError('REVIEW_TIMEOUT','检查已达到统一时间上限'):scopeSignal.reason;
+    expire();if(scopeSignal.aborted)throw abortReason();
     let abort:()=>void=()=>{};
     const stopped=new Promise<never>((_resolve,reject)=>{
-      abort=()=>reject(scopeSignal.reason);
+      abort=()=>reject(abortReason());
       scopeSignal.addEventListener('abort',abort,{once:true});
     });
     try{return await Promise.race([operation(),stopped]);}
@@ -308,14 +313,14 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
         await bounded(()=>workspace.releaseClient(handle),deadlineAbort.signal).catch(()=>{});
         if(!closed.confirmed)throw new RuntimeError('CHECK_BLOCKED','检查会话关闭尚未确认',undefined,usage);
       }
+      await finalActive();
     }finally{clearTimeout(workTimer);clearTimeout(deadlineTimer);}
   }
-  await finalActive();
-  usage={...(usage??{input:null,output:null,total:null,cachedTokens:null,modelCalls:0,toolCalls:0,source:'unreported' as const}),elapsedMs:Math.max(0,now()-startedAt)};
+  usage={...(usage??{input:null,output:null,total:null,cachedTokens:null,modelCalls:0,toolCalls:0,source:'unreported' as const}),elapsedMs:Math.max(0,now()-attemptStartedAt)};
   const receipt:VerifiedReviewReceipt=freeze({binding,source:input.source,result:result!,artifacts,evidence,markerVerified,chromeClosed:true,
-    verification:{startedAt:new Date(startedAtWall).toISOString(),deadlineAt:new Date(startedAtWall+VERIFICATION_WALL_CLOCK_LIMIT_MS).toISOString(),elapsedMs:usage.elapsedMs,timedOut:workAbort.signal.aborted,
+    verification:{startedAt:new Date(startedAtWall).toISOString(),deadlineAt:new Date(startedAtWall+deadlineAt-startedAt).toISOString(),elapsedMs:Math.max(0,now()-startedAt),timedOut:workAbort.signal.aborted,
       ...(incompleteReason?{incompleteReason}:{}),phasesMs:{
-        preparation:Math.max(0,(preparationCompletedAt??now())-startedAt),
+        preparation:Math.max(0,(preparationCompletedAt??now())-attemptStartedAt),
         ...(preparationCompletedAt===undefined?{}:{execution:Math.max(0,(executionCompletedAt??now())-preparationCompletedAt)}),
         ...(executionCompletedAt===undefined?{}:{finalization:Math.max(0,now()-executionCompletedAt)}),
       }},

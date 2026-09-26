@@ -18,6 +18,11 @@ export class PivloomDatabase {
 
   async owned<T>(ownerId: string, operation: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
+    // transaction_timeout terminates the backend. The pool only handles errors
+    // on idle clients, so retain this listener until the borrowed client is released.
+    let connectionError: Error | undefined;
+    const onConnectionError = (error: Error) => { connectionError = error; };
+    client.on('error', onConnectionError);
     try {
       await client.query("BEGIN");
       await client.query("SET LOCAL ROLE nano_api");
@@ -29,7 +34,8 @@ export class PivloomDatabase {
       await client.query("ROLLBACK").catch(() => undefined);
       throw error;
     } finally {
-      client.release();
+      client.release(connectionError);
+      client.removeListener('error', onConnectionError);
     }
   }
 
