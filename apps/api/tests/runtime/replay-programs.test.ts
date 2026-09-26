@@ -95,3 +95,41 @@ test('missing scenario setup is rejected before the browser starts', async () =>
   })).rejects.toMatchObject({ code: 'INVALID_TEST_PROGRAM' });
   expect(fixture.calls.open).toBe(0);
 });
+
+test('a saved form outcome is checked after asynchronous UI settling within its named list', async () => {
+  const fixture = formFixture(sessionId, { initial: { text: 'Navigation contains Saved. Empty queue.' } });
+  let saved = false;
+  let ready: ReturnType<typeof setTimeout> | undefined;
+  const browser = { ...fixture.browser, async act(action: Parameters<typeof fixture.browser.act>[0]) {
+    ready = setTimeout(() => { saved = true; }, 1);
+    return fixture.browser.act(action);
+  }, async inspect(target: BehaviorTargetLocator) {
+    return { observation: await fixture.browser.observe(), matches: target.within?.name === 'Submission queue' && saved
+      ? [{ text: 'Draft submitted', value: null }] : [] };
+  } };
+  try {
+    const result = await runReplayProgram({ browser, signal: new AbortController().signal, rendersOnly: false, saveScreenshot,
+      target: { expected: 'The submitted draft appears in the submission queue' },
+      program: { behaviorId: 'B01', initialState: 'continue',
+        steps: [{ type: 'open' }, { type: 'fill', role: 'textbox', name: '书名', text: 'Draft' },
+          { type: 'wait', ms: 10 }].map(step => BehaviorStepSchema.parse(step)),
+        assertions: [BehaviorAssertionSchema.parse({ kind: 'target-text',
+          target: { role: 'listitem', within: { role: 'list', name: 'Submission queue' } }, text: 'Draft submitted' })] },
+    });
+    expect(result.item.verdict).toBe('passed');
+    expect(result.item.actual).toContain('Draft submitted');
+  } finally { clearTimeout(ready); }
+});
+
+test('an absent or ambiguous outcome target is a test-definition error, never a guessed value', async () => {
+  const fixture = formFixture(sessionId);
+  for (const matches of [[], [{ text: 'Saved', value: null }, { text: 'Saved', value: null }]]) {
+    const browser = { ...fixture.browser, inspect: async () => ({ observation: await fixture.browser.observe(), matches }) };
+    await expect(runReplayProgram({ browser, signal: new AbortController().signal, rendersOnly: false, saveScreenshot,
+      target: { expected: 'The save status is Saved' },
+      program: { behaviorId: 'B01', initialState: 'continue',
+        steps: [{ type: 'open' }, { type: 'press', key: 'Enter' }].map(step => BehaviorStepSchema.parse(step)),
+        assertions: [BehaviorAssertionSchema.parse({ kind: 'target-text', target: { role: 'status', name: 'Save status' }, text: 'Saved' })] },
+    })).rejects.toMatchObject({ code: 'TEST_TARGET_AMBIGUOUS' });
+  }
+});
