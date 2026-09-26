@@ -934,3 +934,30 @@ result = { …, items: input.handoff.plan.behaviors.map(behavior => ({
 2. **`review.ts:249`**：**保留 `reviewed` 中已有的 items**，只为未覆盖的行为补 blocked 项——作为第二道保险，防止将来任何异常再次丢光已完成的工作。
 
 **两条都不改判定标准**；未执行的行为**永远不判 passed**（fail-closed 不变）。
+
+### ✅✅ 判别依据本来就存在——修法可安全落地（已确证）
+
+上一节我写"若当前中止不携带可区分的原因，要先补上"。**查完代码：不需要，原因本来就在。**
+
+```
+generation/review.ts:77   const leaseAbort=new AbortController(), signal=AbortSignal.any([input.signal, leaseAbort.signal]);
+reviewer.ts:320           abortController.abort('REVIEW_TIMEOUT');   // 预算/超时 —— 带具名原因
+reviewer.ts:276           abortController.abort();                   // 致命错误 —— 不带
+```
+
+**`AbortSignal.any` 在任一输入中止时沿用该输入的原因**，所以：
+
+| 中止来源 | `signal.reason` |
+|---|---|
+| **预算超时** | **`'REVIEW_TIMEOUT'`** |
+| 租约失效 | `leaseFailure`（`review.ts:91` 传入） |
+| 其他取消 | `undefined` |
+
+**因此修法明确且安全**：
+
+1. **`replay-plan.ts` 的 `runPrograms`**：捕获中止时——
+   - `input.signal.reason === 'REVIEW_TIMEOUT'` → **返回已收集的 items**，其余行为记为 blocked，文案写明**"预算耗尽，N 条未执行"**；
+   - **其他原因 → 照旧抛错**（取消/租约失效**不得**写出判定）。
+2. **`review.ts:249`**：保留 `reviewed` 已有 items，只为未覆盖的行为补 blocked（第二道保险）。
+
+**判定标准一字未动；未执行的行为永不判 passed（fail-closed 不变）；"取消"与"预算耗尽"的正确行为都被保住。**
