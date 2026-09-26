@@ -371,7 +371,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
               : message.kind === "rollback" ? <article className="rollback-message" data-testid="rollback-conversation-event" key={message.id}><RotateCcw size={15} aria-hidden="true" /><div><strong>{ui.text("版本回滚", "Version rollback")}</strong><p>{message.content}</p></div></article>
               : <article className="assistant-message" key={message.id}><div className="assistant-message-heading"><LoomMark /><strong>{message.kind === "question" ? ui.text("协调者", "Coordinator") : "Pivloom"}</strong></div><div className="assistant-message-body"><p className="message-content">{message.content}</p></div></article>)}
           {run && <GenerationActivity run={run} events={state.view!.events} roles={state.view!.roles} />}
-          {run && <GenerationOutcome run={run} candidateSaved={project.latestCandidate?.runId === run.id && project.latestCandidate.id === run.resultRevisionId} check={runCheck} />}
+          {run && <GenerationOutcome run={run} candidateSaved={project.latestCandidate?.runId === run.id && project.latestCandidate.id === run.resultRevisionId} check={runCheck} failureDetail={state.view?.failureDetail ?? null} />}
           <div ref={bottom} />
         </div>
         <div className="chat-bottom">

@@ -1,7 +1,7 @@
 "use client";
 
 import { LoaderCircle, TriangleAlert } from "lucide-react";
-import { TerminalRunStates, type Check, type RoleRun, type Run, type RunEvent, type RunPhase } from "@pivloom/contracts";
+import { TerminalRunStates, type Check, type RoleRun, type Run, type RunEvent, type RunFailureDetail, type RunPhase } from "@pivloom/contracts";
 import { LoomMark } from "./brand";
 import { GenerationPlan } from "./generation-plan";
 import { useUiPreferences, type Locale } from "@/lib/ui-preferences";
@@ -61,7 +61,25 @@ export function GenerationActivity({ run, events, roles = [] }: { run: Run; even
   </article>;
 }
 
-export function GenerationOutcome({ run, candidateSaved, check }: { run: Run; candidateSaved: boolean; check?: Check | null }) {
+// The classified cause is stored as data so a run can explain itself without anyone reading
+// server logs; show the recorded shape that carries the most meaning, and never the raw object.
+function failureCauseText(failure: RunFailureDetail) {
+  const value = failure.detail ?? {};
+  const issue = Array.isArray(value.issues) ? value.issues[0] : undefined;
+  const raw = typeof value.message === "string" ? value.message
+    : typeof issue === "string" ? issue
+      : typeof value.repr === "string" ? value.repr
+        : typeof value.code === "string" ? value.code : "";
+  if (raw.trim().startsWith("{")) {
+    try {
+      const parsed = JSON.parse(raw) as { message?: unknown };
+      if (typeof parsed.message === "string") return parsed.message.slice(0, 300);
+    } catch { /* not JSON after all; fall through to the raw text */ }
+  }
+  return raw.slice(0, 300);
+}
+
+export function GenerationOutcome({ run, candidateSaved, check, failureDetail }: { run: Run; candidateSaved: boolean; check?: Check | null; failureDetail?: RunFailureDetail | null }) {
   const ui = useUiPreferences();
   if (!TerminalRunStates.has(run.state)) return null;
   const unchecked = run.error?.code === "CHECK_BLOCKED" && !check;
@@ -73,7 +91,9 @@ export function GenerationOutcome({ run, candidateSaved, check }: { run: Run; ca
       {run.state === "needs_input" && run.clarification && <p>{ui.text("本次任务已结束。填写回答后会接着原需求继续。", "Answer the question to continue the original request.")}</p>}
       {unchecked && candidateSaved && <p>{ui.text("构建与源码保存已完成，行为检查尚未完成。此候选尚未成为当前版本。", "Build and source are saved, but this candidate has not passed review.")}</p>}
       {run.state === "needs_changes" && run.attempt > 0 && <p>{ui.text(`已尝试修复 ${run.attempt} 轮${run.attempt >= 2 ? "，已达上限，停止自动修复。" : "。"}`, `${run.attempt} repair rounds attempted${run.attempt >= 2 ? "; limit reached." : "."}`)}</p>}
-      <details><summary>{ui.text("任务详情", "Run details")}</summary><p className="generation-identifier">{run.id}</p>{run.error && <p>{run.error.code}</p>}</details>
+      <details><summary>{ui.text("任务详情", "Run details")}</summary><p className="generation-identifier">{run.id}</p>{run.error && <p>{run.error.code}</p>}
+        {failureDetail && <p className="generation-failure-cause" data-testid="failure-cause">{ui.text("真实原因", "Real cause")}: <strong>{failureDetail.causeClass}</strong>{typeof failureDetail.detail?.code === "string" ? ` ${failureDetail.detail.code}` : ""} · {failureDetail.phase}{failureCauseText(failureDetail) ? ` — ${failureCauseText(failureDetail)}` : ""}</p>}
+      </details>
     </div>
   </div>;
 }

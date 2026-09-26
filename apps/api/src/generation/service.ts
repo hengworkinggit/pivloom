@@ -243,7 +243,10 @@ export function createGenerationService(options: {
     async runDetail(ownerId: string, runId: string) {
       const { run, revision, events, binding, roles } = await repository.readRunSnapshot(ownerId, runId);
       if (revision) await rehydrateRollbackPreview(ownerId, revision.projectId, revision.id, binding);
-      return RunDetailResponseSchema.parse({ run, revision, events, roles,
+      // The classified cause of a failure is part of the run's story; the generic
+      // error message alone is what made failures undiagnosable without log access.
+      const failureDetail = run.state === "failed" ? await repository.readFailureDetail(ownerId, runId) : null;
+      return RunDetailResponseSchema.parse({ run, revision, events, roles, failureDetail,
         preview: revision ? previewView(ownerId, revision, binding) : null });
     },
     preview,
