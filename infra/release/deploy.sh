@@ -11,6 +11,13 @@ existing_site="${PIVLOOM_EXISTING_SITE:?set PIVLOOM_EXISTING_SITE to the site to
 node="${PIVLOOM_REMOTE_NODE:-/usr/local/bin/node}"
 npm_cli="${PIVLOOM_REMOTE_NPM_CLI:-}"
 maintenance_env="${PIVLOOM_REMOTE_MAINTENANCE_ENV:?set the remote private maintenance env path (MIGRATION_DATABASE_URL)}"
+keep="${PIVLOOM_RELEASE_KEEP:-4}"
+disk_limit="${PIVLOOM_DISK_MAX_PERCENT:-85}"
+maintenance_script="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/release-maintenance.sh"
+source "$maintenance_script"
+validate_release_settings "$keep" "$disk_limit"
+keep=$((10#$keep))
+disk_limit=$((10#$disk_limit))
 [[ "$component" = api || "$component" = web ]] || exit 2
 [[ "$release" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$ ]] || exit 2
 [[ "$root" =~ ^/[a-zA-Z0-9_/-]+$ && "$host" != -* ]] || exit 2
@@ -31,15 +38,20 @@ with open(sys.argv[1], "rb") as file:
     print(hashlib.file_digest(file, "sha256").hexdigest())
 PY
 )
+  # Refuse a full host before creating incoming or streaming any archive bytes.
+  preflight_args=$(printf '%q ' "$root" "$disk_limit" "$keep")
+  { cat "$maintenance_script"; printf '\nset -euo pipefail\nvalidate_release_settings "$3" "$2"\ndisk_guard "$1" "$2" before-upload\n'; } |
+    ssh "${ssh_options[@]}" "$host" "bash -s -- $preflight_args"
   ssh "${ssh_options[@]}" "$host" "mkdir -p '$root/incoming'"
   # Use the existing SSH stream; deployment does not require an SFTP subsystem.
   ssh "${ssh_options[@]}" "$host" "cat > '$root/incoming/$component-$release.tar.gz'" < "$archive"
 fi
-remote_args=$(printf '%q ' "$component" "$release" "$root" "$mode" "$digest" "$public_url" "$existing_site" "$node" "$npm_cli" "$maintenance_env")
-ssh "${ssh_options[@]}" "$host" "bash -s -- $remote_args" <<'REMOTE'
+remote_args=$(printf '%q ' "$component" "$release" "$root" "$mode" "$digest" "$public_url" "$existing_site" "$node" "$npm_cli" "$maintenance_env" "$keep" "$disk_limit")
+{ cat "$maintenance_script"; cat <<'REMOTE'
 set -euo pipefail
 component=$1 release=$2 root=$3 mode=$4 digest=$5 public_url=$6 existing_site=$7 node=$8 npm_cli=$9
-maintenance_env=${10}
+maintenance_env=${10} keep=${11} disk_limit=${12}
+validate_release_settings "$keep" "$disk_limit"
 target="$root/$component-releases/$release"
 link="$root/$component-current"
 incoming="$root/incoming/$component-$release.tar.gz"
@@ -78,9 +90,11 @@ trap finish EXIT
 if [[ "$mode" = install ]]; then
   [[ ! -e "$target" ]] || { echo 'Release already exists; use --rollback to select it.' >&2; exit 2; }
   printf '%s  %s\n' "$digest" "$incoming" | sha256sum --check --status
+  disk_guard "$root" "$disk_limit" before-unpack
   mkdir -p "$target"
   tar -xzf "$incoming" -C "$target"
   if [[ "$component" = api ]]; then
+    disk_guard "$root" "$disk_limit" before-dependencies
     reusable=1
     for file in package-lock.json package.json apps/api/package.json apps/web/package.json packages/contracts/package.json; do
       if [[ -z "$previous" ]] || ! cmp -s "$previous/$file" "$target/$file"; then reusable=0; fi
@@ -100,14 +114,12 @@ if [[ "$mode" = install ]]; then
   chmod -R a-w "$target"
 fi
 [[ -d "$target" ]] || { echo 'Release directory not found.' >&2; exit 2; }
-# A full disk stops Postgres completing crash recovery, which takes the API down with it; on
-# 2026-09-25 that happened after retained releases reached sixteen gigabytes. Check before
-# switching so the failure is a refused deploy instead of an outage.
-disk_limit="${PIVLOOM_DISK_MAX_PERCENT:-85}"
-used_percent=$(df -P "$root" | awk 'NR==2 {gsub(/%/,"",$5); print $5}')
-if [[ -n "$used_percent" ]] && (( used_percent >= disk_limit )); then
-  echo "Refusing to deploy: $root is ${used_percent}% full (limit ${disk_limit}%)." >&2
-  exit 3
+# Rollback selects an existing artifact and must remain possible when a failed
+# install left the disk high. It does not upload, unpack or install dependencies.
+if [[ "$mode" = install ]]; then
+  disk_guard "$root" "$disk_limit" before-switch
+else
+  disk_guard "$root" "$disk_limit" rollback true
 fi
 if [[ "$component" = api ]]; then
 # Only the API owns generation workers. Web-only releases preserve the API
@@ -145,15 +157,10 @@ ready
 curl --fail --silent --show-error --retry 3 --retry-delay 1 --retry-all-errors --max-time 20 "${public_url%/}/login" >/dev/null
 curl --fail --silent --show-error --max-time 20 "${public_url%/}/api/v1/health/ready" >/dev/null
 curl --fail --silent --show-error --location --max-time 20 "$existing_site" >/dev/null
-# Keep the previous release so a rollback is one symlink away, but bound the archive: an
-# unbounded history is what filled the disk. Override with PIVLOOM_RELEASE_KEEP if needed.
-keep="${PIVLOOM_RELEASE_KEEP:-4}"
-archive="$root/$component-releases"
-if [[ -d "$archive" ]]; then
-  while IFS= read -r stale; do
-    [[ -n "$stale" && "$stale" != "$release" ]] || continue
-    rm -rf "$archive/$stale"
-  done < <(ls -1t "$archive" | tail -n +$((keep + 1)))
-fi
+# Protect both actual symlink targets, even when rolling back to a very old
+# directory. Fill the remaining slots by recency; protected targets count in keep.
+prune_releases "$root/$component-releases" "$target" "$previous" "$keep" "$component"
+disk_guard "$root" "$disk_limit" after-retention true
 printf '%s release ready: %s\nPrevious release retained: %s\n' "$component" "$release" "${previous:-none}"
 REMOTE
+} | ssh "${ssh_options[@]}" "$host" "bash -s -- $remote_args"
