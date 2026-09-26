@@ -875,3 +875,30 @@ B44 | budget
 - **仍然 fail-closed**（未执行的绝不判 passed）。
 
 **这两条都不改变任何判定标准**，只是让已经在做的事被如实记录。
+
+### "丢弃已完成判定"的确切修法与一处必须先确认的分叉
+
+**已定位**：`apps/api/src/generation/review.ts:249` 是 catch 分支——
+
+```ts
+const message = versionMismatch ? '…' : reason ?? '浏览器或检查过程未完成，当前候选尚未通过检查。';
+result = { …, items: input.handoff.plan.behaviors.map(behavior => ({
+  behaviorId: behavior.id, verdict: 'blocked', expected: behavior.expected, actual: message, … })) };
+```
+
+**即：任何异常都会把整个计划标成 blocked，并写上同一句占位文案，丢弃 `reviewed` 中已收集的判定。**
+
+**必须先确认的分叉**（决定改哪一处）：
+
+| 情形 | 观测应为何 | 修法 |
+|---|---|---|
+| **A：`runScriptedPlan` 抛错**（预算耗尽走异常） | 该运行**没有** `检查` 行前的部分结果 | **改上游**：`runScriptedPlan` 在预算耗尽时**应"返回"部分结果**（未跑完的记为 blocked），而不是抛错。**这是更可能的路径**——因为本次 42 条已跑完却无任何判定落库。 |
+| **B：`runScriptedPlan` 正常返回，但后续步骤抛错** | `reviewed` 已赋值，却仍被 catch 覆盖 | **改 `review.ts:249`**：若 `reviewed` 已存在，**保留其 items**，只为**未覆盖的行为**补 blocked 项。 |
+
+**判定方法（便宜）**：在 `catch` 里打印 `reviewed === undefined`（或看事件流里是否出现"脚本回放完成"的**最终**汇总事件）。本次运行 `4d776ebc` 有 `完成=42` 的逐条事件但无最终落库 → **倾向 A**。
+
+**无论 A 还是 B，最终正确行为相同**：
+- **保留已完成的判定**（passed / failed 照实）；
+- **只为未跑完的行为写 blocked**，文案**明确写出"预算耗尽，N 条未执行"**；
+- **仍然 fail-closed**（未执行的绝不判 passed）；
+- **不改任何判定标准**。
