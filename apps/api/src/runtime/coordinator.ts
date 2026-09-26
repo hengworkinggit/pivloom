@@ -140,12 +140,17 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
     .replace(/Bearer\s+[^\s"']+/gi, "Bearer [REDACTED]")
     .slice(0, 400);
   const fail = (error: RuntimeError) => { fatal ??= error; failureAbort.abort(); return error; };
+  // Measured: a coordinator rewriting a forty-one behaviour plan fails the first submission and comes
+  // visibly closer on the next one, so stopping after a single correction discarded work that was
+  // converging. This limits how long the coordinator may keep trying, never what counts as valid: the
+  // same guard refuses the same things and the same reason is fed back.
+  const COORDINATOR_MAX_ATTEMPTS = 4;
   const invalid = (reason?: string) => {
     invalidDecisions++;
-    const error = new RuntimeError("AGENT_OUTPUT_INVALID", invalidDecisions === 1
-      ? `方案格式无效。仅允许纠正一次：请按工具说明提交合法计划或单个问题，不要包含凭据。${reason ? ` 校验路径：${reason}` : ""}`
-      : "协调者纠正后仍未提交有效方案");
-    return invalidDecisions >= 2 ? fail(error) : error;
+    const error = new RuntimeError("AGENT_OUTPUT_INVALID", invalidDecisions < COORDINATOR_MAX_ATTEMPTS
+      ? `方案格式无效。请按工具说明提交合法计划或单个问题，不要包含凭据。${reason ? ` 校验路径：${reason}` : ""}`
+      : "协调者多次纠正后仍未提交有效方案");
+    return invalidDecisions >= COORDINATOR_MAX_ATTEMPTS ? fail(error) : error;
   };
   const checkSignal = () => {
     if (tokens.failure) throw tokens.failure;

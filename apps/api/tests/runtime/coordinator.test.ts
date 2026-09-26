@@ -136,11 +136,15 @@ test("the real four-part clarification is rejected and receives one correction t
   expect(model.requests).toHaveLength(2);
 });
 
-test("two empty clarification calls exhaust the server correction budget with safe schema diagnostics", async () => {
+test("repeated empty clarification calls exhaust the server correction budget with safe schema diagnostics", async () => {
+  // The budget is four attempts now, so exhausting it takes four refusals. Every guarantee below is the
+  // one this test always checked: each empty call is refused with safe diagnostics, and nothing commits.
   const model = provider([
     [{ name: "request_clarification", args: {} }],
     [{ name: "request_clarification", args: {} }],
-    [{ name: "request_clarification", args: { question: "不应到达第三次" } }],
+    [{ name: "request_clarification", args: {} }],
+    [{ name: "request_clarification", args: {} }],
+    [{ name: "request_clarification", args: { question: "不应到达第五次" } }],
   ]);
   const events: ProbeEvent[] = [];
   let commits = 0;
@@ -150,10 +154,10 @@ test("two empty clarification calls exhaust the server correction budget with sa
     assertActive: async () => {}, onEvent: (event) => { events.push(event); }, onDecision: async () => { commits++; },
   })).rejects.toMatchObject({ code: "AGENT_OUTPUT_INVALID" });
   expect(commits).toBe(0);
-  expect(model.requests).toHaveLength(2);
-  expect(events.filter((event) => event.type === "tool.start")).toHaveLength(2);
+  expect(model.requests).toHaveLength(4);
+  expect(events.filter((event) => event.type === "tool.start")).toHaveLength(4);
   const diagnostics = events.filter((event) => event.type === "tool.output");
-  expect(diagnostics).toHaveLength(2);
+  expect(diagnostics).toHaveLength(4);
   expect(diagnostics.every((event) => event.message.includes("question:invalid_type"))).toBe(true);
 });
 
@@ -319,8 +323,10 @@ test("one invalid structured submission can be corrected before the only handoff
   expect(model.requests).toHaveLength(2);
 });
 
-test("two invalid submissions fail with AGENT_OUTPUT_INVALID and never commit a handoff", async () => {
+test("repeated invalid submissions fail with AGENT_OUTPUT_INVALID and never commit a handoff", async () => {
   const model = provider([
+    [{ name: "submit_plan", args: { plan: { ...plan, behaviors: [] } } }],
+    [{ name: "request_clarification", args: { question: " " } }],
     [{ name: "submit_plan", args: { plan: { ...plan, behaviors: [] } } }],
     [{ name: "request_clarification", args: { question: " " } }],
     [{ name: "submit_plan", args: { plan } }],
@@ -332,7 +338,8 @@ test("two invalid submissions fail with AGENT_OUTPUT_INVALID and never commit a 
     assertActive: async () => {}, onDecision: async () => { commits++; },
   })).rejects.toMatchObject({ code: "AGENT_OUTPUT_INVALID" });
   expect(commits).toBe(0);
-  expect(model.requests).toHaveLength(2);
+  // Four refusals is what exhausts the budget now; the guarantee that nothing commits is unchanged.
+  expect(model.requests).toHaveLength(4);
 });
 
 test("multiple decision calls in one model turn cannot commit duplicate or conflicting handoffs", async () => {
