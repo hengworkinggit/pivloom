@@ -961,3 +961,22 @@ reviewer.ts:276           abortController.abort();                   // 致命�
 2. **`review.ts:249`**：保留 `reviewed` 已有 items，只为未覆盖的行为补 blocked（第二道保险）。
 
 **判定标准一字未动；未执行的行为永不判 passed（fail-closed 不变）；"取消"与"预算耗尽"的正确行为都被保住。**
+
+---
+
+## ✅ 已实现："预算耗尽不再丢弃已完成判定"（`541564c`）
+
+**改动**（`apps/api/src/runtime/replay-plan.ts` 的 `runPrograms`）：
+
+- 循环前：`const outOfBudget = () => input.signal.aborted && input.signal.reason === 'REVIEW_TIMEOUT';`
+- 循环内与每条程序的 catch 中：**若 `outOfBudget()` → `budgetExhausted = true; break;`**（而不是让异常穿出循环）；
+- 返回前：**只把未执行的行为记为 blocked**，文案写明 **"验收墙钟预算已耗尽，该行为未执行（本次已完成 N 条）"**；
+- **其他中止原因（取消、租约失效）→ 照旧抛错**，**不写出任何判定**。
+
+**性质**：判定标准未动；**未执行的行为仍记 blocked**（fail-closed 不变）；**已完成的工作被保留**。
+
+### ⚠️ 已知缺口（如实标注）
+
+**这条路径目前没有它自己的测试。** 既有 40 个测试全过（改动两侧的路径未回归），但**要信任它，需要一条"用 `'REVIEW_TIMEOUT'` 中止的信号 + 多条行为的计划"的测试**，还应有一条**"其他原因中止 → 仍然抛错、不写判定"**的测试。
+
+**这是下一步第一件要做的事，先于任何部署验证。**
