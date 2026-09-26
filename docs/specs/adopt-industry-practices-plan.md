@@ -180,7 +180,17 @@ FROM nano.run_events;
 3. **`missing-steps` / `missing-assertions` 类**：该行为记 **`blocked`** 并在判定理由里写明原因（我们的 fail-closed 规则：**blocked ≠ passed**），**不整盘退回**；
 4. **只有 `compiled` 为空（即全部不可编译）时**，才退回整次模型路径——那才是真正"没有确定性可用"的情形。
 
-### 落地位置与影响
+### 落地位置（已精确定位到行）
+
+**`apps/api/src/runtime/replay-plan.ts:232`** —— 这就是实测中"35 项已编译、4 项不可编译 → 整盘退回"的确切来源：
+
+```ts
+return { kind: 'fallback', compiled: compiled.programs.map((program) => program.behaviorId), uncompilable: compiled.uncompilable };
+```
+
+同一文件 `:203-206` 已有正确的先例可循：当**全部**不可编译项都是 `visual-evidence` 且存在视觉判定端口时，它会**不退回**、直接走视觉判定（`judgeVisual`）。要做的就是把这种"能落盘就落盘"的判断从"全部是视觉项"扩展到"**只要有已编译程序**"：已编译行为的判定保留、视觉项交给视觉判定、其余不可编译项记 `blocked` 并写明原因；`compiled.programs.length === 0`（`:205-206`）时才整盘退回。
+
+### 落地位置与影响（其余）
 
 - **位置**：`apps/api/src/generation/review.ts` 中处理 `scripted.kind === 'fallback'` 的分支（当前无条件退回 `modelPath()`）；以及 `replay-plan.ts` 中 `uncompilable` 的产出与 `runPrograms` 结果的合并处。
 - **不改**：判定标准、守卫、fail-closed 规则、五组完整性要求。
