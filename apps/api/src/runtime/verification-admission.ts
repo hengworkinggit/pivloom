@@ -1,4 +1,4 @@
-import { BehaviorProgramSchema, type Plan } from '@pivloom/contracts';
+import { BehaviorProgramSchema, ReviewItemSchema, type Plan } from '@pivloom/contracts';
 
 /** Caller-owned limits. No throughput estimate or uncalibrated default is enforced here. */
 export interface VerificationAdmissionBudget {
@@ -6,6 +6,7 @@ export interface VerificationAdmissionBudget {
   maxSteps?: number;
   maxExpandedKeys?: number;
   maxExplicitWaitMs?: number;
+  maxArtifacts?: number;
 }
 
 export interface VerificationAdmissionStats {
@@ -15,6 +16,7 @@ export interface VerificationAdmissionStats {
   steps: number;
   expandedKeys: number;
   explicitWaitMs: number;
+  captures: number;
   missingPrograms: number;
   missingInitialState: number;
   targetAssertions: number;
@@ -40,7 +42,7 @@ export interface VerificationProgramAdmission {
 }
 
 export interface VerificationBudgetExceeded {
-  resource: 'steps' | 'expandedKeys' | 'explicitWaitMs' | 'remainingMs';
+  resource: 'steps' | 'expandedKeys' | 'explicitWaitMs' | 'remainingMs' | 'artifacts';
   required: number;
   limit: number;
   reason: 'exceeded' | 'exhausted';
@@ -49,18 +51,19 @@ export interface VerificationBudgetExceeded {
 /** Read-only accounting; calling this function does not execute or pass any check. */
 export function admitVerification(plan: Plan, budget: VerificationAdmissionBudget) {
   if (!Number.isFinite(budget.remainingMs)) throw new RangeError('remainingMs must be finite');
-  for (const name of ['maxSteps', 'maxExpandedKeys', 'maxExplicitWaitMs'] as const) {
+  for (const name of ['maxSteps', 'maxExpandedKeys', 'maxExplicitWaitMs', 'maxArtifacts'] as const) {
     const limit = budget[name];
     if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0))
       throw new RangeError(`${name} must be a nonnegative integer; omit an unconfigured limit`);
   }
   const remainingMs = Math.max(0, budget.remainingMs);
   const stats: VerificationAdmissionStats = { behaviors: plan.behaviors.length, requiredBehaviors: 0, steps: 0,
-    expandedKeys: 0, explicitWaitMs: 0, missingPrograms: 0, missingInitialState: 0, targetAssertions: 0,
+    expandedKeys: 0, explicitWaitMs: 0, captures: 0, missingPrograms: 0, missingInitialState: 0, targetAssertions: 0,
     visualBehaviors: 0, legacyPageTextAssertions: 0 };
   const invalidPrograms: InvalidVerificationProgram[] = [];
   const programs: VerificationProgramAdmission[] = [];
   for (const behavior of plan.behaviors) {
+    let captures = 0;
     if (behavior.required) stats.requiredBehaviors++;
     if (!behavior.steps?.length || !behavior.assertions?.length) stats.missingPrograms++;
     if (behavior.initialState === undefined) stats.missingInitialState++;
@@ -74,6 +77,7 @@ export function admitVerification(plan: Plan, budget: VerificationAdmissionBudge
       if (step.type === 'press') stats.expandedKeys++;
       if (step.type === 'key_sequence') stats.expandedKeys += step.keys.length * step.repeat;
       if (step.type === 'wait') stats.explicitWaitMs += step.ms;
+      if (step.type === 'capture') { captures++; stats.captures++; }
     }
     const missingProgram = !behavior.steps?.length || !behavior.assertions?.length;
     const modern = behavior.assertions?.some(assertion => 'target' in assertion)
@@ -83,12 +87,18 @@ export function admitVerification(plan: Plan, budget: VerificationAdmissionBudge
     // rules and limits are still owned by the real public program schema.
     const parsed = BehaviorProgramSchema.safeParse({ ...behavior,
       initialState: behavior.initialState ?? (legacyInitialState ? 'continue' : undefined) });
+    const issues = parsed.success ? [] : parsed.error.issues.map(issue => ({ path: issue.path.join('.'), message: issue.message }));
+    // Validate cardinality against the real persistence contract. These dummy
+    // values are never emitted as evidence or artifacts; only the array limit matters.
+    const references = ReviewItemSchema.shape.screenshotIds.safeParse(Array(captures).fill('00000000-0000-4000-8000-000000000000'));
+    if (!references.success) issues.push(...references.error.issues.map(issue => ({ path: 'steps.capture',
+      message: `截图数量超过单项可引用的持久化契约：${issue.message}` })));
     let invalid: InvalidVerificationProgram | undefined;
-    if (!parsed.success) {
+    if (issues.length) {
       invalid = { behaviorId: behavior.id,
         reason: missingProgram ? 'missing-program' : behavior.initialState === undefined && modern
           ? 'missing-initial-state' : 'invalid-program',
-        issues: parsed.error.issues.map(issue => ({ path: issue.path.join('.'), message: issue.message })) };
+        issues };
       invalidPrograms.push(invalid);
     }
     programs.push({ behaviorId: behavior.id, required: behavior.required,
@@ -100,6 +110,7 @@ export function admitVerification(plan: Plan, budget: VerificationAdmissionBudge
     { resource: 'steps' as const, required: stats.steps, limit: budget.maxSteps },
     { resource: 'expandedKeys' as const, required: stats.expandedKeys, limit: budget.maxExpandedKeys },
     { resource: 'explicitWaitMs' as const, required: stats.explicitWaitMs, limit: budget.maxExplicitWaitMs },
+    { resource: 'artifacts' as const, required: stats.captures, limit: budget.maxArtifacts },
     { resource: 'remainingMs' as const, required: stats.explicitWaitMs, limit: remainingMs },
   ];
   for (const { resource, required, limit } of limits)

@@ -385,16 +385,23 @@ test('user cancellation after a completed item returns no review receipt', async
   expect(f.remote.clicks).toBe(1);
 });
 
-test('the screenshot capacity blocks only the later program and keeps a persistable receipt', async () => {
-  const behavior = { ...scriptedPlan.behaviors[0], steps: [
-    { type: 'open' as const, path: '/' }, { type: 'click' as const, role: 'button', name: '添加' },
-    ...Array.from({ length: 62 }, () => ({ type: 'capture' as const })),
-  ] };
+test('an unpredictable screenshot-store failure preserves the earlier item within declared capacity', async () => {
+  // Both programs are statically admissible (one capture each). A known
+  // 124-capture plan belongs in admission, not a runtime partial-failure test.
+  const behavior = scriptedPlan.behaviors[0];
   const f=await fixture({...scriptedPlan,behaviors:[behavior,{...behavior,id:'B02'}]});
+  const save = f.input.artifacts.save.bind(f.input.artifacts);
+  let saves = 0;
+  f.input.artifacts = { ...f.input.artifacts, save: async (...args) => {
+    if (++saves === 2) throw new RuntimeError('ARTIFACT_UNAVAILABLE', 'Unexpected storage outage');
+    return save(...args);
+  } };
   const {receipt}=await runReview(f.input,f.boundaries);
   expect(receipt.result.items[0].verdict).toBe('passed');
-  expect(receipt.result.items[1]).toMatchObject({verdict:'blocked',actual:expect.stringContaining('REVIEW_ARTIFACT_LIMIT')});
-  expect(receipt.artifacts).toHaveLength(80);
+  expect(receipt.result.items[1]).toMatchObject({verdict:'blocked',actual:expect.stringContaining('ARTIFACT_UNAVAILABLE')});
+  expect(receipt.artifacts).toHaveLength(1);
+  expect(receipt.result.items[0].screenshotIds).toEqual([receipt.artifacts[0].id]);
+  assertVerifiedReviewReceipt(receipt);
 });
 
 test('the hard deadline remains armed during the last ownership check after Chrome cleanup', async () => {

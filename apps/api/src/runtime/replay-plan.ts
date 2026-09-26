@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { HandoffSchema, ReviewResultSchema, BehaviorProgramSchema, allowsRenderOnlyEvidence,
+import { HandoffSchema, ReviewResultSchema, ReviewItemSchema, BehaviorProgramSchema, allowsRenderOnlyEvidence,
   type BehaviorStep, type BehaviorTarget, type Handoff, type ReviewBinding, type ReviewItem, type ReviewResult } from '@pivloom/contracts';
 import { REVIEW_EVIDENCE_LIMIT_BYTES } from './budgets.js';
 import { RuntimeError, type ProbeEventSink } from './types.js';
@@ -53,7 +53,9 @@ export function compilePlan(plan: Handoff['plan']): CompiledPlan {
       continue;
     }
     const modern = behavior.assertions.some(assertion=>'target' in assertion) || behavior.steps.some(step=>step.type==='key_sequence');
-    if (!BehaviorProgramSchema.safeParse({ ...behavior, initialState: behavior.initialState ?? (modern ? undefined : 'continue') }).success) {
+    const captures = behavior.steps.filter(step => step.type === 'capture').length;
+    const referencesFit = ReviewItemSchema.shape.screenshotIds.safeParse(Array(captures).fill('00000000-0000-4000-8000-000000000000')).success;
+    if (!referencesFit || !BehaviorProgramSchema.safeParse({ ...behavior, initialState: behavior.initialState ?? (modern ? undefined : 'continue') }).success) {
       uncompilable.push({ behaviorId: behavior.id, reason: 'invalid-setup' });
       continue;
     }
@@ -280,8 +282,19 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
   // The declared order is also the state-dependency order. Only model judgment
   // is deferred: moving visual browser actions after the deterministic pass
   // changes the initial state of a following explicit "continue" scenario.
+  let unavailablePriorState = false;
   for (const behavior of handoff.plan.behaviors) {
     const program = programById.get(behavior.id);
+    const runnable = Boolean(program) || judgedIds.has(behavior.id);
+    if (runnable && behavior.initialState === 'fresh') unavailablePriorState = false;
+    if (runnable && behavior.initialState === 'continue' && unavailablePriorState) {
+        const item: ReviewItem = { behaviorId: behavior.id, expected: behavior.expected, verdict: 'blocked',
+          actual: 'invalid-setup：声明的前置场景未执行，继续场景缺少所需初态；该行为未执行。',
+          observationEventIds: [], screenshotIds: [], reproSteps: [] };
+        run.items.set(behavior.id, item);
+        await checkpoint(item, [], []);
+        continue;
+    }
     if (program) {
       const next = await runPrograms({ programs: [program], uncompilable: [] }, {
         browser: input.browser, signal: input.signal, behaviors: [behavior], saveScreenshot: input.saveScreenshot,
@@ -314,7 +327,7 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
       // A captured screenshot is not a visual pass. Failed/blocked capture is
       // already a final item; successful capture gets its checkpoint after judgment.
       if (capture.item.verdict !== 'passed') await checkpoint(capture.item, capture.evidence, capture.artifacts);
-    }
+    } else unavailablePriorState = true;
   }
   let judgeCalls = 0;
   const verdicts = captures && input.visualJudge
@@ -407,7 +420,7 @@ function summarize(items: ReviewItem[]): string {
  * where fail-closed is held: neither sentence is a pass, and `finishReview` still refuses the revision.
  */
 function blockedItemText(reason: ReplayFallbackReason): string {
-  if(reason==='invalid-setup')return 'invalid-setup：检查程序必须先打开本候选页面取得初始观察；该行为未执行。';
+  if(reason==='invalid-setup')return 'invalid-setup：检查程序的初态、步骤或截图数量不满足可执行与持久化契约；该行为未执行。';
   return reason === 'missing-steps'
     ? '计划未提供可执行步骤，该行为无法在确定性层复现，未取得可判定证据（missing-steps）；当前候选尚未通过检查。'
     : reason === 'missing-assertions'

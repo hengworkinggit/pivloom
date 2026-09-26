@@ -72,6 +72,36 @@ test('visual setup and deterministic continuation execute in declared order befo
   expect(checkpoints).toContainEqual({ id: 'B01', verdict: 'passed' });
 });
 
+test('a program exceeding the persisted screenshot-reference limit is blocked before browser work', async () => {
+  const plan = fixturePlan({ steps: [{ type: 'open', path: '/' }, { type: 'click', role: 'button', name: '添加' },
+    ...Array.from({ length: 7 }, () => ({ type: 'capture' as const }))] });
+  const fixture = formFixture(SESSION);
+  const value = binding(randomUUID());
+  const outcome = await runScriptedPlan({ binding: value, handoff: handoffFor(plan, value), browser: fixture.browser,
+    signal: new AbortController().signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save });
+  expect(outcome.kind).toBe('scripted');
+  if (outcome.kind !== 'scripted') return;
+  expect(outcome.result.result.items[0]).toMatchObject({ verdict: 'blocked', actual: expect.stringContaining('invalid-setup') });
+  expect(fixture.calls.open).toBe(0);
+  expect(fixture.calls.screenshot).toBe(0);
+});
+
+test('a continuation with unavailable visual setup is blocked instead of testing the wrong initial state', async () => {
+  const visual = fixturePlan({ initialState: 'fresh', evidence: 'visual',
+    steps: [{ type: 'open', path: '/' }, { type: 'click', role: 'button', name: '添加' }, { type: 'capture' }] }).behaviors[0];
+  const plan = { ...fixturePlan(), behaviors: [visual, { ...visual, id: 'B02', evidence: 'text' as const,
+    initialState: 'continue' as const, action: '刷新已保存页面', steps: [{ type: 'open' as const, path: '/' }, { type: 'reload' as const }] }] };
+  const fixture = formFixture(SESSION);
+  const value = binding(randomUUID());
+  const outcome = await runScriptedPlan({ binding: value, handoff: handoffFor(plan, value), browser: fixture.browser,
+    signal: new AbortController().signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save });
+  expect(outcome.kind).toBe('scripted');
+  if (outcome.kind !== 'scripted') return;
+  expect(outcome.result.result.items.map(item => item.verdict)).toEqual(['blocked', 'blocked']);
+  expect(outcome.result.result.items[1].actual).toContain('invalid-setup');
+  expect(fixture.calls.open).toBe(0);
+});
+
 test('a plan with nothing compiled falls back before any browser work', async () => {
   // The only plan that still returns to the model path: every behaviour is uncompilable and no judge is
   // supplied, so there is no deterministic or pixel verdict to keep. Nothing was driven, which is why

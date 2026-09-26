@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { PlanSchema } from '@pivloom/contracts';
+import { MAX_CHECK_ARTIFACTS, PlanSchema } from '@pivloom/contracts';
 import { admitVerification } from '../../src/runtime/verification-admission.js';
 
 const behavior = (id: string, program: Record<string, unknown> = {}) => ({
@@ -22,7 +22,7 @@ test('admission reports concrete plan work separately from unknown model and bro
   ]);
   const admission = admitVerification(value, { remainingMs: 60_000 });
   expect(admission.stats).toMatchObject({ behaviors: 3, requiredBehaviors: 3, steps: 8, expandedKeys: 21,
-    explicitWaitMs: 150, missingPrograms: 1, missingInitialState: 1, targetAssertions: 2, visualBehaviors: 1 });
+    explicitWaitMs: 150, captures: 2, missingPrograms: 1, missingInitialState: 1, targetAssertions: 2, visualBehaviors: 1 });
   expect(admission.timing).toEqual({ explicitWaitMs: 150, remainingMs: 60_000, unmeasuredMs: null, completionGuarantee: false });
   expect(JSON.parse(JSON.stringify(admission))).toEqual(admission);
 });
@@ -109,4 +109,35 @@ test('non-finite or negative resource limits cannot masquerade as serializable a
   expect(() => admitVerification(value, { remainingMs: 1000, maxExpandedKeys: NaN })).toThrow(RangeError);
   expect(() => admitVerification(value, { remainingMs: 1000, maxSteps: -1 })).toThrow(RangeError);
   expect(admitVerification(value, { remainingMs: -10 }).timing.remainingMs).toBe(0);
+});
+
+test('known artifact demand above the Check limit is NOT_RUN without dropping any required behavior', () => {
+  const behaviors = Array.from({ length: 14 }, (_, index) => behavior(`B${String(index + 1).padStart(2, '0')}`, {
+    initialState: 'fresh', steps: [{ type: 'open' }, { type: 'press', key: 'Enter' },
+      ...Array.from({ length: 6 }, () => ({ type: 'capture' }))],
+    assertions: [{ kind: 'target-text', target: { role: 'status', name: 'Saved' }, text: 'Saved' }],
+  }));
+  const grouped = PlanSchema.parse({ schemaVersion: 2, goal: 'Verify saved outcomes', changeSummary: 'Snapshot the outcomes',
+    assumptions: [], outOfScope: [], replacements: [], behaviors,
+    groups: Array.from({ length: 5 }, (_, index) => ({ id: `G${index + 1}`, title: `Group ${index + 1}`,
+      behaviorIds: behaviors.filter((_, i) => i % 5 === index).map(item => item.id) })),
+  });
+  const admission = admitVerification(grouped, { remainingMs: 60_000, maxArtifacts: MAX_CHECK_ARTIFACTS });
+  expect(admission.stats.captures).toBe(84);
+  expect(admission.decision).toBe('not-run');
+  expect(admission.programs).toHaveLength(14);
+  expect(admission.programs.every(program => program.required && program.disposition === 'NOT_RUN')).toBe(true);
+  expect(admission.invalidPrograms).toEqual([]);
+  expect(admission.budgetExceeded).toContainEqual({ resource: 'artifacts', required: 84, limit: 80, reason: 'exceeded' });
+});
+
+test('a single program cannot capture more images than its actual persisted item can reference', () => {
+  const admission = admitVerification(plan([behavior('B01', { initialState: 'fresh',
+    steps: [{ type: 'open' }, { type: 'press', key: 'Enter' }, ...Array.from({ length: 7 }, () => ({ type: 'capture' }))],
+    assertions: [{ kind: 'target-count', target: { role: 'listitem' }, count: 1 }] })]),
+  { remainingMs: 60_000, maxArtifacts: MAX_CHECK_ARTIFACTS });
+  expect(admission.decision).toBe('not-run');
+  expect(admission.invalidPrograms).toMatchObject([{ behaviorId: 'B01', reason: 'invalid-program',
+    issues: [{ path: 'steps.capture' }] }]);
+  expect(admission.programs[0].failureKind).toBe('invalid-test');
 });
