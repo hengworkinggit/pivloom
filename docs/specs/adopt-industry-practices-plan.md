@@ -902,3 +902,35 @@ result = { …, items: input.handoff.plan.behaviors.map(behavior => ({
 - **只为未跑完的行为写 blocked**，文案**明确写出"预算耗尽，N 条未执行"**；
 - **仍然 fail-closed**（未执行的绝不判 passed）；
 - **不改任何判定标准**。
+
+### ✅ 分叉已确定：**情形 A（上游抛错）**，并多出一个必须区分的点
+
+**证据**（`apps/api/src/runtime/replay-plan.ts`）：
+
+```
+:8    import { REVIEW_WALL_CLOCK_BUDGET_MS } from './budgets.js';
+:122  input.signal.throwIfAborted();
+:132  input.signal.throwIfAborted();
+:270  deadlineMs: Math.max(0, REVIEW_WALL_CLOCK_BUDGET_MS - (clock() - startedAt))
+:435  input.signal.throwIfAborted();
+```
+
+**即：预算耗尽 → `signal` 被中止 → `throwIfAborted()` 抛异常 → `runScriptedPlan` 抛出 → `review.ts:249` 的 catch 把整份计划标成 blocked，已完成的部分被丢弃。**
+
+### ⚠️ 修法必须区分"预算耗尽"与"用户取消"
+
+两者都表现为 `signal` 被中止，但**正确行为相反**：
+
+| 中止来源 | 正确行为 |
+|---|---|
+| **预算耗尽**（墙钟/包络） | **保留已完成判定，未跑完的记 blocked 并说明"预算耗尽，N 条未执行"**，然后提交 |
+| **用户取消 / 运行被撤销** | **照旧中止，不提交**——否则会为一次被取消的运行写下判定 |
+
+**判别手段**：`AbortSignal.reason`（或平台在 abort 时传入的具名原因）。**若当前中止不携带可区分的原因，就要先补上**（预算定时器用一个具名 reason 中止），**否则这个修复会把"取消"误当成"预算耗尽"而写出判定**——那是比现在更糟的错。
+
+### 落地位置（两处，都很小）
+
+1. **`replay-plan.ts` 的 `runPrograms`**：捕获因**预算耗尽**导致的中止，**返回已收集的 items**（其余行为按"预算耗尽未执行"记为 blocked），而不是让异常穿出去；
+2. **`review.ts:249`**：**保留 `reviewed` 中已有的 items**，只为未覆盖的行为补 blocked 项——作为第二道保险，防止将来任何异常再次丢光已完成的工作。
+
+**两条都不改判定标准**；未执行的行为**永远不判 passed**（fail-closed 不变）。
