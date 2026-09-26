@@ -30,10 +30,12 @@ export interface CompiledPlan {
 }
 /**
  * A behaviour is compilable only when the plan says how to drive it and what to
- * check. Missing steps, missing assertions and a render-only judgement each send
- * the behaviour back to the model-driven path instead of being approximated
- * here; that rate is the observed cost of unexecutable planning and must stay
- * visible rather than silently lowering coverage.
+ * check. Missing steps, missing assertions and a render-only judgement cannot be
+ * approximated here, so each is reported in `uncompilable` with its reason and
+ * settled per behaviour by the caller — appearance behaviours by the pixel judge,
+ * the rest as `blocked`. That rate is the observed cost of unexecutable planning
+ * and must stay visible rather than silently lowering coverage; it is no longer a
+ * reason to redo the whole check on the model path.
  */
 export function compilePlan(plan: Handoff['plan']): CompiledPlan {
   const programs: ReplayProgram[] = [];
@@ -179,7 +181,9 @@ export interface RunScriptedPlanInput extends Omit<ReplayRunProgramsInput, 'onPr
 }
 export type ScriptedPlanOutcome =
   | { kind: 'scripted'; result: ReviewerResult }
-  | { kind: 'fallback'; compiled: string[]; uncompilable: ReplayUncompilable[] };
+  // A fallback carries no compiled ids by construction: it is only returned when this layer has no
+  // deterministic or pixel-judged verdict to keep, so the model path is not discarding any real result.
+  | { kind: 'fallback'; uncompilable: ReplayUncompilable[] };
 
 /** Compiles, runs and assembles the whole A layer, or reports why the model path must still run. */
 export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<ScriptedPlanOutcome> {
@@ -195,15 +199,22 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
   // share again would let the two together run past the ten minute ceiling they are meant to respect.
   const clock = input.visualJudge?.now ?? (() => performance.now());
   const startedAt = clock();
-  // A behaviour whose result depends on appearance is uncompilable by contract, so on a realistic plan
-  // the uncompilable list is never empty and the whole plan used to fall back to the model-driven path
-  // — the very half hour this work exists to remove. When every uncompilable reason is appearance and a
-  // judge is supplied, those behaviours are driven and judged instead, and an all-visual plan must not
-  // be turned away here before that can happen.
-  const judgeVisual = Boolean(input.visualJudge) && compiled.uncompilable.length > 0
-    && compiled.uncompilable.every((entry) => entry.reason === 'visual-evidence');
-  if (compiled.programs.length === 0 && !judgeVisual)
-    return { kind: 'fallback', compiled: [], uncompilable: compiled.uncompilable };
+  // An uncompilable behaviour is settled on its own; it never discards the pass. A behaviour whose
+  // verdict lives in the pixels is captured and judged by the appearance layer when a judge is
+  // available, and one whose plan states no steps or no assertions is recorded `blocked` with its
+  // reason — the fail-closed answer, which is never a pass. The measured run this replaces had 35
+  // compiled behaviours thrown away because 4 could not compile, sending the whole check back down
+  // the model path's half hour; Stagehand, Momentic and Skyvern each redo only the affected step.
+  const visualIds = new Set(compiled.uncompilable.filter((entry) => entry.reason === 'visual-evidence')
+    .map((entry) => entry.behaviorId));
+  const judgeVisual = Boolean(input.visualJudge) && visualIds.size > 0;
+  if (compiled.programs.length === 0 && !judgeVisual) {
+    // Nothing deterministic is available at all: no program to run and no behaviour the appearance
+    // layer may judge. Only this state — not a partially compilable plan — sends the check back to the
+    // model path, and it is reached before any browser work, so the model path starts from the page
+    // this layer never touched.
+    return { kind: 'fallback', uncompilable: compiled.uncompilable };
+  }
   await input.onEvent?.({ id: randomUUID(), at: new Date().toISOString(), type: 'tool.start', toolName: 'browser_steps',
     toolCallId: replayCallId(input.binding.roleRunId, 'start'),
     message: `脚本回放开始：${compiled.programs.length}/${total} 项行为可编译，行为判定不调用模型` });
@@ -225,21 +236,13 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
   // the items map exists, and a provisional note must never delay the renewal
   // event that keeps the run alive.
   await emitCheckpoints(input, run, compiled, total);
-  if (compiled.uncompilable.length > 0 && !judgeVisual) {
-    // The model path reports on the whole plan, so a partially compiled plan must
-    // not submit a partial result: the caller falls back entirely. The progress
-    // events already emitted stay valid because the browser work really happened.
-    return { kind: 'fallback', compiled: compiled.programs.map((program) => program.behaviorId), uncompilable: compiled.uncompilable };
-  }
-  // The appearance behaviours were driven and captured rather than compiled into the scripted pass,
-  // so their items come from the judge. A kernel `blocked` item is never upgraded: it records that the
-  // behaviour produced no real action and no render-only evidence, and no model verdict can supply that.
-  // The judge really does spend a provider request per batch, so the usage this result reports must say
-  // so; claiming zero calls would understate the cost of every appearance behaviour.
+  // Only the behaviours this layer is allowed to judge are captured: a visual behaviour that is
+  // uncompilable for a different reason (no steps, no assertions) is a blocked item below, not a
+  // capture problem, and driving it here would spend browser work on a behaviour no judge may pass.
   let judgeCalls = 0;
   const captures = judgeVisual
-    ? await captureVisualPrograms({ behaviors: handoff.plan.behaviors, browser: input.browser,
-        signal: input.signal, saveScreenshot: input.saveScreenshot })
+    ? await captureVisualPrograms({ behaviors: handoff.plan.behaviors.filter((behavior) => visualIds.has(behavior.id)),
+        browser: input.browser, signal: input.signal, saveScreenshot: input.saveScreenshot })
     : undefined;
   const verdicts = captures && input.visualJudge
     ? await judgeVisualBehaviours({
@@ -253,6 +256,9 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
         now: clock,
       })
     : undefined;
+  const uncompilableReasons = new Map(compiled.uncompilable
+    .filter((entry) => !visualIds.has(entry.behaviorId))
+    .map((entry) => [entry.behaviorId, entry.reason]));
   const items = handoff.plan.behaviors.map((behavior) => {
     const item = run.items.get(behavior.id);
     if (item) {
@@ -261,14 +267,23 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
       return item;
     }
     const capture = captures?.get(behavior.id);
-    if (!capture || capture.item.expected !== behavior.expected)
-      throw new RuntimeError('REPLAY_PROGRAM_MISSING', '脚本回放没有覆盖全部计划行为');
-    const verdict = verdicts?.get(behavior.id);
-    // Only a behaviour the scripted pass already passed may be re-judged. Guarding `blocked` alone let a
-    // model verdict overwrite a script `failed` into `passed`, which is fail-open in exactly the
-    // direction that matters: the scripted assertion had already found the candidate wrong.
-    if (!verdict || capture.item.verdict !== 'passed') return capture.item;
-    return { ...capture.item, verdict: verdict.verdict, actual: verdict.reason.slice(0, 2000) };
+    if (capture) {
+      if (capture.item.expected !== behavior.expected)
+        throw new RuntimeError('REPLAY_PROGRAM_MISSING', '脚本回放没有覆盖全部计划行为');
+      const verdict = verdicts?.get(behavior.id);
+      // Only a behaviour the scripted pass already passed may be re-judged. Guarding `blocked` alone let a
+      // model verdict overwrite a script `failed` into `passed`, which is fail-open in exactly the
+      // direction that matters: the scripted assertion had already found the candidate wrong.
+      if (!verdict || capture.item.verdict !== 'passed') return capture.item;
+      return { ...capture.item, verdict: verdict.verdict, actual: verdict.reason.slice(0, 2000) };
+    }
+    // No program and no capture: the plan itself says this behaviour cannot be checked
+    // deterministically. It is recorded with the reason rather than approximated, and
+    // `blocked` is not a pass — `finishReview` still refuses to accept the revision.
+    const reason = uncompilableReasons.get(behavior.id);
+    if (reason) return { behaviorId: behavior.id, verdict: 'blocked' as const, expected: behavior.expected,
+      actual: blockedItemText(reason), observationEventIds: [], screenshotIds: [], reproSteps: [] };
+    throw new RuntimeError('REPLAY_PROGRAM_MISSING', '脚本回放没有覆盖全部计划行为');
   });
   const result: ReviewResult = ReviewResultSchema.parse({ revisionId: input.binding.revisionId, sourceHash: input.binding.sourceHash,
     items, summary: summarize(items) });
@@ -309,7 +324,23 @@ async function emitCheckpoints(input: RunScriptedPlanInput, run: ReplayProgramsR
 function summarize(items: ReviewItem[]): string {
   const passed = items.filter((item) => item.verdict === 'passed').length;
   const failed = items.filter((item) => item.verdict === 'failed').length;
-  return `脚本回放 ${items.length} 项行为：${passed} 项通过，${failed} 项未通过，模型未参与浏览器驱动。`;
+  const blocked = items.filter((item) => item.verdict === 'blocked').length;
+  // The blocked count is named because a partially compilable plan now submits its real verdicts with
+  // the unverifiable behaviours marked blocked; a summary that reported only pass/fail would read as a
+  // complete check when `finishReview` is about to record the run as blocked.
+  return `脚本回放 ${items.length} 项行为：${passed} 项通过，${failed} 项未通过，${blocked} 项未取得确定性判定。`;
+}
+/**
+ * Why a behaviour the plan could not compile is recorded `blocked`. The reason token travels with the
+ * sentence so the verdict says which planning gap produced it, in a form a caller can act on. This is
+ * where fail-closed is held: neither sentence is a pass, and `finishReview` still refuses the revision.
+ */
+function blockedItemText(reason: ReplayFallbackReason): string {
+  return reason === 'missing-steps'
+    ? '计划未提供可执行步骤，该行为无法在确定性层复现，未取得可判定证据（missing-steps）；当前候选尚未通过检查。'
+    : reason === 'missing-assertions'
+      ? '计划未提供可判定的断言，仅有操作步骤不构成检查，未取得可判定证据（missing-assertions）；当前候选尚未通过检查。'
+      : '计划将该行为的判定交给外观证据，但本次检查没有可用的视觉判定，未取得可判定证据（visual-evidence）；当前候选尚未通过检查。';
 }
 /**
  * The A layer makes no provider request, so its usage is a factual zero rather
@@ -383,8 +414,8 @@ export async function captureVisualPrograms(input: {
   };
   for (const behavior of input.behaviors) {
     // A visual behaviour without steps is not a capture problem: nothing says what to drive, so it
-    // stays uncompilable for a reason other than appearance and the caller keeps the whole-plan
-    // fallback for it. Skipping here is deliberate, not a silent drop.
+    // stays uncompilable for a reason other than appearance and the caller records it blocked with that
+    // reason. Skipping here is deliberate, not a silent drop.
     if (behavior.evidence !== 'visual' || !behavior.steps || behavior.steps.length === 0) continue;
     input.signal.throwIfAborted();
     const images: Array<{ base64: string; mimeType: string }> = [];

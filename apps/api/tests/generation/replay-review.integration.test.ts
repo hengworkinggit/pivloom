@@ -145,33 +145,55 @@ test('a REVIEW_TIMEOUT from the check stays a typed failure instead of a generic
   expect(providerCalls).toBe(0);
 }, 20_000);
 
-test('a partially compilable plan runs the scripted behaviour, then falls back to the model path', async () => {
+test('a partially compilable plan keeps the scripted verdict and blocks only the unexecutable behaviour', async () => {
   const compiledBehavior = scriptedPlan.behaviors[0];
   const partial: Plan = { ...scriptedPlan, behaviors: [compiledBehavior,
-    // A prose-only behaviour: nothing the script can drive, so the report cannot
-    // be assembled by this layer and the model path must take over entirely.
+    // A prose-only behaviour: nothing the script can drive. It used to send the whole check back to the
+    // model path, discarding the compiled behaviour's real verdict; it is now blocked with its reason.
     { ...compiledBehavior, id: 'B02', title: '拖拽排序', steps: undefined, assertions: undefined }] };
-  const f = await fixture(partial, { added: () => true });
-  // The provider is unavailable on purpose: a provider request at all is what
-  // proves the fallback happened, and how that request fails is the model path's
-  // own business. The run is stopped from the emitted progress event, so the
-  // test does not spend a model retry window proving a point already made.
+  const f = await fixture(partial);
+  const { receipt } = await runReview(f.input, f.boundaries);
+  assertVerifiedReviewReceipt(receipt);
+  // The measured regression this replaces: 35 compiled behaviours were re-done by the model because 4
+  // could not compile. Here the compiled verdict survives, the unexecutable behaviour is blocked, and
+  // the provider transport is never reached.
+  expect(f.remote.modelCalls).toBe(0);
+  expect(f.events.filter((event) => event.toolName === 'replay_fallback')).toHaveLength(0);
+  expect(receipt.result.items).toMatchObject([
+    { behaviorId: 'B01', verdict: 'passed', expected: '出现测试书名' },
+    { behaviorId: 'B02', verdict: 'blocked', expected: '出现测试书名' },
+  ]);
+  // blocked names the planning gap and cites no evidence: fail-closed is unchanged, so `finishReview`
+  // records the check as blocked rather than accepting the candidate.
+  expect(String(receipt.result.items[1].actual)).toContain('missing-steps');
+  expect(receipt.result.items[1].observationEventIds).toEqual([]);
+  // The compiled behaviour really performed the plan's click; the unexecutable one drove nothing.
+  expect(f.remote.clicks).toBe(1);
+}, 20_000);
+
+test('a plan where nothing compiles still falls back to the model path as a whole', async () => {
+  const proseOnly: Plan = { ...scriptedPlan, behaviors: [
+    { ...scriptedPlan.behaviors[0], id: 'B01', steps: undefined, assertions: undefined }] };
+  const f = await fixture(proseOnly);
+  // The provider is unavailable on purpose: a provider request at all is what proves the fallback
+  // happened, and how that request fails is the model path's own business. The run is stopped from the
+  // fallback event, so the test does not spend a model retry window proving a point already made.
   const controller = new AbortController();
   f.input.signal = controller.signal;
   let calls = 0;
-  let sawScriptedProgress = false;
   f.input.modelConfig.fetch = async () => { calls++; throw new Error('provider fixture unavailable'); };
   f.input.onEvent = async (event) => { f.events.push(event);
-    if (event.toolName === 'browser_steps' && event.type === 'tool.end') { sawScriptedProgress = true; controller.abort('CANCELLED'); } };
+    if (event.toolName === 'replay_fallback') controller.abort('CANCELLED'); };
+  // Reaching the model path is what rejects here: with nothing compiled there is no deterministic
+  // verdict to keep, so the whole check is handed over rather than assembled from blocked items.
   await expect(runReview(f.input, f.boundaries)).rejects.toMatchObject({ code: 'CANCELLED' });
   const fallback = f.events.filter((event) => event.toolName === 'replay_fallback');
   expect(fallback).toHaveLength(1);
-  expect(fallback[0].message).toContain('B02:missing-steps');
-  // The compiled half really ran the browser before falling back, its trusted
-  // completion events were emitted, and no provider request came from this layer.
-  expect(f.remote.clicks).toBe(1);
-  expect(sawScriptedProgress).toBe(true);
+  expect(fallback[0].message).toContain('B01:missing-steps');
+  // No provider request came from the scripted layer, and the page was never driven: the model path
+  // starts from the preview this layer left untouched.
   expect(calls).toBe(0);
+  expect(f.remote.clicks).toBe(0);
 }, 20_000);
 
 /**

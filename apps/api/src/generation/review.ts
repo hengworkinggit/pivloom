@@ -139,14 +139,15 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     if(capacity.verdict!=='ok'||capacity.near.length>0)console.info(`[review] capacity ${capacity.verdict} for ${capacity.behaviours} behaviors: ${capacity.findings.length} over limit, ${capacity.near.length} near limit`);
     // A layer: behaviors whose sealed plan carries executable steps and
     // script-decidable assertions are driven by the model-free kernel. Nothing
-    // below this try is weakened — the model path is still the only reporter for
-    // any behavior the plan did not compile, and it remains the release gate.
+    // below this try is weakened — the model path stays the release gate, and a behavior the plan did
+    // not compile is settled by the scripted layer itself: recorded `blocked`, or judged from captured
+    // pixels by the appearance layer. Neither can turn an uncompiled behavior into a pass.
     let reviewed:Awaited<ReturnType<typeof runReviewer>>|undefined;
     // A model whose image capability did not pass the platform's vision probe must not be asked to
     // judge pixels. It cannot see them, and the judge accepts any citation that is not a restatement
     // of the expectation, so a blind guess would be admitted as a pass — the exact failure the probe
-    // exists to prevent. With no port the appearance behaviours keep today's whole-plan fallback, and
-    // the Reviewer's own `VISION_NOT_VERIFIED` gate stops the check rather than letting it pass.
+    // exists to prevent. With no port an uncompiled appearance behaviour is recorded blocked like any
+    // other uncompiled behaviour, and when the whole plan is appearance the model path takes over.
     const visualJudge=input.modelConfig.supportsImages===true?createVisualJudgePort(input.modelConfig,signal):undefined;
     try{
       const scripted=await runScriptedPlan({binding,handoff:input.handoff,browser,signal,
@@ -157,17 +158,20 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
         visualJudge});
       if(scripted.kind==='scripted')reviewed=scripted.result;
       else{
-        // The fallback rate is the measured cost of unexecutable planning, so it
-        // is reported both to the operator log and into the run's own event
-        // stream. `replay_fallback` is deliberately not on the progress
+        // This is reached only when nothing was deterministically available: no compiled program and no
+        // behaviour the appearance layer could judge. A partially compilable plan no longer lands here —
+        // its compiled verdicts are kept and the rest are recorded blocked or judged from pixels — so
+        // this event marks the rare plan with no deterministic coverage at all rather than the cost of
+        // one uncompilable behaviour. The fallback rate is reported both to the operator log and into
+        // the run's own event stream. `replay_fallback` is deliberately not on the progress
         // allowlist: this event records a decision, not reviewer work, and must
         // not renew the inactivity lease by itself.
         const reasons=scripted.uncompilable.reduce<Record<string,number>>((counts,item)=>{
           counts[item.reason]=(counts[item.reason]??0)+1;return counts;},{});
         const behaviors=scripted.uncompilable.map(item=>`${item.behaviorId}:${item.reason}`).join(',');
-        console.info(`[review] scripted replay fallback compiled=${scripted.compiled.length} uncompilable=${scripted.uncompilable.length} reasons=${JSON.stringify(reasons)}`);
+        console.info(`[review] scripted replay fallback uncompilable=${scripted.uncompilable.length} reasons=${JSON.stringify(reasons)}`);
         await input.onEvent?.({id:randomUUID(),at:new Date().toISOString(),type:'tool.output',toolName:'replay_fallback',
-          message:`脚本回放退回模型路径：${scripted.compiled.length} 项已编译，${scripted.uncompilable.length} 项不可编译（${behaviors}）`});
+          message:`脚本回放无任何可编译行为，退回模型路径：${scripted.uncompilable.length} 项不可编译（${behaviors}）`});
       }
     }catch(error){
       // The four transport codes the model path already treats as a lost browser

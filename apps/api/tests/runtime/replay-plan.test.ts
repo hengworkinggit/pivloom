@@ -41,7 +41,10 @@ function uncompilableReason(items: ReplayUncompilable[], behaviorId: string) {
   return items.find((item) => item.behaviorId === behaviorId)?.reason;
 }
 
-test('a behaviour without steps is uncompilable and stays on the model path', async () => {
+test('a plan with nothing compiled falls back before any browser work', async () => {
+  // The only plan that still returns to the model path: every behaviour is uncompilable and no judge is
+  // supplied, so there is no deterministic or pixel verdict to keep. Nothing was driven, which is why
+  // the model path can start from the untouched page.
   const plan = fixturePlan({ steps: undefined, assertions: undefined });
   const compiled = compilePlan(plan);
   expect(compiled.programs).toEqual([]);
@@ -103,7 +106,11 @@ test('a genuinely failing assertion is submitted as failed rather than falling b
   expect(outcome.result.result.items).toMatchObject([{ behaviorId: 'B01', verdict: 'failed' }]);
 });
 
-test('a partially compilable plan falls back for the whole report and says which behaviour and why', async () => {
+test('a partially compilable plan keeps the compiled verdict and blocks only the unexecutable behaviour', async () => {
+  // The mechanism this replaces measured a real run: 35 behaviours had already produced verdicts when 4
+  // could not compile, and the whole check was sent back to the model path (130 actions, ~30 minutes).
+  // Nothing here justifies redoing the compiled half, so it keeps its own verdict and the model-free
+  // result is submitted with the unexecutable behaviour marked blocked.
   const compiledPlan = fixturePlan();
   const plan: Plan = { ...compiledPlan, behaviors: [compiledPlan.behaviors[0],
     { ...compiledPlan.behaviors[0], id: 'B02', title: '拖拽排序', steps: undefined, assertions: undefined }] };
@@ -111,13 +118,20 @@ test('a partially compilable plan falls back for the whole report and says which
   const fixture = formFixture(SESSION, { after: { 1: { text: '测试书名' } } });
   const outcome = await runScriptedPlan({ binding: value, handoff: handoffFor(plan, value), browser: fixture.browser,
     signal: new AbortController().signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save });
-  expect(outcome.kind).toBe('fallback');
-  if (outcome.kind !== 'fallback') return;
-  expect(outcome.compiled).toEqual(['B01']);
-  expect(outcome.uncompilable).toEqual([{ behaviorId: 'B02', reason: 'missing-steps' }]);
-  // The compiled behaviour really ran, so its progress events stand; the report
-  // itself is not submitted because it could not cover B02.
+  expect(outcome.kind).toBe('scripted');
+  if (outcome.kind !== 'scripted') return;
+  assertReviewerResult(outcome.result);
+  expect(outcome.result.result.items).toMatchObject([
+    { behaviorId: 'B01', verdict: 'passed', expected: '出现测试书名' },
+    { behaviorId: 'B02', verdict: 'blocked', expected: '出现测试书名' },
+  ]);
+  // The blocked verdict names the planning gap, and blocked is not a pass: the fail-closed rule is
+  // unchanged and `finishReview` still refuses to accept the candidate.
+  expect(String(outcome.result.result.items[1].actual)).toContain('missing-steps');
+  expect(outcome.result.result.items[1].observationEventIds).toEqual([]);
+  // The compiled behaviour really ran the browser once, and the unexecutable one drove nothing.
   expect(fixture.calls.open).toBe(1);
+  expect(outcome.result.usage.modelCalls).toBe(0);
 });
 
 test('runPrograms reports each program to the progress hook only after it finished', async () => {
@@ -354,8 +368,15 @@ test('a judgement past the review budget blocks without ever asking the model', 
   expect(elapsed).toBeLessThan(VERIFICATION_WALL_CLOCK_LIMIT_MS);
 });
 
-test('one non-appearance reason keeps the whole-plan fallback even with a judge supplied', async () => {
-  const compiledBehavior = fixturePlan().behaviors[0];
+test('a plan with a compiled, an appearance and an unexecutable behaviour settles each one on its own', async () => {
+  // One non-appearance reason used to force the whole-plan fallback even with a judge supplied. Each
+  // behaviour is now settled by the layer that can decide it, and nothing is re-run on the model path:
+  // B01 by its scripted assertion, B02 from the pixels its own steps captured, B03 blocked with its
+  // reason because the plan states no steps for it.
+  const compiledBehavior = { ...fixturePlan().behaviors[0],
+    // Decidable on the untouched fixture page, so the scripted half's own verdict is a real pass
+    // regardless of what the later capture does to the page.
+    assertions: [{ kind: 'control' as const, role: 'button', name: '添加', negated: false }] };
   const plan: Plan = { ...fixturePlan(), behaviors: [
     compiledBehavior,
     { ...visualOnlyPlan().behaviors[0], id: 'B02', title: '外观', required: true },
@@ -363,16 +384,42 @@ test('one non-appearance reason keeps the whole-plan fallback even with a judge 
   ] };
   const judge = judgePort(JSON.stringify({ judgements: [{ id: 'B02', verdict: 'passed', citation: '右上角 12.00' }] }));
   const { outcome, fixture } = await runVisual(plan, judge);
-  // A partially compilable plan must not submit a partial result, and a judge being available for one
-  // behaviour does not change that: the model path still reports on the whole plan.
+  expect(outcome.kind).toBe('scripted');
+  if (outcome.kind !== 'scripted') return;
+  assertReviewerResult(outcome.result);
+  expect(outcome.result.result.items).toMatchObject([
+    { behaviorId: 'B01', verdict: 'passed' },
+    { behaviorId: 'B02', verdict: 'passed', actual: '右上角 12.00' },
+    { behaviorId: 'B03', verdict: 'blocked' },
+  ]);
+  expect(String(outcome.result.result.items[2].actual)).toContain('missing-steps');
+  expect(judge.calls).toHaveLength(1);
+  // The compiled half really ran the browser (its click), and the appearance behaviour's capture marker
+  // took the one screenshot the judge was handed.
+  expect(fixture.calls.act).toBe(1);
+  expect(fixture.calls.screenshot).toBe(1);
+  expect(judge.calls[0].images[0]).toMatchObject({ base64: PNG_BASE64 });
+});
+
+test('a plan where nothing compiles and nothing can be judged still falls back as a whole', async () => {
+  // The one state that still returns to the model path: no program ran and no behaviour carries both the
+  // steps and the stated expectation the appearance layer needs, so no deterministic verdict exists to
+  // keep. A judge being configured does not turn a walkthrough into a pixel judgement.
+  const plan: Plan = { ...fixturePlan(), behaviors: [
+    { ...fixturePlan().behaviors[0], id: 'B01', steps: undefined, assertions: undefined },
+    { ...visualOnlyPlan().behaviors[0], id: 'B02', assertions: undefined },
+  ] };
+  expect(compilePlan(plan).programs).toEqual([]);
+  expect(compilePlan(plan).uncompilable).toEqual([{ behaviorId: 'B01', reason: 'missing-steps' },
+    { behaviorId: 'B02', reason: 'missing-assertions' }]);
+  const judge = judgePort(JSON.stringify({ judgements: [{ id: 'B02', verdict: 'passed', citation: '看似正常' }] }));
+  const { outcome, fixture } = await runVisual(plan, judge);
   expect(outcome.kind).toBe('fallback');
   if (outcome.kind !== 'fallback') return;
-  expect(outcome.compiled).toEqual(['B01']);
-  expect(outcome.uncompilable).toEqual([{ behaviorId: 'B02', reason: 'visual-evidence' },
-    { behaviorId: 'B03', reason: 'missing-steps' }]);
+  expect(outcome.uncompilable).toEqual([{ behaviorId: 'B01', reason: 'missing-steps' },
+    { behaviorId: 'B02', reason: 'missing-assertions' }]);
   expect(judge.calls).toHaveLength(0);
-  // The compiled half really ran the browser before the fallback, as it always did.
-  expect(fixture.calls.act).toBe(1);
+  expect(fixture.calls.open).toBe(0);
 });
 
 
