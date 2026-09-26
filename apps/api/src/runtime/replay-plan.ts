@@ -4,6 +4,8 @@ import { HandoffSchema, ReviewResultSchema, allowsRenderOnlyEvidence,
 import { REVIEW_EVIDENCE_LIMIT_BYTES } from './budgets.js';
 import { RuntimeError, type ProbeEventSink } from './types.js';
 import { assertReviewerResult, markReviewerResultVerified, type ReviewCheckpoint, type ReviewerResult, type ReviewObservationEvent } from './reviewer.js';
+import { judgeVisualBehaviours } from './visual-judgement.js';
+import { REVIEW_WALL_CLOCK_BUDGET_MS } from './budgets.js';
 import { runReplayProgram, type ReplayBrowser, type ReplayProgram, type ReplayStep } from './replay.js';
 import type { StoredArtifact } from '../storage/artifacts.js';
 
@@ -130,7 +132,16 @@ export async function runPrograms(compiled: CompiledPlan, input: ReplayRunProgra
   return { items, evidence, artifacts };
 }
 
+/**
+ * The model call the visual layer needs, injected so this module never holds a provider client: the
+ * judge receives prompts and pixels and hands back text, and nothing here can reach the browser.
+ */
+export interface VisualJudgePort {
+  request(prompt: string, images: Array<{ base64: string; mimeType: string }>): Promise<string>;
+  now?: () => number;
+}
 export interface RunScriptedPlanInput extends Omit<ReplayRunProgramsInput, 'onProgress' | 'behaviors'> {
+  visualJudge?: VisualJudgePort;
   binding: ReviewBinding;
   handoff: Handoff;
   onEvent?: ProbeEventSink;
@@ -149,7 +160,15 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
     throw new RuntimeError('INVALID_HANDOFF', '检查交接与当前候选不匹配');
   const compiled = compilePlan(handoff.plan);
   const total = handoff.plan.behaviors.length;
-  if (compiled.programs.length === 0) return { kind: 'fallback', compiled: [], uncompilable: compiled.uncompilable };
+  // A behaviour whose result depends on appearance is uncompilable by contract, so on a realistic plan
+  // the uncompilable list is never empty and the whole plan used to fall back to the model-driven path
+  // — the very half hour this work exists to remove. When every uncompilable reason is appearance and a
+  // judge is supplied, those behaviours are driven and judged instead, and an all-visual plan must not
+  // be turned away here before that can happen.
+  const judgeVisual = Boolean(input.visualJudge) && compiled.uncompilable.length > 0
+    && compiled.uncompilable.every((entry) => entry.reason === 'visual-evidence');
+  if (compiled.programs.length === 0 && !judgeVisual)
+    return { kind: 'fallback', compiled: [], uncompilable: compiled.uncompilable };
   await input.onEvent?.({ id: randomUUID(), at: new Date().toISOString(), type: 'tool.start', toolName: 'browser_steps',
     toolCallId: replayCallId(input.binding.roleRunId, 'start'),
     message: `脚本回放开始：${compiled.programs.length}/${total} 项行为可编译，行为判定不调用模型` });
@@ -171,21 +190,54 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
   // the items map exists, and a provisional note must never delay the renewal
   // event that keeps the run alive.
   await emitCheckpoints(input, run, compiled, total);
-  if (compiled.uncompilable.length > 0) {
+  if (compiled.uncompilable.length > 0 && !judgeVisual) {
     // The model path reports on the whole plan, so a partially compiled plan must
     // not submit a partial result: the caller falls back entirely. The progress
     // events already emitted stay valid because the browser work really happened.
     return { kind: 'fallback', compiled: compiled.programs.map((program) => program.behaviorId), uncompilable: compiled.uncompilable };
   }
+  // The appearance behaviours were driven and captured rather than compiled into the scripted pass,
+  // so their items come from the judge. A kernel `blocked` item is never upgraded: it records that the
+  // behaviour produced no real action and no render-only evidence, and no model verdict can supply that.
+  const captures = judgeVisual
+    ? await captureVisualPrograms({ behaviors: handoff.plan.behaviors, browser: input.browser,
+        signal: input.signal, saveScreenshot: input.saveScreenshot })
+    : undefined;
+  const verdicts = captures && input.visualJudge
+    ? await judgeVisualBehaviours({
+        behaviours: [...captures.values()].map((capture) => ({
+          id: capture.behaviorId,
+          expected: handoff.plan.behaviors.find((behavior) => behavior.id === capture.behaviorId)?.expected ?? '',
+          images: capture.images,
+        })),
+        request: input.visualJudge.request,
+        deadlineMs: REVIEW_WALL_CLOCK_BUDGET_MS,
+        now: input.visualJudge.now ?? (() => performance.now()),
+      })
+    : undefined;
   const items = handoff.plan.behaviors.map((behavior) => {
     const item = run.items.get(behavior.id);
-    if (!item || item.expected !== behavior.expected)
+    if (item) {
+      if (item.expected !== behavior.expected)
+        throw new RuntimeError('REPLAY_PROGRAM_MISSING', '脚本回放没有覆盖全部计划行为');
+      return item;
+    }
+    const capture = captures?.get(behavior.id);
+    if (!capture || capture.item.expected !== behavior.expected)
       throw new RuntimeError('REPLAY_PROGRAM_MISSING', '脚本回放没有覆盖全部计划行为');
-    return item;
+    const verdict = verdicts?.get(behavior.id);
+    // Only a behaviour the scripted pass already passed may be re-judged. Guarding `blocked` alone let a
+    // model verdict overwrite a script `failed` into `passed`, which is fail-open in exactly the
+    // direction that matters: the scripted assertion had already found the candidate wrong.
+    if (!verdict || capture.item.verdict !== 'passed') return capture.item;
+    return { ...capture.item, verdict: verdict.verdict, actual: verdict.reason.slice(0, 2000) };
   });
   const result: ReviewResult = ReviewResultSchema.parse({ revisionId: input.binding.revisionId, sourceHash: input.binding.sourceHash,
     items, summary: summarize(items) });
-  const assembled = markReviewerResultVerified({ result, evidence: run.evidence, artifacts: run.artifacts,
+  const visualEvidence = captures ? [...captures.values()].flatMap((capture) => capture.evidence) : [];
+  const visualArtifacts = captures ? [...captures.values()].flatMap((capture) => capture.artifacts) : [];
+  const assembled = markReviewerResultVerified({ result,
+    evidence: [...run.evidence, ...visualEvidence], artifacts: [...run.artifacts, ...visualArtifacts],
     usage: zeroUsage(), chromeClosed: true } as ReviewerResult);
   // The same assertion the model-driven path must pass. Marking this result is
   // what lets the existing receipt path accept it unchanged; it does not relax
@@ -230,4 +282,89 @@ function summarize(items: ReviewItem[]): string {
 function zeroUsage(): ReviewerResult['usage'] {
   return { input: null, output: null, total: null, cachedTokens: null, modelCalls: 0, toolCalls: 0,
     elapsedMs: 0, source: 'unreported' };
+}
+export interface VisualCapture {
+  behaviorId: string;
+  images: Array<{ base64: string; mimeType: string }>;
+  artifactIds: string[];
+  item: ReviewItem;
+  /**
+   * The persisted observation events behind this behaviour's item are returned rather than
+   * recomputed: a merged item's `observationEventIds` must resolve in the very evidence that is
+   * persisted, and only the run that produced them can hand them over. Rebuilding them later
+   * would mint ids no store ever saw and `finishReview` would reject the check.
+   */
+  evidence: ReviewObservationEvent[];
+  /** The stored artifact records, so the caller can merge the screenshot ids the item cites. */
+  artifacts: StoredArtifact[];
+}
+
+/**
+ * Captures the screenshots a visual behaviour has to be judged from.
+ *
+ * `compilePlan` classifies a behaviour whose result depends on appearance as uncompilable, and the
+ * replay tests pin that contract — which means those behaviours' steps were never driven and no
+ * screenshot exists for them yet. A judge handed an empty image list could only answer from the
+ * expectation text, so this drives exactly those behaviours through the same kernel the scripted pass
+ * uses. It calls no model: the pixels are collected here and the judgement happens afterwards, which
+ * is what keeps a model from ever operating the browser.
+ *
+ * The captured bytes are kept in memory on the way past: the stored artifact carries the key and the
+ * hash, not the pixels, and the judge needs the pixels.
+ *
+ * The save seam is widened with the observation and the behaviour the image belongs to, because
+ * `StoredArtifact` carries neither and an image that cannot be tied back to the behaviour it was
+ * taken for cannot be judged or merged. The kernel's capture marker calls `saveScreenshot` with the
+ * image alone, so the observation id is remembered from the newest observation the browser produced
+ * — the same value the kernel holds as the page state when it reaches the marker — instead of being
+ * guessed afterwards, when the artifact would already be attributed to the wrong observation.
+ */
+export async function captureVisualPrograms(input: {
+  behaviors: BehaviorTarget[];
+  browser: ReplayBrowser;
+  signal: AbortSignal;
+  saveScreenshot(image: { base64: string; mimeType: 'image/png'; sha256: string;
+    observationId: string; behaviorId: string }): Promise<StoredArtifact>;
+}): Promise<Map<string, VisualCapture>> {
+  const captures = new Map<string, VisualCapture>();
+  let latestObservationId = '';
+  const remember = <T extends { id: string }>(observation: T) => {
+    latestObservationId = observation.id;
+    return observation;
+  };
+  // Explicit delegation, never a spread: the production browser is a class instance whose methods
+  // live on the prototype, and a spread would hand the kernel an object with none of them.
+  const browser: ReplayBrowser = {
+    sessionId: input.browser.sessionId,
+    open: async (path) => remember(await input.browser.open(path)),
+    observe: async () => remember(await input.browser.observe()),
+    resize: async (width, height) => remember(await input.browser.resize(width, height)),
+    act: async (action) => remember(await input.browser.act(action)),
+    logs: () => input.browser.logs(),
+    screenshot: () => input.browser.screenshot(),
+  };
+  for (const behavior of input.behaviors) {
+    // A visual behaviour without steps is not a capture problem: nothing says what to drive, so it
+    // stays uncompilable for a reason other than appearance and the caller keeps the whole-plan
+    // fallback for it. Skipping here is deliberate, not a silent drop.
+    if (behavior.evidence !== 'visual' || !behavior.steps || behavior.steps.length === 0) continue;
+    input.signal.throwIfAborted();
+    const images: Array<{ base64: string; mimeType: string }> = [];
+    const run = await runReplayProgram({
+      browser,
+      program: { behaviorId: behavior.id, steps: behavior.steps.map(toReplayStep), assertions: behavior.assertions ?? [] },
+      target: { expected: behavior.expected },
+      rendersOnly: allowsRenderOnlyEvidence(behavior),
+      signal: input.signal,
+      async saveScreenshot(image) {
+        const artifact = await input.saveScreenshot({ ...image, observationId: latestObservationId,
+          behaviorId: behavior.id });
+        images.push({ base64: image.base64, mimeType: image.mimeType });
+        return artifact;
+      },
+    });
+    captures.set(behavior.id, { behaviorId: behavior.id, images, artifactIds: run.screenshots.map((artifact) => artifact.id),
+      item: run.item, evidence: run.events, artifacts: run.screenshots });
+  }
+  return captures;
 }

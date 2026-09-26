@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { expect, test } from 'vitest';
 import type { Plan } from '@pivloom/contracts';
+import { allowsRenderOnlyEvidence } from '@pivloom/contracts';
 import { createSourceStore } from '../../src/storage/source.js';
 import { createArtifactStore } from '../../src/storage/artifacts.js';
 import { createSourceSnapshot } from '../../src/runtime/snapshot.js';
@@ -171,4 +172,68 @@ test('a partially compilable plan runs the scripted behaviour, then falls back t
   expect(f.remote.clicks).toBe(1);
   expect(sawScriptedProgress).toBe(true);
   expect(calls).toBe(0);
+}, 20_000);
+
+/**
+ * The appearance judge is the one provider call a visual plan may make, so its answer is a plain text
+ * completion with no tool calls. The stub also records the request bodies: the only way to show the
+ * judge saw the pixels is that the captured image went out on the wire.
+ */
+function judgeCompletion(text: string) {
+  const chunk = { id: 'judge-fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture',
+    choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: null }] };
+  return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({ ...chunk,
+    choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
+    { headers: { 'content-type': 'text/event-stream' } });
+}
+
+/** The same plan shape as `scriptedPlan`, but its verdict lives in the pixels rather than the DOM. */
+const visualScriptedPlan: Plan = { ...scriptedPlan, behaviors: [{ ...scriptedPlan.behaviors[0],
+  action: '查看首屏账单区域', expected: '结算区域显示金额 12.00 且靠右对齐', evidence: 'visual',
+  steps: [{ type: 'open', path: '/' }, { type: 'capture' }],
+  assertions: [{ kind: 'text', text: '空书单', negated: false }] }] };
+
+test('an appearance behaviour is judged from the captured image and the check is accepted', async () => {
+  const f = await fixture(visualScriptedPlan);
+  const bodies: string[] = [];
+  f.input.modelConfig.fetch = async (_url, init) => {
+    f.remote.modelCalls++;
+    bodies.push(String(init?.body ?? ''));
+    return judgeCompletion(JSON.stringify({ judgements: [{ id: 'B01', verdict: 'passed',
+      citation: '账单区域显示 12.00，且与右边缘对齐' }] }));
+  };
+  const { receipt } = await runReview(f.input, f.boundaries);
+  assertVerifiedReviewReceipt(receipt);
+  const item = receipt.result.items[0];
+  expect(item).toMatchObject({ behaviorId: 'B01', verdict: 'passed', expected: visualScriptedPlan.behaviors[0].expected });
+  // One request judged the appearance behaviour, and it carried the pixels the kernel captured. The
+  // judge never receives a browser, so those pixels are the only thing it can have looked at.
+  expect(f.remote.modelCalls).toBe(1);
+  expect(bodies[0]).toContain(PNG_BASE64);
+  expect(bodies[0]).toContain(visualScriptedPlan.behaviors[0].expected);
+  // The gates `finishReview` applies to this item, asserted against the receipt it will receive.
+  const evidenceIds = new Set(receipt.evidence.map((event) => event.id));
+  expect(item.observationEventIds.length).toBeGreaterThan(0);
+  expect(item.observationEventIds.every((id) => evidenceIds.has(id))).toBe(true);
+  const artifacts = new Map(receipt.artifacts.map((artifact) => [artifact.id, artifact]));
+  expect(item.screenshotIds).toHaveLength(1);
+  for (const id of item.screenshotIds) {
+    expect(artifacts.has(id)).toBe(true);
+    expect(artifacts.get(id)!.key).toBe(
+      `${f.input.source.ownerId}/${f.input.source.projectId}/${f.input.source.revisionId}/checks/${id}.png`);
+  }
+  // A real observation plus the captured image is the render evidence a non-blocked item needs.
+  expect(allowsRenderOnlyEvidence(visualScriptedPlan.behaviors[0])).toBe(true);
+}, 20_000);
+
+test('a model without verified vision never receives the captured image', async () => {
+  const f = await fixture(visualScriptedPlan);
+  f.input.modelConfig.supportsImages = false;
+  const { receipt } = await runReview(f.input, f.boundaries);
+  assertVerifiedReviewReceipt(receipt);
+  // The platform's capability gate keeps the pixels on this side: a model that failed the vision
+  // probe is never asked, so it cannot guess its way to a citation, and the check ends blocked
+  // rather than accepted. This is the honest shape of a real run on the configured model today.
+  expect(f.remote.modelCalls).toBe(0);
+  expect(receipt.result.items[0]).toMatchObject({ behaviorId: 'B01', verdict: 'blocked' });
 }, 20_000);

@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { HandoffSchema, ReviewBindingSchema, type Handoff, type Plan } from '@pivloom/contracts';
-import { compilePlan, runPrograms, runScriptedPlan, type ReplayUncompilable } from '../../src/runtime/replay-plan.js';
+import { captureVisualPrograms, compilePlan, runPrograms, runScriptedPlan, type ReplayUncompilable } from '../../src/runtime/replay-plan.js';
 import { assertReviewerResult } from '../../src/runtime/reviewer.js';
 import type { ProbeEvent } from '../../src/runtime/types.js';
 import type { StoredArtifact } from '../../src/storage/artifacts.js';
 import { createMeaningfulProgressGate } from '../../src/generation/progress-watchdog.js';
 import { parseReviewEvidence } from '../../src/data/generation.js';
-import { formFixture, PNG_SHA256 } from './replay-fixture.js';
+import { REVIEW_WALL_CLOCK_BUDGET_MS, VERIFICATION_WALL_CLOCK_LIMIT_MS } from '../../src/runtime/budgets.js';
+import { formFixture, PNG_BASE64, PNG_SHA256 } from './replay-fixture.js';
 
 const PROJECT = randomUUID();
 const REVISION = randomUUID();
@@ -172,4 +173,208 @@ test('a handoff from another revision or browser session never drives this candi
     signal: new AbortController().signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save }))
     .rejects.toMatchObject({ code: 'INVALID_HANDOFF' });
   expect(fixture.calls.open).toBe(0);
+});
+
+test("a visual behaviour is driven and its pixels kept for the judge, without a model in the path", async () => {
+  // The plan contract puts appearance behaviours in the uncompilable list, so their steps have never
+  // run and no screenshot exists. This is the piece that runs them and keeps the pixels; the judge
+  // that reads them afterwards never receives a browser.
+  const fixture = formFixture(SESSION);
+  const plan = fixturePlan({ evidence: 'visual' },
+    { steps: [{ type: 'open', path: '/' }, { type: 'click', role: 'button', name: '添加' }, { type: 'capture' }] });
+  const stored: StoredArtifact[] = [];
+  const attributed: Array<{ behaviorId: string; observationId: string }> = [];
+  const captures = await captureVisualPrograms({
+    behaviors: plan.behaviors,
+    browser: fixture.browser,
+    signal: new AbortController().signal,
+    async saveScreenshot(image) {
+      attributed.push({ behaviorId: image.behaviorId, observationId: image.observationId });
+      const artifact = { id: randomUUID(), mimeType: image.mimeType, sha256: image.sha256 } as StoredArtifact;
+      stored.push(artifact);
+      return artifact;
+    },
+  });
+  const captured = captures.get('B01');
+  // The browser really was driven, and the pixels really were kept: a judge handed an empty list
+  // could only repeat the expectation back.
+  expect(fixture.calls.act).toBeGreaterThan(0);
+  expect(captured?.images[0]?.base64).toBe(PNG_BASE64);
+  expect(captured?.artifactIds).toEqual(stored.map((artifact) => artifact.id));
+  // The image must be attributable to the behaviour and to the observation whose pixels it is; the
+  // click is the newest observation when the capture marker runs, so that is the one it belongs to.
+  expect(attributed).toEqual([{ behaviorId: 'B01', observationId: fixture.observations.at(-1)!.id }]);
+  // The evidence and artifacts travel back with the pixels: without them the merged item's ids
+  // would not resolve against what `finishReview` persists.
+  parseReviewEvidence(captured!.evidence);
+  expect(captured!.artifacts.map((artifact) => artifact.id)).toEqual(captured!.artifactIds);
+  // The item echoes the sealed expectation rather than anything a model said.
+  expect(captured?.item.expected).toBe('出现测试书名');
+});
+
+test("the capture path holds no provider transport, so nothing can call a model", async () => {
+  // `captureVisualPrograms` takes no model config and imports no provider client, so the honest
+  // runtime proof is that the transport a provider request would use was never reached at all.
+  const fetchStub = vi.fn(async () => { throw new Error('the capture layer must not call a model'); });
+  vi.stubGlobal('fetch', fetchStub);
+  try {
+    const fixture = formFixture(SESSION);
+    const plan = fixturePlan({ evidence: 'visual', action: '查看首屏账单区域' },
+      { steps: [{ type: 'open', path: '/' }, { type: 'capture' }] });
+    const captures = await captureVisualPrograms({
+      behaviors: plan.behaviors, browser: fixture.browser, signal: new AbortController().signal,
+      async saveScreenshot(image) {
+        return { id: randomUUID(), mimeType: image.mimeType, sha256: image.sha256 } as StoredArtifact;
+      },
+    });
+    expect(captures.get('B01')?.images).toHaveLength(1);
+    expect(fetchStub).not.toHaveBeenCalled();
+  } finally { vi.unstubAllGlobals(); }
+});
+
+test("a visual behaviour with no steps is skipped rather than driven", async () => {
+  // With no steps nothing says what to drive, so it stays uncompilable for a reason other than
+  // appearance and the caller keeps the whole-plan fallback. Skipping is deliberate, not a silent drop.
+  const fixture = formFixture(SESSION);
+  const plan = fixturePlan({ evidence: 'visual' }, { steps: undefined });
+  const captures = await captureVisualPrograms({
+    behaviors: plan.behaviors, browser: fixture.browser, signal: new AbortController().signal,
+    async saveScreenshot() { throw new Error('nothing should be captured'); },
+  });
+  expect(captures.size).toBe(0);
+  expect(fixture.calls.act).toBe(0);
+});
+
+/**
+ * An appearance-only plan: `compilePlan` compiles no program for it and puts the behaviour in the
+ * uncompilable list with reason `visual-evidence`. That is the trap the wiring has to survive: the
+ * plan has zero programs, yet it is the one plan the visual path exists for.
+ */
+function visualOnlyPlan(overrides: Partial<Plan['behaviors'][number]> = {}): Plan {
+  return fixturePlan({ evidence: 'visual', action: '查看首屏账单区域', expected: '结算区域显示金额 12.00 且靠右对齐',
+    steps: [{ type: 'open', path: '/' }, { type: 'capture' }],
+    assertions: [{ kind: 'text', text: '空书单', negated: false }], ...overrides });
+}
+/** The injected port: the module may reach a model only through this, and only with pixels it captured. */
+function judgePort(reply: string | ((prompt: string, images: Array<{ base64: string; mimeType: string }>) => string),
+  now?: () => number) {
+  const calls: Array<{ prompt: string; images: Array<{ base64: string; mimeType: string }> }> = [];
+  return { calls, port: { async request(prompt: string, images: Array<{ base64: string; mimeType: string }>) {
+    calls.push({ prompt, images });
+    return typeof reply === 'string' ? reply : reply(prompt, images);
+  }, ...(now ? { now } : {}) } };
+}
+async function runVisual(plan: Plan, judge: ReturnType<typeof judgePort>) {
+  const value = binding(randomUUID());
+  const fixture = formFixture(SESSION);
+  const sink = screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION });
+  const outcome = await runScriptedPlan({ binding: value, handoff: handoffFor(plan, value), browser: fixture.browser,
+    signal: new AbortController().signal, saveScreenshot: sink.save, visualJudge: judge.port });
+  return { outcome, fixture, sink };
+}
+
+test('an all-appearance plan is judged from captured pixels instead of falling back', async () => {
+  const plan = visualOnlyPlan();
+  // Zero programs is the fact that used to force the whole-plan fallback before anything could look
+  // at the pixels; this plan must take the visual path precisely because of it.
+  expect(compilePlan(plan).programs).toEqual([]);
+  expect(compilePlan(plan).uncompilable).toEqual([{ behaviorId: 'B01', reason: 'visual-evidence' }]);
+  const judge = judgePort(JSON.stringify({ judgements: [{ id: 'B01', verdict: 'passed',
+    citation: '右上角金额显示 12.00，右对齐' }] }));
+  const { outcome, fixture, sink } = await runVisual(plan, judge);
+  expect(outcome.kind).toBe('scripted');
+  if (outcome.kind !== 'scripted') return;
+  assertReviewerResult(outcome.result);
+  const [item] = outcome.result.result.items;
+  expect(item).toMatchObject({ behaviorId: 'B01', verdict: 'passed', expected: plan.behaviors[0].expected });
+  // The model was handed the pixels the kernel actually took, together with the sealed expectation;
+  // nothing here can hand it a browser, which is why the judged pass costs one request.
+  expect(judge.calls).toHaveLength(1);
+  expect(judge.calls[0].images[0]).toMatchObject({ base64: PNG_BASE64, mimeType: 'image/png' });
+  expect(judge.calls[0].prompt).toContain(plan.behaviors[0].expected);
+  expect(fixture.calls.open).toBe(1);
+  expect(fixture.calls.screenshot).toBe(1);
+  // Every id the item cites resolves in exactly the evidence and artifacts this run produced, and
+  // the artifact key is the shape the persist path requires.
+  const evidenceIds = new Set(outcome.result.evidence.map((event) => event.id));
+  expect(item.observationEventIds.length).toBeGreaterThan(0);
+  expect(item.observationEventIds.every((id) => evidenceIds.has(id))).toBe(true);
+  const artifactIds = new Set(outcome.result.artifacts.map((artifact) => artifact.id));
+  expect(item.screenshotIds).toHaveLength(1);
+  expect(item.screenshotIds.every((id) => artifactIds.has(id))).toBe(true);
+  expect(sink.saved[0]?.key).toBe(`${PROJECT}/${PROJECT}/${REVISION}/checks/${sink.saved[0]?.id}.png`);
+  parseReviewEvidence(outcome.result.evidence);
+});
+
+test('a restated citation or an unparseable answer blocks the appearance behaviour', async () => {
+  const plan = visualOnlyPlan();
+  for (const answer of [
+    // Restating the expectation needs no pixels at all, so it cannot count as having looked.
+    JSON.stringify({ judgements: [{ id: 'B01', verdict: 'passed', citation: plan.behaviors[0].expected }] }),
+    'I think it looks fine.',
+  ]) {
+    const judge = judgePort(answer);
+    const { outcome } = await runVisual(plan, judge);
+    expect(outcome.kind).toBe('scripted');
+    if (outcome.kind !== 'scripted') return;
+    // The result is still assembled and marked; it is the item that may not pass.
+    assertReviewerResult(outcome.result);
+    expect(outcome.result.result.items[0]).toMatchObject({ behaviorId: 'B01', verdict: 'blocked',
+      expected: plan.behaviors[0].expected });
+  }
+});
+
+test('a judgement past the review budget blocks without ever asking the model', async () => {
+  const plan = visualOnlyPlan();
+  // The clock jumps past the review share between the judge's start reading and its admission check,
+  // which is the state an over-budget check is in; no eight-minute wait is needed to prove it.
+  let readings = 0;
+  const judge = judgePort(JSON.stringify({ judgements: [{ id: 'B01', verdict: 'passed', citation: '右上角 12.00' }] }),
+    () => (readings++ === 0 ? 0 : REVIEW_WALL_CLOCK_BUDGET_MS + 1));
+  const started = performance.now();
+  const { outcome } = await runVisual(plan, judge);
+  const elapsed = performance.now() - started;
+  expect(outcome.kind).toBe('scripted');
+  if (outcome.kind !== 'scripted') return;
+  assertReviewerResult(outcome.result);
+  expect(outcome.result.result.items[0]).toMatchObject({ behaviorId: 'B01', verdict: 'blocked' });
+  // Admitting on the clock is the point: an over-budget judgement spends no request at all.
+  expect(judge.calls).toHaveLength(0);
+  // And the check returned instead of waiting the budget out, inside both ceilings.
+  expect(elapsed).toBeLessThan(REVIEW_WALL_CLOCK_BUDGET_MS);
+  expect(elapsed).toBeLessThan(VERIFICATION_WALL_CLOCK_LIMIT_MS);
+});
+
+test('one non-appearance reason keeps the whole-plan fallback even with a judge supplied', async () => {
+  const compiledBehavior = fixturePlan().behaviors[0];
+  const plan: Plan = { ...fixturePlan(), behaviors: [
+    compiledBehavior,
+    { ...visualOnlyPlan().behaviors[0], id: 'B02', title: '外观', required: true },
+    { ...compiledBehavior, id: 'B03', title: '拖拽排序', steps: undefined, assertions: undefined },
+  ] };
+  const judge = judgePort(JSON.stringify({ judgements: [{ id: 'B02', verdict: 'passed', citation: '右上角 12.00' }] }));
+  const { outcome, fixture } = await runVisual(plan, judge);
+  // A partially compilable plan must not submit a partial result, and a judge being available for one
+  // behaviour does not change that: the model path still reports on the whole plan.
+  expect(outcome.kind).toBe('fallback');
+  if (outcome.kind !== 'fallback') return;
+  expect(outcome.compiled).toEqual(['B01']);
+  expect(outcome.uncompilable).toEqual([{ behaviorId: 'B02', reason: 'visual-evidence' },
+    { behaviorId: 'B03', reason: 'missing-steps' }]);
+  expect(judge.calls).toHaveLength(0);
+  // The compiled half really ran the browser before the fallback, as it always did.
+  expect(fixture.calls.act).toBe(1);
+});
+
+
+test('a model verdict cannot turn a script-failed appearance behaviour into a pass', async () => {
+  // The scripted assertion already found the candidate wrong, so a judgement that says otherwise must
+  // not be able to upgrade it. Guarding only the blocked case allowed exactly that, which is fail-open
+  // in the one direction that matters: the deterministic half had already detected the defect.
+  const plan = visualOnlyPlan({ assertions: [{ kind: 'text', text: '这段文字绝不出现在页面上', negated: false }] });
+  const judge = judgePort(JSON.stringify({ judgements: [{ id: 'B01', verdict: 'passed', citation: '我看到测试书名' }] }));
+  const { outcome } = await runVisual(plan, judge);
+  expect(outcome.kind).toBe('scripted');
+  if (outcome.kind !== 'scripted') return;
+  expect(outcome.result.result.items[0]).toMatchObject({ behaviorId: 'B01', verdict: 'failed' });
 });
