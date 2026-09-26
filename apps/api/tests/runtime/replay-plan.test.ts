@@ -366,3 +366,15 @@ test('one non-appearance reason keeps the whole-plan fallback even with a judge 
   expect(fixture.calls.act).toBe(1);
 });
 
+
+test('a model verdict cannot turn a script-failed appearance behaviour into a pass', async () => {
+  // The scripted assertion already found the candidate wrong, so a judgement that says otherwise must
+  // not be able to upgrade it. Guarding only the blocked case allowed exactly that, which is fail-open
+  // in the one direction that matters: the deterministic half had already detected the defect.
+  const plan = visualOnlyPlan({ assertions: [{ kind: 'text', text: '这段文字绝不出现在页面上', negated: false }] });
+  const judge = judgePort(JSON.stringify({ judgements: [{ id: 'B01', verdict: 'passed', citation: '我看到测试书名' }] }));
+  const { outcome } = await runVisual(plan, judge);
+  expect(outcome.kind).toBe('scripted');
+  if (outcome.kind !== 'scripted') return;
+  expect(outcome.result.result.items[0]).toMatchObject({ behaviorId: 'B01', verdict: 'failed' });
+});

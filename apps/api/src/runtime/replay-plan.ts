@@ -226,7 +226,10 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
     if (!capture || capture.item.expected !== behavior.expected)
       throw new RuntimeError('REPLAY_PROGRAM_MISSING', '脚本回放没有覆盖全部计划行为');
     const verdict = verdicts?.get(behavior.id);
-    if (!verdict || capture.item.verdict === 'blocked') return capture.item;
+    // Only a behaviour the scripted pass already passed may be re-judged. Guarding `blocked` alone let a
+    // model verdict overwrite a script `failed` into `passed`, which is fail-open in exactly the
+    // direction that matters: the scripted assertion had already found the candidate wrong.
+    if (!verdict || capture.item.verdict !== 'passed') return capture.item;
     return { ...capture.item, verdict: verdict.verdict, actual: verdict.reason.slice(0, 2000) };
   });
   const result: ReviewResult = ReviewResultSchema.parse({ revisionId: input.binding.revisionId, sourceHash: input.binding.sourceHash,
