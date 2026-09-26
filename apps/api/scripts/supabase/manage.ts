@@ -193,6 +193,20 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(error instanceof MaintenanceFailure ? `${error.message}\n` : "维护操作失败；未输出连接或凭据详情。\n");
+  if (error instanceof MaintenanceFailure) {
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  // A statement that fails names itself, and hiding that behind one generic sentence is what made an
+  // isolated database look like a transient failure for three separate attempts: the real message was
+  // `schema "auth" does not exist`, and nothing said so. Keep the cause and redact the connection
+  // strings inside it, which is the same trade the run-failure path already makes.
+  const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  const secrets = [process.env.MIGRATION_DATABASE_URL, process.env.DATABASE_URL, process.env.SUPABASE_SECRET_KEY]
+    .filter((value): value is string => Boolean(value));
+  let redacted = detail;
+  for (const secret of secrets) redacted = redacted.replaceAll(secret, "[REDACTED]");
+  process.stderr.write(`维护操作失败：${redacted.replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, "postgres://[REDACTED]").slice(0, 600)}\n`);
   process.exitCode = 1;
 });
