@@ -143,9 +143,13 @@ export async function runPrograms(compiled: CompiledPlan, input: ReplayRunProgra
       // than only that something went wrong - the observability rule the comparable products follow.
       const detail = error instanceof RuntimeError ? `${error.code}: ${error.message}`
         : error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      // Ask the browser what fields a ref entry carried, so the verdict answers the question the next
+      // design decision depends on: whether scoped steps can be built from data we already receive.
+      const refFields = await input.browser.logs().then((logs) => typeof logs.refFields === 'string' ? logs.refFields : '')
+        .catch(() => '');
       items.set(program.behaviorId, { behaviorId: program.behaviorId, verdict: 'blocked' as const,
         expected: target.expected,
-        actual: `脚本回放该行为时失败，未取得可判定证据：${detail.slice(0, 300)}`,
+        actual: `脚本回放该行为时失败，未取得可判定证据：${detail.slice(0, 300)}${refFields ? `〔ref 字段：${refFields}〕` : ''}`,
         observationEventIds: [], screenshotIds: [], reproSteps: [] });
       await input.onProgress?.(program, { assertionsPassed: false });
       continue;

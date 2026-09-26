@@ -69,6 +69,8 @@ function boundedText(text: string, limit: number): string {
 export class RemoteBrowser {
   private readonly session: string;
   private observation?: { id: string; url: string; refs: Set<string> };
+  /** Field names the browser's ref payload actually carries, sampled once per observation. */
+  private refFields = '';
   private closed = false;
   private stopped = false;
   private readonly stopController = new AbortController();
@@ -198,7 +200,7 @@ export class RemoteBrowser {
       // produced inside the sandbox. So the next observation records the field names the payload actually
       // carries - names only, never values - which settles the question in one run instead of a guess.
       if (Object.keys(refs).length === 0)
-        console.info(`[browser] ref payload fields: ${Object.keys(item as Record<string, unknown>).sort().join(',')}`);
+        this.refFields = Object.keys(item as Record<string, unknown>).sort().join(',');
       const metadata = item as Record<string, unknown>;
       const role =
         typeof metadata.role === "string"
@@ -354,7 +356,11 @@ export class RemoteBrowser {
     return boundedText(data.text, 12000);
   }
   async logs(): Promise<Record<string, unknown>> {
-    return this.exclusive(() => this.readLogs());
+    const logs = await this.exclusive(() => this.readLogs());
+    // The ref payload's field names ride along with the logs so a blocked verdict can state what the
+    // browser actually offered - the verdict is what reaches the database, and the executor that needs
+    // this answer may have no way to read the server's own output.
+    return this.refFields ? { ...logs, refFields: this.refFields } : logs;
   }
   private async readLogs(): Promise<Record<string, unknown>> {
     await this.checkOrigin();
