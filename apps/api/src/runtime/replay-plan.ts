@@ -160,6 +160,11 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
     throw new RuntimeError('INVALID_HANDOFF', '检查交接与当前候选不匹配');
   const compiled = compilePlan(handoff.plan);
   const total = handoff.plan.behaviors.length;
+  // The judgement spends what is left of the model-judged share, not a fresh copy of it: the scripted
+  // pass above has already consumed part of the increment's budget, and granting the judge the full
+  // share again would let the two together run past the ten minute ceiling they are meant to respect.
+  const clock = input.visualJudge?.now ?? (() => performance.now());
+  const startedAt = clock();
   // A behaviour whose result depends on appearance is uncompilable by contract, so on a realistic plan
   // the uncompilable list is never empty and the whole plan used to fall back to the model-driven path
   // — the very half hour this work exists to remove. When every uncompilable reason is appearance and a
@@ -211,8 +216,8 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
           images: capture.images,
         })),
         request: input.visualJudge.request,
-        deadlineMs: REVIEW_WALL_CLOCK_BUDGET_MS,
-        now: input.visualJudge.now ?? (() => performance.now()),
+        deadlineMs: Math.max(0, REVIEW_WALL_CLOCK_BUDGET_MS - (clock() - startedAt)),
+        now: clock,
       })
     : undefined;
   const items = handoff.plan.behaviors.map((behavior) => {
