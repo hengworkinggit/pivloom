@@ -401,6 +401,29 @@ test('a plan with a compiled, an appearance and an unexecutable behaviour settle
   expect(judge.calls[0].images[0]).toMatchObject({ base64: PNG_BASE64 });
 });
 
+test('an appearance behaviour with no judge is blocked rather than left without an item or judged by text', async () => {
+  // A model that failed the vision probe supplies no port, so the pixels this behaviour needs cannot be
+  // read. It must still get an item — the plan's every behaviour has to be accounted for — and that item
+  // is blocked, because a text-only guess at an appearance verdict is the fail-open case the vision gate
+  // exists to prevent.
+  const plan: Plan = { ...fixturePlan(), behaviors: [fixturePlan().behaviors[0],
+    { ...visualOnlyPlan().behaviors[0], id: 'B02' }] };
+  const value = binding(randomUUID());
+  const fixture = formFixture(SESSION, { after: { 1: { text: '测试书名' } } });
+  const outcome = await runScriptedPlan({ binding: value, handoff: handoffFor(plan, value), browser: fixture.browser,
+    signal: new AbortController().signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save });
+  expect(outcome.kind).toBe('scripted');
+  if (outcome.kind !== 'scripted') return;
+  expect(outcome.result.result.items).toMatchObject([
+    { behaviorId: 'B01', verdict: 'passed' },
+    { behaviorId: 'B02', verdict: 'blocked', expected: '结算区域显示金额 12.00 且靠右对齐' },
+  ]);
+  expect(String(outcome.result.result.items[1].actual)).toContain('visual-evidence');
+  // Nothing was captured for it and nothing else was re-run: only the compiled behaviour drove the page.
+  expect(fixture.calls.screenshot).toBe(0);
+  expect(fixture.calls.open).toBe(1);
+});
+
 test('a plan where nothing compiles and nothing can be judged still falls back as a whole', async () => {
   // The one state that still returns to the model path: no program ran and no behaviour carries both the
   // steps and the stated expectation the appearance layer needs, so no deterministic verdict exists to

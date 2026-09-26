@@ -239,9 +239,14 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
   // Only the behaviours this layer is allowed to judge are captured: a visual behaviour that is
   // uncompilable for a different reason (no steps, no assertions) is a blocked item below, not a
   // capture problem, and driving it here would spend browser work on a behaviour no judge may pass.
+  // Without a judge there is nothing to capture for, so every uncompilable behaviour falls through to
+  // the blocked item below rather than leaving a plan behaviour with no item at all.
+  const judgedIds = new Set(judgeVisual ? visualIds : []);
+  // The judge really does spend a provider request per batch, so the usage this result reports must say
+  // so; claiming zero calls would understate the cost of every appearance behaviour.
   let judgeCalls = 0;
-  const captures = judgeVisual
-    ? await captureVisualPrograms({ behaviors: handoff.plan.behaviors.filter((behavior) => visualIds.has(behavior.id)),
+  const captures = judgedIds.size > 0
+    ? await captureVisualPrograms({ behaviors: handoff.plan.behaviors.filter((behavior) => judgedIds.has(behavior.id)),
         browser: input.browser, signal: input.signal, saveScreenshot: input.saveScreenshot })
     : undefined;
   const verdicts = captures && input.visualJudge
@@ -257,7 +262,7 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
       })
     : undefined;
   const uncompilableReasons = new Map(compiled.uncompilable
-    .filter((entry) => !visualIds.has(entry.behaviorId))
+    .filter((entry) => !judgedIds.has(entry.behaviorId))
     .map((entry) => [entry.behaviorId, entry.reason]));
   const items = handoff.plan.behaviors.map((behavior) => {
     const item = run.items.get(behavior.id);
