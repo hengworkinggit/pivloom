@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { TerminalRunStates, type ProjectDetailResponse, type RoleRun, type Run, type RunEvent } from "@pivloom/contracts";
+import { TerminalRunStates, type ProjectDetailResponse, type RoleRun, type Run, type RunEvent, type RunFailureDetail } from "@pivloom/contracts";
 import { getApiWorkspace } from "@/lib/workspace";
 import { createGenerationApi } from "@/lib/generation-api";
 import { WorkspaceError } from "@/lib/api-workspace";
@@ -18,7 +18,7 @@ function hasFinalProjectSnapshot(project: ProjectDetailResponse, run: Run) {
 export function useGenerationState(projectId: string) {
   const workspace = getApiWorkspace();
   const generation = useMemo(() => createGenerationApi(workspace), [workspace]);
-  const [view, setView] = useState<{ project: ProjectDetailResponse; run: Run | null; roles: RoleRun[]; events: RunEvent[] }>();
+  const [view, setView] = useState<{ project: ProjectDetailResponse; run: Run | null; roles: RoleRun[]; events: RunEvent[]; failureDetail: RunFailureDetail | null }>();
   const [error, setError] = useState("");
   const [connection, setConnection] = useState<"idle" | "connecting" | "connected" | "polling" | "unavailable">("idle");
   const [acceptedRequestId, setAcceptedRequestId] = useState<string | null>(null);
@@ -75,6 +75,9 @@ export function useGenerationState(projectId: string) {
             project, run: visibleRun,
             roles: detail && visibleRun?.id === detail.run.id ? detail.roles : [],
             events: detail && visibleRun?.id === detail.run.id ? mergeRunEvents(previous?.events ?? [], detail.events, detail.run.id) : [],
+            // Same run-id gate as roles and events: another run's classified cause must never
+            // be shown next to this run's error message.
+            failureDetail: detail && visibleRun?.id === detail.run.id ? detail.failureDetail : null,
           };
         });
         setError("");

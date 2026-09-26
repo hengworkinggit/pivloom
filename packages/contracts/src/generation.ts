@@ -88,9 +88,15 @@ export const RunEventSchema = z.object({
   type: RunEventTypeSchema, createdAt: z.iso.datetime(), payload: z.record(z.string(), z.unknown()),
 });
 export type RunEvent = z.infer<typeof RunEventSchema>;
+export const RunFailureDetailSchema = z.object({
+  phase: z.string(), code: z.string(), causeClass: z.string(), detail: z.record(z.string(), z.unknown()),
+  createdAt: z.iso.datetime(),
+});
+export type RunFailureDetail = z.infer<typeof RunFailureDetailSchema>;
 export const RunDetailResponseSchema = z.object({
   run: RunSchema, revision: RevisionSchema.nullable(), events: z.array(RunEventSchema), preview: PreviewSchema.nullable(),
   roles: z.array(RoleRunSchema).default([]),
+  failureDetail: RunFailureDetailSchema.nullable().default(null),
 });
 export type RunDetailResponse = z.infer<typeof RunDetailResponseSchema>;
 export const RevisionFilesResponseSchema = z.object({

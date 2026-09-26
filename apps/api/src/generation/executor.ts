@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { TerminalRunStates, type RoleUsage, type RunPhase, type RunState } from "@pivloom/contracts";
-import type { GenerationRepository, StoredRestore, StoredRevision, StoredRun } from "../data/generation.js";
+import type { FinishFailedInput, GenerationRepository, StoredRestore, StoredRevision, StoredRun } from "../data/generation.js";
 import type { ModelProfileService } from "../models/service.js";
 import { sourceBundleFiles, type SourceStore } from "../storage/source.js";
 import type { ArtifactStore } from "../storage/artifacts.js";
@@ -125,6 +125,23 @@ export function createGenerationExecutor(options: {
     const finishCancelled = (input: Parameters<GenerationRepository["finishCancelled"]>[2]) => {
       task.terminal = { kind: "cancelled", input };
       return repository.finishCancelled(run.ownerId, run.id, input);
+    };
+    // Failures are data, not prose. The user-facing copy on the run stays generic, but the
+    // classified cause is persisted next to the run so the workbench can show what actually
+    // happened; a ZodError from an over-long evidence array must never again spend a night
+    // looking like an unreproducible GENERATION_FAILED.
+    const classifyFailure = (cause: unknown): FinishFailedInput["failureDetail"] => {
+      const redact = (text: string) => text.replaceAll(sandbox.apiKey, "[REDACTED]").replace(/Bearer\s+[^\s"']+/gi, "Bearer [REDACTED]");
+      if (cause instanceof RuntimeError) return { phase, causeClass: "RUNTIME", detail: { code: cause.code, message: redact(cause.message).slice(0, 800) } };
+      if (cause instanceof ApiFailure) return { phase, causeClass: "API", detail: { statusCode: cause.statusCode, code: cause.code, message: redact(cause.message).slice(0, 800) } };
+      if (cause instanceof Error) {
+        const issues = (cause as { issues?: unknown[] }).issues;
+        if (cause.name === "ZodError" && Array.isArray(issues)) {
+          return { phase, causeClass: "SCHEMA_VALIDATION", detail: { issues: issues.slice(0, 3).map((issue) => redact(JSON.stringify(issue)).slice(0, 400)) } };
+        }
+        return { phase, causeClass: "UNEXPECTED", detail: { name: cause.name, message: redact(cause.message).slice(0, 800) } };
+      }
+      return { phase, causeClass: "UNKNOWN", detail: { repr: String(cause).slice(0, 400) } };
     };
     const finishFailed = (input: Parameters<GenerationRepository["finishFailed"]>[2]) => {
       task.terminal = { kind: "failed", input };
@@ -474,6 +491,7 @@ export function createGenerationExecutor(options: {
         code: failure.code, message: failure.message, retryable: failure.retryable,
         resultRevisionId, cleanupState: confirmed ? "confirmed" : "pending",
         roleUsage: activeRoleId && activeUsage ? { roleRunId: activeRoleId, usage: activeUsage } : undefined,
+        failureDetail: classifyFailure(error),
       });
     } finally {
       watchdog.close();

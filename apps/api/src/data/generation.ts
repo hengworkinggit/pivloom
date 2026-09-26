@@ -51,6 +51,9 @@ export interface FinishFailedInput {
   code: string; message: string; retryable: boolean; summary?: string;
   resultRevisionId?: string | null; cleanupState: Run["cleanupState"];
   roleUsage?: { roleRunId: string; usage: RoleUsage };
+  // The classified cause of the failure, kept next to the run so the workbench
+  // can show what actually happened instead of the generic user-facing copy.
+  failureDetail?: { phase: string; causeClass: string; detail: Record<string, unknown> };
 }
 export interface AppendEventInput { type: RunEventType; payload: Record<string, unknown>; roleRunId?: string | null; attempt?: number; progress?: boolean }
 export interface RoleReference { roleRunId: string; attempt: number; role: Role }
@@ -119,6 +122,7 @@ export interface GenerationRepository {
   markCleanupPending(ownerId: string, runId: string, message: string): Promise<StoredRun>;
   confirmCleanup(ownerId: string, runId: string): Promise<StoredRun>;
   finishFailed(ownerId: string, runId: string, input: FinishFailedInput): Promise<StoredRun>;
+  readFailureDetail(ownerId: string, runId: string): Promise<{ phase: string; code: string; causeClass: string; detail: Record<string, unknown>; createdAt: string } | null>;
   listReferencedSourceKeys(ownerId: string, projectId: string): Promise<string[]>;
   cancel(ownerId: string, runId: string): Promise<StoredRun>;
   finishCancelled(ownerId: string, runId: string, input: { cleanupState: "confirmed" | "pending"; summary: string }): Promise<StoredRun>;
@@ -740,6 +744,12 @@ export function createGenerationRepository(
             WHERE owner_id=$1 AND run_id=$2 AND id=$3 AND state='running'`,
           [ownerId, runId, input.roleUsage.roleRunId, usage]);
         }
+        if (input.failureDetail) {
+          const d = input.failureDetail;
+          await client.query(`INSERT INTO nano.run_failures(run_id,phase,code,cause_class,detail_json) VALUES($1,$2,$3,$4,$5)
+            ON CONFLICT (run_id) DO UPDATE SET phase=$2,code=$3,cause_class=$4,detail_json=$5,created_at=now()`,
+          [runId, d.phase.slice(0, 40), input.code.slice(0, 80), d.causeClass.slice(0, 40), JSON.stringify(d.detail).slice(0, 4000)]);
+        }
         const summary = (input.summary ?? input.message).slice(0, 4000);
         const result = await client.query(`UPDATE nano.runs SET state='failed',phase='cleanup',cleanup_state=$3,
           error_code=$4,error_message=$5,error_retryable=$6,summary=$7,result_revision_id=coalesce($8,result_revision_id),finished_at=now()
@@ -749,6 +759,15 @@ export function createGenerationRepository(
         await event(client, result.rows[0], { type: "run.finished", payload: { state: "failed", error: { code: input.code, message: input.message.slice(0, 2000), retryable: input.retryable }, revisionId: input.resultRevisionId ?? current.result_revision_id } });
         if (input.cleanupState !== "pending") await client.query("UPDATE nano.projects SET operation_kind=NULL,operation_id=NULL,operation_started_at=NULL,updated_at=now() WHERE owner_id=$1 AND id=$2 AND operation_id=$3", [ownerId, current.project_id, runId]);
         return storedRun(result.rows[0]);
+      });
+    },
+    async readFailureDetail(ownerId, runId) {
+      return owned(ownerId, async (client) => {
+        const found = await client.query("SELECT phase,code,cause_class,detail_json,created_at FROM nano.run_failures WHERE run_id=$1", [runId]);
+        const row = found.rows[0];
+        if (!row) return null;
+        return { phase: row.phase, code: row.code, causeClass: row.cause_class,
+          detail: (row.detail_json ?? {}) as Record<string, unknown>, createdAt: date(row.created_at).toISOString() };
       });
     },
     setPhase: (ownerId, runId, input) => owned(ownerId, async (client) => {
