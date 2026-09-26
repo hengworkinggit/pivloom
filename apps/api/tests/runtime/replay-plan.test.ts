@@ -457,3 +457,34 @@ test('a model verdict cannot turn a script-failed appearance behaviour into a pa
   if (outcome.kind !== 'scripted') return;
   expect(outcome.result.result.items[0]).toMatchObject({ behaviorId: 'B01', verdict: 'failed' });
 });
+
+// A budget that runs out and a run stopped on purpose arrive as the same aborted signal, and their correct
+// behaviours are opposites. These two tests pin both: the first keeps forty-two programmes' worth of work
+// instead of discarding it, the second refuses to write a verdict for a run that was cancelled.
+function twoBehaviourPlan(): Plan {
+  const first = fixturePlan().behaviors[0]!;
+  return { ...fixturePlan(), behaviors: [first, { ...first, id: 'B02', title: '第二条' }] };
+}
+
+test('a budget that runs out keeps the verdicts already reached and blocks only what it did not run', async () => {
+  const fixture = formFixture(SESSION);
+  const plan = twoBehaviourPlan();
+  const controller = new AbortController();
+  const result = await runPrograms(compilePlan(plan), { browser: fixture.browser, behaviors: plan.behaviors,
+    signal: controller.signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save,
+    onProgress: async () => { controller.abort('REVIEW_TIMEOUT'); } });
+  // The first behaviour was really executed, so its verdict survives the budget running out.
+  expect(result.items.get('B01')!.verdict).not.toBe('blocked');
+  // The second never ran, so it is blocked, and the verdict says why rather than staying silent.
+  expect(result.items.get('B02')!.verdict).toBe('blocked');
+  expect(result.items.get('B02')!.actual).toContain('预算');
+});
+
+test('an abort that is not the budget still raises, so a cancelled run writes no verdict', async () => {
+  const fixture = formFixture(SESSION);
+  const plan = twoBehaviourPlan();
+  const controller = new AbortController();
+  await expect(runPrograms(compilePlan(plan), { browser: fixture.browser, behaviors: plan.behaviors,
+    signal: controller.signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save,
+    onProgress: async () => { controller.abort(); } })).rejects.toThrow();
+});
