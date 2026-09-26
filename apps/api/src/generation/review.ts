@@ -5,7 +5,7 @@ import { OpenSandboxWorkspace, type SandboxConnector } from '../runtime/workspac
 import { RemoteBrowser } from '../runtime/browser.js';
 import { sourceHash } from '../runtime/generation.js';
 import { runReviewer, assertReviewerResult, type ReviewObservationEvent, type ReviewCheckpoint } from '../runtime/reviewer.js';
-import { runScriptedPlan } from '../runtime/replay-plan.js';
+import { runScriptedPlan, type RunScriptedPlanInput } from '../runtime/replay-plan.js';
 import { preflightCapacity } from '../runtime/capacity.js';
 import { createVisualJudgePort } from '../runtime/visual-judge-request.js';
 import { RuntimeError, type ModelConfig, type SandboxConfig, type ProbeEventSink, type ProbeEvent } from '../runtime/types.js';
@@ -149,13 +149,34 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     // exists to prevent. With no port an uncompiled appearance behaviour is recorded blocked like any
     // other uncompiled behaviour, and when the whole plan is appearance the model path takes over.
     const visualJudge=input.modelConfig.supportsImages===true?createVisualJudgePort(input.modelConfig,signal):undefined;
+    // Resolution against the page as it stands, rather than against the name the plan predicted before the
+    // page existed. It is deliberately not gated on vision: choosing a control from a list of roles and
+    // names is a text task, and a model that cannot see can still answer it - which is why it builds its own
+    // port instead of reusing the judge's.
+    //
+    // Asked only when a step does not resolve to exactly one match, and its answer is taken only if it names
+    // a control the observation carries. The kernel enforces that independently, so a wrong or invented
+    // answer costs one step rather than becoming a click on something the reviewer never saw.
+    const controlPort=createVisualJudgePort(input.modelConfig,signal);
+    const resolveControl:NonNullable<RunScriptedPlanInput['resolveControl']>=async({step,index,candidates})=>{
+      if(candidates.length===0)return undefined;
+      const answer=await controlPort.request(
+        `Choose the control for one automated step on a web page.\n`
+        +`The step's ${index+1}th action is "${step.type}" on a control with role ${JSON.stringify(step.role)} and name ${JSON.stringify(step.name)}.\n`
+        +`The page currently offers these controls, one per line as ref, role, name:\n`
+        +candidates.map((candidate)=>`${candidate.ref}\t${candidate.role??''}\t${JSON.stringify(candidate.name??'')}`).join('\n')
+        +`\nReply with the ref of the single control that best matches the step, or NONE if none of them is the one intended. `
+        +`Reply with the ref or NONE and nothing else.`,[]);
+      const ref=/e[0-9]{1,6}/.exec(answer)?.[0];
+      return ref&&candidates.some((candidate)=>candidate.ref===ref)?ref:undefined;
+    };
     try{
       const scripted=await runScriptedPlan({binding,handoff:input.handoff,browser,signal,
         saveScreenshot,onEvent:emitEvent,onCheckpoint,
         // The appearance layer's one model call, built from the same configuration the review uses. It
         // is injected here so the replay and judgement modules keep holding no provider client, and it
         // sends no tools: the judge answers about the captured pixels and cannot drive the browser.
-        visualJudge});
+        visualJudge,resolveControl});
       if(scripted.kind==='scripted')reviewed=scripted.result;
       else{
         // This is reached only when nothing was deterministically available: no compiled program and no

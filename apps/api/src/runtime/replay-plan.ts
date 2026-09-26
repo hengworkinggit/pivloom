@@ -6,7 +6,7 @@ import { RuntimeError, type ProbeEventSink } from './types.js';
 import { assertReviewerResult, markReviewerResultVerified, type ReviewCheckpoint, type ReviewerResult, type ReviewObservationEvent } from './reviewer.js';
 import { judgeVisualBehaviours } from './visual-judgement.js';
 import { REVIEW_WALL_CLOCK_BUDGET_MS } from './budgets.js';
-import { runReplayProgram, type ReplayBrowser, type ReplayProgram, type ReplayStep } from './replay.js';
+import { runReplayProgram, type ReplayBrowser, type ReplayProgram, type ReplayRunInput, type ReplayStep } from './replay.js';
 import type { StoredArtifact } from '../storage/artifacts.js';
 
 /**
@@ -89,6 +89,11 @@ export interface ReplayRunProgramsInput {
   signal: AbortSignal;
   saveScreenshot(image: { base64: string; mimeType: 'image/png'; sha256: string }): Promise<StoredArtifact>;
   /**
+   * Asked only when a step's control does not resolve to exactly one match, so a name the plan predicted
+   * wrongly costs that step rather than the behaviour. Absent, the kernel behaves exactly as it did before.
+   */
+  resolveControl?: ReplayRunInput['resolveControl'];
+  /**
    * Renews the owning Run's inactivity lease after each program. The A layer makes
    * no provider request, so it produces no `model.stream.started` event and the
    * lease would otherwise expire mid-check; this is the one progress signal
@@ -121,6 +126,7 @@ export async function runPrograms(compiled: CompiledPlan, input: ReplayRunProgra
     try {
       outcome = await runReplayProgram({ browser: input.browser, program, signal: input.signal,
         target: { expected: target.expected }, rendersOnly: allowsRenderOnlyEvidence(target),
+        resolveControl: input.resolveControl,
         saveScreenshot: input.saveScreenshot });
     } catch (error) {
       input.signal.throwIfAborted();
