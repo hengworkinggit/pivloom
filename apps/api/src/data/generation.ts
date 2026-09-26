@@ -15,7 +15,9 @@ import { ApiFailure } from "../routes/errors.js";
 import { assertVerifiedSourceSnapshot, type SourceReference, type VerifiedSourceSnapshot } from "../storage/source.js";
 import { assertVerifiedReviewReceipt, type VerifiedReviewReceipt } from "../generation/review.js";
 import type { StoredArtifact } from "../storage/artifacts.js";
-import { DAILY_ACCEPTED_LIMIT, MODEL_REQUEST_TIMEOUT_MS, PROVIDER_RETRY_POLICY, RUN_IDLE_TIMEOUT_MS, RUN_TOOL_LIMIT } from "../runtime/budgets.js";
+import { DAILY_ACCEPTED_LIMIT, MODEL_REQUEST_TIMEOUT_MS, PROVIDER_RETRY_POLICY, REVIEW_EVIDENCE_ENTRY_LIMIT, RUN_IDLE_TIMEOUT_MS, RUN_TOOL_LIMIT } from "../runtime/budgets.js";
+import { REVIEW_EVIDENCE_PERSISTENCE_LIMIT_BYTES } from "../runtime/capacity.js";
+import type { ReviewObservationEvent } from "../runtime/reviewer.js";
 import { BrowserPressKeySchema } from "../runtime/browser.js";
 
 export interface StoredRun extends Run {
@@ -244,6 +246,26 @@ function boundedJson(value: Record<string, unknown>, max = 16 * 1024) {
   if (Buffer.byteLength(text) > max) throw new ApiFailure(422, "EVENT_TOO_LARGE", "执行记录超过大小限制。");
   return value;
 }
+/**
+ * Persistence bound for one completed check's evidence.
+ *
+ * The Reviewer admits an evidence array up to REVIEW_EVIDENCE_LIMIT_BYTES
+ * (budgets.ts:63, checked in runtime/reviewer.ts:284 for every observation it
+ * records). Persisting a tighter bound loses a review the Reviewer had already
+ * paid for: a 512 KiB literal here rejected a correct forty-four behaviour check
+ * at save time as EVENT_TOO_LARGE, after the model calls had been spent. The
+ * bound is therefore the Reviewer's own limit plus the few bytes the
+ * persistence payload's object wrapper adds, so the two can never disagree by
+ * even one byte. The direction is deliberate: the byte ceiling exists to bound
+ * work before the model starts, so persistence must accept everything the
+ * Reviewer accepted, never the other way round.
+ *
+ * Exported so a unit test can drive this exact branch at the boundary without a
+ * database.
+ */
+export function assertReviewEvidenceFitsPersistence(evidence: ReviewObservationEvent[]) {
+  boundedJson({ evidence }, REVIEW_EVIDENCE_PERSISTENCE_LIMIT_BYTES);
+}
 function roleUsage(value: RoleUsage | undefined): RoleUsage | Record<string, never> {
   if (value === undefined) return {};
   const parsed = RoleUsageSchema.safeParse(value);
@@ -254,7 +276,12 @@ function reviewerExecution(row: Row): ReviewerExecution {
   return { role: storedRole(row), scope: ReviewBindingSchema.parse(row.review_binding_json), handoff: HandoffSchema.parse(row.input_json) };
 }
 const storedArtifactSchema = ReviewArtifactSchema.extend({ key: z.string().min(1).max(512), bytes: z.number().int().min(8).max(2 * 1024 * 1024) });
-export const REVIEW_EVIDENCE_LIMIT = 4096;
+/**
+ * The entry ceiling is defined once in budgets.ts so the capacity model can
+ * compare it with the byte bound and the tool budget; this name is kept because
+ * it is the one the persistence layer has always exported.
+ */
+export const REVIEW_EVIDENCE_LIMIT = REVIEW_EVIDENCE_ENTRY_LIMIT;
 const reviewEvidenceSchema = z.array(z.strictObject({
   id: z.uuid(), behaviorId: z.string().regex(/^B(?:0[1-9]|[1-9]\d)$/).nullable(),
   action: z.enum(["click", "fill", "select", "press", "scroll", "reload", "key_batch", "wait"]).nullable(), observationId: z.uuid(),
@@ -580,7 +607,11 @@ export function createGenerationRepository(
       // silently rebuild a candidate that was already saved; the base is the
       // value that stays comparable across that rewrite.
       if (prior.project_id !== current.project_id || prior.state !== "failed"
-        || !["CHECK_BLOCKED", "AGENT_OUTPUT_INVALID", "GENERATION_FAILED", "RUN_TIMEOUT"].includes(prior.error_code)
+        // REVIEW_TIMEOUT is raised by the Reviewer's wall-clock ceiling and maps to
+        // this run error code. A candidate stopped by a budget is the clearest case
+        // for reusing the saved candidate and plan instead of regenerating them:
+        // nothing about the build was wrong, only the time it was allowed.
+        || !["CHECK_BLOCKED", "AGENT_OUTPUT_INVALID", "GENERATION_FAILED", "RUN_TIMEOUT", "REVIEW_TIMEOUT"].includes(prior.error_code)
         || prior.base_revision_id !== current.base_revision_id
         || parent.current_revision_id !== current.expected_current_revision_id
         || !prior.result_revision_id || !prior.plan_json) return null;
@@ -921,7 +952,7 @@ export function createGenerationRepository(
       const result = ReviewResultSchema.parse(receipt.result);
       const artifacts = z.array(storedArtifactSchema).max(MAX_CHECK_ARTIFACTS).parse(receipt.artifacts);
       const evidence = parseReviewEvidence(receipt.evidence);
-      boundedJson({ evidence }, 512 * 1024);
+      assertReviewEvidenceFitsPersistence(evidence);
       if (receipt.chromeClosed !== true || binding.runId !== runId || result.revisionId !== binding.revisionId
         || result.sourceHash !== binding.sourceHash) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查结果尚未完成会话关闭或版本校验。");
       return owned(ownerId, async (client) => {

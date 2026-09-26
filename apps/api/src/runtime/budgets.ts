@@ -110,3 +110,17 @@ export function piCompactionSettings(contextWindow: number) {
     keepRecentTokens: Math.min(20_000, quarter),
   };
 }
+
+/**
+ * Ceiling for the number of observations one check may persist. The cap has to
+ * hold every observation a whole plan produces, not one behaviour: a
+ * forty-five behaviour plan with a few interactions each overran the previous
+ * limit of 256, and because the rejection surfaced as a bare ZodError the run
+ * died at save time as a generic GENERATION_FAILED with no check stored.
+ *
+ * The value is defined here rather than in data/generation.ts so the capacity
+ * model (runtime/capacity.ts) can compare the entry count against the byte bound
+ * and the tool budget without importing the persistence layer; generation.ts
+ * re-exports it under its original name and applies it to the evidence schema.
+ */
+export const REVIEW_EVIDENCE_ENTRY_LIMIT = 4096;
