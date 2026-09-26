@@ -91,12 +91,12 @@ jobs:
           npm test --workspace @pivloom/api -- tests/generation/rollback.integration.test.ts
         env:
           PIVLOOM_ROLLBACK_INTEGRATION: '1'
-      - name: Run saved-candidate and same-candidate retry E2E on runner-local PostgreSQL
+      - name: Run the complete executor lifecycle suite on runner-local PostgreSQL
         run: |
           export DATABASE_URL="$PIVLOOM_EXECUTOR_DATABASE_URL"
           export MIGRATION_DATABASE_URL="$PIVLOOM_EXECUTOR_DATABASE_URL"
           export PIVLOOM_ENVIRONMENT_ID="$PIVLOOM_EXECUTOR_ENVIRONMENT_ID"
-          npm test --workspace @pivloom/api -- tests/generation/executor.integration.test.ts -t 'linked retry rebuilds a blocked candidate|browser infrastructure failure|capacity claims two projects at the ceiling|infrastructure rebinds share|repair Builder time spends'
+          npm test --workspace @pivloom/api -- tests/generation/executor.integration.test.ts
         env:
           PIVLOOM_EXECUTOR_INTEGRATION: '1'
       - name: Continue an explicit candidate through real HTTP and PostgreSQL

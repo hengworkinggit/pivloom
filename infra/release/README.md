@@ -99,6 +99,6 @@ python3 -m unittest infra/release/test_deploy.py infra/release/test_package.py
 
 部署测试实际执行 `deploy.sh`，使用临时目录、隔离 SSH/df/systemctl/curl 等命令，验证高水位在写入前拒绝、远端配置传递、当前/前一版保护、回滚和健康检查失败。它不连接远端主机，也不表示生产部署已经通过。
 
-[GitHub Actions CI](../../.github/workflows/ci.yml) 在 main push、PR 和手动触发时运行两个 job：Node.js 24 下的 `npm ci`、契约构建/typecheck、lint、单元测试及完整构建；以及 PostgreSQL 17.6 service 上的构建修复与重启恢复集成测试。后者创建两个独立的 `pivloom_*_test_ci` 数据库，执行全部实际迁移，测试自身生成随机加密 key；只提供最小 `auth.users` 外键 fixture，不冒充 Supabase Auth 联调。
+[GitHub Actions CI](../../.github/workflows/ci.yml) 在 main push、PR 和手动触发时运行两个 job：Node.js 24 下的 `npm ci`、契约构建/typecheck、lint、单元测试及完整构建；以及 PostgreSQL 17.6 service 上的构建修复、重启恢复、回滚、执行器生命周期、候选继续开发、验收持久化与队列集成测试。后者创建六个独立测试数据库，执行全部实际迁移，测试自身生成随机加密 key；只提供最小 `auth.users` 外键 fixture，不冒充 Supabase Auth 联调。执行器跑完整套件，需独占数据库进程的两项故障用例仍需显式 opt-in，跳过不会计为通过。
 
 CI 不使用用户/provider/SSH 密钥，不连接线上数据库，不自动部署。恢复套件的外部沙箱 HTTP 响应及修复套件的持久化输入明确使用 fixture；绿色 CI 不替代真实模型、真实沙箱及 Codex 内置浏览器验收。最终发布需同时具备该提交的 CI 成功记录和对应真实 E2E 记录。
