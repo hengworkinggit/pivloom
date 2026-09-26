@@ -60,3 +60,24 @@
 - 迁移：`node --env-file=.cache/prod/tunnel.env --import tsx apps/api/scripts/supabase/manage.ts migrate --environment-id pivloom-dev-e6d33625ef2b`（已应用 001–027）。
 - 构建部署在 `/tmp/pivloom-build`（独立检出，避免与工作树冲突）。
 - 诊断优先**单条 SSH 命令在服务器就地执行**，不要长期维持隧道。
+
+## 7. C 层接线：下一批的精确设计（含一个必须绕开的契约约束）
+
+**已完成**：`apps/api/src/runtime/visual-judgement.ts` + 5 个测试（提交 `84e89a6`，分支 `feat/visual-judgement`，工作树 `/Users/heng/Desktop/pivloom-wt/visual`）。它只做判定：输入行为（含已捕获图片）、注入的 `request`、`deadlineMs` 与可注入 `now`，返回每条行为的 verdict；**不持有 provider 客户端**；fail-closed（可解析＋有条目＋citation 非空且非 `expected` 复述＋有图，才可能 `passed`；超预算不发请求且答案迟到也算超预算）。
+
+**接线时必须绕开的一个约束**：B 的测试钉住了 `compilePlan` 的契约——`evidence:"visual"` 的行为进 `uncompilable(reason='visual-evidence')`，**其 steps 从未被执行、因此没有任何截图**。`runScriptedPlan`（`replay-plan.ts:174-179`）目前在 `uncompilable.length > 0` 时整单退回。**不要改这个契约**（改它会破坏 B 测试所守的东西，而退回比例是可观测指标）。正确做法是：
+
+1. **单独**把视觉行为的 steps 编译成程序（`compilePlan` 已给出 `steps` 形状，可复用 `replayStep` 归一化），**不放进** `uncompilable` 的处理路径；
+2. 用 `runReplayProgram`（`replay.ts:188`）驱动这些程序并执行 `capture`，把 base64 留在内存（`StoredArtifact` 不含 base64，见 `storage/artifacts.ts`）；
+3. 调 `judgeVisualBehaviours(...)`，`deadlineMs` 取 `REVIEW_WALL_CLOCK_BUDGET_MS` 的剩余份额；
+4. 把视觉项与脚本项**合并进同一份 items**：内核 `blocked` 的项**不得被上调**为 passed；只有脚本部分通过时才采信模型判定；
+5. 组装同一个 `ReviewerResult`，经 `markReviewerResultVerified` + `assertReviewerResult`，**照常过 `finishReview` 的 6 条硬要求**；
+6. **仅当** `uncompilable` 里**没有非视觉原因**时才走判定；否则原样整单退回 `runReviewer`（五组不动）。
+
+**必须补的两条集成用例**：
+- **有能力的桩模型**（引用真实录到的内容）→ 视觉行为 `passed`，且整单**通过 `finishReview`**。**这一条与"看不见就 blocked"同等重要**，否则这层会退化成"永远 blocked"、加速为零却看起来安全；
+- **判定超时** → 该批 `blocked`，且总耗时不越过 `REVIEW_WALL_CLOCK_BUDGET_MS`（480s）与 `VERIFICATION_WALL_CLOCK_LIMIT_MS`（600s），用注入时钟钉住。
+
+**合并注意**：`review.ts` 同时有我加的影子模式容量预检（`preflightCapacity`）与 B 的挂载逻辑，改动位置不同，**逐块核对，不要整文件覆盖**。
+
+**现实预期**：当前默认模型 `deepseek-flash` 读不出图（视觉探针实测 `failed`），所以**真实运行里视觉行为会 blocked、整单不通过**——这是诚实结论而非缺陷。要让视觉计划真正通过，必须把默认配置切回一个 vision 已验证的模型（火山方舟，周配额 2026-09-27 16:00 UTC 重置）。
