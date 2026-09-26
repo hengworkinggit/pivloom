@@ -6,6 +6,7 @@ import { RemoteBrowser } from '../runtime/browser.js';
 import { sourceHash } from '../runtime/generation.js';
 import { runReviewer, assertReviewerResult, type ReviewObservationEvent, type ReviewCheckpoint } from '../runtime/reviewer.js';
 import { runScriptedPlan } from '../runtime/replay-plan.js';
+import { preflightCapacity } from '../runtime/capacity.js';
 import { RuntimeError, type ModelConfig, type SandboxConfig, type ProbeEventSink, type ProbeEvent } from '../runtime/types.js';
 import { SANDBOX_LEASE_RENEW_THRESHOLD_MS, SANDBOX_LEASE_SEGMENT_MS } from '../runtime/budgets.js';
 import { type TokenUsage, type RunTokenBudget } from '../runtime/token-budget.js';
@@ -130,6 +131,11 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     const modelPath=()=>runReviewer({binding,sessionId:input.sessionId,handoff:input.handoff,browser,files,bootstrap:true,
       modelConfig:input.modelConfig,signal,tokenBudget:input.tokenBudget,maxToolCalls:input.maxToolCalls,
       onEvent:emitEvent,assertActive:active,onCheckpoint,saveScreenshot});
+    // Capacity pre-flight, in shadow mode: it compares this plan's envelope against the limits that
+    // will bound the run and reports what it would do, without changing a limit or stopping anything.
+    // Wiring it here is what makes those numbers visible on real plans before any of it is enforced.
+    const capacity=preflightCapacity(input.handoff.plan.behaviors.length);
+    if(capacity.verdict!=='ok'||capacity.near.length>0)console.info(`[review] capacity ${capacity.verdict} for ${capacity.behaviours} behaviors: ${capacity.findings.length} over limit, ${capacity.near.length} near limit`);
     // A layer: behaviors whose sealed plan carries executable steps and
     // script-decidable assertions are driven by the model-free kernel. Nothing
     // below this try is weakened — the model path is still the only reporter for
