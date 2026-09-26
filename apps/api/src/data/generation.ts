@@ -3,7 +3,7 @@ import type { PoolClient, QueryResultRow } from "pg";
 import {
   CreateRunRequestSchema, ProjectMessageSchema, ProjectSummarySchema, RevisionSchema, RunEventSchema, RunSchema,
   HandoffSchema, PlanSchema, GroupedPlanSchema, PlanningContextSchema, RoleRunSchema, RoleUsageSchema, ClarificationRequestSchema, preservesPreviousBehavior,
-  ReviewBindingSchema, CheckSchema, ReviewArtifactSchema, ReviewResultSchema, MAX_CHECK_ARTIFACTS, aggregateCheckGroups, allowsRenderOnlyEvidence, type ReviewBinding, type Check,
+  ReviewBindingSchema, CheckSchema, CheckVerificationSchema, ReviewArtifactSchema, ReviewResultSchema, MAX_CHECK_ARTIFACTS, aggregateCheckGroups, allowsRenderOnlyEvidence, type ReviewBinding, type Check,
   TerminalRunStates, type CreateRunRequest, type ProjectMessage, type ProjectSummary, type Revision,
   type Run, type RunEvent, type RunEventType, type RunPhase, type RunState, type RoleRun, type RoleUsage, type Role, type Plan, type PlanningContext, type Handoff,
   TaskListItemSchema, type TaskListItem,
@@ -309,9 +309,22 @@ function storedCheck(row: Row): Check {
     revisionId: row.revision_id, sourceHash: row.source_hash, sandboxId: row.sandbox_id, browserSessionId: row.browser_session_id,
     verdict: row.verdict, items: row.items_json, summary: row.summary,
     groups: row.group_results_json ?? undefined,
+    ...(row.verification_json ? { verification: CheckVerificationSchema.parse(row.verification_json) } : {}),
     artifacts: z.array(storedArtifactSchema).parse(row.artifacts_json).map(({ id, mimeType, sha256 }) => ({ id, mimeType, sha256 })),
     createdAt: date(row.created_at).toISOString() });
 }
+// Read the measurement from the same durable, owner/version-bound completion
+// event that was written with the Check. No browser timer or zero backfill.
+const checkReadProjection = `SELECT c.*, completion.payload_json->'verification' AS verification_json
+  FROM nano.checks c LEFT JOIN LATERAL (
+    SELECT e.payload_json FROM nano.run_events e
+    WHERE e.owner_id=c.owner_id AND e.project_id=c.project_id AND e.run_id=c.run_id
+      AND e.role_run_id=c.role_run_id AND e.attempt=c.attempt AND e.type='check.completed'
+      AND e.payload_json->>'checkId'=c.id::text
+      AND e.payload_json->>'revisionId'=c.revision_id::text
+      AND e.payload_json->>'sourceHash'=c.source_hash
+    ORDER BY e.id DESC LIMIT 1
+  ) completion ON true`;
 function storedRestore(row: Row): StoredRestore {
   return { id: row.id, projectId: row.project_id, revisionId: row.revision_id, sourceHash: row.source_hash,
     status: row.status, sandboxId: row.sandbox_id ?? null,
@@ -966,6 +979,7 @@ export function createGenerationRepository(
       });
     },
     finishReview: async (ownerId, runId, input) => {
+      const persistenceStartedAt = performance.now();
       const { receipt } = input;
       assertVerifiedReviewReceipt(receipt);
       if (receipt.source.ownerId !== ownerId) throw notFound();
@@ -1060,10 +1074,15 @@ export function createGenerationRepository(
           await client.query("UPDATE nano.projects SET operation_kind=NULL,operation_id=NULL,operation_started_at=NULL,updated_at=now() WHERE owner_id=$1 AND id=$2 AND operation_id=$3", [ownerId, current.project_id, runId]);
         }
         await event(client, changed, { type: "role.completed", roleRunId: role.id, payload: { role: "reviewer", state: verdict === "blocked" ? "failed" : "succeeded", summary: result.summary } });
+        const recordedVerification = receipt.verification ? CheckVerificationSchema.parse(receipt.verification) : undefined;
+        const verification = recordedVerification ? { ...recordedVerification,
+          elapsedMs: Math.max(recordedVerification.elapsedMs, Date.now() - Date.parse(recordedVerification.startedAt)),
+          phasesMs: { ...recordedVerification.phasesMs, persistence: Math.max(0, performance.now() - persistenceStartedAt) },
+        } : undefined;
         await event(client, changed, { type: "check.completed", roleRunId: role.id, payload: { checkId: check.id, revisionId: saved.id, sourceHash: saved.source_hash, verdict, summary: result.summary,
-          ...(receipt.verification ? { verification: { ...receipt.verification,
-            elapsedMs: Math.max(receipt.verification.elapsedMs, Date.now() - Date.parse(receipt.verification.startedAt)) } } : {}),
+          ...(verification ? { verification } : {}),
           ...(groups ? { passedGroups: groups.filter((group) => group.verdict === "passed").length, totalGroups: 5 } : {}) } });
+        if (verification) publicCheck.verification = verification;
         if (!repairNextAttempt) {
           await event(client, changed, { type: "run.finished", payload: { state, revisionId: saved.id, checkId: check.id } });
         }
@@ -1071,13 +1090,13 @@ export function createGenerationRepository(
       });
     },
     getCheck: (ownerId, checkId) => owned(ownerId, async (client) => {
-      const row = (await client.query("SELECT * FROM nano.checks WHERE owner_id=$1 AND id=$2", [ownerId, checkId])).rows[0];
+      const row = (await client.query(`${checkReadProjection} WHERE c.owner_id=$1 AND c.id=$2`, [ownerId, checkId])).rows[0];
       if (!row) throw notFound();
       return storedCheck(row);
     }),
     getRunCheck: (ownerId, runId) => owned(ownerId, async (client) => {
       await run(client, ownerId, runId);
-      const row = (await client.query("SELECT * FROM nano.checks WHERE owner_id=$1 AND run_id=$2 ORDER BY attempt DESC LIMIT 1", [ownerId, runId])).rows[0];
+      const row = (await client.query(`${checkReadProjection} WHERE c.owner_id=$1 AND c.run_id=$2 ORDER BY c.attempt DESC LIMIT 1`, [ownerId, runId])).rows[0];
       return row ? storedCheck(row) : null;
     }),
     getArtifact: (ownerId, artifactId) => owned(ownerId, async (client) => {

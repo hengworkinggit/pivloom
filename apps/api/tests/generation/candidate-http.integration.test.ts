@@ -12,6 +12,9 @@ import { createProjectRepository } from "../../src/data/projects.js";
 import { createCredentialVault } from "../../src/models/credentials.js";
 import { createModelProfileService } from "../../src/models/service.js";
 import { createSourceStore } from "../../src/storage/source.js";
+import { createArtifactStore } from "../../src/storage/artifacts.js";
+import { runReview } from "../../src/generation/review.js";
+import { RuntimeError } from "../../src/runtime/types.js";
 
 const plan: GroupedPlan = { schemaVersion: 2, goal: "候选表单", changeSummary: "候选有搜索功能", assumptions: [], outOfScope: [], replacements: [],
   behaviors: Array.from({ length: 5 }, (_, i) => ({ id: `B0${i + 1}`, title: `行为${i + 1}`, precondition: "页面打开", action: "点击提交", expected: "显示结果", required: true })),
@@ -234,5 +237,48 @@ describe.skipIf(process.env.PIVLOOM_CANDIDATE_INTEGRATION !== "1")("candidate co
     const answer = await submit(f.projectId, { ...request("按姓名筛选"), expectedCurrentRevisionId: f.acceptedId, parentRunId: runId });
     expect(answer.statusCode, answer.body).toBe(202);
     expect(await repository.getPlanningContext(owner, answer.json().runId)).toMatchObject({ baseRevisionId: f.candidateId, previousPlan: { goal: "候选表单" }, clarificationTurns: [expect.objectContaining({ answer: "按姓名筛选" })] });
+  });
+
+  test("Check HTTP reads the verification recorded by production finishReview after reopening", async () => {
+    const project = await createProjectRepository(database).create(owner, "persisted check metrics fixture"); projects.push(project.id);
+    const accepted = await repository.accept(owner, project.id, { ...request(), idempotencyKey: randomUUID() });
+    await repository.claimNextQueuedRun(accepted.run.id); await repository.prepareDispatch(owner, accepted.run.id);
+    const coordinator = await repository.startCoordinator(owner, accepted.run.id);
+    await repository.submitPlan(owner, accepted.run.id, { roleRunId: coordinator.id, attempt: 0, plan });
+    await repository.startBuilder(owner, accepted.run.id); await repository.completeBuilder(owner, accepted.run.id);
+    const source = await sources.save({ ownerId: owner, projectId: project.id, revisionId: randomUUID() }, "fixture", [{ path: "src/App.tsx", content: "export const saved = true;" }]);
+    const revision = await repository.saveCandidate(owner, accepted.run.id, { source, buildStatus: "passed", build: {
+      schemaVersion: 1, sourceHash: source.sourceHash, typecheck: { exitCode: 0 }, build: { exitCode: 0 },
+    } });
+    const sandbox = { sandboxId: `fixture-${randomUUID()}`, expiresAt: new Date(Date.now() + 600_000).toISOString() };
+    await repository.registerSandbox(owner, accepted.run.id, sandbox);
+    await repository.bindPreview(owner, accepted.run.id, { ...sandbox, revisionId: revision.id, sourceHash: revision.sourceHash, markerVerified: true, writeRevoked: true, chromeClosed: true });
+    await repository.queueReviewer(owner, accepted.run.id, { revisionId: revision.id });
+    const review = await repository.startReviewer(owner, accepted.run.id);
+    const unavailable = async () => { await new Promise((resolve) => setTimeout(resolve, 8)); throw new RuntimeError("BROWSER_BLOCKED", "isolated unavailable sandbox fixture"); };
+    const outcome = await runReview({ binding: review.scope, sessionId: review.role.sessionId, handoff: review.handoff, expiresAt: sandbox.expiresAt,
+      source, sources, artifacts: createArtifactStore({ url: "https://fixture.invalid", secret: "fixture", objects: sourceObjects }),
+      sandboxConfig: { baseUrl: "https://fixture.invalid", apiKey: "fixture", image: "fixture" },
+      modelConfig: { provider: "fixture", id: "fixture", api: "openai-completions", baseUrl: "https://fixture.invalid/v1", apiKey: "fixture" },
+      signal: new AbortController().signal, assertActive: () => repository.assertRoleActive(owner, accepted.run.id, { role: "reviewer", roleRunId: review.role.id, attempt: 0 }),
+      onLeaseRenewed: async () => {},
+    }, { sandboxConnector: { create: unavailable, connect: unavailable } });
+    const finished = await repository.finishReview(owner, accepted.run.id, { receipt: outcome.receipt });
+    const event = (await repository.listEvents(owner, accepted.run.id)).find((item) => item.type === "check.completed" && item.payload.checkId === finished.check.id)!;
+    expect(event.payload.verification).toMatchObject({ startedAt: outcome.receipt.verification!.startedAt, timedOut: false });
+    expect(finished.check.verification).toEqual(event.payload.verification);
+    await reopenHttp();
+    const response = await app.inject({ url: `/api/v1/revisions/${revision.id}/check`, headers });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().check.verification).toEqual(event.payload.verification);
+    expect(response.json().check.verification.elapsedMs).toBeGreaterThan(0);
+    expect((await repository.getCheck(owner, finished.check.id)).verification).toEqual(event.payload.verification);
+    const foreign = await app.inject({ url: `/api/v1/revisions/${revision.id}/check`, headers: { authorization: "Bearer other-owner" } });
+    expect(foreign.statusCode).toBe(404);
+    // Historical rows remain readable without pretending that absent timing was zero.
+    await admin.query("UPDATE nano.run_events SET payload_json=payload_json-'verification' WHERE owner_id=$1 AND id=$2", [owner, event.eventId]);
+    const historical = await app.inject({ url: `/api/v1/revisions/${revision.id}/check`, headers });
+    expect(historical.statusCode).toBe(200);
+    expect(historical.json().check).not.toHaveProperty("verification");
   });
 });

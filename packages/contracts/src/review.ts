@@ -94,11 +94,26 @@ export type ReviewArtifact = z.infer<typeof ReviewArtifactSchema>;
 export const CheckArtifactSchema = ReviewArtifactSchema;
 export type CheckArtifact = ReviewArtifact;
 
+/** Server-recorded measurements. Missing historical phases remain unknown. */
+export const CheckVerificationSchema = z.object({
+  startedAt: z.iso.datetime(), deadlineAt: z.iso.datetime(),
+  elapsedMs: z.number().finite().nonnegative(), timedOut: z.boolean(),
+  incompleteReason: z.string().max(200).optional(),
+  phasesMs: z.object({
+    preparation: z.number().finite().nonnegative().optional(),
+    execution: z.number().finite().nonnegative().optional(),
+    finalization: z.number().finite().nonnegative().optional(),
+    persistence: z.number().finite().nonnegative().optional(),
+  }).optional(),
+});
+export type CheckVerification = z.infer<typeof CheckVerificationSchema>;
+
 export const CheckSchema = ReviewBindingSchema.extend({
   id: z.uuid(), verdict: CheckVerdictSchema, items: reviewItems, summary: text(4000),
   artifacts: z.array(ReviewArtifactSchema).max(MAX_CHECK_ARTIFACTS), createdAt: z.iso.datetime(),
   // Absent on historical flat checks. New grouped checks are derived and saved by the service.
   groups: z.array(CheckGroupSchema).length(5).optional(),
+  verification: CheckVerificationSchema.optional(),
 }).superRefine((check, context) => {
   if (!check.groups) return;
   const ids = GroupIdSchema.options;
