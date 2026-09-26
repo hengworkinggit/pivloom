@@ -41,6 +41,37 @@ function uncompilableReason(items: ReplayUncompilable[], behaviorId: string) {
   return items.find((item) => item.behaviorId === behaviorId)?.reason;
 }
 
+test('visual setup and deterministic continuation execute in declared order before one visual judgment', async () => {
+  const fixture = formFixture(SESSION, { after: { 1: { text: 'Saved' } } });
+  const browser = { ...fixture.browser, async reset(path?: string) {
+    fixture.state.actions = 0;
+    return fixture.browser.open(path);
+  } };
+  const visual = fixturePlan({ initialState: 'fresh', evidence: 'visual', expected: 'Saved',
+    steps: [{ type: 'open', path: '/' }, { type: 'click', role: 'button', name: '添加' }, { type: 'capture' }],
+    assertions: [{ kind: 'text', text: 'Saved', negated: false }] }).behaviors[0];
+  const continued = { ...visual, id: 'B02', evidence: 'text' as const, initialState: 'continue' as const,
+    action: '刷新已保存页面', steps: [{ type: 'open' as const, path: '/' }, { type: 'reload' as const }] };
+  const plan = { ...fixturePlan(), behaviors: [visual, continued] };
+  const value = binding(randomUUID());
+  const checkpoints: Array<{ id: string; verdict: string }> = [];
+  let judged = 0;
+  const outcome = await runScriptedPlan({ binding: value, handoff: handoffFor(plan, value), browser,
+    signal: new AbortController().signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save,
+    onCheckpoint: async checkpoint => { checkpoints.push({ id: checkpoint.item.behaviorId, verdict: checkpoint.item.verdict }); },
+    visualJudge: { request: async () => {
+      judged++;
+      expect(checkpoints).toContainEqual({ id: 'B02', verdict: 'passed' });
+      return JSON.stringify({ judgements: [{ id: 'B01', verdict: 'passed', citation: 'Saved is visible in the image' }] });
+    } },
+  });
+  expect(outcome.kind).toBe('scripted');
+  if (outcome.kind !== 'scripted') return;
+  expect(outcome.result.result.items.map(item => [item.behaviorId, item.verdict])).toEqual([['B01', 'passed'], ['B02', 'passed']]);
+  expect(judged).toBe(1);
+  expect(checkpoints).toContainEqual({ id: 'B01', verdict: 'passed' });
+});
+
 test('a plan with nothing compiled falls back before any browser work', async () => {
   // The only plan that still returns to the model path: every behaviour is uncompilable and no judge is
   // supplied, so there is no deterministic or pixel verdict to keep. Nothing was driven, which is why

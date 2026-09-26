@@ -328,8 +328,14 @@ test('visual inference gets only the remaining shared time and retains earlier c
   try {
     const f = await fixture({ ...scriptedPlan, behaviors: [scriptedPlan.behaviors[0],
       { ...visualScriptedPlan.behaviors[0], id: 'B02', assertions: [{ kind: 'text', text: '测试书名', negated: false }] }] });
+    let advanced = false;
     f.input.onEvent = async (event) => {
-      if (event.toolName === 'browser_steps' && event.type === 'tool.end') vi.advanceTimersByTime(560_000);
+      // Spend preparation/execution time once. Visual capture now correctly emits
+      // its own progress event and must not charge the fixture's elapsed time twice.
+      if (!advanced && event.toolName === 'browser_steps' && event.type === 'tool.end') {
+        advanced = true;
+        vi.advanceTimersByTime(560_000);
+      }
     };
     let calls = 0;
     f.input.modelConfig.fetch = async (_url, init) => {

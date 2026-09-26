@@ -261,45 +261,62 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
   await input.onEvent?.({ id: randomUUID(), at: new Date().toISOString(), type: 'tool.start', toolName: 'browser_steps',
     toolCallId: replayCallId(input.binding.roleRunId, 'start'),
     message: `脚本回放开始：${compiled.programs.length}/${total} 项行为可编译，行为判定不调用模型` });
-  const run = await runPrograms(compiled, { browser: input.browser, signal: input.signal, behaviors: handoff.plan.behaviors,
-    saveScreenshot: input.saveScreenshot, resolveControl: input.resolveControl,
-    async onProgress(program, progress) {
-      // One trusted tool.completed per compiled program. It renews the rolling
-      // inactivity lease without any provider request, and `browser_steps` is the
-      // allowlisted tool whose work this actually is: the same ordered browser
-      // steps that tool performs. Emitting after the program finished, not
-      // before, is what keeps the event honest.
-      await input.onEvent?.({ id: randomUUID(), at: new Date().toISOString(), type: 'tool.end', toolName: 'browser_steps',
-        toolCallId: replayCallId(input.binding.roleRunId, program.behaviorId), success: true,
-        message: progress.assertionsPassed ? `脚本回放完成 ${program.behaviorId}`
-          : `脚本回放完成 ${program.behaviorId}（断言未通过，已记录实际结果）` });
-    } });
-  // Checkpoints are emitted after the pass, not inside it: the reviewer's
-  // checkpoint carries the behaviours completed so far, which is only known once
-  // the items map exists, and a provisional note must never delay the renewal
-  // event that keeps the run alive.
-  await emitCheckpoints(input, run, compiled, total);
-  // Only the behaviours this layer is allowed to judge are captured: a visual behaviour that is
-  // uncompilable for a different reason (no steps, no assertions) is a blocked item below, not a
-  // capture problem, and driving it here would spend browser work on a behaviour no judge may pass.
-  // Without a judge there is nothing to capture for, so every uncompilable behaviour falls through to
-  // the blocked item below rather than leaving a plan behaviour with no item at all.
+  const run: ReplayProgramsResult = { items: new Map(), evidence: [], artifacts: [] };
+  const captures = new Map<string, VisualCapture>();
   const judgedIds = new Set(judgeVisual ? visualIds : []);
-  // The judge really does spend a provider request per batch, so the usage this result reports must say
-  // so; claiming zero calls would understate the cost of every appearance behaviour.
-  let judgeCalls = 0;
-  const captures = judgedIds.size > 0
-    ? await captureVisualPrograms({ behaviors: handoff.plan.behaviors.filter((behavior) => judgedIds.has(behavior.id)),
-        browser: input.browser, signal: input.signal, saveScreenshot: input.saveScreenshot, resolveControl: input.resolveControl })
-    : undefined;
-  const admittedEvidence=[...run.evidence];
-  for(const capture of captures?.values()??[]){
-    if(Buffer.byteLength(JSON.stringify([...admittedEvidence,...capture.evidence]))>REVIEW_EVIDENCE_LIMIT_BYTES){
-      capture.item={...capture.item,verdict:'blocked',actual:'REVIEW_EVIDENCE_TOO_LARGE：视觉证据超出本次容量，此前检查证据已保留。',
-        observationEventIds:[],screenshotIds:[]};
-      capture.evidence=[];capture.artifacts=[];capture.images=[];capture.artifactIds=[];
-    }else admittedEvidence.push(...capture.evidence);
+  const programById = new Map(compiled.programs.map(program => [program.behaviorId, program]));
+  const completed = new Set<string>();
+  const admittedEvidence: ReviewObservationEvent[] = [];
+  const checkpoint = async (item: ReviewItem, evidence: ReviewObservationEvent[], artifacts: StoredArtifact[]) => {
+    completed.add(item.behaviorId);
+    await emitCheckpoint(input, item, [...completed], evidence, artifacts, total);
+  };
+  const progress: NonNullable<ReplayRunProgramsInput['onProgress']> = async (program, result) => {
+    await input.onEvent?.({ id: randomUUID(), at: new Date().toISOString(), type: 'tool.end', toolName: 'browser_steps',
+      toolCallId: replayCallId(input.binding.roleRunId, program.behaviorId), success: true,
+      message: result.assertionsPassed ? `脚本回放完成 ${program.behaviorId}`
+        : `脚本回放完成 ${program.behaviorId}（断言未通过，已记录实际结果）` });
+  };
+  // The declared order is also the state-dependency order. Only model judgment
+  // is deferred: moving visual browser actions after the deterministic pass
+  // changes the initial state of a following explicit "continue" scenario.
+  for (const behavior of handoff.plan.behaviors) {
+    const program = programById.get(behavior.id);
+    if (program) {
+      const next = await runPrograms({ programs: [program], uncompilable: [] }, {
+        browser: input.browser, signal: input.signal, behaviors: [behavior], saveScreenshot: input.saveScreenshot,
+        resolveControl: input.resolveControl, onProgress: progress,
+      });
+      let item = next.items.get(behavior.id)!;
+      if (Buffer.byteLength(JSON.stringify([...admittedEvidence, ...next.evidence])) > REVIEW_EVIDENCE_LIMIT_BYTES) {
+        item = { ...item, verdict: 'blocked', actual: 'REVIEW_EVIDENCE_TOO_LARGE：该行为证据超出本次容量，此前检查证据已保留。',
+          observationEventIds: [], screenshotIds: [] };
+        next.evidence = []; next.artifacts = [];
+      }
+      run.items.set(behavior.id, item);
+      run.evidence.push(...next.evidence); run.artifacts.push(...next.artifacts);
+      admittedEvidence.push(...next.evidence);
+      await checkpoint(item, next.evidence, next.artifacts);
+    } else if (judgedIds.has(behavior.id)) {
+      const next = await captureVisualPrograms({ behaviors: [behavior], browser: input.browser, signal: input.signal,
+        saveScreenshot: input.saveScreenshot, resolveControl: input.resolveControl });
+      const capture = next.get(behavior.id)!;
+      if (Buffer.byteLength(JSON.stringify([...admittedEvidence, ...capture.evidence])) > REVIEW_EVIDENCE_LIMIT_BYTES) {
+        capture.item = { ...capture.item, verdict: 'blocked', actual: 'REVIEW_EVIDENCE_TOO_LARGE：视觉证据超出本次容量，此前检查证据已保留。',
+          observationEventIds: [], screenshotIds: [] };
+        capture.evidence = []; capture.artifacts = []; capture.images = []; capture.artifactIds = [];
+      }
+      captures.set(behavior.id, capture);
+      admittedEvidence.push(...capture.evidence);
+      if (!input.signal.aborted) await input.onEvent?.({ id: randomUUID(), at: new Date().toISOString(),
+        type: 'tool.end', toolName: 'browser_steps', toolCallId: replayCallId(input.binding.roleRunId, behavior.id), success: true,
+        message: `视觉步骤完成 ${behavior.id}，${capture.item.verdict === 'passed' ? '证据已采集，等待判图' : '已记录取证问题'}` });
+      // A captured screenshot is not a visual pass. Failed/blocked capture is
+      // already a final item; successful capture gets its checkpoint after judgment.
+      if (capture.item.verdict !== 'passed') await checkpoint(capture.item, capture.evidence, capture.artifacts);
+    }
   }
+  let judgeCalls = 0;
   const verdicts = captures && input.visualJudge
     ? await judgeVisualBehaviours({
         behaviours: [...captures.values()].filter((capture) => capture.item.verdict === 'passed').map((capture) => ({
@@ -341,6 +358,10 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
       actual: blockedItemText(reason), observationEventIds: [], screenshotIds: [], reproSteps: [] };
     throw new RuntimeError('REPLAY_PROGRAM_MISSING', '脚本回放没有覆盖全部计划行为');
   });
+  for (const item of items) {
+    const capture = captures.get(item.behaviorId);
+    if (capture && !completed.has(item.behaviorId)) await checkpoint(item, capture.evidence, capture.artifacts);
+  }
   const result: ReviewResult = ReviewResultSchema.parse({ revisionId: input.binding.revisionId, sourceHash: input.binding.sourceHash,
     items, summary: summarize(items) });
   const visualEvidence = captures ? [...captures.values()].flatMap((capture) => capture.evidence) : [];
@@ -365,17 +386,11 @@ function replayCallId(roleRunId: string, key: string): string {
  * loop emits. They are audit notes only: the durable receipt still comes from
  * the assembled result, so a checkpoint never accepts a revision on its own.
  */
-async function emitCheckpoints(input: RunScriptedPlanInput, run: ReplayProgramsResult,
-  compiled: CompiledPlan, total: number): Promise<void> {
-  if (!input.onCheckpoint) return;
-  for (const program of compiled.programs) {
-    const item = run.items.get(program.behaviorId);
-    if (!item) throw new RuntimeError('REPLAY_PROGRAM_MISSING', '脚本程序没有产生对应的检查项');
-    await input.onCheckpoint({ provisional: true, binding: input.binding, item,
-      completedBehaviorIds: [...run.items.keys()], totalBehaviors: total,
-      evidence: run.evidence.filter((event) => event.behaviorId === program.behaviorId),
-      artifacts: run.artifacts.filter((artifact) => item.screenshotIds.includes(artifact.id)) });
-  }
+async function emitCheckpoint(input: RunScriptedPlanInput, item: ReviewItem, completedBehaviorIds: string[],
+  evidence: ReviewObservationEvent[], artifacts: StoredArtifact[], total: number): Promise<void> {
+  await input.onCheckpoint?.({ provisional: true, binding: input.binding, item,
+    completedBehaviorIds, totalBehaviors: total, evidence,
+    artifacts: artifacts.filter(artifact => item.screenshotIds.includes(artifact.id)) });
 }
 function summarize(items: ReviewItem[]): string {
   const passed = items.filter((item) => item.verdict === 'passed').length;
