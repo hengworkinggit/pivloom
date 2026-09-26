@@ -186,3 +186,41 @@ test('the kernel item survives the same contract validation the save path applie
   const { result } = await run(fixture, program([open, clickAdd, capture]));
   expect(parsedItem(result.item)).toEqual(result.item);
 });
+
+// Resolution against the page at the moment of the step, rather than against a name the plan predicted
+// before the page existed. The measured failures were both shapes of that prediction: a delete button the
+// plan named 删除 matched twenty controls, and a button the plan named = matched none while the
+// application called it something else.
+test('a runtime resolver may name one of the controls the page offered, and the step then runs', async () => {
+  const fixture = formFixture(SESSION, { duplicateControl: { role: 'button', name: '添加' } });
+  const { result } = await run(fixture, program([open, clickAdd]), {
+    resolveControl: async ({ candidates }) => candidates.find((candidate) => candidate.name === '添加')?.ref,
+  });
+  expect(fixture.calls.act).toBe(1);
+  expect(result.item.verdict).not.toBe('blocked');
+});
+
+test('a runtime resolver supplies the control the plan named wrongly, and the step then runs', async () => {
+  const fixture = formFixture(SESSION);
+  const misnamed = BehaviorStepSchema.parse({ type: 'click', role: 'button', name: '=' });
+  const { result } = await run(fixture, program([open, misnamed]), {
+    resolveControl: async ({ candidates }) => candidates.find((candidate) => candidate.name === '添加')?.ref,
+  });
+  expect(fixture.calls.act).toBe(1);
+  expect(result.item.verdict).not.toBe('blocked');
+});
+
+test('a resolver that names a ref the observation does not carry leaves the stale ref standing', async () => {
+  const fixture = formFixture(SESSION, { duplicateControl: { role: 'button', name: '添加' } });
+  await expect(run(fixture, program([open, clickAdd]), { resolveControl: async () => 'e999' }))
+    .rejects.toMatchObject({ code: 'STALE_BROWSER_REF' });
+  expect(fixture.calls.act).toBe(0);
+});
+
+test('a resolver that fails leaves the stale ref standing, so a blind click stays impossible', async () => {
+  const fixture = formFixture(SESSION, { duplicateControl: { role: 'button', name: '添加' } });
+  await expect(run(fixture, program([open, clickAdd]), {
+    resolveControl: async () => { throw new Error('resolver unavailable'); },
+  })).rejects.toMatchObject({ code: 'STALE_BROWSER_REF' });
+  expect(fixture.calls.act).toBe(0);
+});

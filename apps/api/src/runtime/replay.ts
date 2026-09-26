@@ -87,8 +87,41 @@ export interface ReplayRunInput {
    */
   rendersOnly: boolean;
   signal: AbortSignal;
+  /**
+   * Asked only when a step's control resolves to zero or to several matches. Given the step and the
+   * controls the page actually offered, it may name one of their refs; anything else is refused and the
+   * step remains a stale ref. Nothing is cached and nothing is written back to the plan, so a resolution
+   * belongs to this step in this run - which is how the tools studied here recover a miss, and why a wrong
+   * guess in the plan no longer costs a whole behaviour.
+   */
+  resolveControl?: ResolveControl;
   saveScreenshot(image: { base64: string; mimeType: 'image/png'; sha256: string }): Promise<StoredArtifact>;
 }
+/** One control the freshest observation actually carries; a ref is minted per observation. */
+export interface ReplayControlCandidate {
+  ref: string;
+  role?: string;
+  name?: string;
+}
+/**
+ * The step whose predicted control did not resolve to exactly one of the page's own controls, together
+ * with the inventory the page really carries at the moment of the action. The plan's role+name is a
+ * prediction made before the page was ever seen; the observation is what the page says instead, and it is
+ * the only thing that can settle which control the step meant.
+ */
+export interface ControlResolutionRequest {
+  step: Extract<ReplayStep, { type: 'click' | 'fill' | 'select' }>;
+  /** Zero-based index in the program, so a resolver can name the step it was asked about. */
+  index: number;
+  /** Every control in the freshest observation, in observation order. */
+  candidates: ReplayControlCandidate[];
+}
+/**
+ * The optional seam that re-resolves one step against the page it is about to act on, the way Playwright's
+ * locators resolve at the call and Stagehand reasons only for the failing call. It answers with a ref and
+ * nothing else; the kernel admits that ref only if the current observation carries it.
+ */
+export type ResolveControl = (input: ControlResolutionRequest) => Promise<string | undefined>;
 /**
  * The subset of `ReviewBrowser` the kernel needs. It is structurally compatible
  * with `ReviewBrowser`, so the caller passes the real browser, while the kernel
@@ -182,6 +215,45 @@ function resolveControl(
 }
 
 /**
+ * Resolves a step's control, falling back to the caller's resolver only when the page does not offer
+ * exactly one match. The resolver may name a ref the observation actually carries; a ref that is absent or
+ * malformed is refused and the original stale-ref error stands. A blind click is therefore impossible by
+ * construction - whether the resolver is missing, wrong, or lying - and without a resolver this behaves
+ * exactly as it did before.
+ */
+async function resolveControlWithFallback(
+  input: ReplayRunInput,
+  refs: Readonly<Record<string, { role?: string; name?: string }>>,
+  step: Extract<ReplayStep, { type: 'click' | 'fill' | 'select' }>,
+  index: number,
+): Promise<string> {
+  try {
+    return resolveControl(refs, step, index);
+  } catch (error) {
+    if (!input.resolveControl) throw error;
+    const candidates = Object.entries(refs)
+      .filter(([key]) => REF.test(key))
+      .map(([ref, target]) => ({ ref, role: target.role, name: target.name }));
+    // A resolver that fails must not replace the diagnosis with its own error: the caller sees the same
+    // stale ref it would have seen had no resolver been configured, which keeps a model outage from
+    // looking like a page that changed.
+    let chosen: string | undefined;
+    try {
+      chosen = await input.resolveControl({ step, index, candidates });
+    } catch {
+      // A cancellation during the resolver's own work is not a resolution failure: the run is stopping, so
+      // the abort travels instead of being folded into a stale-ref verdict about the page.
+      input.signal.throwIfAborted();
+      throw error;
+    }
+    input.signal.throwIfAborted();
+    if (typeof chosen === 'string' && Object.prototype.hasOwnProperty.call(refs, chosen) && REF.test(chosen))
+      return chosen;
+    throw error;
+  }
+}
+
+/**
  * Runs one compiled program and returns the real observations, step results and
  * the item the deterministic layer may submit. There is no re-observation retry
  * and no verdict retry: a step that cannot be resolved is a stale ref, exactly
@@ -252,7 +324,7 @@ export async function runReplayProgram(input: ReplayRunInput): Promise<ReplayPro
       // measured replay reported all forty behaviours blocked, having completed only the first. So
       // resolution proceeds, and a control that genuinely cannot be resolved uniquely still fails in
       // `resolveControl` below - which is the guarantee the stale-ref test pins.
-      const ref = resolveControl(before.refs, step, index);
+      const ref = await resolveControlWithFallback(input, before.refs, step, index);
       observation = step.type === 'click' ? await browser.act({ type: 'click', ref, observationId: before.id })
         : step.type === 'fill' ? await browser.act({ type: 'fill', ref, observationId: before.id, text: step.text ?? '' })
           : await browser.act({ type: 'select', ref, observationId: before.id, value: step.value ?? '' });
