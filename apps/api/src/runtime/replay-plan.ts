@@ -4,6 +4,8 @@ import { HandoffSchema, ReviewResultSchema, allowsRenderOnlyEvidence,
 import { REVIEW_EVIDENCE_LIMIT_BYTES } from './budgets.js';
 import { RuntimeError, type ProbeEventSink } from './types.js';
 import { assertReviewerResult, markReviewerResultVerified, type ReviewCheckpoint, type ReviewerResult, type ReviewObservationEvent } from './reviewer.js';
+import { judgeVisualBehaviours } from './visual-judgement.js';
+import { REVIEW_WALL_CLOCK_BUDGET_MS } from './budgets.js';
 import { runReplayProgram, type ReplayBrowser, type ReplayProgram, type ReplayStep } from './replay.js';
 import type { StoredArtifact } from '../storage/artifacts.js';
 
@@ -130,7 +132,16 @@ export async function runPrograms(compiled: CompiledPlan, input: ReplayRunProgra
   return { items, evidence, artifacts };
 }
 
+/**
+ * The model call the visual layer needs, injected so this module never holds a provider client: the
+ * judge receives prompts and pixels and hands back text, and nothing here can reach the browser.
+ */
+export interface VisualJudgePort {
+  request(prompt: string, images: Array<{ base64: string; mimeType: string }>): Promise<string>;
+  now?: () => number;
+}
 export interface RunScriptedPlanInput extends Omit<ReplayRunProgramsInput, 'onProgress' | 'behaviors'> {
+  visualJudge?: VisualJudgePort;
   binding: ReviewBinding;
   handoff: Handoff;
   onEvent?: ProbeEventSink;
@@ -149,7 +160,15 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
     throw new RuntimeError('INVALID_HANDOFF', '检查交接与当前候选不匹配');
   const compiled = compilePlan(handoff.plan);
   const total = handoff.plan.behaviors.length;
-  if (compiled.programs.length === 0) return { kind: 'fallback', compiled: [], uncompilable: compiled.uncompilable };
+  // A behaviour whose result depends on appearance is uncompilable by contract, so on a realistic plan
+  // the uncompilable list is never empty and the whole plan used to fall back to the model-driven path
+  // — the very half hour this work exists to remove. When every uncompilable reason is appearance and a
+  // judge is supplied, those behaviours are driven and judged instead, and an all-visual plan must not
+  // be turned away here before that can happen.
+  const judgeVisual = Boolean(input.visualJudge) && compiled.uncompilable.length > 0
+    && compiled.uncompilable.every((entry) => entry.reason === 'visual-evidence');
+  if (compiled.programs.length === 0 && !judgeVisual)
+    return { kind: 'fallback', compiled: [], uncompilable: compiled.uncompilable };
   await input.onEvent?.({ id: randomUUID(), at: new Date().toISOString(), type: 'tool.start', toolName: 'browser_steps',
     toolCallId: replayCallId(input.binding.roleRunId, 'start'),
     message: `脚本回放开始：${compiled.programs.length}/${total} 项行为可编译，行为判定不调用模型` });
@@ -171,21 +190,51 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
   // the items map exists, and a provisional note must never delay the renewal
   // event that keeps the run alive.
   await emitCheckpoints(input, run, compiled, total);
-  if (compiled.uncompilable.length > 0) {
+  if (compiled.uncompilable.length > 0 && !judgeVisual) {
     // The model path reports on the whole plan, so a partially compiled plan must
     // not submit a partial result: the caller falls back entirely. The progress
     // events already emitted stay valid because the browser work really happened.
     return { kind: 'fallback', compiled: compiled.programs.map((program) => program.behaviorId), uncompilable: compiled.uncompilable };
   }
+  // The appearance behaviours were driven and captured rather than compiled into the scripted pass,
+  // so their items come from the judge. A kernel `blocked` item is never upgraded: it records that the
+  // behaviour produced no real action and no render-only evidence, and no model verdict can supply that.
+  const captures = judgeVisual
+    ? await captureVisualPrograms({ behaviors: handoff.plan.behaviors, browser: input.browser,
+        signal: input.signal, saveScreenshot: input.saveScreenshot })
+    : undefined;
+  const verdicts = captures && input.visualJudge
+    ? await judgeVisualBehaviours({
+        behaviours: [...captures.values()].map((capture) => ({
+          id: capture.behaviorId,
+          expected: handoff.plan.behaviors.find((behavior) => behavior.id === capture.behaviorId)?.expected ?? '',
+          images: capture.images,
+        })),
+        request: input.visualJudge.request,
+        deadlineMs: REVIEW_WALL_CLOCK_BUDGET_MS,
+        now: input.visualJudge.now ?? (() => performance.now()),
+      })
+    : undefined;
   const items = handoff.plan.behaviors.map((behavior) => {
     const item = run.items.get(behavior.id);
-    if (!item || item.expected !== behavior.expected)
+    if (item) {
+      if (item.expected !== behavior.expected)
+        throw new RuntimeError('REPLAY_PROGRAM_MISSING', '脚本回放没有覆盖全部计划行为');
+      return item;
+    }
+    const capture = captures?.get(behavior.id);
+    if (!capture || capture.item.expected !== behavior.expected)
       throw new RuntimeError('REPLAY_PROGRAM_MISSING', '脚本回放没有覆盖全部计划行为');
-    return item;
+    const verdict = verdicts?.get(behavior.id);
+    if (!verdict || capture.item.verdict === 'blocked') return capture.item;
+    return { ...capture.item, verdict: verdict.verdict, actual: verdict.reason.slice(0, 2000) };
   });
   const result: ReviewResult = ReviewResultSchema.parse({ revisionId: input.binding.revisionId, sourceHash: input.binding.sourceHash,
     items, summary: summarize(items) });
-  const assembled = markReviewerResultVerified({ result, evidence: run.evidence, artifacts: run.artifacts,
+  const visualEvidence = captures ? [...captures.values()].flatMap((capture) => capture.evidence) : [];
+  const visualArtifacts = captures ? [...captures.values()].flatMap((capture) => capture.artifacts) : [];
+  const assembled = markReviewerResultVerified({ result,
+    evidence: [...run.evidence, ...visualEvidence], artifacts: [...run.artifacts, ...visualArtifacts],
     usage: zeroUsage(), chromeClosed: true } as ReviewerResult);
   // The same assertion the model-driven path must pass. Marking this result is
   // what lets the existing receipt path accept it unchanged; it does not relax
