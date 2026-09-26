@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { OpenSandboxWorkspace, shellQuote } from "./workspace.js";
+import { browserProgramSource } from './browser-program-source.js';
 import {
   RuntimeError,
   type WorkspaceHandle,
@@ -15,6 +16,18 @@ export interface BrowserObservation {
   text: string;
   truncated: boolean;
   refs: Record<string, { role?: string; name?: string }>;
+}
+export interface BrowserTarget { role: string; name?: string; within?: { role: string; name: string } }
+export interface BrowserInspection { observation: BrowserObservation; matches: Array<{ text: string; value: string | null }> }
+export interface BrowserProgramFrame { index: number; kind: 'observation' | 'screenshot'; observation?: BrowserObservation;
+  image?: { base64: string; mimeType: 'image/png'; sha256: string } }
+export interface BrowserProgramResponse {
+  frames: BrowserProgramFrame[];
+  inspections?: Array<BrowserInspection & { target: BrowserTarget }>;
+  logs?: Record<string, unknown>;
+  pending?: { index: number; observation: BrowserObservation; step: Record<string, unknown> };
+  error?: { index: number; code: string; message: string };
+  commandCount: number;
 }
 const ref = z.string().regex(/^e[0-9]{1,6}$/);
 const observationId = z.string().min(1).max(100);
@@ -78,11 +91,13 @@ export class RemoteBrowser {
   private operating = false;
   private commandsInFlight = 0;
   private deadline = 0;
+  private programReady?: Promise<void>;
   constructor(
     private workspace: OpenSandboxWorkspace,
     private handle: WorkspaceHandle,
     private onEvent?: ProbeEventSink,
     sessionId = "pivloom-" + randomUUID(),
+    private readonly signal?: AbortSignal,
   ) {
     if (
       !/^pivloom-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
@@ -94,6 +109,57 @@ export class RemoteBrowser {
   }
   get sessionId(): string {
     return this.session;
+  }
+  async reset(path = '/'): Promise<BrowserObservation> {
+    return this.exclusive(async () => this.acceptObservation(await this.programOperation({ kind: 'reset', path })));
+  }
+  async inspect(target: BrowserTarget): Promise<BrowserInspection> {
+    return this.exclusive(async () => {
+      const result = await this.programOperation({kind:'inspect',target});
+      const parsed = z.object({ observation: z.unknown(), matches: z.array(z.object({text:z.string().max(32000),value:z.string().nullable()})).max(256) }).safeParse(result);
+      if (!parsed.success) throw new RuntimeError('BROWSER_BLOCKED','目标检查响应不完整');
+      return {observation:this.acceptObservation(parsed.data.observation),matches:parsed.data.matches};
+    });
+  }
+  async executeProgram(input: { steps: unknown[]; initialState?: string; targets?: BrowserTarget[];
+    startIndex?: number; observation?: BrowserObservation; resolvedRefs?: Record<number,string> }): Promise<BrowserProgramResponse> {
+    return this.exclusive(async () => {
+      const raw = await this.programOperation({kind:'program',...input});
+      if (typeof raw !== 'object' || raw === null || !('frames' in raw) || !Array.isArray(raw.frames))
+        throw new RuntimeError('BROWSER_BLOCKED','批量检查响应不完整');
+      const result=raw as BrowserProgramResponse;
+      for (const frame of result.frames) if (frame.observation) frame.observation=this.acceptObservation(frame.observation);
+      for (const inspection of result.inspections??[]) inspection.observation=this.acceptObservation(inspection.observation);
+      if(result.pending) result.pending.observation=this.acceptObservation(result.pending.observation);
+      return result;
+    },120000);
+  }
+  private acceptObservation(raw: unknown): BrowserObservation {
+    const parsed=z.object({id:z.string().min(1).max(100),sessionId:z.string(),url:z.string(),tree:z.string().max(64000),text:z.string().max(64000),truncated:z.boolean(),
+      refs:z.record(z.string().regex(/^e[0-9]{1,6}$/),z.object({role:z.string().optional(),name:z.string().optional()}))}).safeParse(raw);
+    if(!parsed.success || parsed.data.sessionId!==this.session)throw new RuntimeError('BROWSER_BLOCKED','批量观察与检查会话不匹配');
+    let url:URL;try{url=new URL(parsed.data.url);}catch{throw new RuntimeError('BROWSER_ORIGIN_REJECTED','无效页面来源');}
+    if(url.origin!=='http://127.0.0.1:4173'||url.username||url.password)throw new RuntimeError('BROWSER_ORIGIN_REJECTED','浏览器离开候选预览来源');
+    this.started=true;
+    const observation={...parsed.data,tree:boundedText(parsed.data.tree,32000),text:boundedText(parsed.data.text,32000)};
+    this.observation={id:observation.id,url:observation.url,refs:new Set(Object.keys(observation.refs))};
+    return observation;
+  }
+  private async programOperation(operation: Record<string,unknown>): Promise<unknown> {
+    this.signal?.throwIfAborted();this.assertOpen();
+    this.programReady??=this.workspace.writeServiceFile(this.handle,'browser-program.mjs',browserProgramSource);
+    await this.programReady;
+    const payload=JSON.stringify({session:this.session,timeoutMs:this.remainingTime(),operation});
+    if(Buffer.byteLength(payload)>96000)throw new RuntimeError('INVALID_BROWSER_ACTION','浏览器程序超过传输上限');
+    const result=await this.workspace.executeService(this.handle,`node /opt/pivloom/browser-program.mjs ${shellQuote(payload)}`,{
+      uid:0,timeoutMs:this.remainingTime(),signal:this.signal?AbortSignal.any([this.stopController.signal,this.signal]):this.stopController.signal,
+    });
+    this.signal?.throwIfAborted();this.assertOpen();
+    let decoded:unknown;try{decoded=JSON.parse(result.stdoutTail);}catch{throw new RuntimeError('BROWSER_BLOCKED','批量浏览器响应格式错误');}
+    const packet=z.object({success:z.boolean(),data:z.unknown().optional(),error:z.object({code:z.string(),message:z.string()}).optional()}).safeParse(decoded);
+    if(!packet.success)throw new RuntimeError('BROWSER_BLOCKED','批量浏览器响应不完整');
+    if(!packet.data.success)throw new RuntimeError(packet.data.error?.code??'BROWSER_BLOCKED',packet.data.error?.message??'浏览器程序未完成');
+    return packet.data.data;
   }
   async open(path = "/"): Promise<BrowserObservation> {
     return this.exclusive(() => this.openPage(path));
@@ -430,22 +496,24 @@ export class RemoteBrowser {
   private assertOpen(): void {
     if (this.stopped) throw new RuntimeError("BROWSER_CLOSED", "浏览器已关闭");
   }
-  private async exclusive<T>(operation: () => Promise<T>): Promise<T> {
+  private async exclusive<T>(operation: () => Promise<T>, timeoutMs=15000): Promise<T> {
+    this.signal?.throwIfAborted();
     this.assertOpen();
     if (this.operating)
       throw new RuntimeError("BROWSER_BUSY", "浏览器动作仍在进行");
     this.operating = true;
-    this.deadline = Date.now() + 15000;
+    this.deadline = Date.now() + timeoutMs;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
         this.stopped = true;
         this.observation = undefined;
-        reject(new RuntimeError("BROWSER_TIMEOUT", "浏览器动作超过 15 秒"));
-      }, 15000);
+        reject(new RuntimeError("BROWSER_TIMEOUT", "浏览器动作超过执行预算"));
+      }, timeoutMs);
     });
     try {
-      return await Promise.race([operation(), timeout]);
+      const result=await Promise.race([operation(), timeout]);
+      this.signal?.throwIfAborted();return result;
     } catch (error) {
       if (error instanceof RuntimeError && error.code === "BROWSER_TIMEOUT")
         await this.close();
@@ -483,7 +551,7 @@ export class RemoteBrowser {
       result = await this.workspace.executeService(this.handle, command, {
         uid: 0,
         timeoutMs: closing ? 15000 : this.remainingTime(),
-        ...(closing ? {} : { signal: this.stopController.signal }),
+        ...(closing ? {} : { signal: this.signal?AbortSignal.any([this.stopController.signal,this.signal]):this.stopController.signal }),
       });
     } catch (error) {
       if (this.stopped && !closing)
@@ -542,7 +610,7 @@ export class RemoteBrowser {
     let result;
     try {
       result = await this.workspace.executeService(this.handle, command, {
-        uid: 0, timeoutMs: this.remainingTime(), signal: this.stopController.signal,
+        uid: 0, timeoutMs: this.remainingTime(), signal: this.signal?AbortSignal.any([this.stopController.signal,this.signal]):this.stopController.signal,
       });
     } catch (error) {
       if (this.stopped) throw new RuntimeError("BROWSER_CLOSED", "浏览器已关闭");
