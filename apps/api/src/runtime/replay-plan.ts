@@ -118,7 +118,13 @@ export async function runPrograms(compiled: CompiledPlan, input: ReplayRunProgra
   const evidence: ReviewObservationEvent[] = [];
   const artifacts: StoredArtifact[] = [];
   const expected = new Map(input.behaviors.map((behavior) => [behavior.id, behavior]));
+  // A budget that ran out and a run that was stopped on purpose arrive as the same aborted signal, and their
+  // correct behaviours are opposites: the first keeps what was verified and blocks only what did not run, the
+  // second writes no verdict at all. The review timeout names itself, so the two can be told apart.
+  let budgetExhausted = false;
+  const outOfBudget = () => input.signal.aborted && input.signal.reason === 'REVIEW_TIMEOUT';
   for (const program of compiled.programs) {
+    if (outOfBudget()) { budgetExhausted = true; break; }
     input.signal.throwIfAborted();
     const target = expected.get(program.behaviorId);
     if (!target) throw new RuntimeError('REPLAY_PROGRAM_MISSING', '脚本程序缺少对应的封存行为');
@@ -129,6 +135,7 @@ export async function runPrograms(compiled: CompiledPlan, input: ReplayRunProgra
         resolveControl: input.resolveControl,
         saveScreenshot: input.saveScreenshot });
     } catch (error) {
+      if (outOfBudget()) { budgetExhausted = true; break; }
       input.signal.throwIfAborted();
       // One broken program must not cost the whole increment. A measured run lost all forty behaviours
       // because the second one threw: the replay aborted, every behaviour was recorded blocked, and the
@@ -171,6 +178,18 @@ export async function runPrograms(compiled: CompiledPlan, input: ReplayRunProgra
     items.set(program.behaviorId, outcome.item);
     await input.onProgress?.(program, { assertionsPassed: outcome.assertionsPassed });
   }
+  // Whatever was verified stays verified; only the behaviours the budget did not reach are blocked, and the
+  // count is stated so the verdict says what happened instead of degenerating into forty identical
+  // placeholders. An unexecuted behaviour is still blocked, so fail-closed is untouched.
+  if (budgetExhausted)
+    for (const program of compiled.programs)
+      if (!items.has(program.behaviorId)) {
+        const target = expected.get(program.behaviorId);
+        items.set(program.behaviorId, { behaviorId: program.behaviorId, verdict: 'blocked' as const,
+          expected: target?.expected ?? '',
+          actual: `验收墙钟预算已耗尽，该行为未执行（本次已完成 ${items.size} 条）`,
+          observationEventIds: [], screenshotIds: [], reproSteps: [] });
+      }
   return { items, evidence, artifacts };
 }
 
