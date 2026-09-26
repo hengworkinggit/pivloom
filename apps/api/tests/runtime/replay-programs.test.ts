@@ -133,3 +133,25 @@ test('an absent or ambiguous outcome target is a test-definition error, never a 
     })).rejects.toMatchObject({ code: 'TEST_TARGET_AMBIGUOUS' });
   }
 });
+
+test('a long bounded input program references its final scoped outcome and real action evidence', async () => {
+  const fixture = formFixture(sessionId);
+  const browser = { ...fixture.browser,
+    async keyBatch(input: BrowserKeyBatch) {
+      return { observation: await fixture.browser.observe(), startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
+        steps: input.steps.map((step, index) => ({ ...step, index, success: true })) };
+    },
+    async inspect() { return { observation: await fixture.browser.observe(), matches: [{ text: '', value: '' }] }; },
+  };
+  const result = await runReplayProgram({ browser, signal: new AbortController().signal, rendersOnly: false, saveScreenshot,
+    target: { expected: 'Repeated entry and backspace leave the input empty' },
+    program: { behaviorId: 'B01', initialState: 'continue',
+      steps: [{ type: 'open' }, { type: 'key_sequence', keys: ['1', 'Backspace'], repeat: 256 }].map(step => BehaviorStepSchema.parse(step)),
+      assertions: [BehaviorAssertionSchema.parse({ kind: 'target-value', target: { role: 'textbox', name: 'Input' }, value: '' })] },
+  });
+  const targetEvidence = result.events.at(-1)!;
+  expect(result.item.verdict).toBe('passed');
+  expect(targetEvidence.text).toContain('"target"');
+  expect(result.item.observationEventIds).toContain(targetEvidence.id);
+  expect(result.events.some(event => event.action === 'key_batch' && result.item.observationEventIds.includes(event.id))).toBe(true);
+});
