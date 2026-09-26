@@ -19,6 +19,8 @@ import { DAILY_ACCEPTED_LIMIT, MODEL_REQUEST_TIMEOUT_MS, PROVIDER_RETRY_POLICY, 
 import { REVIEW_EVIDENCE_PERSISTENCE_LIMIT_BYTES } from "../runtime/capacity.js";
 import type { ReviewObservationEvent } from "../runtime/reviewer.js";
 import { BrowserPressKeySchema } from "../runtime/browser.js";
+import { VerificationProgramAssetSchema, applyVerificationPrograms, verificationProgramHash, verificationRequirementHash,
+  type VerificationProgramAsset } from "../runtime/verification-program-contract.js";
 
 export interface StoredRun extends Run {
   ownerId: string;
@@ -82,6 +84,9 @@ export interface PreviewBindingInput {
   sandboxId: string; revisionId: string; sourceHash: string; expiresAt: string;
   markerVerified: true; writeRevoked: true; chromeClosed: true;
 }
+export interface SaveVerificationProgramsInput {
+  roleRunId: string; attempt: number; revisionId: string; sourceHash: string; assets: VerificationProgramAsset[];
+}
 export interface GenerationRepository {
   accept(ownerId: string, projectId: string, input: AcceptRunInput): Promise<{ run: StoredRun; replayed: boolean }>;
   readRunSnapshot(ownerId: string, runId: string): Promise<RunReadSnapshot>;
@@ -97,6 +102,8 @@ export interface GenerationRepository {
   appendEvent(ownerId: string, runId: string, input: AppendEventInput): Promise<RunEvent>;
   setPhase(ownerId: string, runId: string, input: { phase: RunPhase; state?: RunState }): Promise<StoredRun>;
   getPlanningContext(ownerId: string, runId: string): Promise<PlanningContext>;
+  loadVerificationPrograms(ownerId: string, projectId: string, plan: Plan): Promise<VerificationProgramAsset[]>;
+  saveVerificationPrograms(ownerId: string, runId: string, input: SaveVerificationProgramsInput): Promise<VerificationProgramAsset[]>;
   getReviewRetryCandidate(ownerId: string, runId: string, priorRunId: string): Promise<{ revision: StoredRevision; plan: Plan } | null>;
   startCoordinator(ownerId: string, runId: string): Promise<StoredRoleRun>;
   assertRoleActive(ownerId: string, runId: string, input: RoleReference): Promise<void>;
@@ -401,6 +408,16 @@ export function createGenerationRepository(
     if (!context.success) throw new ApiFailure(409, "PLANNING_CONTEXT_UNAVAILABLE", "这个任务缺少有效的规划上下文。");
     return context.data;
   }
+  function verificationAsset(row: Row): VerificationProgramAsset {
+    return VerificationProgramAssetSchema.parse({ behaviorId: row.behavior_id, requirementHash: row.requirement_hash,
+      program: row.program_json, programHash: row.program_hash, sourceHash: row.source_hash });
+  }
+  async function loadPrograms(client: PoolClient, ownerId: string, projectId: string, plan: Plan): Promise<VerificationProgramAsset[]> {
+    const result = await client.query(`SELECT * FROM nano.verification_programs WHERE owner_id=$1 AND project_id=$2
+      AND (behavior_id,requirement_hash) IN (SELECT * FROM unnest($3::text[],$4::text[])) ORDER BY behavior_id`,
+    [ownerId, projectId, plan.behaviors.map(behavior => behavior.id), plan.behaviors.map(verificationRequirementHash)]);
+    return result.rows.map(verificationAsset);
+  }
   /**
    * Preserves a task that was accepted but cannot start. The requirement text and
    * the recorded model choice stay readable, the project operation lock is
@@ -629,7 +646,52 @@ export function createGenerationRepository(
       }
     },
     getRun: (ownerId, runId) => owned(ownerId, async (client) => storedRun(await run(client, ownerId, runId))),
-    getPlanningContext: (ownerId, runId) => owned(ownerId, async (client) => planningContext(await run(client, ownerId, runId))),
+    loadVerificationPrograms: (ownerId, projectId, plan) => owned(ownerId, async (client) => {
+      await project(client, ownerId, projectId);
+      return loadPrograms(client, ownerId, projectId, PlanSchema.parse(plan));
+    }),
+    saveVerificationPrograms: (ownerId, runId, input) => owned(ownerId, async (client) => {
+      const { current, parent } = await lockedRun(client, ownerId, runId);
+      const role = await activeRole(client, current, { roleRunId: input.roleRunId, attempt: input.attempt, role: "reviewer" });
+      const binding = ReviewBindingSchema.parse(role.review_binding_json);
+      if (binding.runId !== runId || binding.roleRunId !== input.roleRunId || binding.attempt !== input.attempt
+        || binding.revisionId !== input.revisionId || binding.sourceHash !== input.sourceHash)
+        throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "验证程序不属于当前检查候选。");
+      if (parent.current_revision_id !== current.expected_current_revision_id)
+        throw new ApiFailure(409, "STALE_BASE", "当前成功版本已经变化，不能保存验证程序。");
+      const saved = await revision(client, ownerId, input.revisionId);
+      if (saved.run_id !== runId || saved.project_id !== current.project_id || saved.attempt !== current.attempt
+        || current.result_revision_id !== saved.id || saved.status !== "candidate" || saved.build_status !== "passed"
+        || saved.source_hash !== input.sourceHash)
+        throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "验证程序源码版本与当前候选不一致。");
+      const parsed = z.array(VerificationProgramAssetSchema).max(99).safeParse(input.assets);
+      const plan = PlanSchema.parse(current.plan_json);
+      if (!parsed.success || parsed.data.some(asset => {
+        const behavior = plan.behaviors.find(behavior => behavior.id === asset.behaviorId);
+        return !behavior || asset.requirementHash !== verificationRequirementHash(behavior)
+          || asset.programHash !== verificationProgramHash(asset.program) || asset.sourceHash !== input.sourceHash;
+      })) throw new ApiFailure(422, "INVALID_VERIFICATION_PROGRAM", "验证程序与封存要求、程序哈希或编译源码不匹配。");
+      const assets: VerificationProgramAsset[] = [];
+      for (const asset of parsed.data) {
+        const inserted = await client.query(`INSERT INTO nano.verification_programs
+          (owner_id,project_id,behavior_id,requirement_hash,program_json,program_hash,run_id,role_run_id,revision_id,source_hash)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(owner_id,project_id,behavior_id,requirement_hash) DO NOTHING RETURNING *`,
+        [ownerId, current.project_id, asset.behaviorId, asset.requirementHash, asset.program, asset.programHash,
+          runId, role.id, saved.id, asset.sourceHash]);
+        const winner = inserted.rows[0] ?? (await client.query(`SELECT * FROM nano.verification_programs
+          WHERE owner_id=$1 AND project_id=$2 AND behavior_id=$3 AND requirement_hash=$4`,
+        [ownerId, current.project_id, asset.behaviorId, asset.requirementHash])).rows[0];
+        assets.push(verificationAsset(winner));
+      }
+      return assets;
+    }),
+    getPlanningContext: (ownerId, runId) => owned(ownerId, async (client) => {
+      const current = await run(client, ownerId, runId);
+      const context = planningContext(current);
+      if (context.previousPlan) context.previousPlan = applyVerificationPrograms(context.previousPlan,
+        await loadPrograms(client, ownerId, current.project_id, context.previousPlan));
+      return context;
+    }),
     getReviewRetryCandidate: (ownerId, runId, priorRunId) => owned(ownerId, async (client) => {
       const { current, parent } = await lockedRun(client, ownerId, runId);
       if (current.retry_of !== priorRunId || !["accepted", "planning"].includes(current.state)) return null;
@@ -690,21 +752,22 @@ export function createGenerationRepository(
         const { current } = await lockedRun(client, ownerId, runId);
         const coordinator = await activeRole(client, current, { ...input, role: "coordinator" });
         const context = planningContext(current);
-        if (!preservesPreviousBehavior(parsed.data, context.previousPlan, context.requestText)) {
+        const plan = applyVerificationPrograms(parsed.data, await loadPrograms(client, ownerId, current.project_id, parsed.data));
+        if (!preservesPreviousBehavior(plan, context.previousPlan, context.requestText)) {
           throw new ApiFailure(422, "PLAN_PREVIOUS_BEHAVIOR_REQUIRED", "修改计划必须保留全部旧必需行为及原有可观察结果；明确替代须记录用户本轮变更与新 ID。");
         }
         const base = current.base_revision_id ? await revision(client, ownerId, current.base_revision_id) : null;
         const task = ["原始需求：", context.originalRequest,
           ...context.clarificationTurns.flatMap((turn, index) => [`澄清 ${index + 1}：${turn.question}`, `已接受的回答：${turn.answer}`])].join("\n");
         const handoff = HandoffSchema.parse({ runId, fromRoleRunId: coordinator.id, toRole: "builder", attempt: current.attempt,
-          baseRevisionId: current.base_revision_id, expectedRevisionId: null, sourceHash: base?.source_hash ?? null, plan: parsed.data, task, artifactIds: [] });
+          baseRevisionId: current.base_revision_id, expectedRevisionId: null, sourceHash: base?.source_hash ?? null, plan, task, artifactIds: [] });
         const builderId = randomUUID();
         const builder = await client.query(`INSERT INTO nano.role_runs(id,owner_id,project_id,run_id,predecessor_id,role,attempt,session_id,state,input_json)
           VALUES($1,$2,$3,$4,$5,'builder',$6,$7,'queued',$8) RETURNING *`, [builderId, ownerId, current.project_id, runId, coordinator.id, current.attempt, randomUUID(), handoff]);
         const completed = await client.query("UPDATE nano.role_runs SET state='succeeded',finished_at=now(),output_json=$3,usage_json=$4 WHERE owner_id=$1 AND id=$2 RETURNING *",
-          [ownerId, coordinator.id, { plan: parsed.data }, roleUsage(input.usage)]);
-        const changed = await client.query("UPDATE nano.runs SET plan_json=$3,builder_role_run_id=$4,state='building',phase='provision' WHERE owner_id=$1 AND id=$2 RETURNING *", [ownerId, runId, parsed.data, builderId]);
-        await event(client, changed.rows[0], { type: "role.completed", roleRunId: coordinator.id, payload: { role: "coordinator", state: "succeeded", summary: parsed.data.changeSummary } });
+          [ownerId, coordinator.id, { plan }, roleUsage(input.usage)]);
+        const changed = await client.query("UPDATE nano.runs SET plan_json=$3,builder_role_run_id=$4,state='building',phase='provision' WHERE owner_id=$1 AND id=$2 RETURNING *", [ownerId, runId, plan, builderId]);
+        await event(client, changed.rows[0], { type: "role.completed", roleRunId: coordinator.id, payload: { role: "coordinator", state: "succeeded", summary: plan.changeSummary } });
         await event(client, changed.rows[0], { type: "run.phase", payload: { state: "building", phase: "provision" } });
         return { run: storedRun(changed.rows[0]), coordinator: storedRole(completed.rows[0]), builder: storedRole(builder.rows[0]), handoff };
       });
@@ -1508,7 +1571,8 @@ export function createGenerationRepository(
       const previous = await revision(client, ownerId, input.previousRevisionId);
       if (previous.run_id !== runId || previous.project_id !== current.project_id || previous.attempt !== current.attempt)
         throw new ApiFailure(409, "SNAPSHOT_CONFLICT", "待修复候选与当前任务不匹配。");
-      const plan = PlanSchema.parse(current.plan_json);
+      const savedPlan = PlanSchema.parse(current.plan_json);
+      const plan = applyVerificationPrograms(savedPlan, await loadPrograms(client, ownerId, current.project_id, savedPlan));
       const reviewer = await client.query("SELECT id FROM nano.role_runs WHERE owner_id=$1 AND run_id=$2 AND role='reviewer' AND attempt=$3", [ownerId, runId, current.attempt]);
       const predecessorId = reviewer.rows[0]?.id ?? current.builder_role_run_id;
       const id = randomUUID();
