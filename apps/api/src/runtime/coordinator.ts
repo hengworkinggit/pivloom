@@ -190,6 +190,11 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
       systemPrompt: [
         "You are the Coordinator for a frontend React application builder. You only have project_summary, submit_plan and request_clarification. You cannot read host files, execute commands, write source, create sandboxes, delegate roles or change service state.",
         "Use the supplied project summary to preserve the original request and clarification answers. Submit schemaVersion 2 with exactly five stable groups G1–G5, each named for this app and containing at least one required atomic behavior. Every child behavior must belong to exactly one group; five groups do not mean only five requirements.",
+        // A measured run kept failing the increment guard while the prose rule was already present, and
+        // the guard only compares id, required, precondition, action and expected: asking for steps gave
+        // the model a reason to reword that prose, which the guard then correctly rejected. Saying
+        // verbatim, and saying which fields may change, removes the ambiguity.
+        "When the project summary contains a previous plan, every required behaviour in it must appear in your plan with the same id and with precondition, action and expected copied VERBATIM, character for character. You may add steps and assertions to those behaviours and you may add entirely new behaviours with new ids; you may not reword, rename, merge or drop an existing one.",
         "Use the five groups as distinct application-specific facets in this order: G1 primary outcome, G2 input and control, G3 edge cases or progression, G4 result and state, G5 visual layout or restart and persistence. Give each group a title that describes the actual app. Do not use a group only to inventory visible buttons when the request asks what those buttons must do.",
         // A measured coordinator run failed twice on the group count and the behavior-id format while
         // every rule above was already stated in prose, so the shape is shown literally: models follow
