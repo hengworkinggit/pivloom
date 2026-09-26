@@ -72,20 +72,23 @@ test("all previous required IDs and observable meanings survive an increment; re
     replacements: [{ ...replacement.replacements[0], newBehaviorId: "B01" }] }), previous, "把金额改为两位小数")).toBe(false);
 });
 
-test("compiling a preserved behavior into steps or assertions is verification, never a semantic change", () => {
+test("legacy behavior may gain a program, but established executable criteria cannot be silently rewritten", () => {
   const previous = GroupedPlanSchema.parse(base);
   const compiled = GroupedPlanSchema.parse({ ...base, behaviors: base.behaviors.map((item) => item.id === "B01"
     ? { ...item, steps: [{ type: "open" }, { type: "click", name: "添加" }, { type: "capture" }],
         assertions: [{ kind: "control", name: "添加" }, { kind: "text", text: "已添加" }], evidence: "text" }
     : item) });
   expect(preservesPreviousBehavior(compiled, previous, "")).toBe(true);
-  // Refining an existing program is equally free: rebuilding the same promise
-  // with a sharper check must not retire a behavior the user never changed.
+  // The old rule let an unchanged promise receive a different, weaker test on
+  // every increment. Missing legacy fields may be filled; saved criteria cannot.
   const refined = GroupedPlanSchema.parse({ ...compiled, behaviors: compiled.behaviors.map((item) => item.id === "B01"
     ? { ...item, steps: [{ type: "open", path: "/" }, { type: "fill", name: "书名", text: "三体" }, { type: "capture" }],
         assertions: [{ kind: "console-error", negated: true }], evidence: "visual" }
     : item) });
-  expect(preservesPreviousBehavior(refined, compiled, "")).toBe(true);
+  expect(preservesPreviousBehavior(refined, compiled, "")).toBe(false);
+  const flipped = structuredClone(compiled);
+  flipped.behaviors[0].assertions![0].negated = true;
+  expect(preservesPreviousBehavior(flipped, compiled, "改颜色")).toBe(false);
   // The prose fields stay authoritative: a stricter assertion cannot justify
   // moving what the user was promised.
   for (const changed of [{ expected: "另一种结果" }, { action: "另一种动作" }, { precondition: "另一种前提" }, { required: false }]) {
