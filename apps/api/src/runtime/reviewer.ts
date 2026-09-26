@@ -10,7 +10,7 @@ import { HandoffSchema, ReviewResultSchema, ReviewItemSchema, MAX_CHECK_ARTIFACT
 import { createServiceModel } from './pi.js';
 import { RuntimeError, type ModelConfig, type ProbeEvent, type ProbeEventSink } from './types.js';
 import { createRoleTokenTracker, type RunTokenBudget, type TokenUsage } from './token-budget.js';
-import { MODEL_REQUEST_TIMEOUT_MS, REVIEW_EVIDENCE_LIMIT_BYTES, REVIEW_TOOL_CALLS_PER_BEHAVIOR, REVIEW_TOOL_LIMIT, REVIEW_TOOL_LIMIT_CEILING, piCompactionSettings, providerRetrySettings } from './budgets.js';
+import { MODEL_REQUEST_TIMEOUT_MS, REVIEW_EVIDENCE_LIMIT_BYTES, REVIEW_SUBMISSION_RESERVE_MS, REVIEW_TOOL_CALLS_PER_BEHAVIOR, REVIEW_TOOL_LIMIT, REVIEW_TOOL_LIMIT_CEILING, REVIEW_WALL_CLOCK_BUDGET_MS, piCompactionSettings, providerRetrySettings } from './budgets.js';
 import { BrowserPressKeySchema, type BrowserAction, type BrowserKeyBatchResult, type BrowserObservation } from './browser.js';
 
 /**
@@ -24,8 +24,10 @@ export const recoverableToolErrors: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Each model request has its own bounded timeout. Reviewer progress has no
- * cumulative wall-clock ceiling; the owning Run watchdog handles inactivity.
+ * Each model request has its own bounded timeout, and the whole check is bounded
+ * by a cumulative wall-clock ceiling (`REVIEW_WALL_CLOCK_BUDGET_MS`) on a
+ * monotonic clock. Exceeding it raises `REVIEW_TIMEOUT`, which the check below
+ * already recognises; the owning Run watchdog still handles inactivity too.
  */
 export function classifyReviewerModelFailure(state: { errorMessage?: string }): RuntimeError {
   const timedOut = /timeout|timed out|abort/i.test(state.errorMessage ?? '');
@@ -120,6 +122,13 @@ export interface ReviewerInput {
   onCheckpoint?(checkpoint: ReviewCheckpoint): Promise<void>;
   assertActive(): Promise<void>;
   saveScreenshot(image: { base64: string; mimeType: 'image/png'; sha256: string }): Promise<CheckArtifact>;
+  /**
+   * Monotonic millisecond clock used for the wall-clock ceiling. Defaults to
+   * `performance.now()`, which cannot be moved by a system clock adjustment the
+   * way `Date.now()` can. Tests inject a fake clock so the ceiling can be
+   * crossed without waiting eight real minutes.
+   */
+  monotonicNow?: () => number;
 }
 export interface ReviewerResult {
   result: ReviewResult; evidence: ReviewObservationEvent[]; artifacts: CheckArtifact[];
@@ -213,6 +222,14 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   const tokens = createRoleTokenTracker(input.tokenBudget);
   const abortController = new AbortController();
   const signal = AbortSignal.any([input.signal, abortController.signal]);
+  // Total wall-clock ceiling for this check, measured on a monotonic clock:
+  // `Date.now()` can step with an NTP correction while `performance.now()` cannot,
+  // so the ceiling is a real elapsed duration rather than a wall-clock guess. The
+  // clock is injectable so tests can cross the ceiling without waiting.
+  const monotonicNow = input.monotonicNow ?? (() => performance.now());
+  const startedAt = monotonicNow();
+  const deadlineAt = startedAt + REVIEW_WALL_CLOCK_BUDGET_MS;
+  let expiryTimer: ReturnType<typeof setTimeout> | undefined;
   let fatal: RuntimeError | undefined, isolated: string | undefined;
   let session: Awaited<ReturnType<typeof createAgentSession>>['session'] | undefined;
   let aborting: Promise<void> | undefined, decision: ReviewResult | undefined;
@@ -249,9 +266,12 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   const fail = (error: RuntimeError) => { fatal ??= error; abortController.abort(); return error; };
   const check = () => {
     if (tokens.failure) throw tokens.failure;
+    budgetProblem();
     if (fatal) throw fatal;
-    if (signal.aborted) throw new RuntimeError(input.signal.reason === 'RUN_TIMEOUT' ? 'RUN_TIMEOUT'
-      : input.signal.reason === 'REVIEW_TIMEOUT' ? 'REVIEW_TIMEOUT' : 'CANCELLED', '检查已停止');
+    // The composite signal carries the first abort reason, whether it came from
+    // the owning Run or from this check's own wall-clock stop below.
+    if (signal.aborted) throw new RuntimeError(signal.reason === 'RUN_TIMEOUT' ? 'RUN_TIMEOUT'
+      : signal.reason === 'REVIEW_TIMEOUT' ? 'REVIEW_TIMEOUT' : 'CANCELLED', '检查已停止');
   };
   const active = async () => {
     check();
@@ -272,6 +292,33 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
       type, toolName:name,toolCallId:`review-${createHash('sha256').update(id).digest('hex').slice(0,24)}`,success,
       message: type === 'tool.start' ? `检查者执行 ${name}` : success ? '检查工具已完成'
         : lastRejection ? `检查工具未完成（${lastRejection}）` : '检查工具未完成' }, allowFatal);
+  };
+  // The reserve gate and the hard ceiling are one mechanism seen at two ranges:
+  // below the reserve the check stops admitting evidence and forces submission,
+  // and at the deadline itself the check ends as REVIEW_TIMEOUT. It is checked on
+  // every `check()` (every model turn and every tool boundary) and also armed as a
+  // timer, so a stalled stream cannot outlive the ceiling either.
+  const budgetProblem = (): RuntimeError | undefined => {
+    if (monotonicNow() < deadlineAt) return undefined;
+    if (!fatal) {
+      const elapsedSeconds = Math.round((monotonicNow() - startedAt) / 1000);
+      fatal = new RuntimeError('REVIEW_TIMEOUT',
+        `本次检查已达 ${Math.round(REVIEW_WALL_CLOCK_BUDGET_MS / 1000)} 秒墙钟上限（已用 ${elapsedSeconds} 秒）。这是验收预算限制，不是作品行为不通过；请缩小增量后重试。`);
+      // Aborting with the recognised reason keeps the signal branch in `check`
+      // meaningful and stops the model session at once instead of letting it
+      // stream one more turn past the ceiling.
+      abortController.abort('REVIEW_TIMEOUT');
+      // Persisted, allowlisted record of the stop itself, in the same spirit as a
+      // terminal report rejection: the ordinary queue refuses new events once a
+      // fatal error exists, so this one is written through it. A budget stop has
+      // to be visible in the run record rather than looking like an unexplained
+      // failure. Its tool name is deliberately outside the meaningful-progress
+      // allowlist, so it never renews the inactivity lease.
+      void appendEvent({ id: randomUUID(), at: new Date().toISOString(), roleRunId: binding.roleRunId,
+        sessionId: input.sessionId, type: 'tool.end', toolName: 'review_wall_clock', success: false,
+        message: `检查者因墙钟上限被停止（REVIEW_TIMEOUT，已用 ${elapsedSeconds} 秒）` }, true).catch(() => {});
+    }
+    return fatal;
   };
   const observe = (observation: BrowserObservation, batch?: ReviewObservationEvent['batch']) => {
     if (observation.sessionId !== binding.browserSessionId || new URL(observation.url).origin !== 'http://127.0.0.1:4173')
@@ -396,6 +443,11 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   let completed: ReviewerResult | undefined;
   try {
     await active();
+    // Arm the ceiling rather than only polling it: one model request may
+    // legitimately stream for MODEL_REQUEST_TIMEOUT_MS, which alone can overshoot
+    // a nearly spent budget, so the deadline itself must end the session.
+    expiryTimer = setTimeout(() => { budgetProblem(); }, Math.max(0, Math.min(deadlineAt - monotonicNow(), 2_147_483_647)));
+    expiryTimer.unref?.();
     if (input.modelConfig.supportsImages !== true)
       throw new RuntimeError('VISION_NOT_VERIFIED', '当前模型的图像能力未通过实际图片测试，请在模型设置中验证支持图像的配置');
     isolated = await mkdtemp(join(tmpdir(),'pivloom-reviewer-'));
@@ -434,6 +486,20 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
         let actionSucceeded=true;
         let argumentFailure:RuntimeError|undefined;
         try {
+          // Fast fail: with less than one honest evidence cycle left (see
+          // REVIEW_SUBMISSION_RESERVE_MS) the check stops collecting. The browser
+          // call is answered instead of executed and the model is told to submit
+          // what it already has, so the turn is redirected to submit_review or
+          // record_behavior rather than spent on evidence that cannot fit. The
+          // refusal is reported as an unsuccessful tool completion, not progress.
+          // Nothing here can turn an unverified claim into a pass: submit_review
+          // still runs every evidence and vision gate, and a report that is never
+          // produced still ends the check as REVIEW_TIMEOUT.
+          if(name.startsWith('browser_') && deadlineAt - monotonicNow() <= REVIEW_SUBMISSION_RESERVE_MS){
+            const remainingMs=Math.max(0,Math.round(deadlineAt-monotonicNow()));
+            lastRejection='REVIEW_SUBMISSION_REQUIRED';
+            return output({budgetStop:true,remainingMs,instruction:`本次检查的墙钟预算只剩 ${remainingMs}ms，不足以再完成一次「动作→截图→记录」取证。已停止浏览器操作。请立即用已有的真实证据调用 submit_review（需要先落盘的证据可先调用 record_behavior）；仍未验证的行为必须如实记为 blocked，不得记为通过。`});
+          }
           const parsed=schemas[name].safeParse(args);
           if (!parsed.success) {
             if(name==='submit_review'||name==='record_behavior')throw invalid('SCHEMA_INVALID',schemaIssuePath(parsed.error.issues));
@@ -818,9 +884,14 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   }catch(error){
     await eventTail;
     try{check();}catch(failure){error=failure;}
+    // `check` may be the first place the ceiling is noticed (for example when the
+    // budget expires while another failure is unwinding). Flush the stop notice it
+    // schedules before the error leaves this function, so the run record keeps it.
+    await eventTail;
     const failure=error instanceof RuntimeError?error:new RuntimeError('CHECK_BLOCKED','检查者无法完成检查');
     throw new RuntimeError(failure.code,failure.message,undefined,tokens.usage(),failure.diagnosticCode);
   }finally{
+    if(expiryTimer)clearTimeout(expiryTimer);
     signal.removeEventListener('abort',abort);
     if(aborting)await aborting.catch(()=>{});
     await session?.waitForIdle();

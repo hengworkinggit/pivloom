@@ -110,3 +110,51 @@ export function piCompactionSettings(contextWindow: number) {
     keepRecentTokens: Math.min(20_000, quarter),
   };
 }
+
+/**
+ * Hard wall-clock ceiling for the verification phase of one increment, which is
+ * the product's ten-minute acceptance floor. This is a total ceiling, not an
+ * inactivity lease: a check that keeps producing real progress still stops. It is
+ * enforced per layer: `runReviewer` enforces the model-judged share on a monotonic
+ * clock today, and the replay layer enforces its own share when it lands.
+ *
+ * The phase is split between the deterministic, model-free replay layer and the
+ * model-judged layer, so the two shares below always sum to this ceiling by
+ * construction, and a test pins that arithmetic.
+ */
+export const VERIFICATION_WALL_CLOCK_LIMIT_MS = 600_000;
+
+/**
+ * Share of the verification ceiling reserved for the deterministic replay layer,
+ * which drives the browser from compiled plan steps without a model. Its measured
+ * target is one to two minutes, so two minutes are reserved here. The model-judged
+ * layer receives only the remainder, which keeps the sum inside the product
+ * ceiling even when the replay layer runs to the end of its own reserve.
+ */
+export const REPLAY_WALL_CLOCK_BUDGET_MS = 120_000;
+
+/**
+ * Share of the verification ceiling owned by the model-judged layer (today the
+ * only production path, `runReviewer`): the total ceiling minus the replay
+ * reserve, eight minutes. `runReviewer` starts its monotonic clock when it begins,
+ * so its own elapsed time is bounded by exactly this value, and the two shares
+ * add back to `VERIFICATION_WALL_CLOCK_LIMIT_MS` by construction.
+ */
+export const REVIEW_WALL_CLOCK_BUDGET_MS = VERIFICATION_WALL_CLOCK_LIMIT_MS - REPLAY_WALL_CLOCK_BUDGET_MS;
+
+/**
+ * Fast-fail reserve inside `REVIEW_WALL_CLOCK_BUDGET_MS`: once less than this
+ * remains, the Reviewer admits no further browser evidence and answers evidence
+ * tool calls with an instruction to submit what it already has.
+ *
+ * It is derived from the measured Reviewer pace. The file header records an
+ * attempt that made about twenty model turns in a little over 720 s, so one turn
+ * averages roughly 36 s. One honest evidence cycle for a behaviour is three turns
+ * — act, screenshot, record — so about 108 s, and the forced submission still
+ * needs its own submit turn plus the browser log read inside it. Two minutes
+ * covers both; any collection started with less than that cannot finish inside
+ * the ceiling. A stop is always a failure: if the forced submission never
+ * produces an acceptable report the check ends as REVIEW_TIMEOUT or
+ * AGENT_OUTPUT_INVALID, never as a pass.
+ */
+export const REVIEW_SUBMISSION_RESERVE_MS = 120_000;
