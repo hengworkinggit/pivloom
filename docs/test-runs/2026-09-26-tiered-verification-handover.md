@@ -256,3 +256,22 @@ ORDER BY created_at;
 **保留该库**（已迁移完成，供下次直接使用；名字带 `pivloom_e2e_test_`，正是测试框架要求的形状）。
 
 **结论不变：这 9 个门禁契约测试仍未运行。** 下一步应在一个干净的会话里，直接在测试进程内打印 `process.env.MIGRATION_DATABASE_URL` 与 `current_database()` 做对照——这是我没有上下文再做的一步。
+
+### 9.3 根因已找到（第三次尝试）：新建库没有 Supabase 的基础 schema
+
+按 §9.2 写下的下一步做诊断，**根因确定**：
+
+1. 在测试进程内打印 URL 与 `current_database()` → **都正确**（`pivloom_e2e_test_review`），所以 `:72` 的库名检查其实是**通过**的；
+2. 真正的错误来自下一行：`error: relation "nano.environment_identity" does not exist`；
+3. 而测试库里**只有 2 张 nano 表** → 迁移确实开始了、但在很早的位置失败；
+4. 手工执行 `migrations/001_identity_projects.sql` 得到真实报错：
+
+```
+ERROR:  schema "auth" does not exist
+```
+
+**结论**：`CREATE DATABASE` **不会**带来 Supabase 的按库基础 schema（`auth`、`storage` 等）——它们是 **per-database** 安装的，不是集群级。而 `manage.ts` 的通用错误文案（"维护操作失败；未输出连接或凭据详情"）把这条关键信息**藏掉了**，导致我前两次把原因误判为"环境变量优先级／瞬态失败"。
+
+**所以这条缺口需要项目自己的隔离库准备流程**（由 Supabase 工具创建库并装好基础 schema），**不是临时命令能补的**。已把那个只迁了一半的库 `DROP` 掉，不在环境里留垃圾。
+
+**顺带得到一条可复用的教训**：`manage.ts` 在迁移失败时**不打印底层错误**，这让"库没装基础 schema"这类问题看起来像随机失败。**建议它至少把底层 `error.message` 打出来**（与我在 P1 里为"失败原因结构化"做的同一类改进）——这是本次三次尝试都被耽误的直接原因。
