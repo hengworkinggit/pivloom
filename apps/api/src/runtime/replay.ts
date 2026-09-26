@@ -107,13 +107,16 @@ export interface ReplayBrowser {
 const REF = /^e[0-9]{1,6}$/;
 /** Same bound as the reviewer's observation record: one step must not persist an
  * unbounded accessibility snapshot into the check's evidence. */
-const OBSERVATION_TEXT_LIMIT = 12_000;
+const OBSERVATION_TEXT_LIMIT = 32_000;
 const TRUNCATION_SUFFIX = '…[truncated]';
 
-function truncate(text: string): { text: string; truncated: boolean } {
+function truncate(text: string): { text: string; truncated: boolean; textLength: number } {
+  // The length travels with the value: knowing only that an observation was cut says nothing about
+  // whether the window is slightly too small or the page is pathological, and those need opposite
+  // fixes. A recorded run could say no more than "the observation was incomplete".
   return text.length <= OBSERVATION_TEXT_LIMIT
-    ? { text, truncated: false }
-    : { text: `${text.slice(0, OBSERVATION_TEXT_LIMIT)}${TRUNCATION_SUFFIX}`, truncated: true };
+    ? { text, truncated: false, textLength: text.length }
+    : { text: `${text.slice(0, OBSERVATION_TEXT_LIMIT)}${TRUNCATION_SUFFIX}`, truncated: true, textLength: text.length };
 }
 
 /**
@@ -223,6 +226,9 @@ export async function runReplayProgram(input: ReplayRunInput): Promise<ReplayPro
       return latest;
     };
     let observation: BrowserObservation;
+    // Carried as a local rather than on the record: the observation record must stay exactly the
+    // reviewer's evidence shape, and a test pins that. This is only for the message below.
+    let observedTextLength = 0;
     if (step.type === 'open') observation = await browser.open(step.path ?? '/');
     else if (step.type === 'reload') {
       // A reload is bound to the page the check is actually on: reconstructing it
@@ -238,7 +244,7 @@ export async function runReplayProgram(input: ReplayRunInput): Promise<ReplayPro
       observation = await browser.act({ type: 'press', key: step.key as never, observationId: freshest().id });
     else {
       const before = freshest();
-      if (before.truncated) throw new RuntimeError('STALE_BROWSER_REF', '页面观察不完整，请重新观察后继续未完成步骤');
+      if (before.truncated) throw new RuntimeError('STALE_BROWSER_REF', `页面观察不完整（原文 ${observedTextLength || '未知'} 字符，窗口 ${OBSERVATION_TEXT_LIMIT}），请重新观察后继续未完成步骤`);
       const ref = resolveControl(before.refs, step, index);
       observation = step.type === 'click' ? await browser.act({ type: 'click', ref, observationId: before.id })
         : step.type === 'fill' ? await browser.act({ type: 'fill', ref, observationId: before.id, text: step.text ?? '' })
@@ -250,6 +256,7 @@ export async function runReplayProgram(input: ReplayRunInput): Promise<ReplayPro
     const record: ReplayObservation = { id: randomUUID(), behaviorId: program.behaviorId, action, observationId: observation.id,
       url: observation.url, tree: tree.text, text: text.text,
       truncated: observation.truncated || tree.truncated || text.truncated, ...(actionKey ? { key: actionKey } : {}) };
+    observedTextLength = text.textLength;
     observations.push(record);
     stepResults.push({ index, type: step.type, observationId: observation.id, evidenceId: record.id,
       url: observation.url, text: record.text });
