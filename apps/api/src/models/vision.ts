@@ -38,6 +38,15 @@ const REQUIRED_CORRECT_SAMPLES = 2;
  */
 const PROBE_BUDGET_MS = 40_000;
 
+/**
+ * Enough room for the answer even when the provider reasons first. The probe previously allowed 128
+ * tokens, which is ample for "A=RED;B=BLUE" and far too little if the model spends its budget thinking:
+ * the answer then arrives empty or truncated and a model that can see perfectly well is recorded as
+ * unable to. DeepSeek's own API exposes a thinking switch and this project does not send one, so the
+ * provider's default applies and the budget has to accommodate it.
+ */
+const PROBE_MAX_TOKENS = 1024;
+
 function crc32(bytes: Buffer) {
   let crc = 0xffffffff;
   for (const byte of bytes) {
@@ -114,7 +123,7 @@ export async function probeModelVision(input: Connection, fetch: typeof globalTh
   const common = {
     id: input.modelId, name: input.modelId, provider: "pivloom-byok", baseUrl: input.baseUrl,
     reasoning: false, input: ["text", "image"] as ("text" | "image")[],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32_000, maxTokens: 128,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32_000, maxTokens: PROBE_MAX_TOKENS,
   };
   interface Sample { expected: string; observed: string | null; outboundImages: number }
   let attempts = 0;
