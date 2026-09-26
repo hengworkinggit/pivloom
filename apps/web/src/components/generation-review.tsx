@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { Camera, CheckCircle2, CircleDashed, LoaderCircle, TriangleAlert } from "lucide-react";
 import type { Check, ReviewArtifact, Revision } from "@pivloom/contracts";
 import type { GenerationApi } from "@/lib/generation-api";
@@ -42,6 +42,31 @@ function ReviewScreenshot({ checkId, artifact, label, generation }: {
 const verdictLabels = { passed: "通过", failed: "未通过", blocked: "受阻" } as const;
 const checkLabels = { passed: "关键流程检查通过", failed: "关键流程检查未通过", blocked: "关键流程检查受阻" } as const;
 
+function VerificationMetrics({ check }: { check: Check }) {
+  const ui = useUiPreferences();
+  const verification = check.verification;
+  const passed = check.items.filter((item) => item.verdict === "passed").length;
+  const failed = check.items.filter((item) => item.verdict === "failed").length;
+  const blocked = check.items.filter((item) => item.verdict === "blocked").length;
+  const duration = (ms: number | undefined) => ms === undefined ? ui.text("未记录", "Not recorded")
+    : `${new Intl.NumberFormat(ui.locale === "en" ? "en-US" : "zh-CN", { maximumFractionDigits: 3 }).format(ms / 1000)} ${ui.text("秒", "s")}`;
+  const phases = [["preparation", "准备", "Preparation"], ["execution", "执行", "Execution"],
+    ["finalization", "收尾", "Finalization"], ["persistence", "保存", "Persistence"]] as const;
+  return <div className="generation-review-item" data-testid="verification-metrics">
+    <p>{ui.text(`通过 ${passed} · 未通过 ${failed} · 受阻 ${blocked}`, `Passed ${passed} · Failed ${failed} · Blocked ${blocked}`)}</p>
+    {verification ? <>
+      <p role="status">{verification.timedOut ? ui.text("验收超时，未完整完成", "Verification timed out and is incomplete")
+        : verification.incompleteReason || blocked || check.verdict === "blocked" ? ui.text("验收未完整完成", "Verification is incomplete")
+          : ui.text("本次检查已完成", "Verification finished")}</p>
+      {verification.incompleteReason && <p>{ui.text("未完成原因", "Incomplete reason")}: {verification.incompleteReason}</p>}
+      <dl><dt>{ui.text("总耗时", "Total elapsed")}</dt><dd>{duration(verification.elapsedMs)}</dd>
+        {phases.map(([key, zh, en]) => <Fragment key={key}><dt>{ui.text(zh, en)}</dt><dd>{duration(verification.phasesMs?.[key])}</dd></Fragment>)}
+      </dl>
+      <p>{ui.text("来自服务端保存的检查记录，不是页面计时。", "From the saved server check, not a page timer.")}</p>
+    </> : <p>{ui.text("此历史检查未记录验收耗时。", "Verification timing was not recorded for this historical check.")}</p>}
+  </div>;
+}
+
 export function GenerationReview({ revision, latestCheck, generation, checking }: {
   revision: Revision; latestCheck?: Check | null; generation: GenerationApi; checking: boolean;
 }) {
@@ -75,6 +100,7 @@ export function GenerationReview({ revision, latestCheck, generation, checking }
     <div className="generation-review-heading"><Icon size={16} aria-hidden="true" /><strong role="status">{title}</strong><span>v{revision.revisionNo}</span></div>
     {query.error && !check ? <p className="generation-review-error" role="alert">{query.error}<button onClick={query.refresh}>{ui.text("重新读取检查", "Reload check")}</button></p>
       : check ? <><p className="generation-review-summary">{check.summary}</p>
+        <VerificationMetrics check={check} />
         <details className="generation-review-details"><summary>{groups ? ui.text(`查看 5 组 / ${check.items.length} 项完整子检查与截图`, `View 5 groups / ${check.items.length} complete checks and screenshots`)
           : ui.text(`查看 ${check.items.length} 项历史平铺检查与截图`, `View ${check.items.length} historical flat checks and screenshots`)}</summary>
           {groups ? groups.map((group) => <section className={`generation-review-group group-${group.verdict}`} key={group.id} aria-label={`${group.id} ${group.title}`}>

@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 20
     env:
       NEXT_TELEMETRY_DISABLED: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
       NEXT_PUBLIC_APP_MODE: api
       NEXT_PUBLIC_SUPABASE_URL: https://ci.invalid
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-build-placeholder-not-a-deployment-key
@@ -38,7 +39,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
-      - run: python3 infra/release/test_package.py
+      - run: python3 -m unittest infra/release/test_deploy.py infra/release/test_package.py
       - run: python3 infra/release/build.py
       - run: python3 infra/release/package.py api ci-api
       - run: python3 infra/release/package.py web ci-web
@@ -72,7 +73,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:contracts
-      - name: Prepare five empty databases with the actual migrations
+      - name: Prepare six empty databases with the actual migrations
         run: node apps/api/scripts/testing/prepare-ci-database.mjs
         env:
           PIVLOOM_CI_POSTGRES_URL: postgres://postgres:pivloom-ci-only@127.0.0.1:5432/postgres
@@ -90,23 +91,27 @@ jobs:
           npm test --workspace @pivloom/api -- tests/generation/rollback.integration.test.ts
         env:
           PIVLOOM_ROLLBACK_INTEGRATION: '1'
-      - name: Run saved-candidate and same-candidate retry E2E on runner-local PostgreSQL
+      - name: Run the complete executor lifecycle suite on runner-local PostgreSQL
         run: |
           export DATABASE_URL="$PIVLOOM_EXECUTOR_DATABASE_URL"
           export MIGRATION_DATABASE_URL="$PIVLOOM_EXECUTOR_DATABASE_URL"
           export PIVLOOM_ENVIRONMENT_ID="$PIVLOOM_EXECUTOR_ENVIRONMENT_ID"
-          npm test --workspace @pivloom/api -- tests/generation/executor.integration.test.ts -t 'linked retry rebuilds a blocked candidate|browser infrastructure failure|capacity claims two projects at the ceiling'
+          npm test --workspace @pivloom/api -- tests/generation/executor.integration.test.ts
         env:
           PIVLOOM_EXECUTOR_INTEGRATION: '1'
-      - name: Reuse a timed-out Reviewer candidate on its own PostgreSQL database
+      - name: Continue an explicit candidate through real HTTP and PostgreSQL
+        run: npm test --workspace @pivloom/api -- tests/generation/candidate-http.integration.test.ts
+        env:
+          PIVLOOM_CANDIDATE_INTEGRATION: '1'
+      - name: Preserve review evidence and enforce the deadline through PostgreSQL commit
         run: |
           export DATABASE_URL="$PIVLOOM_REVIEW_DATABASE_URL"
           export MIGRATION_DATABASE_URL="$PIVLOOM_REVIEW_DATABASE_URL"
           export PIVLOOM_ENVIRONMENT_ID="$PIVLOOM_REVIEW_ENVIRONMENT_ID"
-          npm test --workspace @pivloom/api -- tests/generation/review.integration.test.ts -t 'a timed-out Reviewer can recheck'
+          npm test --workspace @pivloom/api -- tests/generation/review.integration.test.ts -t 'a timed-out Reviewer can recheck|one infrastructure failure rebinds|linked retry may reuse|a late visual transport failure|a completed receipt arriving past|a database delay after'
         env:
           PIVLOOM_REVIEW_INTEGRATION: '1'
-          # This selected case uses in-memory object storage, never a live Supabase service.
+          # These selected cases use in-memory object storage, never a live Supabase service.
           SUPABASE_URL: https://fixture.invalid
           SUPABASE_SECRET_KEY: fixture-ci-only
       - name: Run the durable queue against its own PostgreSQL database
@@ -121,7 +126,7 @@ jobs:
         if: always()
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
-          This job uses real PostgreSQL 17.6, all repository migrations, and five separate CI databases.
+          This job uses real PostgreSQL 17.6, all repository migrations, and six separate CI databases.
           The minimal `auth.users` table is an FK fixture, not a running Supabase Auth service.
           The repair and rollback suites supply persistence fixtures; recovery uses an external sandbox HTTP fixture.
           Test encryption keys are generated randomly inside each suite. No user, provider or SSH secrets are used.

@@ -76,6 +76,13 @@ const plan: GroupedPlan = {
     { id: "G5", title: "视觉布局", behaviorIds: ["B05"] },
   ], replacements: [],
 };
+// Provider fixtures carry complete programs; each test still controls the plan mutation under review.
+for (const behavior of plan.behaviors) {
+  behavior.initialState = 'fresh';
+  behavior.steps = [{ type: 'open', path: '/' }, { type: 'press', key: 'Enter' }];
+  behavior.assertions = [{ kind: 'target-text', target: { role: 'status', name: behavior.title },
+    text: behavior.expected, match: 'exact', negated: false }];
+}
 const context = () => ({
   schemaVersion: 1 as const, project: { id: randomUUID(), title: "读书清单" },
   requestText: "做一个读书清单", originalRequest: "做一个读书清单",
@@ -504,4 +511,71 @@ test("failed tool-event persistence blocks the handoff transaction", async () =>
     onEvent: (event) => { if (event.type === "tool.end") throw new Error("Fixture event store unavailable"); },
   })).rejects.toMatchObject({ code: "EVENT_APPEND_FAILED" });
   expect(commits).toBe(0);
+});
+
+test("Coordinator rejects an incomplete scenario before handing work to Builder", async () => {
+  const executable = { ...plan, behaviors: plan.behaviors.map(behavior => ({ ...behavior, initialState: 'fresh' as const,
+    steps: [{ type: 'open' as const, path: '/' }, { type: 'press' as const, key: 'Enter' as const }],
+    assertions: [{ kind: 'target-count' as const, target: { role: 'listitem', within: { role: 'list', name: 'Books' } }, count: 1, negated: false }],
+  })) };
+  const incomplete = structuredClone(executable);
+  Reflect.deleteProperty(incomplete.behaviors[0], 'initialState');
+  const model = provider([[{ name: 'submit_plan', args: { plan: incomplete } }], [{ name: 'submit_plan', args: { plan: executable } }]]);
+  const result = await runCoordinator({ runId: randomUUID(), roleRunId: randomUUID(), sessionId: randomUUID(), attempt: 0,
+    baseRevisionId: null, modelConfig: model.modelConfig, signal: new AbortController().signal, context: context(),
+    assertActive: async () => {}, onDecision: async () => {},
+  });
+  expect(result.toolCalls.map(call => call.success)).toEqual([false, true]);
+  expect(result.decision).toEqual({ kind: 'plan', plan: executable });
+});
+
+test('Coordinator reuses omitted inherited programs and identifies an attempted assertion change', async () => {
+  const baseRevisionId = randomUUID();
+  const changed = structuredClone(plan);
+  changed.behaviors[0].assertions![0].negated = true;
+  const omitted = structuredClone(plan);
+  for (const behavior of omitted.behaviors)
+    for (const field of ['steps', 'assertions', 'initialState', 'evidence']) Reflect.deleteProperty(behavior, field);
+  const model = provider([[{ name: 'submit_plan', args: { plan: changed } }], [{ name: 'submit_plan', args: { plan: omitted } }]]);
+  const events: ProbeEvent[] = [];
+  const result = await runCoordinator({ runId: randomUUID(), roleRunId: randomUUID(), sessionId: randomUUID(), attempt: 0,
+    baseRevisionId, modelConfig: model.modelConfig, signal: new AbortController().signal,
+    context: { ...context(), baseRevisionId, previousPlan: plan }, onEvent: event => { events.push(event); },
+    assertActive: async () => {}, onDecision: async () => {},
+  });
+  expect(result.toolCalls.map(call => call.success)).toEqual([false, true]);
+  expect(result.decision).toEqual({ kind: 'plan', plan });
+  expect(events.some(event => event.message.includes('B01.assertions'))).toBe(true);
+});
+
+test('new prose needs explicit interactive verification while an omitted mode remains strict programs', async () => {
+  const prose = structuredClone(plan);
+  for (const behavior of prose.behaviors)
+    for (const field of ['steps', 'assertions', 'initialState']) Reflect.deleteProperty(behavior, field);
+  const interactive = { ...prose, verificationMode: 'interactive' as const };
+  const model = provider([[{ name: 'submit_plan', args: { plan: prose } }], [{ name: 'submit_plan', args: { plan: interactive } }]]);
+  const result = await runCoordinator({ runId: randomUUID(), roleRunId: randomUUID(), sessionId: randomUUID(), attempt: 0,
+    baseRevisionId: null, modelConfig: model.modelConfig, signal: new AbortController().signal, context: context(),
+    assertActive: async () => {}, onDecision: async () => {},
+  });
+  expect(result.toolCalls.map(call => call.success)).toEqual([false, true]);
+  expect(result.decision).toEqual({ kind: 'plan', plan: interactive });
+  expect(JSON.stringify(model.requests[0].tools)).toContain('verificationMode');
+  expect(JSON.stringify(model.requests[0].tools)).toContain('interactive');
+});
+
+test('Coordinator cannot switch to interactive to erase inherited executable criteria', async () => {
+  const baseRevisionId = randomUUID();
+  const prose = structuredClone(plan);
+  for (const behavior of prose.behaviors)
+    for (const field of ['steps', 'assertions', 'initialState']) Reflect.deleteProperty(behavior, field);
+  const model = provider([[{ name: 'submit_plan', args: { plan: { ...prose, verificationMode: 'interactive' } } }],
+    [{ name: 'submit_plan', args: { plan } }]]);
+  const result = await runCoordinator({ runId: randomUUID(), roleRunId: randomUUID(), sessionId: randomUUID(), attempt: 0,
+    baseRevisionId, modelConfig: model.modelConfig, signal: new AbortController().signal,
+    context: { ...context(), baseRevisionId, previousPlan: plan },
+    assertActive: async () => {}, onDecision: async () => {},
+  });
+  expect(result.toolCalls.map(call => call.success)).toEqual([false, true]);
+  expect(result.decision).toEqual({ kind: 'plan', plan });
 });

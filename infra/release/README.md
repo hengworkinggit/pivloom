@@ -52,15 +52,25 @@ export PIVLOOM_EXISTING_SITE=https://beats-steps-69-5-7-187.sslip.io
 export PIVLOOM_REMOTE_NODE=/usr/local/bin/node
 export PIVLOOM_REMOTE_NPM_CLI=/opt/pivloom/tooling/npm/bin/npm-cli.js
 export PIVLOOM_REMOTE_MAINTENANCE_ENV=/etc/pivloom/maintenance.env
+# 保留数包含当前和切换前一版，范围 2–20；默认 4。
+export PIVLOOM_RELEASE_KEEP=4
+# 达到此已用百分比即拒绝新安装，范围 1–99；默认 85。
+export PIVLOOM_DISK_MAX_PERCENT=85
 # 可选：export PIVLOOM_SSH_CONTROL_PATH=/path/to/existing-ssh-control-socket
 
 bash infra/release/deploy.sh api "$release" ".cache/releases/api-$release.tar.gz"
 bash infra/release/deploy.sh web "$release" ".cache/releases/web-$release.tar.gz"
 ```
 
-在维护窗口执行，不同时接受新生成任务。脚本上传并核验压缩包摘要；API 在 Linux 上安装生产依赖，或在所有 workspace manifests 与 lockfile 完全相同时复制前一版依赖，不复用 macOS 的 `node_modules`。切换前检查活动 Run、待确认清理和保留沙箱；任一不为零即退出，等待正常结束或预览过期后再发布，不自动终止用户任务。
+在维护窗口执行，不同时接受新生成任务。脚本先在本地验证保留数和磁盘阈值，再以 SSH 参数显式传到远端，不依赖 SSH 转发环境变量。上传前先检查远端磁盘水位；达到阈值或无法读取水位时，不创建 incoming、不上传压缩包、不切换服务。上传后在解包、API 依赖安装/复制前再次检查水位。
 
-确认空闲后只切换该组件的 `*-current` 链接并重启相应服务，核验本地 readiness、公网登录页、同源 API 和原站点。任何切换后的失败会尝试恢复前一版并重新检查；没有前一版则停止失败服务。旧目录保留供回滚，磁盘清理应明确保留当前和前一发布，不在脚本里自动删除。
+脚本上传并核验压缩包摘要；API 在 Linux 上安装生产依赖，或在所有 workspace manifests 与 lockfile 完全相同时复制前一版依赖，不复用 macOS 的 `node_modules`。切换前检查活动 Run、待确认清理和保留沙箱；任一不为零即退出，等待正常结束或预览过期后再发布，不自动终止用户任务。
+
+确认空闲后只切换该组件的 `*-current` 链接并重启相应服务，核验本地 readiness、公网登录页、同源 API 和原站点。任何切换后的失败会尝试恢复前一版并重新检查；没有前一版则停止失败服务。
+
+验证成功后自动限制该组件的已识别 release 目录总数：始终保留当前目标和切换前一版，其余名额按目录时间从新到旧补齐。回滚到很老的目录时，回滚目标和回滚前版本仍受保护，二者都计入保留数。仅含匹配组件和完整提交 SHA 的版本 manifest 的直属目录参与清理；符号链接、文件和没有合法 manifest 的人工目录不删除，日志报告跳过数。失败部署不执行这次保留清理。回滚不上传、解包或安装依赖，因此不会因水位阈值而被禁止，但仍执行原有空闲和可用性检查。
+
+日志逐阶段记录已用百分比、阈值与可用 KiB，并输出 `releaseRetention` JSON（保留数量、保护目录、删除目录、跳过数）。远端需要 Python 3 执行目录识别和清理；本地 `deploy.sh` 与同目录 `release-maintenance.sh` 一起使用，后者通过 SSH 标准输入传输，无须预装远端副本。
 
 默认发布根目录是 `/opt/pivloom`，可通过 `PIVLOOM_REMOTE_ROOT` 覆盖，但 systemd 的 WorkingDirectory 也需同步。Node 默认是 `/usr/local/bin/node`；未指定 `PIVLOOM_REMOTE_NPM_CLI` 时调用主机 PATH 中的 npm。
 
@@ -81,6 +91,14 @@ bash infra/release/verify-public.sh \
 
 ## CI 与人工发布门槛
 
-[GitHub Actions CI](../../.github/workflows/ci.yml) 在 main push、PR 和手动触发时运行两个 job：Node.js 24 下的 `npm ci`、契约构建/typecheck、lint、单元测试及完整构建；以及 PostgreSQL 17.6 service 上的构建修复与重启恢复集成测试。后者创建两个独立的 `pivloom_*_test_ci` 数据库，执行全部实际迁移，测试自身生成随机加密 key；只提供最小 `auth.users` 外键 fixture，不冒充 Supabase Auth 联调。
+本机可先运行无生产副作用的脚本回归：
+
+```bash
+python3 -m unittest infra/release/test_deploy.py infra/release/test_package.py
+```
+
+部署测试实际执行 `deploy.sh`，使用临时目录、隔离 SSH/df/systemctl/curl 等命令，验证高水位在写入前拒绝、远端配置传递、当前/前一版保护、回滚和健康检查失败。它不连接远端主机，也不表示生产部署已经通过。
+
+[GitHub Actions CI](../../.github/workflows/ci.yml) 在 main push、PR 和手动触发时运行两个 job：Node.js 24 下的 `npm ci`、契约构建/typecheck、lint、单元测试及完整构建；以及 PostgreSQL 17.6 service 上的构建修复、重启恢复、回滚、执行器生命周期、候选继续开发、验收持久化与队列集成测试。后者创建六个独立测试数据库，执行全部实际迁移，测试自身生成随机加密 key；只提供最小 `auth.users` 外键 fixture，不冒充 Supabase Auth 联调。执行器跑完整套件，需独占数据库进程的两项故障用例仍需显式 opt-in，跳过不会计为通过。
 
 CI 不使用用户/provider/SSH 密钥，不连接线上数据库，不自动部署。恢复套件的外部沙箱 HTTP 响应及修复套件的持久化输入明确使用 fixture；绿色 CI 不替代真实模型、真实沙箱及 Codex 内置浏览器验收。最终发布需同时具备该提交的 CI 成功记录和对应真实 E2E 记录。

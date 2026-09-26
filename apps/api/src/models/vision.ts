@@ -157,7 +157,7 @@ export async function probeModelVision(input: Connection, fetch: typeof globalTh
       if (outboundImages !== 2) throw new Error("IMAGE_PAYLOAD_MISSING");
       return fetch(url, init);
     };
-    const options = { apiKey: input.apiKey, fetch: checkedFetch, signal, maxTokens: 128, timeoutMs: remaining, maxRetries: 0 };
+    const options = { apiKey: input.apiKey, fetch: checkedFetch, signal, maxTokens: PROBE_MAX_TOKENS, timeoutMs: remaining, maxRetries: 0 };
     attempts++;
     try {
       const stream = input.provider === "openai-completions"

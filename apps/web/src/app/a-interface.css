@@ -136,6 +136,11 @@
 .a-toolbar-publish:hover{background:#514bce}
 .a-toolbar-notice{order:8;color:#697b9f;font-size:10px}
 .a-workbench-page .previous-version-note{display:none}
+/* Selection is an actionable state, not the hidden legacy version annotation.
+   Keep it a bounded flex sibling; the existing result-panel retains the remaining height. */
+.a-workbench-page .candidate-base-selection{display:flex;flex:0 0 auto;flex-wrap:wrap;align-items:center;gap:6px 10px;min-width:0;padding:8px 12px;border-bottom:1px solid var(--line,#e9eaf0);background:var(--surface,#fff);color:var(--foreground,#454b5c);font-size:11px;line-height:1.5}
+.a-workbench-page .candidate-base-selection>span{flex:1 1 210px;min-width:0;overflow-wrap:anywhere}
+.a-workbench-page .candidate-base-selection>button{flex:0 0 auto;max-width:100%;white-space:normal}
 .a-workbench-page .preview-canvas{padding:24px;background-color:#f9fafd;background-image:radial-gradient(#dfe2eb .65px,transparent .65px);background-size:14px 14px}
 .a-workbench-page .preview-frame{border-color:#e3e5ee;border-radius:12px;box-shadow:0 4px 18px #24275008}
 .a-workbench-page .phone-frame{border:5px solid #e5e6ef;border-radius:18px;outline:1px solid #d9dce9}

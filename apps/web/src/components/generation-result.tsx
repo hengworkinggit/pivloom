@@ -147,7 +147,7 @@ export function GenerationResult({ projectId, revision, preview, generation, act
     && authorization.revisionId === revisionId && authorization.generation === generation
     && authorization.retry === accessRetry ? url : null;
   const frameKey = `${frameUrl ?? "empty"}:${reloadKey}`;
-  const candidate = revision?.status === "candidate";
+  const candidate = !!revision && revision.status !== "accepted";
   return <section className="result-panel" aria-label={ui.text("应用结果", "App result")}>
     <div className="result-toolbar"><div className="result-toolbar-left"><div className="view-tabs" role="tablist" aria-label={ui.text("结果视图", "Result views")}>
       {(["preview", "code"] as const).map((value) => <button key={value} role="tab" id={`${value}-tab`} aria-selected={tab === value} aria-controls={`${value}-panel`} tabIndex={tab === value ? 0 : -1} onClick={() => setTab(value)} onKeyDown={(event) => {
@@ -186,7 +186,7 @@ export function GenerationResult({ projectId, revision, preview, generation, act
         : <div className="preview-empty"><div className="empty-preview-icon"><Monitor size={27} /></div>
         <h2>{preview?.state === "queued" ? ui.text("已排队等待沙箱容量", "Queued for sandbox capacity") : expired ? ui.text("预览已到期", "Preview expired") : revision ? ui.text("预览暂不可用", "Preview unavailable") : active ? ui.text("正在构建你的应用", "Building your app") : ui.text("你的应用，将从这里开始", "Your app starts here")}</h2>
         <p>{preview?.state === "queued" ? preview.error ?? ui.text("资源可用后会自动开始重建预览，不会调用模型。", "It starts by itself once capacity is free, without calling a model.") : expired ? ui.text("源码快照已保存，可以在代码页查看；重新启动预览不会调用模型。", "Source is saved in Code. Restarting the preview will not call a model.") : revision ? preview?.error ?? ui.text("候选源码已保存，尚未获得可访问的预览。", "Candidate source is saved; the preview is not available yet.") : active ? ui.text("实际构建与快照保存完成后，候选预览会出现在这里。", "The preview appears here after build and snapshot complete.") : ui.text("在左侧描述需求，开始第一次真实构建。", "Describe your request on the left to start building.")}</p>
-        {expired && revision && revision.buildStatus === "passed" && onRestore &&
+        {(expired || preview?.state === "unavailable" || !preview) && revision && revision.buildStatus === "passed" && onRestore &&
           <Button onClick={onRestore} disabled={restoring}>{restoring ? <><LoaderCircle className="spin" size={14} />{ui.text("正在重建…", "Restoring…")}</> : ui.text("重新启动预览", "Restart preview")}</Button>}
       </div>}
     </div>

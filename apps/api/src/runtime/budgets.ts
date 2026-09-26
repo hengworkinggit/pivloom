@@ -50,6 +50,18 @@ export const REVIEW_TOOL_LIMIT = 280;
  */
 export const REVIEW_TOOL_CALLS_PER_BEHAVIOR = 8;
 export const REVIEW_TOOL_LIMIT_CEILING = 600;
+/** One implementation and the two repairs finishReview permits; Builder itself caps each pass at 80. */
+export const GENERATION_ATTEMPT_LIMIT = 3;
+export const BUILDER_TOOL_LIMIT = 80;
+export const COORDINATOR_TOOL_LIMIT = 12;
+export const RUN_TOOL_LIMIT_CEILING = COORDINATOR_TOOL_LIMIT + GENERATION_ATTEMPT_LIMIT * (BUILDER_TOOL_LIMIT + REVIEW_TOOL_LIMIT_CEILING);
+export function reviewToolLimitForPlan(behaviors: number): number {
+  return Math.max(REVIEW_TOOL_LIMIT, Math.min(behaviors * REVIEW_TOOL_CALLS_PER_BEHAVIOR, REVIEW_TOOL_LIMIT_CEILING));
+}
+export function generationToolLimitForPlan(behaviors: number): number {
+  return Math.min(RUN_TOOL_LIMIT_CEILING, Math.max(RUN_TOOL_LIMIT,
+    COORDINATOR_TOOL_LIMIT + GENERATION_ATTEMPT_LIMIT * (BUILDER_TOOL_LIMIT + reviewToolLimitForPlan(behaviors))));
+}
 /**
  * Serialized ceiling for one check's observation record. Each observation keeps up
  * to 12000 characters of accessibility tree and 12000 of page text, both of which
@@ -123,6 +135,8 @@ export function piCompactionSettings(contextWindow: number) {
  * construction, and a test pins that arithmetic.
  */
 export const VERIFICATION_WALL_CLOCK_LIMIT_MS = 600_000;
+/** Inside the same deadline: leave time to bind evidence, close Chrome and persist the Check. */
+export const REVIEW_FINALIZATION_RESERVE_MS = 30_000;
 
 /**
  * Share of the verification ceiling reserved for the deterministic replay layer,

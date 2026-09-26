@@ -3,7 +3,7 @@ import type { PoolClient, QueryResultRow } from "pg";
 import {
   CreateRunRequestSchema, ProjectMessageSchema, ProjectSummarySchema, RevisionSchema, RunEventSchema, RunSchema,
   HandoffSchema, PlanSchema, GroupedPlanSchema, PlanningContextSchema, RoleRunSchema, RoleUsageSchema, ClarificationRequestSchema, preservesPreviousBehavior,
-  ReviewBindingSchema, CheckSchema, ReviewArtifactSchema, ReviewResultSchema, MAX_CHECK_ARTIFACTS, aggregateCheckGroups, allowsRenderOnlyEvidence, type ReviewBinding, type Check,
+  ReviewBindingSchema, CheckSchema, CheckVerificationSchema, ReviewArtifactSchema, ReviewResultSchema, MAX_CHECK_ARTIFACTS, aggregateCheckGroups, allowsRenderOnlyEvidence, type ReviewBinding, type Check,
   TerminalRunStates, type CreateRunRequest, type ProjectMessage, type ProjectSummary, type Revision,
   type Run, type RunEvent, type RunEventType, type RunPhase, type RunState, type RoleRun, type RoleUsage, type Role, type Plan, type PlanningContext, type Handoff,
   TaskListItemSchema, type TaskListItem,
@@ -207,6 +207,7 @@ function storedRun(row: Row): StoredRun {
     requestText: row.request_text, modelProfileId: row.model_profile_id, modelConfigVersion: row.model_config_version,
     modelId: row.model_id ?? null,
     baseRevisionId: row.base_revision_id, resultRevisionId: row.result_revision_id,
+    selectedBaseRevisionId: row.selected_base_revision_id ?? null,
     createdAt: date(row.created_at).toISOString(), deadlineAt: date(row.deadline_at).toISOString(), finishedAt: row.finished_at ? date(row.finished_at).toISOString() : null,
     cleanupState: row.cleanup_state, summary: row.summary,
     plan: row.plan_json ?? null, clarification: row.clarification_json ?? null, parentRunId: row.parent_run_id ?? null,
@@ -287,9 +288,11 @@ const reviewEvidenceSchema = z.array(z.strictObject({
   action: z.enum(["click", "fill", "select", "press", "scroll", "reload", "key_batch", "wait"]).nullable(), observationId: z.uuid(),
   key: BrowserPressKeySchema.optional(),
   batch: z.strictObject({ startedAt: z.iso.datetime(), finishedAt: z.iso.datetime(),
-    steps: z.array(z.strictObject({ index: z.number().int().min(0).max(7),
+    // Trusted native replay records the whole bounded sequence; the model tool
+    // retains its separate eight-key interaction limit.
+    steps: z.array(z.strictObject({ index: z.number().int().min(0).max(511),
       key: BrowserPressKeySchema,
-      waitMs: z.number().int().min(0).max(1000), success: z.boolean() })).min(1).max(8) }).optional(),
+      waitMs: z.number().int().min(0).max(1000), success: z.boolean() })).min(1).max(512) }).optional(),
   url: z.url().max(4000), tree: z.string().max(12000), text: z.string().max(12000), truncated: z.boolean(),
 // The cap has to hold every observation a whole plan produces, not one behaviour: a forty-five
 // behaviour plan with a few interactions each overran the previous limit of 256, and because the
@@ -306,9 +309,22 @@ function storedCheck(row: Row): Check {
     revisionId: row.revision_id, sourceHash: row.source_hash, sandboxId: row.sandbox_id, browserSessionId: row.browser_session_id,
     verdict: row.verdict, items: row.items_json, summary: row.summary,
     groups: row.group_results_json ?? undefined,
+    ...(row.verification_json ? { verification: CheckVerificationSchema.parse(row.verification_json) } : {}),
     artifacts: z.array(storedArtifactSchema).parse(row.artifacts_json).map(({ id, mimeType, sha256 }) => ({ id, mimeType, sha256 })),
     createdAt: date(row.created_at).toISOString() });
 }
+// Read the measurement from the same durable, owner/version-bound completion
+// event that was written with the Check. No browser timer or zero backfill.
+const checkReadProjection = `SELECT c.*, completion.payload_json->'verification' AS verification_json
+  FROM nano.checks c LEFT JOIN LATERAL (
+    SELECT e.payload_json FROM nano.run_events e
+    WHERE e.owner_id=c.owner_id AND e.project_id=c.project_id AND e.run_id=c.run_id
+      AND e.role_run_id=c.role_run_id AND e.attempt=c.attempt AND e.type='check.completed'
+      AND e.payload_json->>'checkId'=c.id::text
+      AND e.payload_json->>'revisionId'=c.revision_id::text
+      AND e.payload_json->>'sourceHash'=c.source_hash
+    ORDER BY e.id DESC LIMIT 1
+  ) completion ON true`;
 function storedRestore(row: Row): StoredRestore {
   return { id: row.id, projectId: row.project_id, revisionId: row.revision_id, sourceHash: row.source_hash,
     status: row.status, sandboxId: row.sandbox_id ?? null,
@@ -453,7 +469,7 @@ export function createGenerationRepository(
       const result = await client.query(`SELECT r.*, to_jsonb(v) AS revision_json, to_jsonb(binding) AS binding_json,
         coalesce((SELECT jsonb_agg(to_jsonb(replay) || jsonb_build_object('id',replay.id::text) ORDER BY replay.id)
           FROM (SELECT e.* FROM nano.run_events e WHERE e.owner_id=r.owner_id AND e.run_id=r.id ORDER BY e.id DESC LIMIT 200) replay),'[]'::jsonb) AS events_json,
-        coalesce((SELECT jsonb_agg(to_jsonb(rr)-'input_json'-'output_json'-'usage_json' ORDER BY rr.attempt,CASE rr.role WHEN 'coordinator' THEN 0 WHEN 'builder' THEN 1 ELSE 2 END)
+        coalesce((SELECT jsonb_agg(to_jsonb(rr)-'input_json'-'output_json'-'usage_json' ORDER BY rr.attempt,CASE rr.role WHEN 'coordinator' THEN 0 WHEN 'builder' THEN 1 ELSE 2 END,rr.started_at NULLS LAST,rr.id)
           FROM nano.role_runs rr WHERE rr.owner_id=r.owner_id AND rr.run_id=r.id),'[]'::jsonb) AS roles_json
         FROM nano.runs r
         LEFT JOIN nano.revisions v ON v.owner_id=r.owner_id AND v.project_id=r.project_id AND v.id=r.result_revision_id
@@ -499,6 +515,7 @@ export function createGenerationRepository(
       const requestHash = createHash("sha256").update(JSON.stringify([
         normalized.text, normalized.expectedCurrentRevisionId, normalized.retryOfRunId, normalized.parentRunId,
         normalized.modelProfileId, normalized.modelConfigVersion, normalized.modelId,
+        ...(normalized.selectedBaseRevisionId ? [normalized.selectedBaseRevisionId] : []),
       ])).digest("hex");
       try {
         return await owned(ownerId, async (client) => {
@@ -519,9 +536,23 @@ export function createGenerationRepository(
           const dailyLimit = options.dailyLimitByOwner?.[ownerId] ?? DAILY_ACCEPTED_LIMIT;
           if (used >= dailyLimit)
             throw new ApiFailure(429, "QUOTA_EXCEEDED", `今日任务额度已用完（${dailyLimit} 个），请稍后再试。`, false);
+          const clarificationParent = normalized.parentRunId ? await run(client, ownerId, normalized.parentRunId) : null;
+          if (clarificationParent && clarificationParent.project_id !== projectId) throw notFound();
+          const selectedBaseRevisionId = normalized.selectedBaseRevisionId ?? clarificationParent?.selected_base_revision_id ?? null;
           let requestText = normalized.text;
-          let runKind: "generate" | "modify" | "retry" | "clarify" = normalized.parentRunId ? "clarify" : parent.current_revision_id ? "modify" : "generate";
-          const baseRevisionId = normalized.expectedCurrentRevisionId;
+          let runKind: "generate" | "modify" | "retry" | "clarify" = normalized.parentRunId ? "clarify" : selectedBaseRevisionId || parent.current_revision_id ? "modify" : "generate";
+          const baseRevisionId = selectedBaseRevisionId ?? normalized.expectedCurrentRevisionId;
+          if (selectedBaseRevisionId) {
+            const selected = await revision(client, ownerId, selectedBaseRevisionId);
+            if (selected.project_id !== projectId) throw notFound();
+            if (selected.build_status !== "passed" || selected.status === "accepted")
+              throw new ApiFailure(422, "INVALID_CANDIDATE_BASE", "只能从已保存且构建通过的未验收候选继续开发。");
+            const sourceRun = await run(client, ownerId, selected.run_id);
+            if (!TerminalRunStates.has(sourceRun.state) || sourceRun.cleanup_state === "pending")
+              throw new ApiFailure(409, "PROJECT_BUSY", "请先停止候选的任务并等待清理完成，再继续开发。", true);
+            if (!PlanSchema.safeParse(sourceRun.plan_json).success)
+              throw new ApiFailure(422, "INVALID_CANDIDATE_BASE", "这个候选缺少已保存的需求计划，不能作为增量基线。");
+          }
           const retryOfRunId: string | null = normalized.retryOfRunId;
           if (retryOfRunId) {
             const prior = await run(client, ownerId, retryOfRunId);
@@ -554,35 +585,38 @@ export function createGenerationRepository(
           // the retry link is ignored so the recorded request cannot drift.
           let originalRequest = requestText;
           let clarificationTurns: PlanningContext["clarificationTurns"] = [];
-          if (normalized.parentRunId) {
-            const previousRun = await run(client, ownerId, normalized.parentRunId);
-            if (previousRun.project_id !== projectId) throw notFound();
+          if (clarificationParent) {
+            const previousRun = clarificationParent;
             if (previousRun.state !== "needs_input" || !previousRun.clarification_json?.question) throw new ApiFailure(422, "INVALID_CLARIFICATION_PARENT", "只能回答当前项目中等待补充信息的任务。");
             const previousContext = planningContext(previousRun);
+            if (previousContext.baseRevisionId !== baseRevisionId)
+              throw new ApiFailure(409, "STALE_BASE", "回答必须继续原任务的源码基线，请恢复原候选选择后重试。");
             originalRequest = previousContext.originalRequest;
             clarificationTurns = [...previousContext.clarificationTurns, { parentRunId: previousRun.id, question: previousRun.clarification_json.question, answer: normalized.text }];
           }
-          const basePlan = parent.current_revision_id ? await client.query(`SELECT prior.plan_json FROM nano.revisions base
+          const basePlan = baseRevisionId ? await client.query(`SELECT prior.plan_json FROM nano.revisions base
             JOIN nano.runs prior ON prior.id=base.run_id AND prior.project_id=base.project_id AND prior.owner_id=base.owner_id
-            WHERE base.owner_id=$1 AND base.project_id=$2 AND base.id=$3`, [ownerId, projectId, parent.current_revision_id]) : null;
+            WHERE base.owner_id=$1 AND base.project_id=$2 AND base.id=$3`, [ownerId, projectId, baseRevisionId]) : null;
           const parsedContext = PlanningContextSchema.safeParse({ schemaVersion: 1, project: { id: projectId, title: parent.title },
-            requestText, originalRequest, clarificationTurns, baseRevisionId: parent.current_revision_id, previousPlan: basePlan?.rows[0]?.plan_json ?? null });
+            requestText, originalRequest, clarificationTurns, baseRevisionId, previousPlan: basePlan?.rows[0]?.plan_json ?? null });
           if (!parsedContext.success) throw new ApiFailure(422, "PLANNING_CONTEXT_LIMIT", "补充信息已超过任务可处理范围，请重新提交简洁需求。");
           const context = parsedContext.data;
           const lease = await models.freezeInTransaction(client, ownerId, normalized.modelProfileId, normalized.modelConfigVersion, id, normalized.modelId);
           const inserted = await client.query(`INSERT INTO nano.runs
             (id,owner_id,project_id,idempotency_key,request_hash,request_text,kind,expected_current_revision_id,base_revision_id,
-             model_profile_id,model_config_version,model_id,credential_lease_id,coordinator_role_run_id,state,phase,budget_json,deadline_at,executor_boot_id,planning_context_json,parent_run_id,retry_of,queued_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,$11,$12,$13,'queued','plan',$14,
-              now()+make_interval(secs=>$19),$15,$16,$17,$18,now()) RETURNING *`,
+             model_profile_id,model_config_version,model_id,credential_lease_id,coordinator_role_run_id,state,phase,budget_json,deadline_at,executor_boot_id,planning_context_json,parent_run_id,retry_of,queued_at,selected_base_revision_id)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$20,$9,$10,$11,$12,$13,'queued','plan',$14,
+              now()+make_interval(secs=>$19),$15,$16,$17,$18,now(),$21) RETURNING *`,
           [id, ownerId, projectId, idempotencyKey, requestHash, requestText, runKind,
-            baseRevisionId, normalized.modelProfileId, normalized.modelConfigVersion, normalized.modelId ?? null, lease.id, roleId,
+            normalized.expectedCurrentRevisionId, normalized.modelProfileId, normalized.modelConfigVersion, normalized.modelId ?? null, lease.id, roleId,
             { idleTimeoutMs: RUN_IDLE_TIMEOUT_MS, modelTimeoutMs: MODEL_REQUEST_TIMEOUT_MS, maxToolCalls: RUN_TOOL_LIMIT },
-            options.executorBootId, context, normalized.parentRunId, retryOfRunId, RUN_IDLE_TIMEOUT_MS / 1000]);
+            options.executorBootId, context, normalized.parentRunId, retryOfRunId, RUN_IDLE_TIMEOUT_MS / 1000, baseRevisionId, selectedBaseRevisionId]);
           await client.query(`INSERT INTO nano.role_runs (id,owner_id,project_id,run_id,role,attempt,session_id,state,input_json)
             VALUES ($1,$2,$3,$4,'coordinator',0,$5,'queued',$6)`, [roleId, ownerId, projectId, id, randomUUID(), context]);
           await client.query("INSERT INTO nano.messages (owner_id,project_id,run_id,kind,content) VALUES ($1,$2,$3,'user',$4)", [ownerId, projectId, id, requestText]);
-          await event(client, inserted.rows[0], { type: "run.accepted", payload: { state: "queued", phase: "plan" } });
+          await event(client, inserted.rows[0], { type: "run.accepted", payload: { state: "queued", phase: "plan",
+            baseRevisionId, expectedCurrentRevisionId: normalized.expectedCurrentRevisionId,
+            selectedBaseRevisionId } });
           return { run: storedRun(inserted.rows[0]), replayed: false };
         });
       } catch (error) {
@@ -945,6 +979,7 @@ export function createGenerationRepository(
       });
     },
     finishReview: async (ownerId, runId, input) => {
+      const persistenceStartedAt = performance.now();
       const { receipt } = input;
       assertVerifiedReviewReceipt(receipt);
       if (receipt.source.ownerId !== ownerId) throw notFound();
@@ -955,7 +990,15 @@ export function createGenerationRepository(
       assertReviewEvidenceFitsPersistence(evidence);
       if (receipt.chromeClosed !== true || binding.runId !== runId || result.revisionId !== binding.revisionId
         || result.sourceHash !== binding.sourceHash) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查结果尚未完成会话关闭或版本校验。");
-      return owned(ownerId, async (client) => {
+      let persistenceTimedOut=false;
+      const deadline=receipt.verification?Date.parse(receipt.verification.deadlineAt):undefined;
+      const persistReview=()=>owned(ownerId, async (client) => {
+        const remaining=deadline===undefined?undefined:Math.ceil(deadline-Date.now());
+        if(!persistenceTimedOut&&remaining!==undefined&&remaining>0){
+          // PostgreSQL owns the deadline through COMMIT, including time spent
+          // waiting for locks or inside a trigger after the application verdict.
+          await client.query("SELECT set_config('statement_timeout',$1,true), set_config('transaction_timeout',$1,true)",[String(remaining)]);
+        }
         const { current, parent } = await lockedRun(client, ownerId, runId);
         const role = await activeRole(client, current, { roleRunId: binding.roleRunId, attempt: binding.attempt, role: "reviewer" });
         const storedBinding = ReviewBindingSchema.parse(role.review_binding_json);
@@ -1006,7 +1049,10 @@ export function createGenerationRepository(
           try { groups = aggregateCheckGroups(plan, result.items); }
           catch { throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "检查结果未覆盖五组全部子检查及原始证据。"); }
         }
-        const verdict = !receipt.markerVerified || groups?.some((group) => group.verdict === "blocked")
+        const verificationIncomplete = persistenceTimedOut || receipt.verification?.timedOut || receipt.verification?.incompleteReason
+          || receipt.verification && Date.now() >= Date.parse(receipt.verification.deadlineAt);
+        if (verificationIncomplete) result.summary = `${receipt.verification?.incompleteReason ?? 'REVIEW_TIMEOUT'}：已保留完成的检查，本次验收未完整完成，候选尚未通过。`;
+        const verdict = verificationIncomplete || !receipt.markerVerified || groups?.some((group) => group.verdict === "blocked")
           || result.items.some((item) => item.verdict === "blocked") ? "blocked"
           : groups?.some((group) => group.verdict === "failed") || result.items.some((item) => item.verdict === "failed") ? "failed" : "passed";
         const repairNextAttempt = verdict === "failed" && current.attempt < 2 ? current.attempt + 1 : null;
@@ -1027,7 +1073,10 @@ export function createGenerationRepository(
           error_code=$6,error_message=$7,error_retryable=$8,finished_at=now() WHERE owner_id=$1 AND id=$2 RETURNING *`,
         [ownerId, runId, state, repairNextAttempt ? "implement" : "persist", result.summary, verdict === "blocked" ? "CHECK_BLOCKED" : null, verdict === "blocked" ? result.summary : null, verdict === "blocked" ? true : null])).rows[0];
         if (verdict === "passed") {
-          await client.query("UPDATE nano.projects SET current_revision_id=$3 WHERE owner_id=$1 AND id=$2", [ownerId, current.project_id, saved.id]);
+          if(deadline!==undefined&&Date.now()>=deadline)throw new ApiFailure(503,'REVIEW_TIMEOUT','验收持久化超过统一时间上限',true);
+          const promoted=await client.query("UPDATE nano.projects SET current_revision_id=$3 WHERE owner_id=$1 AND id=$2 AND ($4::timestamptz IS NULL OR clock_timestamp()<$4::timestamptz)",
+            [ownerId,current.project_id,saved.id,receipt.verification?.deadlineAt??null]);
+          if(promoted.rowCount!==1)throw new ApiFailure(503,'REVIEW_TIMEOUT','验收持久化超过统一时间上限',true);
           await client.query("UPDATE nano.sandboxes SET purpose='preview' WHERE owner_id=$1 AND id=$2", [ownerId, sandbox.id]);
         }
         if (!repairNextAttempt) {
@@ -1036,22 +1085,41 @@ export function createGenerationRepository(
           await client.query("UPDATE nano.projects SET operation_kind=NULL,operation_id=NULL,operation_started_at=NULL,updated_at=now() WHERE owner_id=$1 AND id=$2 AND operation_id=$3", [ownerId, current.project_id, runId]);
         }
         await event(client, changed, { type: "role.completed", roleRunId: role.id, payload: { role: "reviewer", state: verdict === "blocked" ? "failed" : "succeeded", summary: result.summary } });
+        const recordedVerification = receipt.verification ? CheckVerificationSchema.parse(receipt.verification) : undefined;
+        const verification = recordedVerification ? { ...recordedVerification,
+          ...(persistenceTimedOut?{timedOut:true,incompleteReason:'REVIEW_TIMEOUT'}:{}),
+          elapsedMs: Math.max(recordedVerification.elapsedMs, Date.now() - Date.parse(recordedVerification.startedAt)),
+          phasesMs: { ...recordedVerification.phasesMs, persistence: Math.max(0, performance.now() - persistenceStartedAt) },
+        } : undefined;
         await event(client, changed, { type: "check.completed", roleRunId: role.id, payload: { checkId: check.id, revisionId: saved.id, sourceHash: saved.source_hash, verdict, summary: result.summary,
+          ...(verification ? { verification } : {}),
           ...(groups ? { passedGroups: groups.filter((group) => group.verdict === "passed").length, totalGroups: 5 } : {}) } });
+        if (verification) publicCheck.verification = verification;
         if (!repairNextAttempt) {
           await event(client, changed, { type: "run.finished", payload: { state, revisionId: saved.id, checkId: check.id } });
         }
+        if(verdict==='passed'&&deadline!==undefined&&Date.now()>=deadline)
+          throw new ApiFailure(503,'REVIEW_TIMEOUT','验收提交超过统一时间上限',true);
         return { run: storedRun(changed), check: publicCheck, revision: storedRevision(changedRevision), repairNextAttempt };
       });
+      try{return await persistReview();}
+      catch(error){
+        const code=(error as {code?:unknown}|null)?.code;
+        if(deadline===undefined||!['57014','25P04','REVIEW_TIMEOUT'].includes(String(code)))throw error;
+        // The timed-out transaction rolled back. Persist the same evidence once
+        // as blocked; this recovery is never allowed to promote a candidate.
+        persistenceTimedOut=true;
+        return persistReview();
+      }
     },
     getCheck: (ownerId, checkId) => owned(ownerId, async (client) => {
-      const row = (await client.query("SELECT * FROM nano.checks WHERE owner_id=$1 AND id=$2", [ownerId, checkId])).rows[0];
+      const row = (await client.query(`${checkReadProjection} WHERE c.owner_id=$1 AND c.id=$2`, [ownerId, checkId])).rows[0];
       if (!row) throw notFound();
       return storedCheck(row);
     }),
     getRunCheck: (ownerId, runId) => owned(ownerId, async (client) => {
       await run(client, ownerId, runId);
-      const row = (await client.query("SELECT * FROM nano.checks WHERE owner_id=$1 AND run_id=$2 ORDER BY attempt DESC LIMIT 1", [ownerId, runId])).rows[0];
+      const row = (await client.query(`${checkReadProjection} WHERE c.owner_id=$1 AND c.run_id=$2 ORDER BY c.attempt DESC LIMIT 1`, [ownerId, runId])).rows[0];
       return row ? storedCheck(row) : null;
     }),
     getArtifact: (ownerId, artifactId) => owned(ownerId, async (client) => {
@@ -1365,6 +1433,9 @@ export function createGenerationRepository(
         return { run: await parkClaim(client, current, { code: failure.code, message: failure.message }), outcome: "parked" as const };
       }
       if (parent.current_revision_id !== current.expected_current_revision_id) {
+        if (current.selected_base_revision_id)
+          return { run: await parkClaim(client, current, { code: "QUEUE_BASELINE_CHANGED",
+            message: "当前已验收版本已变化，所选候选基线已保留但未执行。请核对版本后重新提交。" }), outcome: "parked" as const };
         // A queued follow-up chains onto the version produced by the task it was
         // queued behind. Anything else changed the baseline, so the request is
         // preserved for the user instead of being pointed at an unrelated

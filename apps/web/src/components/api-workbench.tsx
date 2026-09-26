@@ -7,6 +7,7 @@ import { getApiWorkspace } from "@/lib/workspace";
 import { WorkspaceError } from "@/lib/api-workspace";
 import { usePrivateQuery, useWorkspaceAuth } from "@/lib/use-workspace";
 import { promptLimit, readDraft, saveDraft, readSessionModel, saveSessionModel } from "@/lib/drafts";
+import { readCandidateBase, saveCandidateBase, type CandidateBaseSelection } from "@/lib/candidate-base";
 import { createModelsApi } from "@/lib/models-api";
 import { clearPendingSubmission, readPendingSubmission, savePendingSubmission, type RunSubmission } from "@/lib/generation-api";
 import { cn, errorMessage } from "@/lib/utils";
@@ -112,7 +113,9 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const [hashNotice, setHashNotice] = useState("");
   const [mobileTab, setMobileTab] = useState<"chat" | "result">("chat");
   const [collapsed, setCollapsed] = useState(false);
-  const [selectedRevisionId, setSelectedRevisionId] = useState("");
+  const [candidateBase, setCandidateBase] = useState<CandidateBaseSelection | null>(() => readCandidateBase(ownerId, projectId));
+  const [candidateBaseStored, setCandidateBaseStored] = useState(true);
+  const [selectedRevisionId, setSelectedRevisionId] = useState(() => readCandidateBase(ownerId, projectId)?.revisionId ?? "");
   const [comparisonTarget, setComparisonTarget] = useState<{ from: string; to: string; key: string } | null>(null);
   const project = state.view?.project;
   const run = state.view?.run;
@@ -143,6 +146,8 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const revisions: Revision[] = savedHistory ? historyQuery.data!.revisions
     : [project?.currentRevision, project?.latestCandidate].filter((item): item is Revision => !!item);
   const revision = revisions.find((item) => item.id === selectedRevisionId) ?? project?.currentRevision ?? project?.latestCandidate ?? null;
+  const selectedBase = candidateBase ? revisions.find((item) => item.id === candidateBase.revisionId && item.buildStatus === "passed" && item.status !== "accepted") : null;
+  const selectedBaseStale = !!candidateBase && candidateBase.expectedCurrentRevisionId !== project?.project.currentRevisionId;
   const runRevision = revisions.find((item) => item.id === run?.resultRevisionId);
   const runCheck = project?.latestCheck && runRevision && project.latestCheck.runId === run?.id && checkMatchesRevision(project.latestCheck, runRevision) ? project.latestCheck : null;
   const snapshotCheck = project?.latestCheck && revision && checkMatchesRevision(project.latestCheck, revision) ? project.latestCheck : null;
@@ -172,13 +177,14 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const refreshPublication = publicationQuery.refresh;
   const refreshProject = state.refresh;
   const onRollbackCommitted = useCallback(async (targetRevisionId: string) => {
+    setCandidateBase(null); saveCandidateBase(ownerId, projectId, null);
     setSelectedRevisionId(targetRevisionId);
     setComparisonTarget(null);
     await refreshProject();
     refreshHistory();
     refreshPreview();
     refreshPublication();
-  }, [refreshProject, refreshHistory, refreshPreview, refreshPublication]);
+  }, [ownerId, projectId, refreshProject, refreshHistory, refreshPreview, refreshPublication]);
   const rollback = useRollback({ api, ownerId, projectId, onCommitted: onRollbackCommitted });
   const busy = pending || state.active || run?.cleanupState === "pending" || rollback.busy;
   const queued = run?.state === "queued";
@@ -191,6 +197,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   // one is persisted and queued. Only an unconfirmed submission, a pending
   // cleanup or a rollback in flight keeps the composer closed.
   const submissionBlocked = pending || !!unknownSubmission || run?.cleanupState === "pending" || rollback.busy
+    || (!!candidateBase && (!selectedBase || selectedBaseStale))
     || (!queueEnabled && state.active);
   const tooLong = draft.trim().length > promptLimit;
   const bottom = useRef<HTMLDivElement>(null);
@@ -198,6 +205,12 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
 
   function editDraft(value: string) {
     draftRef.current = value; setDraft(value); setDraftStored(saveDraft(ownerId, projectId, value));
+  }
+  function chooseCandidateBase(value: Revision | null) {
+    const selection = value ? { revisionId: value.id, expectedCurrentRevisionId: project!.project.currentRevisionId } : null;
+    setCandidateBase(selection); setCandidateBaseStored(saveCandidateBase(ownerId, projectId, selection));
+    setSelectedRevisionId(value?.id ?? project?.project.currentRevisionId ?? "");
+    setDrawer(null);
   }
   async function send(replay?: RunSubmission) {
     if (sending.current || (!replay && (submissionBlocked || !draft.trim() || tooLong || !modelReady || !selectedModel || !project))) return;
@@ -207,7 +220,8 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
     const overrideModelId = effectiveModelId && selectedModel && effectiveModelId !== selectedModel.modelId ? effectiveModelId : null;
     const submission: RunSubmission = replay ?? {
       key: crypto.randomUUID(),
-      body: { text: draft.trim(), expectedCurrentRevisionId: project!.project.currentRevisionId,
+      body: { text: draft.trim(), expectedCurrentRevisionId: candidateBase ? candidateBase.expectedCurrentRevisionId : project!.project.currentRevisionId,
+        ...(candidateBase ? { selectedBaseRevisionId: candidateBase.revisionId } : {}),
         modelProfileId: selectedModel!.id, modelConfigVersion: selectedModel!.configVersion,
         ...(overrideModelId ? { modelId: overrideModelId } : {}),
         retryOfRunId: null, parentRunId: clarification && run ? run.id : null },
@@ -217,6 +231,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
     try {
       const accepted = await state.generation.start(projectId, submission);
       clearPendingSubmission(ownerId, projectId); setUnknownSubmission(null);
+      if (submission.body.selectedBaseRevisionId) chooseCandidateBase(null);
       // A response for the previous text must not erase a newly edited draft.
       if (draftRef.current.trim() === submission.body.text) editDraft("");
       await state.accepted(accepted.runId);
@@ -338,7 +353,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const toolbarExtras = <>
     {revision && <>
       <button type="button" className="a-toolbar-version" onClick={() => setDrawer("history")} aria-label={`版本历史，正在查看 v${revision.revisionNo}`}>
-        v{revision.revisionNo}<span>{revision.id === project.project.currentRevisionId ? "当前" : revision.status === "candidate" ? "候选" : "历史"}</span><ChevronDown size={12} />
+        v{revision.revisionNo}<span>{revision.id === project.project.currentRevisionId ? "当前" : revision.status !== "accepted" ? "候选" : "历史"}</span><ChevronDown size={12} />
       </button>
       {/* Viewing a historical version must never hide which version is really
           current: the two are labelled separately, and this returns to it. */}
@@ -350,7 +365,13 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
       </button>
       <button type="button" className="a-toolbar-icon" title="版本历史" aria-label="版本历史" onClick={() => setDrawer("history")}><History size={16} /></button>
       <button type="button" className="a-toolbar-check" aria-label={`检查结果 ${checkBadge}`} onClick={() => setDrawer("checks")}><Check size={14} />{project.latestCheckHistorical && revision.id === project.project.currentRevisionId ? "历史检查" : checkBadge}</button>
+      {revision.status !== "accepted" && revision.buildStatus === "passed" && <Button type="button" variant="outline" size="sm"
+        disabled={busy || !!unknownSubmission} aria-label={`从候选 v${revision.revisionNo} 继续开发`}
+        aria-pressed={candidateBase?.revisionId === revision.id}
+        onClick={() => chooseCandidateBase(revision)}>{candidateBase?.revisionId === revision.id ? "已设为继续基线" : "从此候选继续"}</Button>}
     </>}
+    {project.latestCandidate && project.latestCandidate.id !== revision?.id && <Button type="button" variant="outline" size="sm"
+      aria-label={`查看候选 v${project.latestCandidate.revisionNo}`} onClick={() => setSelectedRevisionId(project.latestCandidate!.id)}>查看候选 v{project.latestCandidate.revisionNo}</Button>}
     {project.currentRevision && <button type="button" className="a-toolbar-publish" onClick={() => setDrawer("publish")}>发布<ChevronDown size={12} /></button>}
     {hashNotice && <span className="a-toolbar-notice" role="status">{hashNotice}</span>}
   </>;
@@ -371,6 +392,9 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
               : message.kind === "rollback" ? <article className="rollback-message" data-testid="rollback-conversation-event" key={message.id}><RotateCcw size={15} aria-hidden="true" /><div><strong>{ui.text("版本回滚", "Version rollback")}</strong><p>{message.content}</p></div></article>
               : <article className="assistant-message" key={message.id}><div className="assistant-message-heading"><LoomMark /><strong>{message.kind === "question" ? ui.text("协调者", "Coordinator") : "Pivloom"}</strong></div><div className="assistant-message-body"><p className="message-content">{message.content}</p></div></article>)}
           {run && <GenerationActivity run={run} events={state.view!.events} roles={state.view!.roles} />}
+          {run?.selectedBaseRevisionId && <p className="previous-version-note" data-testid="run-candidate-base">
+            本轮基线：候选 {revisions.find((item) => item.id === run.selectedBaseRevisionId) ? `v${revisions.find((item) => item.id === run.selectedBaseRevisionId)!.revisionNo}` : run.selectedBaseRevisionId.slice(0, 8)}；继续开发不代表该候选已验收。
+          </p>}
           {run && <GenerationOutcome run={run} candidateSaved={project.latestCandidate?.runId === run.id && project.latestCandidate.id === run.resultRevisionId} check={runCheck} failureDetail={state.view?.failureDetail ?? null} />}
           <div ref={bottom} />
         </div>
@@ -412,6 +436,12 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
         </div>
       </section>
       <div className="generation-result-shell">
+        {candidateBase && <div className="candidate-base-selection" role="status">
+          <span>{selectedBase ? `继续基线：候选 v${selectedBase.revisionNo} · 未验收` : "已保存的候选选择暂不可用，请重新选择"}
+          {selectedBaseStale ? " · 当前已验收版本已变化，请重新确认候选" : " · 当前已验收与已发布版本不变"}
+          {!candidateBaseStored && " · 选择未保存，请保持页面打开"}</span>
+          <Button variant="ghost" size="sm" onClick={() => chooseCandidateBase(null)}>使用当前已验收版本</Button>
+        </div>}
         {collapsed && <button className="generation-expand-chat icon-button" aria-label={ui.text("展开对话", "Expand chat")} onClick={() => setCollapsed(false)}><PanelLeftOpen size={16} /></button>}
         {previewQuery.error && <p className="inline-error" role="alert">{previewQuery.error}</p>}
         <GenerationResult projectId={projectId} revision={revision} preview={hasSnapshotPreview ? snapshotPreview! : previewQuery.data ?? null} generation={state.generation} active={state.active} queued={queued} latestCheck={project.latestCheck} historicalCheck={revision?.status === "accepted" && (revision.id !== project.project.currentRevisionId || !!project.latestCheckHistorical)} checking={state.active && run?.phase === "review" && revision?.runId === run.id} restoring={restoring || (previewQuery.data?.state === "restoring" && previewQuery.data.revisionId === revision?.id)} onRestore={busy ? undefined : () => void restore()} toolbarExtras={toolbarExtras} showReview={false} />
@@ -434,7 +464,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
           clearResult: rollback.clearResult }} /> : <p>还没有保存的版本。</p>}
     </WorkbenchDrawer>}
     {drawer === "checks" && <WorkbenchDrawer key="checks" title="检查结果" onClose={() => setDrawer(null)}>
-      {revision ? <>{revision.id !== project.project.currentRevisionId ? <p className="a-drawer-context">正在查看历史 v{revision.revisionNo} 的检查记录；当前版本不会因此改变。</p>
+      {revision ? <>{revision.id !== project.project.currentRevisionId ? <p className="a-drawer-context">正在查看{revision.status === "accepted" ? "历史" : "候选"} v{revision.revisionNo} 的检查记录；当前版本不会因此改变。</p>
         : project.latestCheckHistorical ? <p className="a-drawer-context">这是回滚目标原 Run 的历史检查；重建后的预览尚未重新验收。</p> : null}
         <GenerationReview key={`${revision.id}:${state.active}`} revision={revision} latestCheck={project.latestCheck} generation={state.generation} checking={state.active && run?.phase === "review" && revision.runId === run.id} /></> : <p>生成首个版本后可查看检查结果。</p>}
     </WorkbenchDrawer>}

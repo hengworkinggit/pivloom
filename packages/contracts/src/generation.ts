@@ -18,6 +18,8 @@ export const TerminalRunStates: ReadonlySet<RunState> = new Set([
 export const CreateRunRequestSchema = z.strictObject({
   text: z.string().trim().min(1).max(8000),
   expectedCurrentRevisionId: z.uuid().nullable(),
+  // An explicit working base does not promote that candidate to current.
+  selectedBaseRevisionId: z.uuid().nullish(),
   modelProfileId: z.uuid(),
   modelConfigVersion: z.number().int().positive(),
   // A run may pin a different catalog model under the same provider credential
@@ -25,7 +27,8 @@ export const CreateRunRequestSchema = z.strictObject({
   modelId: z.string().trim().min(1).max(160).nullish(),
   retryOfRunId: z.uuid().nullable().default(null),
   parentRunId: z.uuid().nullable().default(null),
-}).refine((value) => !(value.retryOfRunId && value.parentRunId), "重试与澄清不能同时提交。");
+}).refine((value) => !(value.retryOfRunId && value.parentRunId), "重试与澄清不能同时提交。")
+  .refine((value) => !(value.retryOfRunId && value.selectedBaseRevisionId), "从候选继续开发应提交新需求，不能同时重试原任务。");
 export type CreateRunRequest = z.infer<typeof CreateRunRequestSchema>;
 
 export const RunErrorSchema = z.object({
@@ -38,6 +41,7 @@ export const RunSchema = z.object({
   // The exact model this run used; null means the profile's default model.
   modelId: z.string().max(160).nullable().default(null),
   baseRevisionId: z.uuid().nullable(), resultRevisionId: z.uuid().nullable(),
+  selectedBaseRevisionId: z.uuid().nullish(),
   // Next expiry for lack of meaningful progress; it rolls forward and is not
   // a maximum total generation duration.
   createdAt: z.iso.datetime(), deadlineAt: z.iso.datetime(), finishedAt: z.iso.datetime().nullable(),

@@ -143,7 +143,7 @@ export function createApp(options: CreateAppOptions = {}) {
             publishedBaseUrl: env.PUBLISHED_APP_BASE_URL, publishedRoot: env.PUBLISHED_APP_ROOT,
             generationBoundaries: options.generationBoundaries,
             // Active candidates renew short leases as real Run progress continues.
-            sandbox: { baseUrl: env.OPENSANDBOX_BASE_URL, apiKey: env.OPENSANDBOX_API_KEY, image: env.OPENSANDBOX_IMAGE, lifetimeMs: SANDBOX_LEASE_SEGMENT_MS },
+            sandbox: { baseUrl: env.OPENSANDBOX_BASE_URL, apiKey: env.OPENSANDBOX_API_KEY, image: env.OPENSANDBOX_IMAGE, lifetimeMs: SANDBOX_LEASE_SEGMENT_MS, browserPrograms: env.OPENSANDBOX_BROWSER_PROGRAMS !== '0' },
           });
           // Nothing left behind by a previous process may keep a project locked
           // or claim to be running; the server awaits this before it is used.

@@ -532,6 +532,12 @@ export class OpenSandboxWorkspace implements WorkspacePort {
       { uid: 0 },
     );
   }
+  /** Bounded result packets use a file, never the intentionally truncated shell log. */
+  async readServiceResult(handle: WorkspaceHandle, name: string): Promise<Uint8Array> {
+    if (!/^browser-result-[0-9a-f-]{36}\.json$/.test(name))
+      throw new RuntimeError('INVALID_SERVICE_PATH', '无效浏览器结果路径');
+    return this.requireResource(handle).connection.read(`/opt/pivloom/${name}`);
+  }
   async destroy(handle: WorkspaceHandle): Promise<{ confirmed: boolean }> {
     const r = this.registered.get(handle.sandboxId);
     if (!r) throw new RuntimeError("UNKNOWN_SANDBOX", "沙箱不属于本次探针");

@@ -24,7 +24,8 @@ const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAA
 
 // Real workbench, Supabase client and API adapters; only external HTTP, routing
 // and browser object URLs are fixtures. These tests are not browser/model E2E.
-async function openWorkbench(options: { verdict?: Check["verdict"]; unchecked?: boolean; mismatch?: boolean; screenshotDenied?: boolean; finalScreenshot?: boolean; reviewing?: boolean; previousCurrent?: boolean; attempt?: number; grouped?: boolean } = {}) {
+async function openWorkbench(options: { verdict?: Check["verdict"]; unchecked?: boolean; mismatch?: boolean; screenshotDenied?: boolean; finalScreenshot?: boolean; reviewing?: boolean; previousCurrent?: boolean; attempt?: number; grouped?: boolean; partial?: boolean;
+  verification?: { startedAt: string; deadlineAt: string; elapsedMs: number; timedOut: boolean; incompleteReason?: string; phasesMs?: { preparation?: number; execution?: number; finalization?: number; persistence?: number } } } = {}) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("crypto", webcrypto);
   const created = vi.fn(() => "blob:review-fixture"), revoked = vi.fn();
@@ -49,10 +50,11 @@ async function openWorkbench(options: { verdict?: Check["verdict"]; unchecked?: 
       observationEventIds: ["17a2b292-e2a0-4296-a841-f6a2d036e94a"], screenshotIds: options.finalScreenshot ? [] : [artifactId], reproSteps: ["填写中文姓名", "提交报名"] }],
     summary: verdict === "passed" ? "报名提交符合已保存的行为目标。" : verdict === "failed" ? "报名提交尚未达到预期。" : "页面无法访问，暂不能判断行为。",
     artifacts: [{ id: artifactId, mimeType: "image/png", sha256: "101070e7bd1de3933a1fee8c8ecc791c7a58eacbae4d9d41ab8e1d7e17cd4326" }], createdAt: now,
+    ...(options.verification ? { verification: options.verification } : {}),
   };
   if (options.grouped && check) {
     check.items = ["B01", "B02", "B03", "B04", "B05", "B06"].map((behaviorId) => ({
-      behaviorId, verdict: behaviorId === "B04" ? "failed" : "passed",
+      behaviorId, verdict: behaviorId === "B04" ? "failed" : options.partial && behaviorId === "B06" ? "blocked" : "passed",
       expected: `完成 ${behaviorId}`, actual: behaviorId === "B04" ? "实际失败" : `实际完成 ${behaviorId}`,
       observationEventIds: ["17a2b292-e2a0-4296-a841-f6a2d036e94a"], screenshotIds: [], reproSteps: ["打开并操作页面"],
     }));
@@ -61,7 +63,7 @@ async function openWorkbench(options: { verdict?: Check["verdict"]; unchecked?: 
       { id: "G2", title: "输入键盘", behaviorIds: ["B03"], verdict: "passed", requiredCount: 1, passedCount: 1, failedCount: 0, blockedCount: 0 },
       { id: "G3", title: "错误恢复", behaviorIds: ["B04"], verdict: "failed", requiredCount: 1, passedCount: 0, failedCount: 1, blockedCount: 0 },
       { id: "G4", title: "结果历史", behaviorIds: ["B05"], verdict: "passed", requiredCount: 1, passedCount: 1, failedCount: 0, blockedCount: 0 },
-      { id: "G5", title: "视觉布局", behaviorIds: ["B06"], verdict: "passed", requiredCount: 1, passedCount: 1, failedCount: 0, blockedCount: 0 },
+      { id: "G5", title: "视觉布局", behaviorIds: ["B06"], verdict: options.partial ? "blocked" : "passed", requiredCount: 1, passedCount: options.partial ? 0 : 1, failedCount: 0, blockedCount: options.partial ? 1 : 0 },
     ];
   }
   const run: Run = { id: runId, projectId, state: options.reviewing ? "verifying" : verdict === "passed" && !options.unchecked ? "completed" : verdict === "failed" ? "needs_changes" : "failed", phase: "review", attempt: options.attempt ?? 0, requestText: "创建报名页", modelProfileId: "438088cb-5fd0-4704-ad57-3b64ed47c55f", modelConfigVersion: 1, modelId: null, baseRevisionId: null, resultRevisionId: revisionId, createdAt: now, deadlineAt: now, finishedAt: options.reviewing ? null : now, cleanupState: "clear", error: options.unchecked || verdict === "blocked" ? { code: "CHECK_BLOCKED", message: "检查尚未完成", retryable: false } : null, summary: "已保存结果" };
@@ -174,6 +176,31 @@ it("keeps an old flat Check labeled with its original count rather than inferrin
   expect(legacy.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain("历史平铺");
   expect(legacy.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain("1/1");
   expect(legacy.container.querySelector('[aria-label="版本检查结果"]')?.textContent).not.toContain("5/5");
+});
+
+it("shows saved verification durations and actual partial counts without calling a timeout success", async () => {
+  const view = await openWorkbench({ verdict: "blocked", grouped: true, partial: true, verification: {
+    startedAt: now, deadlineAt: "2026-09-22T00:10:00.000Z", elapsedMs: 615000, timedOut: true,
+    incompleteReason: "REVIEW_TIMEOUT", phasesMs: { preparation: 1234, execution: 610000, finalization: 3000, persistence: 766 },
+  } });
+  const metrics = view.container.querySelector('[data-testid="verification-metrics"]');
+  expect(metrics?.textContent).toContain("验收超时，未完整完成");
+  expect(metrics?.textContent).toContain("通过 4 · 未通过 1 · 受阻 1");
+  expect(metrics?.textContent).toContain("总耗时615 秒");
+  expect(metrics?.textContent).toContain("准备1.234 秒");
+  expect(metrics?.textContent).toContain("执行610 秒");
+  expect(metrics?.textContent).toContain("收尾3 秒");
+  expect(metrics?.textContent).toContain("保存0.766 秒");
+  expect(metrics?.textContent).toContain("REVIEW_TIMEOUT");
+  expect(view.container.textContent).not.toContain("关键流程检查通过");
+});
+
+it("labels historical missing timing as unrecorded instead of inventing a zero duration", async () => {
+  const view = await openWorkbench();
+  const metrics = view.container.querySelector('[data-testid="verification-metrics"]');
+  expect(metrics?.textContent).toContain("通过 1 · 未通过 0 · 受阻 0");
+  expect(metrics?.textContent).toContain("未记录验收耗时");
+  expect(metrics?.textContent).not.toContain("0 秒");
 });
 
 it("labels a rejected candidate separately while the earlier accepted revision remains current", async () => {

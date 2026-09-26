@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Pool, type PoolClient } from "pg";
 import { createClient } from "@supabase/supabase-js";
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import type { GroupedPlan } from "@pivloom/contracts";
 import { PivloomDatabase } from "../../src/data/database.js";
 import { createGenerationRepository, type GenerationRepository } from "../../src/data/generation.js";
@@ -110,7 +110,7 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     return prepared.run;
   }
 
-  async function candidate(inMemoryObjects = false) {
+  async function candidate(inMemoryObjects = false, sealedPlan: GroupedPlan = plan) {
     const objects = new Map<string, Uint8Array>();
     const fixtureStorage = { upload: async (key: string, bytes: Uint8Array) => { objects.set(key, bytes); },
       download: async (key: string) => objects.get(key)!, list: async () => [] };
@@ -125,7 +125,7 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     const claimed = await claimForTest(generation, ownerA, accepted.run.id);
     if (!claimed) throw Error("review fixture task was not claimable");
     const coordinator = await generation.startCoordinator(ownerA, claimed.id);
-    await generation.submitPlan(ownerA, claimed.id, { roleRunId: coordinator.id, attempt: 0, plan });
+    await generation.submitPlan(ownerA, claimed.id, { roleRunId: coordinator.id, attempt: 0, plan: sealedPlan });
     const builder = await generation.startBuilder(ownerA, claimed.id);
     await generation.completeBuilder(ownerA, claimed.id, { summary: "Explicit build fixture" });
     const source = await sourceStore.save({ ownerId: ownerA, projectId: project.id, revisionId: randomUUID() }, REACT_TEMPLATE_VERSION, files);
@@ -499,4 +499,63 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     const persisted = await admin.query("SELECT evidence_json FROM nano.checks WHERE owner_id=$1 AND id=$2", [ownerA, finished.check.id]);
     expect(persisted.rows[0].evidence_json).toContainEqual(expect.objectContaining({ behaviorId: "B01", action: "reload", text: "测试书名" }));
   }, 180_000);
+
+  test("a late visual transport failure persists completed deterministic items through finishReview", async () => {
+    const sealedPlan: GroupedPlan = { ...plan, behaviors: plan.behaviors.map((behavior, index) => ({ ...behavior,
+      steps: index === 4
+        ? [{ type: 'open', path: '/' }, { type: 'resize', width: 390, height: 844 }, { type: 'capture' }]
+        : [{ type: 'open', path: '/' }, { type: 'click', role: 'button', name: '添加' }, { type: 'capture' }],
+      assertions: [{ kind: 'text', text: '测试书名', negated: false }],
+      ...(index === 4 ? { evidence: 'visual' as const } : {}),
+    })) };
+    // PostgreSQL, owner scoping and finishReview are real. Object storage and the
+    // sandbox transport remain explicit external fixtures; no model is needed.
+    const fixture = await candidate(true, sealedPlan);
+    const review = await reviewed(fixture);
+    expect(review.receipt.result.items.map(item => item.verdict)).toEqual(['passed', 'passed', 'passed', 'passed', 'blocked']);
+    expect(review.receipt.result.items[4].actual).toContain('BROWSER_BLOCKED');
+    const finished = await generation.finishReview(ownerA, fixture.run.id, { receipt: review.receipt });
+    expect(finished.check.verdict).toBe('blocked');
+    const persisted = await generation.getCheck(ownerA, finished.check.id);
+    expect(persisted.items.map(item => item.verdict)).toEqual(['passed', 'passed', 'passed', 'passed', 'blocked']);
+    expect(persisted.items[0].observationEventIds.length).toBeGreaterThan(0);
+    expect((await generation.readProjectSnapshot(ownerA, fixture.project.id)).project.currentRevisionId).toBeNull();
+  }, 30_000);
+
+  test("a completed receipt arriving past its shared deadline preserves checks but cannot promote", async () => {
+    const fixture = await candidate(true);
+    const review = await reviewed(fixture);
+    expect(review.receipt.result.items.every(item => item.verdict === 'passed')).toBe(true);
+    // Keep the rolling inactivity lease alive so this tests the distinct total
+    // verification deadline, not the already-tested idle watchdog.
+    await admin.query("UPDATE nano.runs SET deadline_at=now()+interval '2 hours' WHERE id=$1", [fixture.run.id]);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(review.receipt.verification!.deadlineAt) + 1);
+    try {
+      const finished = await generation.finishReview(ownerA, fixture.run.id, { receipt: review.receipt });
+      expect(finished.check.verdict).toBe('blocked');
+      expect(finished.check.items.every(item => item.verdict === 'passed')).toBe(true);
+      expect((await generation.readProjectSnapshot(ownerA, fixture.project.id)).project.currentRevisionId).toBeNull();
+    } finally { clock.mockRestore(); }
+  }, 30_000);
+
+  test('a database delay after the verdict cannot commit a promotion past the verification deadline', async () => {
+    const fixture=await candidate(true);
+    const review=await reviewed(fixture);
+    await admin.query("UPDATE nano.runs SET deadline_at=now()+interval '2 hours' WHERE id=$1",[fixture.run.id]);
+    const name='deadline_'+randomUUID().replaceAll('-','');
+    await admin.query(`CREATE FUNCTION nano.${name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.run_id='${fixture.run.id}'::uuid THEN PERFORM pg_sleep(0.25); END IF; RETURN NEW; END $$;
+      CREATE TRIGGER ${name} BEFORE INSERT ON nano.checks FOR EACH ROW EXECUTE FUNCTION nano.${name}()`);
+    const started=performance.now(),deadline=Date.parse(review.receipt.verification!.deadlineAt);
+    const clock=vi.spyOn(Date,'now').mockImplementation(()=>deadline-100+(performance.now()-started));
+    try{
+      const finished=await generation.finishReview(ownerA,fixture.run.id,{receipt:review.receipt});
+      expect(finished.check.verdict).toBe('blocked');
+      expect(finished.check.items.every(item=>item.verdict==='passed')).toBe(true);
+      expect((await generation.readProjectSnapshot(ownerA,fixture.project.id)).project.currentRevisionId).toBeNull();
+    }finally{
+      clock.mockRestore();
+      await admin.query(`DROP TRIGGER ${name} ON nano.checks; DROP FUNCTION nano.${name}()`);
+    }
+  },30_000);
 });

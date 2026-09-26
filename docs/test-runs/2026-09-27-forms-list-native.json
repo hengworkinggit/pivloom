@@ -1,0 +1,63 @@
+{
+  "fixture": true,
+  "realSandbox": true,
+  "realChromium": true,
+  "storage": "in-memory external boundary",
+  "sourceHash": "622db9cc5358eaeb4008551ef9ddfa3befd3dfc8efee100ef45830b7e79c6cec",
+  "revisionId": "03b2a5ff-334e-40bb-ab4d-d71b7c254c7b",
+  "elapsedMs": 66586,
+  "modelCalls": 0,
+  "serviceCommands": 23,
+  "nativePrograms": 5,
+  "browserCommands": 223,
+  "markerVerified": true,
+  "verification": {
+    "startedAt": "2026-09-26T21:22:53.796Z",
+    "deadlineAt": "2026-09-26T21:32:53.796Z",
+    "elapsedMs": 66582.85666699999,
+    "timedOut": false,
+    "phasesMs": {
+      "preparation": 17366.601207999993,
+      "execution": 32323.829083999997,
+      "finalization": 16892.438333000013
+    }
+  },
+  "cleanup": {
+    "confirmed": true
+  },
+  "codeCommit": "86dad2a",
+  "sandboxId": "5054459b-771f-45e7-9934-2a23f7583801",
+  "containerId": "e3c3946bbdc7",
+  "containerRuntime": "pivloom-g0-runsc",
+  "runtimeVerification": "Read-only docker inspect of the running probe container",
+  "evidenceCount": 34,
+  "command": "PIVLOOM_NATIVE_PROBE=1 node --env-file=<authorized-local-env-file> --import tsx apps/api/scripts/testing/forms-list-review-probe.ts",
+  "measurementScope": "elapsedMs covers runReview preparation, execution and finalization; initial sandbox provisioning and build are outside that figure. serviceCommands counts real executeService calls; browserCommands counts sandbox-side CLI commands reported by the runner. These are functional assertions, not visual-appearance judgements.",
+  "results": [
+    {
+      "id": "B01",
+      "verdict": "passed",
+      "actual": "✓ 目标 listitem/\"*\" 数量 2，预期 2；✓ 目标 status/\"Task count\" 文本 \"2 items\"，预期 \"2 items\""
+    },
+    {
+      "id": "B02",
+      "verdict": "passed",
+      "actual": "✓ 目标 listitem/\"*\" 数量 1，预期 1；✓ 目标 listitem/\"Task Beta\" 数量 1，预期 1；✓ 目标 listitem/\"Task Alpha\" 数量 0，预期 0；✓ 目标 list/\"Activity\" 文本 \"Completed Alpha\"，预期 \"Completed Alpha\""
+    },
+    {
+      "id": "B03",
+      "verdict": "passed",
+      "actual": "✓ 目标 listitem/\"*\" 数量 3，预期 3；✓ 目标 status/\"Latest action\" 文本 \"Added Gamma\"，预期 \"Added Gamma\""
+    },
+    {
+      "id": "B04",
+      "verdict": "passed",
+      "actual": "✓ 目标 listitem/\"*\" 数量 3，预期 3；✓ 目标 button/\"Undo Alpha\" 数量 1，预期 1；✓ 目标 listitem/\"Task Gamma\" 数量 1，预期 1"
+    },
+    {
+      "id": "B05",
+      "verdict": "passed",
+      "actual": "✓ 目标 listitem/\"*\" 数量 1，预期 1；✓ 目标 listitem/\"Task Delta\" 数量 1，预期 1；✓ 目标 textbox/\"Task title\" 值 \"\"，预期 \"\""
+    }
+  ]
+}

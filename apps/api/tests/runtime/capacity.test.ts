@@ -18,6 +18,12 @@ import { RuntimeError } from '../../src/runtime/types.js';
 
 const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value), 'utf8');
 
+test('the 45-behavior shadow assessment reports the actual shared allowance for implementation and repairs', () => {
+  expect(currentLimits(45)).toMatchObject({ reviewToolCalls: 360, runToolCalls: 1332 });
+  expect(preflightCapacity(45).limits.runToolCalls).toBe(1332);
+  expect(preflightCapacity(45).findings.map(finding => finding.resource)).not.toContain('runToolCalls');
+});
+
 // The repository's own contract fixtures, so every byte constant in capacity.ts
 // is re-measured from the same shapes the schema tests use.
 const prose = (id: string): BehaviorTarget => ({
@@ -48,11 +54,11 @@ function fixturePlan(count: number) {
 }
 
 test('the headroom is the per-behaviour allowance the code already applies, not a chosen number', () => {
-  // budgets.ts:47-49 records the measurement; budgets.ts:51 is the allowance.
+  // The budget module records this historical calibration and the per-behavior allowance.
   expect(MEASURED_TOOL_CALLS_PER_BEHAVIOR * 45).toBe(240);
   expect(CAPACITY_HEADROOM).toBe(1.5);
   expect(MEASURED_TOOL_CALLS_PER_BEHAVIOR * CAPACITY_HEADROOM).toBe(REVIEW_TOOL_CALLS_PER_BEHAVIOR);
-  // budgets.ts:57-60: 480 KiB was roughly twenty observations.
+  // Historical budget note: 480 KiB was roughly twenty observations.
   expect(MEASURED_EVIDENCE_BYTES_PER_BEHAVIOR * 20).toBe(480 * 1024);
   // spec review-capacity...:25: a forty-two behaviour check exceeded 256 entries.
   expect(MEASURED_EVIDENCE_ENTRIES_PER_BEHAVIOR).toBe(7);
@@ -84,16 +90,18 @@ test('the measured envelope for the recorded plan sizes carries the code evidenc
 test('the pre-flight reports which of today’s constants 5, 14, 41 and 45 behaviours would exceed', () => {
   expect(preflightCapacity(5)).toMatchObject({ verdict: 'ok', enforced: false });
   expect(preflightCapacity(14)).toMatchObject({ verdict: 'ok', enforced: false });
-  // 41: the Reviewer's scaled budget is 328 and its own calibration needs 331;
-  // the shared run ledger is short by 23 after the Coordinator and Builder.
+  // The calibration still reserves three fixed review calls. The shared run
+  // allowance now includes repairs, so it is no longer the binding resource.
   const at41 = preflightCapacity(41);
-  expect(at41.verdict).toBe('refuse');
+  expect(at41.verdict).toBe('batch');
+  expect(at41.limits.runToolCalls).toBe(1236);
   expect(at41.findings.map((finding) => [finding.resource, finding.required, finding.limit]))
-    .toEqual([['runToolCalls', 407, RUN_TOOL_LIMIT], ['reviewToolCalls', 331, 328]]);
+    .toEqual([['reviewToolCalls', 331, 328]]);
   const at45 = preflightCapacity(45);
-  expect(at45.verdict).toBe('refuse');
+  expect(at45.verdict).toBe('batch');
+  expect(at45.limits.runToolCalls).toBe(1332);
   expect(at45.findings.map((finding) => [finding.resource, finding.required, finding.limit]))
-    .toEqual([['runToolCalls', 439, RUN_TOOL_LIMIT], ['reviewToolCalls', 363, 360]]);
+    .toEqual([['reviewToolCalls', 363, 360]]);
   // Nothing here is near only: the evidence entry and artifact caps are far away,
   // which is why they are not the binding resource.
   expect(at45.required.evidenceEntries).toBe(473);
@@ -103,7 +111,7 @@ test('the pre-flight reports which of today’s constants 5, 14, 41 and 45 behav
   expect(at45.required.artifacts).toBeLessThan(MAX_CHECK_ARTIFACTS);
 });
 
-test('the pre-flight passes at 34, batches exactly at 35 and refuses at 39', () => {
+test('the pre-flight preserves review batching and honors a caller-supplied smaller run allowance', () => {
   // Boundary: 34 x 8 + 3 = 275 fits the 280 hard floor; 35 crosses it by 3.
   expect(preflightCapacity(34).verdict).toBe('ok');
   expect(preflightCapacity(34).findings).toEqual([]);
@@ -112,10 +120,11 @@ test('the pre-flight passes at 34, batches exactly at 35 and refuses at 39', () 
   expect(at35.findings.map((finding) => [finding.resource, finding.exceededBy])).toEqual([['reviewToolCalls', 3]]);
   expect(at35.maxBehavioursPerBatch).toBe(34);
   expect(at35.batches).toEqual([34, 1]);
-  // Boundary: 12 + 64 + 307 = 383 fits the 384 run ledger; 39 needs 391.
+  // A caller can still impose a smaller ledger: 38 needs 383, while 39 needs 391.
   expect(preflightCapacity(38).verdict).toBe('batch');
   expect(preflightCapacity(38).required.runToolCalls).toBe(383);
-  const at39 = preflightCapacity(39);
+  expect(preflightCapacity(39).verdict).toBe('batch');
+  const at39 = preflightCapacity(39, { limits: { runToolCalls: 384 } });
   expect(at39.verdict).toBe('refuse');
   expect(at39.findings.map((finding) => [finding.resource, finding.exceededBy])).toContainEqual(['runToolCalls', 7]);
   // Above the plan contract's own ceiling there is no valid plan to accept.
@@ -125,12 +134,12 @@ test('the pre-flight passes at 34, batches exactly at 35 and refuses at 39', () 
 });
 
 test('the refusal and the batching recommendation carry concrete numbers', () => {
-  const refused = preflightCapacity(45);
+  const refused = preflightCapacity(45, { limits: { runToolCalls: 384 } });
   expect(refused.message).toContain('439');
   expect(refused.message).toContain('384');
   expect(refused.message).toContain('363');
   expect(refused.message).toContain('360');
-  expect(refused.message).toContain('RUN_TOOL_LIMIT');
+  expect(refused.message).toContain('调整本次运行的工具限额');
   expect(refused.unmeasuredInputs.join(' ')).toContain('BUILDER_TOOL_CALLS');
   const batched = preflightCapacity(35);
   expect(batched.message).toContain('283');
@@ -148,19 +157,21 @@ test('a plan that cannot fit even one batch is refused, with the resource named'
 
 test('shadow mode changes nothing: it reports the same assessment and never throws', () => {
   expect(CAPACITY_ENFORCEMENT).toBe('shadow');
-  const shadow = preflightCapacity(45);
+  const explicitLimits = { runToolCalls: 384 };
+  const shadow = preflightCapacity(45, { limits: explicitLimits });
   expect(shadow.mode).toBe('shadow');
   expect(shadow.enforced).toBe(false);
   // Enforce mode refuses the same plan with the same numbers; shadow returns them.
-  expect(() => preflightCapacity(45, { mode: 'enforce' })).toThrowError(RuntimeError);
+  expect(() => preflightCapacity(45, { mode: 'enforce', limits: explicitLimits })).toThrowError(RuntimeError);
   try {
-    preflightCapacity(45, { mode: 'enforce' });
+    preflightCapacity(45, { mode: 'enforce', limits: explicitLimits });
   } catch (error) {
     expect((error as RuntimeError).code).toBe('CAPACITY_REFUSED');
     expect((error as RuntimeError).message).toBe(shadow.message);
   }
   for (const count of [1, 34, 35, 45, 80, 200]) expect(() => preflightCapacity(count)).not.toThrow();
-  // No existing limit moved, and the proposal is a separate function.
+  // Assessment mutates no source constant. RUN_TOOL_LIMIT is the compatibility
+  // floor, not the effective per-plan run allowance returned by currentLimits.
   expect([REVIEW_TOOL_LIMIT, REVIEW_TOOL_LIMIT_CEILING, REVIEW_TOOL_CALLS_PER_BEHAVIOR, RUN_TOOL_LIMIT,
     REVIEW_EVIDENCE_LIMIT_BYTES, REVIEW_EVIDENCE_ENTRY_LIMIT, MAX_CHECK_ARTIFACTS, PLAN_BYTE_LIMIT, HANDOFF_BYTE_LIMIT,
     MAX_PLAN_BEHAVIORS]).toEqual([280, 600, 8, 384, 2 * 1024 * 1024, 4096, 80, 96 * 1024, 160 * 1024, 80]);
@@ -223,7 +234,7 @@ test('prose at the schema caps is the plan-byte risk, and the budget per behavio
 });
 
 test('the handoff envelope covers the worse of the two handoffs against the same cap', () => {
-  // The repair handoff carries five failed checks (data/generation.ts:1417-1418).
+  // startRepairBuilder carries five failed checks in the handoff.
   expect(envelope(45).repairHandoffBytes).toBe(51_617);
   expect(envelope(45).handoffBytes).toBe(envelope(45).repairHandoffBytes);
   expect(envelope(45).handoffBytes).toBeLessThan(0.5 * HANDOFF_BYTE_LIMIT);

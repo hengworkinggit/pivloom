@@ -146,7 +146,9 @@ test('provisional progress keeps private artifact locations after a later provid
     ]},finish_reason:null}]};
     return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({...chunk,choices:[{index:0,delta:{},finish_reason:'tool_calls'}],usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15}})}\n\ndata: [DONE]\n\n`,{headers:{'content-type':'text/event-stream'}});
   };
-  await expect(runReview({...f.input,onCheckpoint:async checkpoint=>{saved.push(checkpoint);}},f.boundaries)).rejects.toMatchObject({code:'MODEL_FAILED'});
+  const {receipt}=await runReview({...f.input,onCheckpoint:async checkpoint=>{saved.push(checkpoint);}},f.boundaries);
+  expect(receipt.result.items.map(item=>item.verdict)).toEqual(['passed','blocked']);
+  expect(receipt.verification?.incompleteReason).toBe('MODEL_FAILED');
   expect(saved).toHaveLength(1);
   expect(saved[0]).toMatchObject({provisional:true,item:{behaviorId:'B01',verdict:'passed'},completedBehaviorIds:['B01'],totalBehaviors:2});
   expect(saved[0].artifacts).toHaveLength(1);

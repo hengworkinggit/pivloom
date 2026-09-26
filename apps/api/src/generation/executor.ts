@@ -9,7 +9,7 @@ import { summarizeReviewCheckpoint } from "./review-checkpoint.js";
 import { RuntimeError, type ProbeEvent, type SandboxConfig, type SourceFile, type TrustedBuildRecord } from "../runtime/types.js";
 import { runCoordinator } from "../runtime/coordinator.js";
 import { createRunTokenBudget, type TokenUsage } from "../runtime/token-budget.js";
-import { ACCEPTED_PREVIEW_LEASE_MS, RESTORE_TIMEOUT_MS, RUN_IDLE_TIMEOUT_MS, RUN_TOOL_LIMIT } from "../runtime/budgets.js";
+import { ACCEPTED_PREVIEW_LEASE_MS, RESTORE_TIMEOUT_MS, RUN_IDLE_TIMEOUT_MS, RUN_TOOL_LIMIT, RUN_TOOL_LIMIT_CEILING, VERIFICATION_WALL_CLOCK_LIMIT_MS, generationToolLimitForPlan } from "../runtime/budgets.js";
 import { ApiFailure } from "../routes/errors.js";
 import { destroyCandidateSandbox, runCandidate, type CandidateSnapshot } from "./candidate.js";
 import { restorePreview } from "./restore.js";
@@ -67,10 +67,10 @@ export function createGenerationExecutor(options: {
   /** Notifies the durable queue that a capacity slot may have been released. */
   onTaskSettled?: (runId: string) => void;
 }, boundaries: NonNullable<Parameters<typeof runCandidate>[1]> & {
-  modelFetch?: typeof fetch; maxToolCalls?: number; settlementRetryMs?: number; cleanupSweepMs?: number;
+  modelFetch?: typeof fetch; maxToolCalls?: number; settlementRetryMs?: number; cleanupSweepMs?: number; monotonicNow?:()=>number;
 } = {}) {
-  const toolLimit = boundaries.maxToolCalls ?? RUN_TOOL_LIMIT;
-  if (!Number.isInteger(toolLimit) || toolLimit < 1 || toolLimit > RUN_TOOL_LIMIT)
+  const requestedToolLimit = boundaries.maxToolCalls ?? RUN_TOOL_LIMIT;
+  if (!Number.isInteger(requestedToolLimit) || requestedToolLimit < 1 || requestedToolLimit > RUN_TOOL_LIMIT_CEILING)
     throw new Error("Tool limit must be between 1 and the run ceiling");
   const settlementRetryMs = boundaries.settlementRetryMs ?? 3_000;
   if (!Number.isInteger(settlementRetryMs) || settlementRetryMs < 1) throw new Error("Settlement retry interval must be positive");
@@ -107,6 +107,25 @@ export function createGenerationExecutor(options: {
   }
 
   async function execute(run: StoredRun, task: Task) {
+    let toolLimit = requestedToolLimit;
+    const verificationNow=boundaries.monotonicNow??(()=>performance.now());
+    let verificationWindow:Parameters<typeof runReview>[0]['verificationWindow'];
+    const verificationAbort=new AbortController();
+    const candidateSignal=AbortSignal.any([task.controller.signal,verificationAbort.signal]);
+    let verificationTimer:ReturnType<typeof setTimeout>|undefined;
+    const verificationFailure=()=>new RuntimeError('REVIEW_TIMEOUT','本次改动从首次检查开始已超过统一验收时间上限（包含修复与复审），已完成的检查保留。');
+    const verificationExpired=()=>{
+      if(verificationWindow&&verificationNow()>=verificationWindow.deadlineAt)verificationAbort.abort('REVIEW_TIMEOUT');
+      return verificationAbort.signal.aborted;
+    };
+    const assertVerificationActive=()=>{if(verificationExpired())throw verificationFailure();};
+    const beginVerification=()=>{
+      if(verificationWindow)return;
+      const startedAt=verificationNow();
+      verificationWindow={startedAt,deadlineAt:startedAt+VERIFICATION_WALL_CLOCK_LIMIT_MS,startedAtWall:Date.now()};
+      verificationTimer=setTimeout(()=>verificationAbort.abort('REVIEW_TIMEOUT'),VERIFICATION_WALL_CLOCK_LIMIT_MS);
+      verificationTimer.unref?.();
+    };
     const watchdog = createRunProgressWatchdog(run.deadlineAt, task.controller);
     const meaningfulProgress = createMeaningfulProgressGate();
     // The candidate sandbox for the current attempt. It is written from inside
@@ -177,6 +196,7 @@ export function createGenerationExecutor(options: {
       const safeMessage = (message: string) => message.replaceAll(model.apiKey, "[REDACTED]")
         .replaceAll(sandbox.apiKey, "[REDACTED]").replace(/Bearer\s+[^\s"']+/gi, "Bearer [REDACTED]").slice(0, 2000);
       const recordEvent = (roleRunId: string) => async (event: ProbeEvent) => {
+        assertVerificationActive();
         const phases = { creating: "provision", generating: "implement", building: "build", previewing: "persist", checking: "review", ready: "persist", cleaning: "cleanup" } as const;
         if (event.type === "stage" && event.stage) await setPhase(phases[event.stage]);
         if (event.type !== "tool.start" && event.type !== "tool.end" && event.type !== "tool.output" && event.type !== "model.stream.started") return;
@@ -251,6 +271,7 @@ export function createGenerationExecutor(options: {
         return toolLimit - toolCalls;
       };
       for (;;) {
+        assertVerificationActive();
         if (attempt !== run.attempt)
           await repository.startRepairBuilder(run.ownerId, run.id, { attempt, previousRevisionId: previousRevisionId!, failedChecks });
         const role = await repository.startBuilder(run.ownerId, run.id);
@@ -258,6 +279,9 @@ export function createGenerationExecutor(options: {
         activeUsage = undefined;
         const handoff = role.input;
         if (!handoff) throw new RuntimeError("AGENT_OUTPUT_INVALID", "协调目标尚未可靠保存，未开始生成。");
+        // The same ledger pays Coordinator, every Builder and every review. A
+        // per-review scale alone starved the normal repair loop at the old 384 cap.
+        toolLimit = boundaries.maxToolCalls ?? generationToolLimitForPlan(handoff.plan.behaviors.length);
         phase = "provision";
         revisionId = randomUUID();
         resource = undefined;
@@ -268,7 +292,7 @@ export function createGenerationExecutor(options: {
           ...(reused && attempt === run.attempt ? { recheckSourceHash: reused.revision.sourceHash } : {}),
           maxToolCalls: remainingTools(),
           sandboxConfig: sandbox, modelConfig, tokenBudget,
-          signal: task.controller.signal, onEvent: recordEvent(role.id),
+          signal: candidateSignal, onEvent: recordEvent(role.id),
           async onSandbox(registration) {
             if (registration.state === "created") {
               resource = { ownerId: run.ownerId, runId: run.id, revisionId: attemptRevisionId, sandboxId: registration.sandboxId, expiresAt: registration.expiresAt };
@@ -292,6 +316,7 @@ export function createGenerationExecutor(options: {
         toolCalls += result.usage?.toolCalls ?? result.toolCalls.length;
         activeUsage = result.usage ? storedUsage(result.usage)
           : reused && attempt === run.attempt ? storedUsage(reusedSourceUsage) : undefined;
+        assertVerificationActive();
         if (result.status !== "candidate") {
           // runCandidate reports a cancelled Builder as a result after it has
           // attempted sandbox cleanup. Keep the user's stop as a cancellation;
@@ -346,18 +371,20 @@ export function createGenerationExecutor(options: {
             throw new RuntimeError("SANDBOX_LEASE_RENEW_FAILED", "候选预览续租未完整确认");
           tracked.expiresAt = expiresAt;
         };
+        beginVerification();
         await repository.queueReviewer(run.ownerId, run.id, { revisionId: candidateRevision.id });
         let reviewer = await repository.startReviewer(run.ownerId, run.id);
         let checked: Awaited<ReturnType<typeof runReview>>;
         phase = "review";
         for (;;) {
+          assertVerificationActive();
           activeRoleId = reviewer.role.id;
           activeUsage = undefined;
           checked = await runReview({
             binding: reviewer.scope, sessionId: reviewer.role.sessionId, handoff: reviewer.handoff,
             expiresAt: currentResource()?.expiresAt ?? result.preview.expiresAt,
             source: await sources.verify(candidateRevision.source), sources, artifacts,
-            sandboxConfig: sandbox, modelConfig, tokenBudget, signal: task.controller.signal,
+            sandboxConfig: sandbox, modelConfig, tokenBudget, signal: task.controller.signal,verificationWindow,
             maxToolCalls: remainingTools(),
             onEvent: recordEvent(reviewer.role.id),
             onCheckpoint: async (checkpoint) => {
@@ -448,6 +475,7 @@ export function createGenerationExecutor(options: {
         task.commitUnknown = false;
       }
       if (error instanceof RuntimeError && error.usage) activeUsage = storedUsage(error.usage);
+      if(verificationExpired()&&!task.controller.signal.aborted)error=verificationFailure();
       let confirmed = true;
       const pending = currentResource();
       if (pending && resources.has(pending.sandboxId)) confirmed = await destroy(pending).catch(() => false);
@@ -502,6 +530,7 @@ export function createGenerationExecutor(options: {
         failureDetail: classifyFailure(error),
       });
     } finally {
+      clearTimeout(verificationTimer);
       watchdog.close();
       const leftover = currentResource();
       if (!retained && !task.commitUnknown && leftover && resources.has(leftover.sandboxId)) await destroy(leftover).catch(() => {});

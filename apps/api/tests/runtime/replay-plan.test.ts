@@ -41,11 +41,72 @@ function uncompilableReason(items: ReplayUncompilable[], behaviorId: string) {
   return items.find((item) => item.behaviorId === behaviorId)?.reason;
 }
 
+test('visual setup and deterministic continuation execute in declared order before one visual judgment', async () => {
+  const fixture = formFixture(SESSION, { after: { 1: { text: 'Saved' } } });
+  const browser = { ...fixture.browser, async reset(path?: string) {
+    fixture.state.actions = 0;
+    return fixture.browser.open(path);
+  } };
+  const visual = fixturePlan({ initialState: 'fresh', evidence: 'visual', expected: 'Saved',
+    steps: [{ type: 'open', path: '/' }, { type: 'click', role: 'button', name: '添加' }, { type: 'capture' }],
+    assertions: [{ kind: 'text', text: 'Saved', negated: false }] }).behaviors[0];
+  const continued = { ...visual, id: 'B02', evidence: 'text' as const, initialState: 'continue' as const,
+    action: '刷新已保存页面', steps: [{ type: 'open' as const, path: '/' }, { type: 'reload' as const }] };
+  const plan = { ...fixturePlan(), behaviors: [visual, continued] };
+  const value = binding(randomUUID());
+  const checkpoints: Array<{ id: string; verdict: string }> = [];
+  let judged = 0;
+  const outcome = await runScriptedPlan({ binding: value, handoff: handoffFor(plan, value), browser,
+    signal: new AbortController().signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save,
+    onCheckpoint: async checkpoint => { checkpoints.push({ id: checkpoint.item.behaviorId, verdict: checkpoint.item.verdict }); },
+    visualJudge: { request: async () => {
+      judged++;
+      expect(checkpoints).toContainEqual({ id: 'B02', verdict: 'passed' });
+      return JSON.stringify({ judgements: [{ id: 'B01', verdict: 'passed', citation: 'Saved is visible in the image' }] });
+    } },
+  });
+  expect(outcome.kind).toBe('scripted');
+  if (outcome.kind !== 'scripted') return;
+  expect(outcome.result.result.items.map(item => [item.behaviorId, item.verdict])).toEqual([['B01', 'passed'], ['B02', 'passed']]);
+  expect(judged).toBe(1);
+  expect(checkpoints).toContainEqual({ id: 'B01', verdict: 'passed' });
+});
+
+test('a program exceeding the persisted screenshot-reference limit is blocked before browser work', async () => {
+  const plan = fixturePlan({ steps: [{ type: 'open', path: '/' }, { type: 'click', role: 'button', name: '添加' },
+    ...Array.from({ length: 7 }, () => ({ type: 'capture' as const }))] });
+  const fixture = formFixture(SESSION);
+  const value = binding(randomUUID());
+  const outcome = await runScriptedPlan({ binding: value, handoff: handoffFor(plan, value), browser: fixture.browser,
+    signal: new AbortController().signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save });
+  expect(outcome.kind).toBe('scripted');
+  if (outcome.kind !== 'scripted') return;
+  expect(outcome.result.result.items[0]).toMatchObject({ verdict: 'blocked', actual: expect.stringContaining('invalid-setup') });
+  expect(fixture.calls.open).toBe(0);
+  expect(fixture.calls.screenshot).toBe(0);
+});
+
+test('a continuation with unavailable visual setup is blocked instead of testing the wrong initial state', async () => {
+  const visual = fixturePlan({ initialState: 'fresh', evidence: 'visual',
+    steps: [{ type: 'open', path: '/' }, { type: 'click', role: 'button', name: '添加' }, { type: 'capture' }] }).behaviors[0];
+  const plan = { ...fixturePlan(), behaviors: [visual, { ...visual, id: 'B02', evidence: 'text' as const,
+    initialState: 'continue' as const, action: '刷新已保存页面', steps: [{ type: 'open' as const, path: '/' }, { type: 'reload' as const }] }] };
+  const fixture = formFixture(SESSION);
+  const value = binding(randomUUID());
+  const outcome = await runScriptedPlan({ binding: value, handoff: handoffFor(plan, value), browser: fixture.browser,
+    signal: new AbortController().signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save });
+  expect(outcome.kind).toBe('scripted');
+  if (outcome.kind !== 'scripted') return;
+  expect(outcome.result.result.items.map(item => item.verdict)).toEqual(['blocked', 'blocked']);
+  expect(outcome.result.result.items[1].actual).toContain('invalid-setup');
+  expect(fixture.calls.open).toBe(0);
+});
+
 test('a plan with nothing compiled falls back before any browser work', async () => {
   // The only plan that still returns to the model path: every behaviour is uncompilable and no judge is
   // supplied, so there is no deterministic or pixel verdict to keep. Nothing was driven, which is why
   // the model path can start from the untouched page.
-  const plan = fixturePlan({ steps: undefined, assertions: undefined });
+  const plan = { ...fixturePlan({ steps: undefined, assertions: undefined }), verificationMode: 'interactive' as const };
   const compiled = compilePlan(plan);
   expect(compiled.programs).toEqual([]);
   expect(compiled.uncompilable).toEqual([{ behaviorId: 'B01', reason: 'missing-steps' }]);
@@ -487,4 +548,39 @@ test('an abort that is not the budget still raises, so a cancelled run writes no
   await expect(runPrograms(compilePlan(plan), { browser: fixture.browser, behaviors: plan.behaviors,
     signal: controller.signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save,
     onProgress: async () => { controller.abort(); } })).rejects.toThrow();
+});
+
+test('visual capture retains browser capabilities needed by a scoped program', async () => {
+  const fixture = formFixture(SESSION);
+  const captures = await captureVisualPrograms({
+    behaviors: [{ ...visualOnlyPlan().behaviors[0], initialState: 'fresh',
+      assertions: [{ kind: 'target-text', target: { role: 'status', name: '总额' }, text: '12.00', match: 'exact', negated: false }] }],
+    browser: { ...fixture.browser, reset: fixture.browser.open,
+      inspect: async () => ({ observation: await fixture.browser.observe(), matches: [{ text: '12.00', value: null }] }) },
+    signal: new AbortController().signal,
+    saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save,
+  });
+  expect(captures.get('B01')?.item.verdict).toBe('passed');
+  expect(captures.get('B01')?.images).toHaveLength(1);
+});
+
+test.each(['text', 'visual'] as const)('a %s program exceeding shared evidence capacity keeps earlier verified items', async (evidence) => {
+  const plan = twoBehaviourPlan();
+  plan.behaviors[1].steps = [{ type: 'open', path: '/' },
+    ...Array.from({ length: 63 }, () => ({ type: 'press' as const, key: '1' as const }))];
+  plan.behaviors[1].assertions = [{ kind: 'text', text: 'x', negated: false }];
+  plan.behaviors.push({ ...plan.behaviors[1], id: 'B03', evidence });
+  const large = 'x'.repeat(31_000);
+  const fixture = formFixture(SESSION, { after: Object.fromEntries(
+    Array.from({ length: 130 }, (_, i) => [i + 1, i === 0 ? { text: '测试书名' } : { text: large, tree: large }])) });
+  const value=binding(randomUUID());
+  const outcome = await runScriptedPlan({ browser: fixture.browser, binding:value, handoff:handoffFor(plan,value),
+    signal: new AbortController().signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save,
+    visualJudge:{request:async()=>JSON.stringify({judgements:[{id:'B03',verdict:'passed',citation:'x'}]})} });
+  expect(outcome.kind).toBe('scripted');
+  if(outcome.kind!=='scripted')return;
+  expect(outcome.result.result.items[0].verdict).toBe('passed');
+  expect(outcome.result.result.items[1].verdict).toBe('passed');
+  expect(outcome.result.result.items[2]).toMatchObject({ verdict: 'blocked', actual: expect.stringContaining('REVIEW_EVIDENCE_TOO_LARGE') });
+  expect(outcome.result.evidence.every(event => event.behaviorId !== 'B03')).toBe(true);
 });

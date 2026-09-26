@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import type { Plan } from '@pivloom/contracts';
 import { allowsRenderOnlyEvidence } from '@pivloom/contracts';
 import { createSourceStore } from '../../src/storage/source.js';
@@ -8,6 +8,7 @@ import { createSourceSnapshot } from '../../src/runtime/snapshot.js';
 import { runReview, assertVerifiedReviewReceipt } from '../../src/generation/review.js';
 import type { ProbeEvent } from '../../src/runtime/types.js';
 import { RuntimeError } from '../../src/runtime/types.js';
+import { createRunTokenBudget } from '../../src/runtime/token-budget.js';
 import type { SandboxConnection } from '../../src/runtime/workspace.js';
 import { PNG_BASE64 } from '../runtime/replay-fixture.js';
 
@@ -205,7 +206,7 @@ function judgeCompletion(text: string) {
   const chunk = { id: 'judge-fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture',
     choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: null }] };
   return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({ ...chunk,
-    choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
+    choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } })}\n\ndata: [DONE]\n\n`,
     { headers: { 'content-type': 'text/event-stream' } });
 }
 
@@ -259,3 +260,162 @@ test('a model without verified vision never receives the captured image', async 
   expect(f.remote.modelCalls).toBe(0);
   expect(receipt.result.items[0]).toMatchObject({ behaviorId: 'B01', verdict: 'blocked' });
 }, 20_000);
+
+test('a visual program failure keeps the completed deterministic check and its evidence', async () => {
+  const plan: Plan = { ...scriptedPlan, behaviors: [scriptedPlan.behaviors[0],
+    { ...visualScriptedPlan.behaviors[0], id: 'B02',
+      steps: [{ type: 'open', path: '/' }, { type: 'click', role: 'button', name: 'Missing control' }, { type: 'capture' }] }] };
+  const f = await fixture(plan);
+  const { receipt } = await runReview(f.input, f.boundaries);
+  assertVerifiedReviewReceipt(receipt);
+  expect(receipt.markerVerified).toBe(true);
+  expect(receipt.result.items).toMatchObject([
+    { behaviorId: 'B01', verdict: 'passed' },
+    { behaviorId: 'B02', verdict: 'blocked' },
+  ]);
+  expect(receipt.result.items[1].actual).toContain('STALE_BROWSER_REF');
+  const evidenceIds = new Set(receipt.evidence.map((event) => event.id));
+  expect(receipt.result.items[0].observationEventIds.length).toBeGreaterThan(0);
+  expect(receipt.result.items[0].observationEventIds.every((id) => evidenceIds.has(id))).toBe(true);
+  expect(f.events.filter((event) => event.toolName === 'replay_fallback')).toHaveLength(0);
+}, 20_000);
+
+test('the production review resolves a predicted control name against the actual page controls', async () => {
+  const f = await fixture({ ...scriptedPlan, behaviors: [{ ...scriptedPlan.behaviors[0],
+    steps: [{ type: 'open', path: '/' }, { type: 'click', role: 'button', name: '新增书籍' }] }] });
+  f.input.modelConfig.fetch = async () => { f.remote.modelCalls++; return judgeCompletion('e2'); };
+  const budget = createRunTokenBudget(100_000);
+  f.input.tokenBudget = budget;
+  const { receipt, usage } = await runReview(f.input, f.boundaries);
+  expect(receipt.result.items[0].verdict).toBe('passed');
+  expect(f.remote.modelCalls).toBe(1);
+  expect(f.remote.clicks).toBe(1);
+  expect(usage).toMatchObject({ modelCalls: 1, input: 10, output: 5, total: 15 });
+  expect(budget.snapshot()).toMatchObject({ requests: 1, pendingRequests: 0, accountedTokens: 15 });
+}, 20_000);
+
+test('one production deadline retains completed checks and marks the remaining scope not run', async () => {
+  const f = await fixture({ ...scriptedPlan, behaviors: [scriptedPlan.behaviors[0],
+    { ...scriptedPlan.behaviors[0], id: 'B02' }] });
+  let now = 0;
+  f.input.onEvent = async (event) => {
+    f.events.push(event);
+    if (event.toolName === 'browser_steps' && event.type === 'tool.end') now = 570_001;
+  };
+  const { receipt, usage } = await runReview(f.input, { ...f.boundaries, monotonicNow: () => now });
+  expect(receipt.result.items).toMatchObject([
+    { behaviorId: 'B01', verdict: 'passed' },
+    { behaviorId: 'B02', verdict: 'blocked', actual: expect.stringContaining('REVIEW_TIMEOUT') },
+  ]);
+  expect(receipt.markerVerified).toBe(true);
+  expect(receipt.evidence.length).toBeGreaterThan(0);
+  expect(f.remote.clicks).toBe(1);
+  expect(usage?.elapsedMs).toBe(570_001);
+}, 20_000);
+
+test('a visual program without initial observation is rejected before browser or model work', async () => {
+  const f = await fixture({ ...visualScriptedPlan, behaviors: [{ ...visualScriptedPlan.behaviors[0],
+    steps: [{ type: 'resize', width: 390, height: 844 }, { type: 'capture' }] }] });
+  const { receipt } = await runReview(f.input, f.boundaries);
+  expect(receipt.result.items[0]).toMatchObject({ verdict: 'blocked', actual: expect.stringContaining('invalid-setup') });
+  expect(f.remote.snapshots).toBe(0);
+  expect(f.remote.modelCalls).toBe(0);
+  expect(f.events.filter((event) => event.toolName === 'replay_fallback')).toHaveLength(0);
+}, 20_000);
+
+test('visual inference gets only the remaining shared time and retains earlier checks when it stalls', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+  try {
+    const f = await fixture({ ...scriptedPlan, behaviors: [scriptedPlan.behaviors[0],
+      { ...visualScriptedPlan.behaviors[0], id: 'B02', assertions: [{ kind: 'text', text: '测试书名', negated: false }] }] });
+    let advanced = false;
+    f.input.onEvent = async (event) => {
+      // Spend preparation/execution time once. Visual capture now correctly emits
+      // its own progress event and must not charge the fixture's elapsed time twice.
+      if (!advanced && event.toolName === 'browser_steps' && event.type === 'tool.end') {
+        advanced = true;
+        vi.advanceTimersByTime(560_000);
+      }
+    };
+    let calls = 0;
+    f.input.modelConfig.fetch = async (_url, init) => {
+      calls++;
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+      });
+    };
+    const pending = runReview(f.input, f.boundaries);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls).toBe(1);
+    await vi.advanceTimersByTimeAsync(10_001);
+    const { receipt, usage } = await pending;
+    expect(receipt.result.items.map(item => item.verdict)).toEqual(['passed', 'blocked']);
+    expect(receipt.verification?.timedOut).toBe(true);
+    expect(usage?.modelCalls).toBe(1);
+    expect(usage?.elapsedMs).toBeLessThanOrEqual(570_001);
+  } finally { vi.useRealTimers(); }
+}, 20_000);
+
+test('the shared deadline also bounds a stalled sandbox connection before any checks start', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+  try {
+    const f = await fixture(scriptedPlan);
+    f.boundaries.sandboxConnector.connect = () => new Promise(() => {});
+    const pending = runReview(f.input, f.boundaries);
+    const completion = pending.then(() => true, () => true);
+    await vi.advanceTimersByTimeAsync(570_001);
+    expect(await Promise.race([completion, Promise.resolve(false)])).toBe(true);
+    const { receipt } = await pending;
+    expect(receipt.verification?.timedOut).toBe(true);
+    expect(receipt.result.items[0].verdict).toBe('blocked');
+    expect(receipt.result.items[0].actual).toContain('验收时间上限');
+    expect(f.remote.modelCalls).toBe(0);
+  } finally { vi.useRealTimers(); }
+});
+
+test('user cancellation after a completed item returns no review receipt', async () => {
+  const f = await fixture({ ...scriptedPlan, behaviors: [scriptedPlan.behaviors[0],
+    { ...scriptedPlan.behaviors[0], id: 'B02' }] });
+  const controller = new AbortController();
+  f.input.signal = controller.signal;
+  f.input.onEvent = async (event) => {
+    if (event.toolName === 'browser_steps' && event.type === 'tool.end') controller.abort('CANCELLED');
+  };
+  await expect(runReview(f.input, f.boundaries)).rejects.toMatchObject({code:'CANCELLED'});
+  expect(f.remote.clicks).toBe(1);
+});
+
+test('an unpredictable screenshot-store failure preserves the earlier item within declared capacity', async () => {
+  // Both programs are statically admissible (one capture each). A known
+  // 124-capture plan belongs in admission, not a runtime partial-failure test.
+  const behavior = scriptedPlan.behaviors[0];
+  const f=await fixture({...scriptedPlan,behaviors:[behavior,{...behavior,id:'B02'}]});
+  const save = f.input.artifacts.save.bind(f.input.artifacts);
+  let saves = 0;
+  f.input.artifacts = { ...f.input.artifacts, save: async (...args) => {
+    if (++saves === 2) throw new RuntimeError('ARTIFACT_UNAVAILABLE', 'Unexpected storage outage');
+    return save(...args);
+  } };
+  const {receipt}=await runReview(f.input,f.boundaries);
+  expect(receipt.result.items[0].verdict).toBe('passed');
+  expect(receipt.result.items[1]).toMatchObject({verdict:'blocked',actual:expect.stringContaining('ARTIFACT_UNAVAILABLE')});
+  expect(receipt.artifacts).toHaveLength(1);
+  expect(receipt.result.items[0].screenshotIds).toEqual([receipt.artifacts[0].id]);
+  assertVerifiedReviewReceipt(receipt);
+});
+
+test('the hard deadline remains armed during the last ownership check after Chrome cleanup', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+  try {
+    const f=await fixture(scriptedPlan);
+    const connection=await f.boundaries.sandboxConnector.connect();
+    let released=false;
+    connection.close=async()=>{released=true;};
+    f.input.assertActive=async()=>{if(released)await new Promise(()=>{});};
+    const pending=runReview(f.input,f.boundaries);
+    const completion=pending.then(()=>true,()=>true);
+    await vi.advanceTimersByTimeAsync(600_001);
+    expect(await Promise.race([completion,Promise.resolve(false)])).toBe(true);
+    await expect(pending).rejects.toMatchObject({code:'REVIEW_TIMEOUT'});
+  }finally{vi.useRealTimers();}
+});

@@ -19,6 +19,8 @@ export interface SandboxConfig {
   image: string;
   lifetimeMs?: number;
   previewBaseUrl?: string;
+  /** Enables the installed Node/agent-browser program transport; legacy adapters may leave it unset. */
+  browserPrograms?: boolean;
 }
 
 export interface ProbeEvent {

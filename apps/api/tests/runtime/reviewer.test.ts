@@ -51,6 +51,51 @@ function setup(turn: (request: { messages: Array<{ role: string; content: string
   return { input, stats:()=>({calls,actions,closes}) };
 }
 const report=(ids:string[])=>({revisionId,sourceHash,items:[{behaviorId:'B01',verdict:'passed',expected:'出现书名',actual:'已出现',observationEventIds:ids,screenshotIds:[],reproSteps:['点击添加']}],summary:'通过'});
+
+test('interactive reset restores scenario setup but cannot substitute for a real business action',async()=>{
+  let resetObservation: { observationId: string; reportEvidenceId: string } | undefined;
+  let resetCalls=0;
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    let data;
+    try { data=last?JSON.parse(last.content):null; }
+    catch { data={error:last?.content}; }
+    if(n===1)return {name:'browser_reset',args:{path:'/'}};
+    if(n===2){resetObservation=data;return {name:'submit_review',args:report([data.reportEvidenceId])};}
+    if(n===3){
+      expect(JSON.stringify(data)).toContain('ACTION_EVIDENCE_REQUIRED');
+      return {name:'browser_click',args:{behaviorId:'B01',observationId:resetObservation!.observationId,ref:'e1'}};
+    }
+    return {name:'submit_review',args:report([data.reportEvidenceId])};
+  });
+  const browser={...f.input.browser,reset:async(path?:string)=>{resetCalls++;return f.input.browser.open(path);}};
+  const result=await runReviewer({...f.input,browser});
+  expect(resetCalls).toBe(1);
+  expect(result.result.items[0].verdict).toBe('passed');
+  expect(result.evidence[0]).toMatchObject({action:null,behaviorId:null,text:'空书单'});
+  expect(result.evidence[1]).toMatchObject({action:'click',behaviorId:'B01',text:'测试书名'});
+  expect(f.stats()).toEqual({calls:4,actions:1,closes:1});
+});
+
+test.each(['https://example.com/','//example.com/','/\\example.com'])('interactive reset refuses an external or malformed path before adapter I/O: %s',async(path)=>{
+  const resetPaths:Array<string|undefined>=[];
+  const f=setup((request,n)=>{
+    const last=request.messages.filter(message=>message.role==='tool').at(-1);
+    if(n===1)return {name:'browser_reset',args:{path}};
+    if(n===2){
+      expect(last?.content).toContain('INVALID_BROWSER_ARGUMENTS');
+      return {name:'browser_reset',args:{}};
+    }
+    const data=JSON.parse(last!.content);
+    if(n===3)return {name:'browser_click',args:{behaviorId:'B01',observationId:data.observationId,ref:'e1'}};
+    return {name:'submit_review',args:report([data.reportEvidenceId])};
+  });
+  const browser={...f.input.browser,reset:async(value?:string)=>{resetPaths.push(value);return f.input.browser.open(value);}};
+  const result=await runReviewer({...f.input,browser});
+  expect(result.result.items[0].verdict).toBe('passed');
+  expect(resetPaths).toEqual(['/']);
+  expect(f.stats().actions).toBe(1);
+});
 test('a validated provisional item remains saved when a later provider request fails',async()=>{
   const saved:ReviewCheckpoint[]=[];
   let sawImage=false,requests=0;

@@ -1,0 +1,8 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Verification calculator fixture</title>
+<main><section aria-label="Calculator"><output aria-label="Expression" id="expression"></output><output aria-label="Result" id="result">0</output><button id="clear">Clear</button><button id="equals">Equals</button><button id="two">2</button></section><ul aria-label="History" id="history"></ul></main>
+<script>
+let expression='',history=JSON.parse(localStorage.getItem('history')||'[]');
+function paint(){document.querySelector('#expression').textContent=expression;document.querySelector('#history').replaceChildren(...history.map(x=>{const li=document.createElement('li');li.textContent=x;return li}));localStorage.setItem('history',JSON.stringify(history));}
+function key(k){if(k==='Escape'){expression='';document.querySelector('#result').textContent='0';}else if(k==='Enter'){if(!/^\d+\+\d+$/.test(expression))return;const [a,b]=expression.split('+').map(Number);const result=String(a+b);document.querySelector('#result').textContent=result;history.push(expression+' = '+result);history=history.slice(-20);}else if(/^[\d+]$/.test(k))expression+=k;paint();}
+document.addEventListener('keydown',e=>key(e.key));document.querySelector('#clear').onclick=()=>key('Escape');document.querySelector('#equals').onclick=()=>key('Enter');document.querySelector('#two').onclick=()=>key('2');paint();
+</script></html>
