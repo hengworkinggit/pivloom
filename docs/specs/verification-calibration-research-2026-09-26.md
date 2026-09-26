@@ -128,3 +128,77 @@ browser-use 用 EXACT → STABLE → XPATH → AX_NAME → ATTRIBUTE 五级，�
 - 我们的 `replay_fallback` 事件方向是对的（逐条状态），但**应当成为可聚合的一等数据**，并据此算出"确定性覆盖率"，而不是只报一次运行的墙钟；
 - 我们的 fail-closed 立场**有同类背书，不必动摇**；要改的仍是**作用域**（单动作 vs 整页）与**降级路径**（阶梯 vs 二元）；
 - browser-use 官方承认 **agent 自报的 `is_successful` 需要独立验证**——这是"确定性层 + 独立判定"存在的直接理由，也是我们 A 层价值的同类佐证。
+
+## 九、Playwright × Testing Library：定位与"多匹配"的官方立场（第三波调研）
+
+**这一节纠正了本调研早前的一处暗示，并给出了"通用应用"的正面解法。**
+
+### 九.1 `name` 匹配语义（原文）
+
+> "By default, matching is case-insensitive and searches for a substring, use `exact` to control this behavior."
+> `exact`："case-sensitive and whole-string. Default to false. Ignored when the value is a regular expression. Note that exact match still trims whitespace."
+
+https://playwright.dev/docs/api/class-locator#locator-get-by-role
+
+**含义**：**我们实现里的"名称必须逐字相同"比业界默认严得多**。业界默认是"**不区分大小写 + 子串**"，需要精确时才显式开 `exact`。我们把这个开关**焊死在最严的一端**。
+
+### 九.2 Strict mode：唯一性要求是对的——**我们这部分没错**
+
+匹配 >1 时，任何"隐含单一目标"的操作**抛异常**（`count()` 这类多元素操作不抛）。官方消歧手段：`locator.filter()`（`hasText`/`has`/`hasNot`/`visible`）、locator 链式缩小作用域、`first()/last()/nth()`。
+
+**官方明确不推荐 first/last/nth**：
+
+> "These methods are not recommended because when your page changes, Playwright may click on an element you did not intend. Instead, follow best practices above to create a locator that uniquely identifies the target element."
+
+https://playwright.dev/docs/locators#strictness
+
+**因此**：
+- 我们要求"恰好唯一匹配"——**与 Playwright strict mode 一致，不是错的设计**（本调研早前把它一并归入"过严"是不准确的，此处更正）；
+- 真正不同的是**作用域**：Playwright 是**该动作**失败（TimeoutError），我们是**整页**否决；
+- 官方反对的正是"随便挑一个"（first/nth），**这为"宁可失败也不要猜"提供了第一方背书**（与原则 7 呼应）。
+
+### 九.3 "同一角色同名多行列表"（每行一个「删除」）——官方标准解法
+
+**先缩小作用域，再定位控件**：
+
+```js
+page.getByRole('row').filter({ hasText: 'Product 2' })
+    .getByRole('button', { name: 'Add to cart' })
+```
+
+https://playwright.dev/docs/locators#filtering-locators
+
+**这一条直接回答了我们卡住的那个设计问题**：当应用里有多个同名按钮（历史记录每行一个「删除」），业界的做法**不是**要求应用把名字改成全局唯一，而是**让定位表达式携带作用域**（哪一行/哪一条）后再匹配控件。
+
+**由此，本会话中我替产品做的那个决定是反的**：协调者问"「删除」指哪个按钮"，我答"就叫「删除」、不要带条目文本"——**那是让应用迁就验收机制**。正确方向是**让步骤能表达作用域**（例如"历史记录第 N 条里的删除按钮"），应用想怎么写名字就怎么写。
+
+### 九.4 定位器优先级
+
+- **Playwright 没有**显式的 role > label > placeholder > text > testid 排序；只给两处信号：① 优先 user-facing 属性与显式契约，`getByRole` 第一（"the closest way to how users and assistive technology perceive the page"，遵循 W3C ARIA）；② testid 最后（"not user facing"），仅在 role/文本不可用时使用，但又承认它 "most resilient"。
+- **Testing Library 有**明确排序：`getByRole` > `getByLabelText` > `getByPlaceholderText` > `getByText` > `getByDisplayValue` > `getByAltText`/`getByTitle` > `getByTestId`；testid 仅用于"无法用 role/文本匹配，或文本是动态的"。
+
+https://playwright.dev/docs/locators#locate-by-role 、https://playwright.dev/docs/locators#locate-by-test-id 、https://testing-library.com/docs/queries/about/#priority
+
+### 九.5 自动等待与重试
+
+动作前做 actionability 检查（**须恰好解析到一个**、visible、stable、receives events、enabled）；**超时即抛 TimeoutError，不自动重试**。自动重试的是 web-first 断言（`expect(...)`，默认 5s 后 fail）；`expect(...).toPass()` 默认 timeout 为 **0**（须显式传上限）；测试级 `retries` 默认不重试。
+
+https://playwright.dev/docs/actionability 、https://playwright.dev/docs/test-assertions#auto-retrying-assertions 、https://playwright.dev/docs/test-retries
+
+**含义**：**"失败就失败、由外层决定是否重试"是业界默认**，而不是无限自愈。我们的"只重跑受影响路径"与之同向。
+
+### 九.6 a11y 树快照的能力与限制
+
+`locator.ariaSnapshot()`（v1.49）输出 a11y 树的 YAML；`expect(...).toMatchAriaSnapshot()` 比较**大小写敏感、顺序敏感**，默认 `/children: contain` 子集匹配，可设 `equal`/`deep-equal`，支持正则与部分匹配。已知限制：`ariaSnapshotJSON` **不是稳定契约**（free-form JSON）、`mode:"ai"` 时不等待匹配元素、无匹配即抛错、涉及 iframe；**大树用 `depth` 限制深度**。
+
+https://playwright.dev/docs/aria-snapshots 、https://playwright.dev/docs/api/class-locator#locator-aria-snapshot
+
+**关于"大树/分页时怎么办"：未找到官方依据**（官方文档未说明）。
+
+### 九.7 本节新增的两条原则
+
+**原则 9：定位表达式应当能表达"作用域"，而不是要求应用把名字改成全局唯一。**
+行业标准是"先定位容器（行/条目），再在其中定位控件"；这既解决同名多个的问题，也避免为了验收而修改产品行为。
+
+**原则 10：名称匹配的宽严应当是显式开关，默认应贴近业界（不区分大小写 + 子串）。**
+我们把"逐字精确"焊死为唯一选项，比 Playwright 默认严得多；`exact` 式的显式开关更合适。
