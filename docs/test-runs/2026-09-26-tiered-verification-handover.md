@@ -152,3 +152,13 @@ Error: Review fixtures require an isolated e2e database
 **要真正验证它们**，需要一个隔离的 `pivloom_e2e_test_*` 数据库的准备脚本或流程；本检出中未找到（早前交接信息提到的 `tests/testing/prepare-ci-database.mjs` 在此工作树不存在）。**在这一步补上之前，发布门禁的契约验证属于"未运行"，不是"通过"。**
 
 同样地，A/C 层产出的证据**是否真能通过真实的 `finishReview`**（DB 门 + artifact 存储 + RLS），目前只由桩测试**逐条断言那些条件**来覆盖，**不是真的走了一遍 `finishReview`**——执行者已如实说明过这一点，我确认属实。
+
+### 9.1 尝试补齐这一缺口：失败，且失败原因不可见
+
+我尝试建立隔离库以真正运行那 9 个门禁契约测试：
+
+1. `CREATE DATABASE pivloom_e2e_test_review` —— **成功**；
+2. 用改写后的环境文件（把 `DATABASE_URL` 与 `MIGRATION_DATABASE_URL` 都指向该库）运行 `manage.ts migrate` —— **失败**，且只得到一句刻意通用的 `维护操作失败；未输出连接或凭据详情。`；
+3. 因此测试仍**未能运行**；已把该库 `DROP` 掉，不在环境里留垃圾。
+
+**结论**：补齐这一缺口需要一套**有文档的隔离 e2e 库准备流程**（早前交接信息提到的脚本在本工作树不存在），**不是临时敲几条命令能补上的**。我不把它记为"通过"，也不假装它被绕过。
