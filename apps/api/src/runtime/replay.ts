@@ -104,6 +104,19 @@ export interface ReplayBrowser {
   logs(): Promise<Record<string, unknown>>;
   screenshot(): Promise<{ base64: string; mimeType: 'image/png'; sha256: string }>;
 }
+/**
+ * Playwright's default for `getByRole(name)`: trimmed and case-insensitive, matching a substring unless
+ * `exact` is asked for. Ours demanded character-for-character equality, which failed a plan that clicked a
+ * button named "=" against an application that names it something else, and could not reach
+ * "删除 2+3 = 5" from "删除". Substring matching does not weaken uniqueness - the caller still requires
+ * exactly one match - so twenty identically named buttons remain an error, as they should.
+ */
+const matchesAccessibleName = (actual: string | undefined, wanted: string): boolean => {
+  if (actual === undefined) return false;
+  const want = wanted.trim().toLowerCase();
+  return want.length > 0 && actual.trim().toLowerCase().includes(want);
+};
+
 const REF = /^e[0-9]{1,6}$/;
 /** Same bound as the reviewer's observation record: one step must not persist an
  * unbounded accessibility snapshot into the check's evidence. */
@@ -173,7 +186,7 @@ function resolveControl(
   index: number,
 ): string {
   const matches = Object.entries(refs)
-    .filter(([key, target]) => REF.test(key) && target.role === step.role && target.name === step.name)
+    .filter(([key, target]) => REF.test(key) && target.role === step.role && matchesAccessibleName(target.name, step.name))
     .map(([key]) => key);
   if (matches.length !== 1)
     throw new RuntimeError('STALE_BROWSER_REF',
