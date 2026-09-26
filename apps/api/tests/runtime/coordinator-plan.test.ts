@@ -19,6 +19,7 @@ test('composition preserves old requirements and programs, and the delta cannot 
     assertions: [{ kind: 'target-text', target: { role: 'status', name: 'Original result' }, text: 'Original outcome 1', match: 'exact', negated: false }] };
   const input = CoordinatorIncrementSchema.parse({ changeSummary: 'Add a record', additions: [{ groupId: 'G4', requirement }] });
   const next = composeCoordinatorIncrement(input, previous, 'Add a record');
+  expect(next.verificationMode).toBe('programs');
   expect(next.behaviors.slice(0, 5)).toEqual(previous.behaviors);
   expect(next.groups.map(group => [group.id, group.title])).toEqual(previous.groups.map(group => [group.id, group.title]));
   expect(next.assumptions).toEqual(previous.assumptions);
@@ -27,6 +28,15 @@ test('composition preserves old requirements and programs, and the delta cannot 
   expect(() => composeCoordinatorIncrement({ ...input, verificationMode: 'interactive' }, previous, 'Add a record')).toThrow();
   next.behaviors[0].expected = 'Mutated output object';
   expect(previous.behaviors[0].expected).toBe('Original outcome 1');
+});
+
+test('an increment preserves an explicit existing interactive mode when the model omits it', () => {
+  const previous = baseline();
+  previous.verificationMode = 'interactive';
+  const next = composeCoordinatorIncrement(CoordinatorIncrementSchema.parse({ changeSummary: 'Add a record',
+    additions: [{ groupId: 'G4', requirement }] }), previous, 'Add a record');
+  expect(next.verificationMode).toBe('interactive');
+  expect(next.behaviors.slice(0, 5)).toEqual(previous.behaviors);
 });
 
 test('an explicit replacement stays in its old group and cannot change the required flag or lack user authorization', () => {

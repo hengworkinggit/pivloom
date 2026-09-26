@@ -18,7 +18,8 @@ export type CoordinatorIncrement = z.infer<typeof CoordinatorIncrementSchema>;
 /** Full-plan compatibility: fill only omitted fields, never correct an explicit rewrite. */
 export function inheritCoordinatorPrograms(plan: GroupedPlan, previous: Plan | null): GroupedPlan {
   const byId = new Map(previous?.behaviors.map(behavior => [behavior.id, behavior]));
-  return { ...plan, behaviors: plan.behaviors.map(behavior => {
+  return { ...plan, verificationMode: plan.verificationMode ?? previous?.verificationMode ?? 'programs',
+    behaviors: plan.behaviors.map(behavior => {
     const prior = byId.get(behavior.id);
     if (!prior) return behavior;
     return { ...behavior,
@@ -36,7 +37,7 @@ export function composeCoordinatorIncrement(increment: CoordinatorIncrement, pre
     throw new Error('submit_increment requires a previous five-group plan; use submit_plan for an initial or legacy flat plan.');
   const next = structuredClone(previous);
   next.changeSummary = increment.changeSummary;
-  if (increment.verificationMode !== undefined) next.verificationMode = increment.verificationMode;
+  next.verificationMode = increment.verificationMode ?? previous.verificationMode ?? 'programs';
   const used = new Set([...previous.behaviors.map(behavior => behavior.id),
     ...previous.replacements.flatMap(replacement => [replacement.oldBehaviorId, replacement.newBehaviorId])]);
   const allocateId = () => {

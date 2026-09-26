@@ -246,7 +246,7 @@ test("Coordinator advertises only its planning tools and cannot execute host she
       assertActive: async () => {}, onEvent: (event) => { events.push(event); },
       onDecision: async (decision, metadata) => { decisions.push({ decision, metadata }); },
     });
-    expect(result.decision).toEqual({ kind: "plan", plan });
+    expect(result.decision).toEqual({ kind: "plan", plan: { ...plan, verificationMode: "programs" } });
     expect(result.sessionId).toBe(sessionId);
     expect(decisions).toHaveLength(1);
     for (const request of model.requests) expect(request.tools.map((tool) => tool.function.name).sort()).toEqual(["project_summary", "request_clarification", "submit_increment", "submit_plan"]);
@@ -295,7 +295,7 @@ test("a plan whose schemaVersion is wrong or missing is accepted without spendin
   });
   // The service owns the plan schema version, so the persisted plan is well
   // formed and the real plan fields are untouched.
-  expect(accepted).toEqual([{ kind: "plan", plan }]);
+  expect(accepted).toEqual([{ kind: "plan", plan: { ...plan, verificationMode: "programs" } }]);
   expect(result.toolCalls.map((call) => call.success)).toEqual([true]);
   expect(model.requests).toHaveLength(1);
 });
@@ -311,7 +311,7 @@ test("a legacy flat plan is readable history but cannot become a new Coordinator
     assertActive: async () => {}, onDecision: async (decision) => { accepted.push(decision); },
   });
   expect(result.toolCalls.map((call) => call.success)).toEqual([false, true]);
-  expect(accepted).toEqual([{ kind: "plan", plan }]);
+  expect(accepted).toEqual([{ kind: "plan", plan: { ...plan, verificationMode: "programs" } }]);
 });
 
 test("one invalid structured submission can be corrected before the only handoff transaction", async () => {
@@ -325,7 +325,7 @@ test("one invalid structured submission can be corrected before the only handoff
     modelConfig: model.modelConfig, signal: new AbortController().signal, context: context(),
     assertActive: async () => {}, onDecision: async (decision) => { accepted.push(decision); },
   });
-  expect(accepted).toEqual([{ kind: "plan", plan }]);
+  expect(accepted).toEqual([{ kind: "plan", plan: { ...plan, verificationMode: "programs" } }]);
   expect(result.toolCalls.map((call) => call.success)).toEqual([false, true]);
   expect(model.requests).toHaveLength(2);
 });
@@ -360,7 +360,7 @@ test("multiple decision calls in one model turn cannot commit duplicate or confl
     modelConfig: model.modelConfig, signal: new AbortController().signal, context: context(),
     assertActive: async () => {}, onDecision: async (decision) => { accepted.push(decision); },
   });
-  expect(accepted).toEqual([{ kind: "plan", plan }]);
+  expect(accepted).toEqual([{ kind: "plan", plan: { ...plan, verificationMode: "programs" } }]);
   expect(result.toolCalls.map((call) => call.success)).toEqual([true, false]);
   expect(model.requests).toHaveLength(1);
 });
@@ -423,7 +423,7 @@ test("a modification that drops one previous required behavior gets one correcti
     context: { ...context(), baseRevisionId, previousPlan: plan },
     assertActive: async () => {}, onDecision: async (decision) => { accepted.push(decision); },
   });
-  expect(accepted).toEqual([{ kind: "plan", plan: corrected }]);
+  expect(accepted).toEqual([{ kind: "plan", plan: { ...corrected, verificationMode: "programs" } }]);
   expect(result.toolCalls.map((call) => call.success)).toEqual([false, true]);
   expect(model.requests).toHaveLength(2);
 });
@@ -439,7 +439,7 @@ test("a new grouped plan can increment an accepted historical flat plan without 
     context: { ...context(), baseRevisionId, previousPlan: legacyBase },
     assertActive: async () => {}, onDecision: async () => {},
   });
-  expect(result.decision).toEqual({ kind: "plan", plan });
+  expect(result.decision).toEqual({ kind: "plan", plan: { ...plan, verificationMode: "programs" } });
   expect(result.toolCalls.map((call) => call.success)).toEqual([true]);
   expect(model.requests).toHaveLength(1);
   expect(preservesPreviousBehavior(plan, legacyBase)).toBe(true);
@@ -525,7 +525,7 @@ test("Coordinator rejects an incomplete requirement while leaving browser compil
     assertActive: async () => {}, onDecision: async () => {},
   });
   expect(result.toolCalls.map(call => call.success)).toEqual([false, true]);
-  expect(result.decision).toEqual({ kind: 'plan', plan: requirements });
+  expect(result.decision).toEqual({ kind: 'plan', plan: { ...requirements, verificationMode: 'programs' } });
 });
 
 test('Coordinator reuses omitted inherited programs and identifies an attempted assertion change', async () => {
@@ -543,7 +543,7 @@ test('Coordinator reuses omitted inherited programs and identifies an attempted 
     assertActive: async () => {}, onDecision: async () => {},
   });
   expect(result.toolCalls.map(call => call.success)).toEqual([false, true]);
-  expect(result.decision).toEqual({ kind: 'plan', plan });
+  expect(result.decision).toEqual({ kind: 'plan', plan: { ...plan, verificationMode: 'programs' } });
   expect(events.some(event => event.message.includes('B01.assertions'))).toBe(true);
 });
 
@@ -558,7 +558,7 @@ test.each([undefined, 'programs', 'interactive'] as const)('prose requirements c
     assertActive: async () => {}, onDecision: async () => {},
   });
   expect(result.toolCalls.map(call => call.success)).toEqual([true]);
-  expect(result.decision).toEqual({ kind: 'plan', plan: proposal });
+  expect(result.decision).toEqual({ kind: 'plan', plan: { ...proposal, verificationMode: mode ?? 'programs' } });
   expect(JSON.stringify(model.requests[0].tools)).toContain('verificationMode');
   expect(JSON.stringify(model.requests[0].tools)).toContain('interactive');
 });
@@ -576,7 +576,7 @@ test('Coordinator cannot switch to interactive to erase inherited executable cri
     assertActive: async () => {}, onDecision: async () => {},
   });
   expect(result.toolCalls.map(call => call.success)).toEqual([false, true]);
-  expect(result.decision).toEqual({ kind: 'plan', plan });
+  expect(result.decision).toEqual({ kind: 'plan', plan: { ...plan, verificationMode: 'programs' } });
 });
 
 test('a small increment composes 38 saved prose requirements without asking the model to rewrite or compile them', async () => {
@@ -597,6 +597,8 @@ test('a small increment composes 38 saved prose requirements without asking the 
   });
   expect(result.decision.kind).toBe('plan');
   if (result.decision.kind !== 'plan') return;
+  expect(result.decision.plan.verificationMode).toBe('programs');
+  expect(previousPlan.verificationMode).toBeUndefined(); // Stored legacy input is not migrated in place.
   expect(result.decision.plan.behaviors.slice(0, 38)).toEqual(previousPlan.behaviors);
   expect(result.decision.plan.behaviors[38]).toEqual({ id: 'B39', ...requirement });
   expect(result.decision.plan.schemaVersion).toBe(2);
@@ -608,4 +610,21 @@ test('a small increment composes 38 saved prose requirements without asking the 
   const declaration = model.requests[0].tools.find(tool => tool.function.name === 'submit_increment');
   expect(declaration?.function.parameters.properties).toHaveProperty('additions');
   expect(JSON.stringify(increment)).not.toContain('原有结果');
+});
+
+test('an omitted full-plan mode preserves interactive and revalidates inherited mode against new program fields', async () => {
+  const prose = structuredClone(plan);
+  for (const behavior of prose.behaviors)
+    for (const field of ['steps', 'assertions', 'initialState']) Reflect.deleteProperty(behavior, field);
+  const previousPlan: GroupedPlan = { ...prose, verificationMode: 'interactive' };
+  const baseRevisionId = randomUUID();
+  // The first proposal is valid before its omitted mode is inherited. After inheritance,
+  // interactive + programs is invalid and must take the normal correction path.
+  const model = provider([[{ name: 'submit_plan', args: { plan } }], [{ name: 'submit_plan', args: { plan: prose } }]]);
+  const result = await runCoordinator({ runId: randomUUID(), roleRunId: randomUUID(), sessionId: randomUUID(), attempt: 0,
+    baseRevisionId, modelConfig: model.modelConfig, signal: new AbortController().signal,
+    context: { ...context(), baseRevisionId, previousPlan }, assertActive: async () => {}, onDecision: async () => {},
+  });
+  expect(result.toolCalls.map(call => call.success)).toEqual([false, true]);
+  expect(result.decision).toEqual({ kind: 'plan', plan: previousPlan });
 });

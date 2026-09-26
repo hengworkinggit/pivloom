@@ -286,7 +286,10 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
             if (!parsed.success) throw await reject(schemaIssues(parsed.error.issues));
             if (JSON.stringify(parsed.data).includes(input.modelConfig.apiKey)) throw await reject("input:protected_value");
             if ("plan" in parsed.data) {
-              parsed.data.plan = inheritCoordinatorPrograms(parsed.data.plan, context.data.previousPlan);
+              // Inheriting a mode or saved program can invalidate a previously valid proposal.
+              const inherited = GroupedPlanSchema.safeParse(inheritCoordinatorPrograms(parsed.data.plan, context.data.previousPlan));
+              if (!inherited.success) throw await reject(schemaIssues(inherited.error.issues));
+              parsed.data.plan = inherited.data;
               if (!preservesPreviousBehavior(parsed.data.plan, context.data.previousPlan, context.data.requestText))
                 throw await reject(`plan.behaviors:previous_behavior_required——${describeIncrementGap(parsed.data.plan, context.data.previousPlan)}`);
             }
