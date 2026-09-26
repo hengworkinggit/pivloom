@@ -525,14 +525,18 @@ test("a changed page invalidates old refs and a failed post-action observation n
 test("large observations declare truncation and expose only bounded valid refs visible in their tree", async () => {
   const f = await fixture();
   try {
-    f.state.text = "界".repeat(13000);
+    // The fixture is scaled past the bounds rather than the assertions relaxed: the guarantees under
+    // test are that an oversized observation is declared truncated, that refs stay bounded, and that a
+    // ref the tree never mentioned is dropped. Only the constants moved, to 32,000 characters and 400
+    // refs, which is what made a calculator page drivable at all.
+    f.state.text = "界".repeat(33000);
     f.state.tree =
       Array.from(
-        { length: 120 },
+        { length: 420 },
         (_, index) => `- button "${index}" [ref=e${index + 1}]`,
-      ).join("\n") + "x".repeat(13000);
+      ).join("\n") + "x".repeat(33000);
     f.state.refs = Object.fromEntries(
-      Array.from({ length: 120 }, (_, index) => [
+      Array.from({ length: 420 }, (_, index) => [
         `e${index + 1}`,
         { role: "button", name: "n".repeat(500) },
       ]),
@@ -540,9 +544,9 @@ test("large observations declare truncation and expose only bounded valid refs v
     f.state.refs.e999 = { role: "button", name: "not in the observed tree" };
     const observed = await f.browser.open();
     expect(observed.truncated).toBe(true);
-    expect(observed.text).toBe("界".repeat(12000));
-    expect(observed.tree.length).toBeLessThanOrEqual(12000);
-    expect(Object.keys(observed.refs)).toHaveLength(100);
+    expect(observed.text).toBe("界".repeat(32000));
+    expect(observed.tree.length).toBeLessThanOrEqual(32000);
+    expect(Object.keys(observed.refs)).toHaveLength(400);
     expect(observed.refs.e1.name?.length).toBeLessThanOrEqual(160);
     expect(observed.refs.e999).toBeUndefined();
     await expect(

@@ -153,8 +153,13 @@ export class RemoteBrowser {
       );
     if (typeof data.snapshot !== "string" || typeof body.text !== "string")
       throw new RuntimeError("BROWSER_BLOCKED", "浏览器观察缺少正文或结构");
-    const tree = boundedText(data.snapshot, 12000);
-    const text = boundedText(body.text, 12000);
+    // These bounds decide whether a control step may run at all: the replay refuses to resolve a
+    // control from a truncated observation, by a deliberate rule, so a page that overflows them cannot
+    // be driven no matter how good its plan is. A calculator with a history list is exactly such a page,
+    // and a measured replay reported all forty behaviours blocked because of it. Sized so a realistic
+    // page fits while forty-one observations stay inside the evidence byte ceiling.
+    const tree = boundedText(data.snapshot, 32000);
+    const text = boundedText(body.text, 32000);
     let truncated = tree !== data.snapshot || text !== body.text;
     const treeRefs = new Set<string>();
     for (const match of tree.matchAll(/\[([^\[\]\r\n]*)\]/g)) {
@@ -172,7 +177,7 @@ export class RemoteBrowser {
         : [];
     for (const [key, item] of entries) {
       if (
-        Object.keys(refs).length >= 100 ||
+        Object.keys(refs).length >= 400 ||
         !/^e[0-9]{1,6}$/.test(key) ||
         !treeRefs.has(key) ||
         typeof item !== "object" ||
