@@ -231,3 +231,88 @@ function zeroUsage(): ReviewerResult['usage'] {
   return { input: null, output: null, total: null, cachedTokens: null, modelCalls: 0, toolCalls: 0,
     elapsedMs: 0, source: 'unreported' };
 }
+export interface VisualCapture {
+  behaviorId: string;
+  images: Array<{ base64: string; mimeType: string }>;
+  artifactIds: string[];
+  item: ReviewItem;
+  /**
+   * The persisted observation events behind this behaviour's item are returned rather than
+   * recomputed: a merged item's `observationEventIds` must resolve in the very evidence that is
+   * persisted, and only the run that produced them can hand them over. Rebuilding them later
+   * would mint ids no store ever saw and `finishReview` would reject the check.
+   */
+  evidence: ReviewObservationEvent[];
+  /** The stored artifact records, so the caller can merge the screenshot ids the item cites. */
+  artifacts: StoredArtifact[];
+}
+
+/**
+ * Captures the screenshots a visual behaviour has to be judged from.
+ *
+ * `compilePlan` classifies a behaviour whose result depends on appearance as uncompilable, and the
+ * replay tests pin that contract — which means those behaviours' steps were never driven and no
+ * screenshot exists for them yet. A judge handed an empty image list could only answer from the
+ * expectation text, so this drives exactly those behaviours through the same kernel the scripted pass
+ * uses. It calls no model: the pixels are collected here and the judgement happens afterwards, which
+ * is what keeps a model from ever operating the browser.
+ *
+ * The captured bytes are kept in memory on the way past: the stored artifact carries the key and the
+ * hash, not the pixels, and the judge needs the pixels.
+ *
+ * The save seam is widened with the observation and the behaviour the image belongs to, because
+ * `StoredArtifact` carries neither and an image that cannot be tied back to the behaviour it was
+ * taken for cannot be judged or merged. The kernel's capture marker calls `saveScreenshot` with the
+ * image alone, so the observation id is remembered from the newest observation the browser produced
+ * — the same value the kernel holds as the page state when it reaches the marker — instead of being
+ * guessed afterwards, when the artifact would already be attributed to the wrong observation.
+ */
+export async function captureVisualPrograms(input: {
+  behaviors: BehaviorTarget[];
+  browser: ReplayBrowser;
+  signal: AbortSignal;
+  saveScreenshot(image: { base64: string; mimeType: 'image/png'; sha256: string;
+    observationId: string; behaviorId: string }): Promise<StoredArtifact>;
+}): Promise<Map<string, VisualCapture>> {
+  const captures = new Map<string, VisualCapture>();
+  let latestObservationId = '';
+  const remember = <T extends { id: string }>(observation: T) => {
+    latestObservationId = observation.id;
+    return observation;
+  };
+  // Explicit delegation, never a spread: the production browser is a class instance whose methods
+  // live on the prototype, and a spread would hand the kernel an object with none of them.
+  const browser: ReplayBrowser = {
+    sessionId: input.browser.sessionId,
+    open: async (path) => remember(await input.browser.open(path)),
+    observe: async () => remember(await input.browser.observe()),
+    resize: async (width, height) => remember(await input.browser.resize(width, height)),
+    act: async (action) => remember(await input.browser.act(action)),
+    logs: () => input.browser.logs(),
+    screenshot: () => input.browser.screenshot(),
+  };
+  for (const behavior of input.behaviors) {
+    // A visual behaviour without steps is not a capture problem: nothing says what to drive, so it
+    // stays uncompilable for a reason other than appearance and the caller keeps the whole-plan
+    // fallback for it. Skipping here is deliberate, not a silent drop.
+    if (behavior.evidence !== 'visual' || !behavior.steps || behavior.steps.length === 0) continue;
+    input.signal.throwIfAborted();
+    const images: Array<{ base64: string; mimeType: string }> = [];
+    const run = await runReplayProgram({
+      browser,
+      program: { behaviorId: behavior.id, steps: behavior.steps.map(toReplayStep), assertions: behavior.assertions ?? [] },
+      target: { expected: behavior.expected },
+      rendersOnly: allowsRenderOnlyEvidence(behavior),
+      signal: input.signal,
+      async saveScreenshot(image) {
+        const artifact = await input.saveScreenshot({ ...image, observationId: latestObservationId,
+          behaviorId: behavior.id });
+        images.push({ base64: image.base64, mimeType: image.mimeType });
+        return artifact;
+      },
+    });
+    captures.set(behavior.id, { behaviorId: behavior.id, images, artifactIds: run.screenshots.map((artifact) => artifact.id),
+      item: run.item, evidence: run.events, artifacts: run.screenshots });
+  }
+  return captures;
+}
