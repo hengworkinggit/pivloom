@@ -106,3 +106,20 @@ export const BehaviorTargetSchema = z.strictObject({
 ## 9. 尚需产品确认
 
 10 分钟墙钟卡在"A+B 层（验证）"还是"整个 run（生成约 10 分钟 + 验证）"——代码里无定义，spec §3.2 只写"验收阶段设墙上限"。**当前按 A+B 层 ≤10 分钟理解，并另行报告整个 run 的实测耗时。**
+
+## 10. 第 9 条风险（watchdog 续期）已查清：可解，且有精确做法
+
+**续期条件（`apps/api/src/data/generation.ts:699-726` `appendEvent`）**：只有 `progress: true` 的事件才续期，且必须同时满足
+
+1. 事件**可信**：`type === "tool.completed" && payload.success === true`（或 `model_stream` 且 success，或 bounded provider retry）；
+2. **有真实且匹配的 `roleRunId`**：服务端查出对应 `role_runs` 行并跑 `assertRole`；
+3. 通过后才执行 `UPDATE nano.runs SET deadline_at = greatest(deadline_at, now() + RUN_IDLE_TIMEOUT_MS)`（6 分钟，`budgets.ts:15`）。
+
+**门（`apps/api/src/runtime/../progress-watchdog.ts:20-27`）**：`event.type === 'tool.end' && event.success === true && meaningfullyCompletedTools.has(event.toolName)`；白名单**已包含 `browser_steps`**。
+
+**结论：A 层不会被误杀，但必须主动续期。** 做法：A 层按**程序分段**发出可信进展事件——`tool.completed`、`success: true`、`roleRunId` 为当次评审的 reviewer 角色运行、`toolName: "browser_steps"`。这不是伪造进展：A 层执行的正是与 `browser_steps` 同类的一步程序。
+
+**两个必须注意的约束**：
+
+- 间隔必须**小于 `RUN_IDLE_TIMEOUT_MS`（6 分钟）**；A+B 合计上限 10 分钟 > 6 分钟，所以不能只在开始时发一次。
+- `roleRunId` 必须是**该 attempt 的活动 reviewer 角色运行**，否则 `assertRole` 抛 `STALE_ROLE`，续期失败变成错误。
