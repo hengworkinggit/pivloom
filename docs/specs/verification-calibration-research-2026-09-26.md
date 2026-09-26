@@ -202,3 +202,58 @@ https://playwright.dev/docs/aria-snapshots 、https://playwright.dev/docs/api/cl
 
 **原则 10：名称匹配的宽严应当是显式开关，默认应贴近业界（不区分大小写 + 子串）。**
 我们把"逐字精确"焊死为唯一选项，比 Playwright 默认严得多；`exact` 式的显式开关更合适。
+
+## 十、自主编程智能体如何验证自己（第四波调研）——**本调研对我们架构最有力的部分**
+
+### 十.1 默认验收手段与"谁定义完成"
+
+| 智能体 | 默认验收手段 | 谁定义"完成" |
+|---|---|---|
+| **Devin**（Cognition） | 跑测试 + **浏览器/桌面 Computer Use 自测并录屏交给人类 review**；Devin 2.2 官方称可 test with computer use、self-verify、auto-fix | **用户定义**：官方要求 prompt/playbook 写明完成标准与验证步骤，**未指定则由 Devin 自行判断** |
+| **OpenHands** | `critic` 是 **LLM 打分器（0–1）**，非确定性；`FinishAction` 后分数低于阈值即自动追问重做 | 阈值 + 迭代上限 |
+| **OpenHands（评测）** | SWE-bench 用**官方 harness 跑单测**判分——**生成与判分解耦** | 单测 |
+| **Claude Code** | 必须给"**可运行的 check**"（测试/构建/**截图对比**），否则**人就成了验证回路**；UI 明确建议截图比对 | 用户/AGENTS.md |
+| **Factory** | 里程碑结束时由 **validation worker 驱动真应用**（agent-browser / tuistory） | 里程碑验收 |
+| **Codex / Cursor / Amp** | `AGENTS.md` 须写 "what done means and how to verify"；Cursor 可控浏览器自截屏；Amp 要求 definition of done（"**check your own work**"） | 用户 |
+
+出处：docs.devin.ai/work-with-devin/testing-and-recordings、cognition.com/blog/introducing-devin-2-2、docs.devin.ai/learn-about-devin/prompting；docs.openhands.dev/sdk/guides/critic、github.com/OpenHands/benchmarks（swebench）；code.claude.com/docs/en/best-practices；docs.factory.ai/missions/planning；developers.openai.com/codex/learn/best-practices、cursor.com/blog/agent-best-practices、ampcode.com/notes/how-to-pair-with-an-agent
+
+### 十.2 **无法自动验证时，没有任何一家主张假装完成**（与我们的 fail-closed 完全同向）
+
+- **Claude Code 原文**：**"If you can't verify it, don't ship it"**，要求**展示证据**而不是声称成功；
+- **Factory Droid Control**：三态 **CONFIRMED / REFUTED / INCONCLUSIVE**，自我定位为"**调查员而非辩护者**"，并有 **anti-fabrication 规则禁止摆拍证据**；
+- **OpenHands QA agent**：**PASS / FAIL / PARTIAL** + 证据附在 PR 评论；
+- **Devin**：兜底是**人类看录屏**；缺凭据时**提前索要**（playbook 有 "Required from User" 段）。
+
+出处：code.claude.com/docs/en/best-practices、docs.factory.ai/cli/features/droid-control、docs.openhands.dev/openhands/usage/use-cases/qa-changes、docs.devin.ai/product-guides/creating-playbooks
+
+**对照我们**：`blocked` 不通过、"没有证据绝不通过"、以及"不得用旧项目历史证据冒充本轮"——**是这一行的标准做法，不是我们的偏执**。Factory 的 **anti-fabrication** 与我们的"不使用旧证据"是同一条规则。
+
+### 十.3 显式的验证预算，以及"生成与验证分离"
+
+- **显式成本模型**：Factory 公式 `总 runs ≈ 特征数 + 2 × 里程碑数`（并注明是**下限**）；QA 验证**可以关掉**；
+- **显式迭代预算**：OpenHands critic 默认 `success_threshold=0.6`、`max_iterations=3`；
+- **门禁上限**：Claude Code 的 Stop hook **连续阻塞 8 次后强制结束回合**；
+- **分离的三种形态**：OpenHands critic **与 agent 并行、执行中实时打分**（边做边验）；Claude Code 用 **verification subagent** 让**另一个**模型反驳（"干活 ≠ 打分"）；Factory validator **在里程碑末**（先做完再验）；SWE-bench **事后**用单测重排。
+
+**含义**：**"给验证设一个显式上限"是常态**（阈值、迭代数、阻塞次数），所以我们的 10 分钟上限**本身合理**；但要**写出来**（原则 2）。另外，**"干活的人不能同时当打分的人"**有明确先例（Claude Code 的 verification subagent）——这正是我们 A/B 层与 Builder 分离的同类依据。
+
+**未找到官方依据**：无任何官方给出"验证占总时长/成本的百分比"预算；Devin 只定性地说录屏应当**短、聚焦单一主流程**，穷尽覆盖请用既有测试套件与 CI。
+
+### 十.4 学术侧：为什么必须有"独立验证器"
+
+1. **Reflexion**：语言反思跨 trial 改进，但**依赖 LLM 自评、无成功保证**（WebShop 上失败）。https://arxiv.org/abs/2303.11366
+2. **"LLM Cannot Self-Correct Reasoning Yet"**：**没有外部反馈时，模型的内在自我纠正常使性能下降**；此前的"收益"实为 oracle label。https://arxiv.org/abs/2310.01798
+3. **Self-verification limitations（ICLR 2025）**：自我批判的**假阴性率高，会导致性能崩溃**；换成 **sound external verifier** 才有效——"只需重采样 + 可靠验证器挑选"。https://proceedings.iclr.cc/paper_files/paper/2025/file/f3c5e56274140e0420baa3916c529210-Paper-Conference.pdf
+4. **Generation–Verification Gap（Weaver）**：模型能**生成**正确答案却**选不出来**；弱验证器需集成/校准；gap = `Pass@K − Success Rate`。https://arxiv.org/html/2506.18203v1
+5. **SWE-Gym**：训练 verifier 重排轨迹做推理时扩展（32.0% SWE-bench Verified）。https://arxiv.org/pdf/2412.21139v2.pdf
+
+**结论**：**独立的、确定性的验证层不是可选优化，而是被反复证明的必要条件**。这直接支持我们"抽出确定性回放内核 + 独立判定"的方向。
+
+### 十.5 本节新增的两条原则
+
+**原则 11：验证者必须独立于执行者，并且要把"我验证不了"明确说出来。**
+行业做法是三态（CONFIRMED/REFUTED/INCONCLUSIVE、PASS/FAIL/PARTIAL）加**反造假规则**；学术界证明自评会崩塌、需要外部可靠验证器。**我们的 `blocked` 与"没有证据绝不通过"与之一致，应当保留并写清楚。**
+
+**原则 12：验证预算必须显式（阈值 / 迭代上限 / 阻塞上限），且"先做完再验"与"边做边验"都是有先例的选择。**
+OpenHands 0.6/3 次、Claude Code 8 次阻塞上限、Factory 的成本公式都是先例；**我们的 10 分钟上限属于同一类，但必须写明并作为可配置项**，而不是散落的常量。
