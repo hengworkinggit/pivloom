@@ -473,6 +473,14 @@ export function createGenerationExecutor(options: {
               || (phase === "review" ? "检查结果未通过格式或证据校验，请稍后重试。" : "需求整理结果未通过校验，请补充说明后重试。"), true)
             : error instanceof RuntimeError && error.code === "TOKEN_BUDGET_EXCEEDED"
               ? new ApiFailure(503, "TOKEN_BUDGET_EXCEEDED", "本次任务的模型用量预算已耗尽，请缩小需求后重试。", true)
+            : error instanceof RuntimeError && error.code === "REVIEW_TIMEOUT"
+              // The Reviewer authors this message from the wall-clock constants,
+              // so it is system-authored and names the budget that stopped the
+              // check. Without this branch a budget stop fell through to the
+              // generic review-phase CHECK_BLOCKED, which is exactly the
+              // "mysteriously failed" record a budget stop must not produce.
+              ? new ApiFailure(503, "REVIEW_TIMEOUT", error.message.trim()
+                || "本次验收超过墙钟上限，已停止；请缩小增量后重试。", true)
             : error instanceof RuntimeError && ["TOOL_BUDGET_EXCEEDED", "MODEL_FAILED", "MODEL_REQUEST_TIMEOUT", "ROLE_NOT_ACTIVE"].includes(error.code)
                 ? new ApiFailure(503, error.code, error.message, true)
             : error instanceof RuntimeError && phase === "review"
