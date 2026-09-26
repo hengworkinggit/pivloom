@@ -81,3 +81,14 @@
 **合并注意**：`review.ts` 同时有我加的影子模式容量预检（`preflightCapacity`）与 B 的挂载逻辑，改动位置不同，**逐块核对，不要整文件覆盖**。
 
 **现实预期**：当前默认模型 `deepseek-flash` 读不出图（视觉探针实测 `failed`），所以**真实运行里视觉行为会 blocked、整单不通过**——这是诚实结论而非缺陷。要让视觉计划真正通过，必须把默认配置切回一个 vision 已验证的模型（火山方舟，周配额 2026-09-27 16:00 UTC 重置）。
+
+### 7.1 第二块已完成（取图），以及下一块必须先处理的陷阱
+
+**已完成**：`84e89a6`（判定模块）＋ `3a0abbc`（取图函数 `captureVisualPrograms`，分支 `feat/visual-judgement`，工作树 `pivloom-wt/visual`）。取图函数**只为 `evidence:'visual'` 且带 steps 的行为**驱动内核并真正执行 `capture`，base64 留在内存（`StoredArtifact` 不含像素），**不接 modelConfig、不 import provider 客户端**；无 steps 的视觉行为**跳过而不抛错**。验证：类型检查干净、全量 **444 通过**（唯一失败是既有 network-proxy 环境性用例）。返回项另带 `evidence` 与 `artifacts`，供下一块合并时解析真正落库的证据/工件 id。
+
+**下一块必须先处理的两个陷阱**（实测确认，不是推测）：
+
+1. **`replay-plan.ts:152` 的早退会吃掉全视觉计划**：`if (compiled.programs.length === 0) return { kind:'fallback' … }`——若计划**全部**是视觉行为，`programs` 为空，会在任何视觉逻辑之前直接整单退回。**只改 174 行那个 `uncompilable.length > 0` 分支不够**，必须同时处理这里。
+2. **`uncompilable` 的原因顺序**：`missing-steps` / `missing-assertions` 先于 visual 判定，因此理由为 `visual-evidence` 的行为**必定**带 steps 与 assertions，合并时可直接断言这一点（不必再判空）。
+
+**仍未做**：把取图与判定接进 `runScriptedPlan`（仅当 `uncompilable` 全为视觉原因时）、在 `review.ts` 构造注入的 `request`、以及两条集成用例（有能力的桩模型 → passed 且过 `finishReview`；超时 → blocked 且不越 480s/600s）。**在这一块完成前，真实应用计划仍会整单退回模型路径，10 分钟底线尚未在真实计划上达成。**
