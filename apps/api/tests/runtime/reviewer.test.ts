@@ -52,6 +52,30 @@ function setup(turn: (request: { messages: Array<{ role: string; content: string
 }
 const report=(ids:string[])=>({revisionId,sourceHash,items:[{behaviorId:'B01',verdict:'passed',expected:'出现书名',actual:'已出现',observationEventIds:ids,screenshotIds:[],reproSteps:['点击添加']}],summary:'通过'});
 
+test('recording a screenshot from a different action is rejected on that behavior before another record triggers finalization',async()=>{
+  let firstEvidence='',secondEvidence='',firstImage='',secondImage='',latestObservation='',earlyRejection=false;
+  const checkpoints:ReviewCheckpoint[]=[];
+  const item=(behaviorId:string,evidenceId:string,imageId:string)=>({behaviorId,verdict:'passed',expected:'出现书名',actual:'实际点击并观察页面',
+    observationEventIds:[evidenceId],screenshotIds:[imageId],reproSteps:['点击添加并观察']});
+  const f=setup((request,n)=>{
+    const text=request.messages.filter(message=>message.role==='tool').at(-1)?.content??'';
+    let data:Record<string,string>={};try{data=JSON.parse(text);}catch{/* evidence rejection is a tool error */}
+    if(n===1)return{name:'browser_open',args:{}};
+    if(n===2){latestObservation=data.observationId;return{name:'browser_click',args:{behaviorId:'B01',observationId:latestObservation,ref:'e1'}};}
+    if(n===3){firstEvidence=data.reportEvidenceId??data.id;latestObservation=data.observationId;return{name:'browser_screenshot',args:{}};}
+    if(n===4){firstImage=data.artifactId;return{name:'browser_click',args:{behaviorId:'B02',observationId:latestObservation,ref:'e1'}};}
+    if(n===5){secondEvidence=data.reportEvidenceId??data.id;return{name:'browser_screenshot',args:{}};}
+    if(n===6){secondImage=data.artifactId;return{name:'record_behavior',args:item('B02',secondEvidence,firstImage)};}
+    if(n===7){earlyRejection=text.includes('IMAGE_EVIDENCE_REQUIRED:B02');return{name:'record_behavior',args:item('B01',firstEvidence,firstImage)};}
+    return{name:'record_behavior',args:item('B02',secondEvidence,secondImage)};
+  });
+  f.input.handoff.plan={...f.input.handoff.plan,behaviors:[plan.behaviors[0],{...plan.behaviors[0],id:'B02',title:'第二次添加'}]};
+  const result=await runReviewer({...f.input,requireVisionEvidence:true,onCheckpoint:async checkpoint=>{checkpoints.push(checkpoint);}});
+  expect(earlyRejection).toBe(true);
+  expect(checkpoints.map(checkpoint=>checkpoint.item.behaviorId)).toEqual(['B01','B02']);
+  expect(result.result.items.map(result=>result.verdict)).toEqual(['passed','passed']);
+});
+
 test('interactive reset restores scenario setup but cannot substitute for a real business action',async()=>{
   let resetObservation: { observationId: string; reportEvidenceId: string } | undefined;
   let resetCalls=0;
