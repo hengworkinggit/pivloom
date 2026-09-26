@@ -45,7 +45,7 @@ const PROBE_BUDGET_MS = 40_000;
  * unable to. DeepSeek's own API exposes a thinking switch and this project does not send one, so the
  * provider's default applies and the budget has to accommodate it.
  */
-const PROBE_MAX_TOKENS = 1024;
+const PROBE_MAX_TOKENS = 8192;
 
 function crc32(bytes: Buffer) {
   let crc = 0xffffffff;
