@@ -75,7 +75,9 @@ export const BehaviorEvidenceSchema = z.enum(["text", "visual"]);
 export type BehaviorEvidence = z.infer<typeof BehaviorEvidenceSchema>;
 export const BehaviorTargetSchema = z.strictObject({
   id: z.string().regex(/^B(?:0[1-9]|[1-9]\d)$/),
-  title: nonempty(120), precondition: nonempty(500), action: nonempty(500), expected: nonempty(500), required: z.boolean(),
+  title: nonempty(120), precondition: nonempty(500), action: nonempty(500), expected: nonempty(500), // Omitted means required: a behaviour the plan lists is one it expects to hold, and a measured
+  // coordinator run failed a whole plan because it left this one boolean out.
+  required: z.boolean().default(true),
   // Optional so every plan written before the replay existed — and every
   // behavior no script can drive — still validates, and is simply treated as
   // not-compilable by the replay instead of failing the whole plan.

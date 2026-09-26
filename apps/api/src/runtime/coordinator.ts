@@ -53,11 +53,19 @@ const schemaFields = new Set(["plan", "question", "schemaVersion", "goal", "chan
   // otherwise the Coordinator cannot tell which field to fix.
   "steps", "type", "path", "width", "height", "role", "name", "text", "value", "key", "ms",
   "assertions", "kind", "negated", "evidence"]);
-function schemaIssues(issues: readonly { path: readonly PropertyKey[]; code: string }[]) {
+function schemaIssues(issues: readonly { path: readonly PropertyKey[]; code: string; expected?: unknown; received?: unknown }[]) {
+  // The correction goes back to the model that produced the arguments, and a bare `field:invalid_type`
+  // does not tell it what it sent or what was wanted — a measured run failed twice on `groups` and
+  // `required` without ever learning either. Naming the received value and the expected type is the
+  // same fix this project already made for run failures and for the maintenance tool.
   return issues.slice(0, 4).map((issue) => {
     const path = issue.path.slice(0, 5).map((part) => typeof part === "number" ? "[]" : typeof part === "string" && schemaFields.has(part) ? part : "[field]").join(".") || "input";
-    return `${path}:${issue.code}`;
-  }).join(", ").slice(0, 320);
+    const expected = typeof issue.expected === "string" ? `expected ${issue.expected}` : "";
+    const received = issue.received === undefined ? ""
+      : `received ${(typeof issue.received === "string" ? issue.received : typeof issue.received).slice(0, 40)}`;
+    const detail = [expected, received].filter(Boolean).join(", ");
+    return `${path}:${issue.code}${detail ? ` (${detail})` : ""}`;
+  }).join(", ").slice(0, 600);
 }
 const toolResult = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
 
