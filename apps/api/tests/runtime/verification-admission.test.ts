@@ -141,3 +141,18 @@ test('a single program cannot capture more images than its actual persisted item
     issues: [{ path: 'steps.capture' }] }]);
   expect(admission.programs[0].failureKind).toBe('invalid-test');
 });
+
+test('explicit interactive verification is admitted for the real browser loop without pretending prose is a broken program', () => {
+  const interactive = PlanSchema.parse({ ...plan([behavior('B01', { evidence: 'visual' })]), verificationMode: 'interactive' });
+  const admission = admitVerification(interactive, { remainingMs: 60_000, maxArtifacts: MAX_CHECK_ARTIFACTS });
+  expect(admission.verificationMode).toBe('interactive');
+  expect(admission.decision).toBe('ready');
+  expect(admission.invalidPrograms).toEqual([]);
+  expect(admission.programs).toMatchObject([{ behaviorId: 'B01', disposition: 'READY', failureKind: null,
+    legacyInitialState: false, reason: 'interactive-verification' }]);
+  expect(admission.stats).toMatchObject({ behaviors: 1, requiredBehaviors: 1, visualBehaviors: 1,
+    steps: 0, captures: 0, missingPrograms: 0, missingInitialState: 0 });
+  expect(admission.timing.unmeasuredMs).toBeNull();
+  expect(admission.timing.completionGuarantee).toBe(false);
+  expect(admitVerification(interactive, { remainingMs: 0 }).decision).toBe('not-run');
+});

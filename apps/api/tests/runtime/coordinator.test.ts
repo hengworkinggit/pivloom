@@ -547,3 +547,35 @@ test('Coordinator reuses omitted inherited programs and identifies an attempted 
   expect(result.decision).toEqual({ kind: 'plan', plan });
   expect(events.some(event => event.message.includes('B01.assertions'))).toBe(true);
 });
+
+test('new prose needs explicit interactive verification while an omitted mode remains strict programs', async () => {
+  const prose = structuredClone(plan);
+  for (const behavior of prose.behaviors)
+    for (const field of ['steps', 'assertions', 'initialState']) Reflect.deleteProperty(behavior, field);
+  const interactive = { ...prose, verificationMode: 'interactive' as const };
+  const model = provider([[{ name: 'submit_plan', args: { plan: prose } }], [{ name: 'submit_plan', args: { plan: interactive } }]]);
+  const result = await runCoordinator({ runId: randomUUID(), roleRunId: randomUUID(), sessionId: randomUUID(), attempt: 0,
+    baseRevisionId: null, modelConfig: model.modelConfig, signal: new AbortController().signal, context: context(),
+    assertActive: async () => {}, onDecision: async () => {},
+  });
+  expect(result.toolCalls.map(call => call.success)).toEqual([false, true]);
+  expect(result.decision).toEqual({ kind: 'plan', plan: interactive });
+  expect(JSON.stringify(model.requests[0].tools)).toContain('verificationMode');
+  expect(JSON.stringify(model.requests[0].tools)).toContain('interactive');
+});
+
+test('Coordinator cannot switch to interactive to erase inherited executable criteria', async () => {
+  const baseRevisionId = randomUUID();
+  const prose = structuredClone(plan);
+  for (const behavior of prose.behaviors)
+    for (const field of ['steps', 'assertions', 'initialState']) Reflect.deleteProperty(behavior, field);
+  const model = provider([[{ name: 'submit_plan', args: { plan: { ...prose, verificationMode: 'interactive' } } }],
+    [{ name: 'submit_plan', args: { plan } }]]);
+  const result = await runCoordinator({ runId: randomUUID(), roleRunId: randomUUID(), sessionId: randomUUID(), attempt: 0,
+    baseRevisionId, modelConfig: model.modelConfig, signal: new AbortController().signal,
+    context: { ...context(), baseRevisionId, previousPlan: plan },
+    assertActive: async () => {}, onDecision: async () => {},
+  });
+  expect(result.toolCalls.map(call => call.success)).toEqual([false, true]);
+  expect(result.decision).toEqual({ kind: 'plan', plan });
+});

@@ -50,6 +50,7 @@ export interface VerificationBudgetExceeded {
 
 /** Read-only accounting; calling this function does not execute or pass any check. */
 export function admitVerification(plan: Plan, budget: VerificationAdmissionBudget) {
+  const verificationMode = plan.verificationMode ?? 'programs';
   if (!Number.isFinite(budget.remainingMs)) throw new RangeError('remainingMs must be finite');
   for (const name of ['maxSteps', 'maxExpandedKeys', 'maxExplicitWaitMs', 'maxArtifacts'] as const) {
     const limit = budget[name];
@@ -65,9 +66,16 @@ export function admitVerification(plan: Plan, budget: VerificationAdmissionBudge
   for (const behavior of plan.behaviors) {
     let captures = 0;
     if (behavior.required) stats.requiredBehaviors++;
+    if (behavior.evidence === 'visual') stats.visualBehaviors++;
+    if (verificationMode === 'interactive') {
+      // The parsed plan explicitly delegates observation-guided actions to the
+      // existing Reviewer. Zero declared steps is unknown work, not zero work.
+      programs.push({ behaviorId: behavior.id, required: behavior.required, disposition: 'READY',
+        failureKind: null, reason: 'interactive-verification', legacyInitialState: false });
+      continue;
+    }
     if (!behavior.steps?.length || !behavior.assertions?.length) stats.missingPrograms++;
     if (behavior.initialState === undefined) stats.missingInitialState++;
-    if (behavior.evidence === 'visual') stats.visualBehaviors++;
     for (const assertion of behavior.assertions ?? []) {
       if ('target' in assertion) stats.targetAssertions++;
       if (assertion.kind === 'text') stats.legacyPageTextAssertions++;
@@ -128,6 +136,6 @@ export function admitVerification(plan: Plan, budget: VerificationAdmissionBudge
   }
   const ready = programs.filter(program => program.disposition === 'READY').length;
   const decision = ready === programs.length ? 'ready' as const : ready > 0 ? 'partial' as const : 'not-run' as const;
-  return { decision, stats, programs, invalidPrograms, budgetExceeded, timing: { explicitWaitMs: stats.explicitWaitMs, remainingMs,
+  return { verificationMode, decision, stats, programs, invalidPrograms, budgetExceeded, timing: { explicitWaitMs: stats.explicitWaitMs, remainingMs,
     unmeasuredMs: null, completionGuarantee: false as const } };
 }

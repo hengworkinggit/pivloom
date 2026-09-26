@@ -122,11 +122,18 @@ export const BehaviorTargetSchema = z.strictObject({
   evidence: BehaviorEvidenceSchema.optional(),
 });
 export type BehaviorTarget = z.infer<typeof BehaviorTargetSchema>;
+export const VerificationModeSchema = z.enum(['programs', 'interactive']);
+const hasProgramFields = (behavior: BehaviorTarget) =>
+  behavior.steps !== undefined || behavior.assertions !== undefined || behavior.initialState !== undefined;
+const interactiveIsProse = (plan: { verificationMode?: 'programs' | 'interactive'; behaviors: BehaviorTarget[] }) =>
+  plan.verificationMode !== 'interactive' || plan.behaviors.every(behavior => !hasProgramFields(behavior));
 export const LegacyPlanSchema = z.strictObject({
   schemaVersion: z.literal(1), goal: nonempty(1000), changeSummary: nonempty(1000),
+  verificationMode: VerificationModeSchema.optional(),
   assumptions: z.array(nonempty(300)).max(5), outOfScope: z.array(nonempty(300)).max(5),
   behaviors: z.array(BehaviorTargetSchema).min(1).max(5),
 }).refine((plan) => new Set(plan.behaviors.map((behavior) => behavior.id)).size === plan.behaviors.length, "行为 ID 必须唯一。")
+  .refine(interactiveIsProse, { message: "交互验证必须保留完整行为要求，且不得携带或清空已封存程序字段。", path: ['verificationMode'] })
   .refine(boundedJson(16 * 1024), "计划不得超过 16 KiB。");
 export const GroupIdSchema = z.enum(["G1", "G2", "G3", "G4", "G5"]);
 export const BehaviorGroupSchema = z.strictObject({
@@ -135,6 +142,7 @@ export const BehaviorGroupSchema = z.strictObject({
 });
 export const GroupedPlanSchema = z.strictObject({
   schemaVersion: z.literal(2), goal: nonempty(1000), changeSummary: nonempty(1000),
+  verificationMode: VerificationModeSchema.optional(),
   assumptions: z.array(nonempty(300)).max(5), outOfScope: z.array(nonempty(300)).max(5),
   behaviors: z.array(BehaviorTargetSchema).min(5).max(80),
   groups: z.array(BehaviorGroupSchema).length(5),
@@ -174,6 +182,7 @@ export const GroupedPlanSchema = z.strictObject({
     replaced.add(item.oldBehaviorId); incoming.add(item.newBehaviorId);
   }
 })
+  .refine(interactiveIsProse, { message: "交互验证必须保留完整行为要求，且不得携带或清空已封存程序字段。", path: ['verificationMode'] })
   // Executable steps and assertions cost roughly 1 KiB per behavior on top of
   // prose, so a compiled 41-behavior plan passes the old 64 KiB ceiling and a
   // maximal 80-behavior one does not. 96 KiB is the largest raise that still
@@ -219,6 +228,7 @@ function preservesVerificationProgram(candidate: BehaviorTarget, previous: Behav
  */
 export function preservesPreviousBehavior(plan: Plan, previousPlan: Plan | null, userRequest = "") {
   if (!previousPlan) return plan.schemaVersion !== 2 || plan.replacements.length === 0;
+  if (plan.verificationMode === 'interactive' && previousPlan.behaviors.some(hasProgramFields)) return false;
   if (previousPlan.schemaVersion === 2 && plan.schemaVersion !== 2) return false;
   if (previousPlan.schemaVersion === 2 && plan.schemaVersion === 2
     && previousPlan.groups.some((group) => observable(group.title) !== observable(plan.groups.find((item) => item.id === group.id)?.title ?? ""))) return false;

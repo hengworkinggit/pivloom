@@ -18,7 +18,8 @@ import type { SandboxConnection, SandboxConnector } from "../../src/runtime/work
 import type { GroupedPlan } from "@pivloom/contracts";
 import { REACT_TEMPLATE_VERSION } from '../../src/runtime/snapshot.js';
 
-const plan: GroupedPlan = { schemaVersion: 2, goal: "点击加一", changeSummary: "计数器", assumptions: [], outOfScope: [],
+// This suite exercises the real interactive Reviewer loop, not a fixed replay program.
+const plan: GroupedPlan = { schemaVersion: 2, verificationMode: 'interactive', goal: "点击加一", changeSummary: "计数器", assumptions: [], outOfScope: [],
   behaviors: [
     { id: "B01", title: "加一", precondition: "初始为零", action: "点击加一", expected: "计数显示1", required: true },
     { id: "B02", title: "再次加一", precondition: "计数显示1", action: "点击加一", expected: "计数继续增加", required: true },

@@ -106,7 +106,7 @@ test('a plan with nothing compiled falls back before any browser work', async ()
   // The only plan that still returns to the model path: every behaviour is uncompilable and no judge is
   // supplied, so there is no deterministic or pixel verdict to keep. Nothing was driven, which is why
   // the model path can start from the untouched page.
-  const plan = fixturePlan({ steps: undefined, assertions: undefined });
+  const plan = { ...fixturePlan({ steps: undefined, assertions: undefined }), verificationMode: 'interactive' as const };
   const compiled = compilePlan(plan);
   expect(compiled.programs).toEqual([]);
   expect(compiled.uncompilable).toEqual([{ behaviorId: 'B01', reason: 'missing-steps' }]);
