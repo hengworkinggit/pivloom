@@ -60,6 +60,38 @@ const schemaFields = new Set(["plan", "question", "schemaVersion", "goal", "chan
  */
 const COORDINATOR_OUTPUT_TOKENS = 16_384;
 
+/**
+ * Name the increment gap instead of restating the rule.
+ *
+ * The guard refused a plan and answered with the rule plus the whole list of forty-one ids, which says
+ * neither which behaviour is wrong nor what it should have contained, leaving every correction a guess -
+ * and measured runs failed this guard on attempt after attempt. This names the offending ids and, for a
+ * field that differs, quotes the stored text so the model's job is to copy rather than to search. The
+ * guard itself is unchanged: it still refuses exactly what it refused before, and nothing here decides
+ * whether a plan is acceptable.
+ */
+function describeIncrementGap(
+  plan: { behaviors: Array<{ id: string; precondition?: unknown; action?: unknown; expected?: unknown; required?: unknown }> },
+  previousPlan: { behaviors: Array<{ id: string; precondition?: unknown; action?: unknown; expected?: unknown; required?: unknown }> } | null | undefined,
+): string {
+  if (!previousPlan) return "计划与上一版不一致，但服务端没有可对照的上一版计划。";
+  const present = new Map(plan.behaviors.map((behavior) => [behavior.id, behavior]));
+  const missing: string[] = [], changed: string[] = [];
+  for (const prior of previousPlan.behaviors) {
+    if (!prior.required) continue;
+    const now = present.get(prior.id);
+    if (!now) { missing.push(prior.id); continue; }
+    for (const field of ["precondition", "action", "expected"] as const) {
+      if (now[field] !== prior[field]) changed.push(`${prior.id}.${field} 必须逐字为「${String(prior[field]).slice(0, 70)}」`);
+    }
+    if (Boolean(now.required) !== Boolean(prior.required)) changed.push(`${prior.id}.required 必须为 ${String(prior.required)}`);
+  }
+  const parts: string[] = [];
+  if (missing.length) parts.push(`缺少旧必需行为：${missing.join(",").slice(0, 120)}`);
+  if (changed.length) parts.push(`以下字段与上一版不一致：${changed.slice(0, 5).join("；").slice(0, 420)}`);
+  return parts.length ? parts.join("。") : "计划与上一版不一致，但具体差异未能定位。";
+}
+
 function schemaIssues(issues: readonly { path: readonly PropertyKey[]; code: string; expected?: unknown; received?: unknown }[]) {
   // The correction goes back to the model that produced the arguments, and a bare `field:invalid_type`
   // does not tell it what it sent or what was wanted — a measured run failed twice on `groups` and
@@ -252,8 +284,7 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
             if (!parsed.success) throw await reject(schemaIssues(parsed.error.issues));
             if (JSON.stringify(parsed.data).includes(input.modelConfig.apiKey)) throw await reject("input:protected_value");
             if ("plan" in parsed.data && !preservesPreviousBehavior(parsed.data.plan, context.data.previousPlan, context.data.requestText)) {
-              const requiredIds = context.data.previousPlan?.behaviors.filter((behavior) => behavior.required).map((behavior) => behavior.id) ?? [];
-              throw await reject(`plan.behaviors:previous_behavior_required——必须保留全部旧必需 ID 与可观察语义，或引用用户本轮明确变更作新 ID 替代。旧必需 ID：${requiredIds.join(",").slice(0, 180)}`);
+              throw await reject(`plan.behaviors:previous_behavior_required——${describeIncrementGap(parsed.data.plan, context.data.previousPlan)}`);
             }
             decision = "plan" in parsed.data ? { kind: "plan", plan: parsed.data.plan } : { kind: "clarification", question: parsed.data.question };
             result = toolResult("方案已接收，等待服务端确认；尚未持久化或交接。");
