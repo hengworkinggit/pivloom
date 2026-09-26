@@ -1,0 +1,163 @@
+{
+  "fixture": true,
+  "realSandbox": true,
+  "realChromium": true,
+  "storage": "in-memory external boundary",
+  "elapsedMs": 58464,
+  "modelCalls": 0,
+  "passed": 4,
+  "blocked": 1,
+  "markerVerified": true,
+  "evidence": 13,
+  "results": [
+    {
+      "id": "B01",
+      "verdict": "passed",
+      "actual": "✓ 目标 status/\"Result\" 文本 \"42\"，预期 \"42\"；✓ 目标 listitem/\"*\" 数量 20，预期 20"
+    },
+    {
+      "id": "B02",
+      "verdict": "passed",
+      "actual": "✓ 目标 status/\"Result\" 文本 \"0\"，预期 \"0\"；✓ 目标 listitem/\"*\" 数量 20，预期 20"
+    },
+    {
+      "id": "B03",
+      "verdict": "passed",
+      "actual": "✓ 目标 listitem/\"*\" 数量 0，预期 0"
+    },
+    {
+      "id": "B04",
+      "verdict": "passed",
+      "actual": "✓ 目标 status/\"Result\" 文本 \"0\"，预期 \"0\""
+    },
+    {
+      "id": "B05",
+      "verdict": "blocked",
+      "actual": "视觉取证未完成：TEST_TARGET_AMBIGUOUS: 第 3 步：检查范围无法唯一定位"
+    }
+  ],
+  "events": [
+    {
+      "id": "65071b15-6dfb-46a9-938a-3630041be18c",
+      "at": "2026-09-26T20:28:12.275Z",
+      "type": "tool.start",
+      "toolName": "browser_steps",
+      "toolCallId": "replay-587f42cd86f3372fdfcf2090",
+      "message": "脚本回放开始：4/5 项行为可编译，行为判定不调用模型"
+    },
+    {
+      "id": "696140c2-33c6-4f42-b8a9-cf29f405033a",
+      "at": "2026-09-26T20:28:26.178Z",
+      "type": "tool.end",
+      "toolName": "browser_steps",
+      "toolCallId": "replay-63249fb88b6046e6b59079ca",
+      "success": true,
+      "message": "脚本回放完成 B01"
+    },
+    {
+      "id": "81419fc9-154a-4d23-89d8-c50934c4c74e",
+      "at": "2026-09-26T20:28:29.409Z",
+      "type": "tool.end",
+      "toolName": "browser_steps",
+      "toolCallId": "replay-0ab3a43076e2c6cf77110c62",
+      "success": true,
+      "message": "脚本回放完成 B02"
+    },
+    {
+      "id": "6a6969f3-9a76-4165-b1fb-1bb5f33fe09f",
+      "at": "2026-09-26T20:28:31.754Z",
+      "type": "tool.end",
+      "toolName": "browser_steps",
+      "toolCallId": "replay-addf118810770faaef9bf951",
+      "success": true,
+      "message": "脚本回放完成 B03"
+    },
+    {
+      "id": "fe550e01-2624-407e-80f5-9b6e7af4af80",
+      "at": "2026-09-26T20:28:34.087Z",
+      "type": "tool.end",
+      "toolName": "browser_steps",
+      "toolCallId": "replay-ed3ad3b31820a6eeb319b396",
+      "success": true,
+      "message": "脚本回放完成 B04"
+    }
+  ],
+  "checkpoints": [
+    {
+      "behaviorId": "B01",
+      "verdict": "passed",
+      "expected": "Result 42 and history contains 20 entries",
+      "actual": "✓ 目标 status/\"Result\" 文本 \"42\"，预期 \"42\"；✓ 目标 listitem/\"*\" 数量 20，预期 20",
+      "observationEventIds": [
+        "97387f38-bf88-481f-ac0b-7feb7562b145",
+        "82b329fe-1fac-4567-a937-8b3db06dcbcd",
+        "528c6e08-3226-4aab-93c8-6b2f05fe421a",
+        "5680558c-4a49-4518-ade3-545e5da52a4e"
+      ],
+      "screenshotIds": [
+        "dcce100b-68cf-43d4-80a5-c216d10d18f8"
+      ],
+      "reproSteps": [
+        "打开 /",
+        "执行 129 个真实按键",
+        "截图"
+      ]
+    },
+    {
+      "behaviorId": "B02",
+      "verdict": "passed",
+      "expected": "Result 0 with 20 historical records",
+      "actual": "✓ 目标 status/\"Result\" 文本 \"0\"，预期 \"0\"；✓ 目标 listitem/\"*\" 数量 20，预期 20",
+      "observationEventIds": [
+        "61c8e2ec-b801-4066-aab7-8f292eae091b",
+        "a146baa8-eebc-4e2d-a990-e0473ad9e292",
+        "207ce49c-9841-41a6-8346-e29d63881020",
+        "f0a1712c-a833-452c-98b7-72735869dfde"
+      ],
+      "screenshotIds": [
+        "938c1004-a148-466e-8fea-4828f811879b"
+      ],
+      "reproSteps": [
+        "打开 /",
+        "click button/\"Clear\"",
+        "截图"
+      ]
+    },
+    {
+      "behaviorId": "B03",
+      "verdict": "passed",
+      "expected": "Empty history in a new scenario",
+      "actual": "✓ 目标 listitem/\"*\" 数量 0，预期 0",
+      "observationEventIds": [
+        "fc99c839-9093-4236-95bf-b8d30d3d9f89",
+        "deda0e17-ff73-4d6c-96eb-a05d5a098f55"
+      ],
+      "screenshotIds": [
+        "0e252f8b-5eba-4c6a-988a-162728c10fa4"
+      ],
+      "reproSteps": [
+        "打开 /",
+        "截图"
+      ]
+    },
+    {
+      "behaviorId": "B04",
+      "verdict": "passed",
+      "expected": "Scoped result zero even with keypad 2",
+      "actual": "✓ 目标 status/\"Result\" 文本 \"0\"，预期 \"0\"",
+      "observationEventIds": [
+        "a38d9c29-7ee0-45fb-97bc-1f042f0b5561",
+        "0edac398-d3ad-4ba0-8be5-b51751cf00b6",
+        "155d236d-3333-4983-a812-0a06dc8ecee6"
+      ],
+      "screenshotIds": [
+        "ba48a64f-71c1-4187-85eb-384ca56f6a9e"
+      ],
+      "reproSteps": [
+        "打开 /",
+        "执行 5 个真实按键",
+        "截图"
+      ]
+    }
+  ]
+}

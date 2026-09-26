@@ -53,7 +53,20 @@ function pathUrl(path = '/') {
   return origin + path;
 }
 async function open(path, fresh = false) {
-  if (fresh) { await cli(['close']); if (socket) { socket.close(); socket = undefined; } }
+  if (fresh) {
+    const current=await cli(['get','url']);
+    if(current.url!=='about:blank'){
+      await checkOrigin(); const send=await connectCdp();
+      // Reset the app's data and document, without paying for a new Chromium process per test.
+      // Only this isolated review session uses the candidate origin.
+      await send('Runtime.evaluate',{expression:'sessionStorage.clear()',returnByValue:true});
+      await send('Page.navigate',{url:'about:blank'});
+      await send('Storage.clearDataForOrigin',{origin,storageTypes:'all'});
+      await send('Network.clearBrowserCache');
+      await send('Network.clearBrowserCookies');
+    }
+    await cli(['set','viewport','1280','720']);
+  }
   await cli(['open', pathUrl(path)]);
   return observe();
 }

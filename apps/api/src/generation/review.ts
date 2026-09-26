@@ -7,6 +7,7 @@ import { sourceHash } from '../runtime/generation.js';
 import { runReviewer, assertReviewerResult, type ReviewObservationEvent, type ReviewCheckpoint } from '../runtime/reviewer.js';
 import { runScriptedPlan, type RunScriptedPlanInput } from '../runtime/replay-plan.js';
 import { preflightCapacity } from '../runtime/capacity.js';
+import { admitVerification } from '../runtime/verification-admission.js';
 import { createVisualJudgePort } from '../runtime/visual-judge-request.js';
 import { RuntimeError, type ModelConfig, type SandboxConfig, type ProbeEventSink, type ProbeEvent } from '../runtime/types.js';
 import { SANDBOX_LEASE_RENEW_THRESHOLD_MS, SANDBOX_LEASE_SEGMENT_MS, VERIFICATION_WALL_CLOCK_LIMIT_MS, REVIEW_FINALIZATION_RESERVE_MS } from '../runtime/budgets.js';
@@ -20,7 +21,7 @@ export interface VerifiedReviewReceipt {
   markerVerified: boolean; chromeClosed: true;
   /** Internal, allowlisted browser transport failure. Never inferred from a blocked business verdict. */
   recoverableInfrastructureCode?: 'BROWSER_BLOCKED' | 'BROWSER_TIMEOUT';
-  verification?: { startedAt: string; deadlineAt: string; elapsedMs: number; timedOut: boolean; incompleteReason?: string };
+  verification?: { startedAt: string; deadlineAt: string; elapsedMs: number; timedOut: boolean; incompleteReason?: string; phasesMs?: { preparation?: number; execution?: number; finalization?: number; persistence?: number } };
 }
 const receipts=new WeakSet<object>();
 const blockedReasons=new Map([
@@ -71,6 +72,7 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
   const now=boundaries.monotonicNow??(()=>performance.now()),startedAt=now(),startedAtWall=Date.now();
   const deadlineAt=startedAt+VERIFICATION_WALL_CLOCK_LIMIT_MS;
   const workDeadlineAt=deadlineAt-REVIEW_FINALIZATION_RESERVE_MS;
+  let preparationCompletedAt:number|undefined,executionCompletedAt:number|undefined,finishing=false;
   const binding=ReviewBindingSchema.parse(input.binding);
   assertVerifiedSourceSnapshot(input.source);
   if(input.source.revisionId!==binding.revisionId||input.source.sourceHash!==binding.sourceHash)
@@ -82,7 +84,7 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
   const signal=AbortSignal.any([finalSignal,workAbort.signal]);
   const browser=new RemoteBrowser(workspace,handle,undefined,binding.browserSessionId,signal,input.sandboxConfig.browserPrograms===true);
   const expire=()=>{
-    if(now()>=workDeadlineAt&&!workAbort.signal.aborted)workAbort.abort('REVIEW_TIMEOUT');
+    if(!finishing&&now()>=workDeadlineAt&&!workAbort.signal.aborted)workAbort.abort('REVIEW_TIMEOUT');
     if(now()>=deadlineAt&&!deadlineAbort.signal.aborted)deadlineAbort.abort(new RuntimeError('REVIEW_TIMEOUT','验收收尾超过统一墙钟上限'));
   };
   const workTimer=setTimeout(()=>workAbort.abort('REVIEW_TIMEOUT'),Math.max(0,workDeadlineAt-now()));
@@ -138,11 +140,18 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     await check();
   }
   try{
+    const admission=admitVerification(input.handoff.plan,{remainingMs:Math.max(0,workDeadlineAt-now())});
+    await bounded(async()=>input.onEvent?.({id:randomUUID(),at:new Date().toISOString(),type:'tool.output',toolName:'verification_admission',
+      message:`脚本检查准入：${admission.stats.behaviors} 项行为，${admission.stats.steps} 步，${admission.stats.expandedKeys} 次按键，显式等待 ${admission.stats.explicitWaitMs}ms；${admission.invalidPrograms.length} 项程序需进一步处理。准入不代表通过。`}));
+    if(admission.budgetExceeded.length){
+      incompleteReason='VERIFICATION_CAPACITY';
+      throw new RuntimeError('VERIFICATION_CAPACITY',`未执行检查：${admission.budgetExceeded.map(item=>`${item.resource} 需要 ${item.required}，剩余上限 ${item.limit}`).join('；')}`);
+    }
     await active();await bounded(()=>workspace.connect(handle));connected=true;
     await ensureLease(true);
     await verifyVersion();
     const files=(await bounded(()=>input.sources.load(input.source))).files;
-    reviewerStarted=true;
+    reviewerStarted=true;preparationCompletedAt=now();
     // Every event either layer emits has to walk the sandbox lease first: a
     // scripted pass performs no model request, so this is the only place that
     // notices the preview lease is close to expiry while the browser works.
@@ -253,6 +262,7 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     }
     if(!reviewed)reviewed=await modelPath();
     assertReviewerResult(reviewed);usage=reviewed.usage;evidence=reviewed.evidence;result=reviewed.result;incompleteReason=reviewed.incompleteReason;
+    executionCompletedAt=now();finishing=true;clearTimeout(workTimer);
     await verifyVersion(true);markerVerified=true;
   }catch(error){
     if(leaseFailure)throw leaseFailure;
@@ -284,11 +294,13 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
       const fingerprint=code===undefined?'none':createHash('sha256').update(code).digest('hex').slice(0,12);
       console.error(`[review] unclassified failure code=${fingerprint} length=${code?.length??0} reviewerStarted=${reviewerStarted}`);
     }
-    const message=versionMismatch?'候选源码或预览版本不一致，未接受检查结果。':reason??'浏览器或检查过程未完成，当前候选尚未通过检查。';
+    const message=code==='VERIFICATION_CAPACITY'&&error instanceof RuntimeError?error.message:versionMismatch?'候选源码或预览版本不一致，未接受检查结果。':reason??'浏览器或检查过程未完成，当前候选尚未通过检查。';
     result={revisionId:binding.revisionId,sourceHash:binding.sourceHash,summary:message,items:input.handoff.plan.behaviors.map(behavior=>({
       behaviorId:behavior.id,verdict:'blocked' as const,expected:behavior.expected,actual:message,observationEventIds:[],screenshotIds:[],reproSteps:[],
     }))};
   }finally{
+    if(preparationCompletedAt!==undefined)executionCompletedAt??=now();
+    finishing=true;clearTimeout(workTimer);
     try{
       if(connected){
         // Cancellation still closes Chrome; only the absolute cleanup deadline can end this wait.
@@ -302,7 +314,11 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
   usage={...(usage??{input:null,output:null,total:null,cachedTokens:null,modelCalls:0,toolCalls:0,source:'unreported' as const}),elapsedMs:Math.max(0,now()-startedAt)};
   const receipt:VerifiedReviewReceipt=freeze({binding,source:input.source,result:result!,artifacts,evidence,markerVerified,chromeClosed:true,
     verification:{startedAt:new Date(startedAtWall).toISOString(),deadlineAt:new Date(startedAtWall+VERIFICATION_WALL_CLOCK_LIMIT_MS).toISOString(),elapsedMs:usage.elapsedMs,timedOut:workAbort.signal.aborted,
-      ...(incompleteReason?{incompleteReason}:{})},
+      ...(incompleteReason?{incompleteReason}:{}),phasesMs:{
+        preparation:Math.max(0,(preparationCompletedAt??now())-startedAt),
+        ...(preparationCompletedAt===undefined?{}:{execution:Math.max(0,(executionCompletedAt??now())-preparationCompletedAt)}),
+        ...(executionCompletedAt===undefined?{}:{finalization:Math.max(0,now()-executionCompletedAt)}),
+      }},
     ...(recoverableInfrastructureCode?{recoverableInfrastructureCode}:{})});
   receipts.add(receipt);
   return {receipt,usage};
