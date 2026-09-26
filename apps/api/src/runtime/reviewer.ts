@@ -10,7 +10,7 @@ import { HandoffSchema, ReviewResultSchema, ReviewItemSchema, MAX_CHECK_ARTIFACT
 import { createServiceModel } from './pi.js';
 import { RuntimeError, type ModelConfig, type ProbeEvent, type ProbeEventSink } from './types.js';
 import { createRoleTokenTracker, type RunTokenBudget, type TokenUsage } from './token-budget.js';
-import { MODEL_REQUEST_TIMEOUT_MS, REVIEW_EVIDENCE_LIMIT_BYTES, REVIEW_SUBMISSION_RESERVE_MS, REVIEW_TOOL_CALLS_PER_BEHAVIOR, REVIEW_TOOL_LIMIT, REVIEW_TOOL_LIMIT_CEILING, REVIEW_WALL_CLOCK_BUDGET_MS, piCompactionSettings, providerRetrySettings } from './budgets.js';
+import { MODEL_REQUEST_TIMEOUT_MS, REVIEW_EVIDENCE_LIMIT_BYTES, REVIEW_SUBMISSION_RESERVE_MS, reviewToolLimitForPlan, REVIEW_WALL_CLOCK_BUDGET_MS, piCompactionSettings, providerRetrySettings } from './budgets.js';
 import { BrowserPressKeySchema, type BrowserAction, type BrowserKeyBatchResult, type BrowserObservation } from './browser.js';
 
 /**
@@ -129,10 +129,16 @@ export interface ReviewerInput {
    * crossed without waiting eight real minutes.
    */
   monotonicNow?: () => number;
+  /** Owning review's monotonic deadline; a fallback must not receive a fresh budget. */
+  deadlineAt?: number;
+  /** The owning review can persist partial evidence; standalone probes retain their throwing contract. */
+  preservePartialOnTimeout?: boolean;
+  preservePartialOnFailure?: boolean;
 }
 export interface ReviewerResult {
   result: ReviewResult; evidence: ReviewObservationEvent[]; artifacts: CheckArtifact[];
   usage: TokenUsage; chromeClosed: true;
+  incompleteReason?: string;
 }
 const verifiedResults = new WeakSet<object>();
 export function assertReviewerResult(value: ReviewerResult) {
@@ -238,7 +244,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   // clock is injectable so tests can cross the ceiling without waiting.
   const monotonicNow = input.monotonicNow ?? (() => performance.now());
   const startedAt = monotonicNow();
-  const deadlineAt = startedAt + REVIEW_WALL_CLOCK_BUDGET_MS;
+  const deadlineAt = input.deadlineAt ?? startedAt + REVIEW_WALL_CLOCK_BUDGET_MS;
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
   let fatal: RuntimeError | undefined, isolated: string | undefined;
   let session: Awaited<ReturnType<typeof createAgentSession>>['session'] | undefined;
@@ -257,8 +263,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
   let receivedStream = false;
   // Scale the budget with the plan (issue #42). An explicit caller limit still wins, which is
   // what the small fixtures rely on, and the ceiling keeps any single review bounded.
-  const scaledLimit = Math.max(REVIEW_TOOL_LIMIT,
-    Math.min(handoff.plan.behaviors.length * REVIEW_TOOL_CALLS_PER_BEHAVIOR, REVIEW_TOOL_LIMIT_CEILING));
+  const scaledLimit = reviewToolLimitForPlan(handoff.plan.behaviors.length);
   const maxTools = Math.min(scaledLimit, input.maxToolCalls ?? scaledLimit);
   if (!Number.isInteger(maxTools) || maxTools < 1) throw new RuntimeError("TOOL_BUDGET_EXCEEDED", "检查工具预算已耗尽");
   const evidence: ReviewObservationEvent[] = [], artifacts: CheckArtifact[] = [];
@@ -313,7 +318,7 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     if (!fatal) {
       const elapsedSeconds = Math.round((monotonicNow() - startedAt) / 1000);
       fatal = new RuntimeError('REVIEW_TIMEOUT',
-        `本次检查已达 ${Math.round(REVIEW_WALL_CLOCK_BUDGET_MS / 1000)} 秒墙钟上限（已用 ${elapsedSeconds} 秒）。这是验收预算限制，不是作品行为不通过；请缩小增量后重试。`);
+        `本次检查已达 ${Math.round((deadlineAt-startedAt) / 1000)} 秒墙钟上限（已用 ${elapsedSeconds} 秒）。这是验收预算限制，不是作品行为不通过；尚未执行的检查不能记为通过。`);
       // Aborting with the recognised reason keeps the signal branch in `check`
       // meaningful and stops the model session at once instead of letting it
       // stream one more turn past the ceiling.
@@ -899,7 +904,25 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     // schedules before the error leaves this function, so the run record keeps it.
     await eventTail;
     const failure=error instanceof RuntimeError?error:new RuntimeError('CHECK_BLOCKED','检查者无法完成检查');
-    throw new RuntimeError(failure.code,failure.message,undefined,tokens.usage(),failure.diagnosticCode);
+    const timedOut=failure.code==='REVIEW_TIMEOUT'&&input.preservePartialOnTimeout
+      &&(!input.signal.aborted||input.signal.reason==='REVIEW_TIMEOUT');
+    const diagnostic=failure.diagnosticCode??failure.code;
+    const partialFailure=input.preservePartialOnFailure&&completedBehaviors.size>0&&!input.signal.aborted
+      &&(['TOOL_BUDGET_EXCEEDED','MODEL_REQUEST_TIMEOUT','MODEL_FAILED','AGENT_OUTPUT_INVALID'].includes(failure.code)
+        ||failure.code==='CHECK_BLOCKED'&&['REVIEWER_TOOL_FAILED','BROWSER_BLOCKED','BROWSER_TIMEOUT','BROWSER_SESSION_LOST','COMMAND_TIMEOUT','REVIEW_EVIDENCE_TOO_LARGE'].includes(diagnostic));
+    if(timedOut||partialFailure){
+      const items=handoff.plan.behaviors.map(behavior=>{
+        const recorded=completedBehaviors.get(behavior.id);
+        // record_behavior defers image delivery. Recheck the complete evidence rule before preserving a pass.
+        if(recorded&&!itemProblem(recorded))return recorded;
+        return {behaviorId:behavior.id,expected:behavior.expected,verdict:'blocked' as const,
+          actual:`${diagnostic}：检查中断，该行为没有完成可验证的检查。`,
+          observationEventIds:recorded?.observationEventIds??[],screenshotIds:recorded?.screenshotIds??[],reproSteps:recorded?.reproSteps??[]};
+      });
+      completed={result:ReviewResultSchema.parse({revisionId:binding.revisionId,sourceHash:binding.sourceHash,
+        summary:`${diagnostic}：已保留完成的检查，本次检查未完整完成。`,items}),
+        evidence,artifacts,usage:tokens.usage(),chromeClosed:true,incompleteReason:diagnostic};
+    }else throw new RuntimeError(failure.code,failure.message,undefined,tokens.usage(),failure.diagnosticCode);
   }finally{
     if(expiryTimer)clearTimeout(expiryTimer);
     signal.removeEventListener('abort',abort);

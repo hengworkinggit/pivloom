@@ -130,3 +130,43 @@ test('inside the submission reserve the check stops collecting evidence and subm
   const screenshotTurns = events.filter(event=>event.type==='tool.end'&&event.toolName==='browser_screenshot');
   expect(screenshotTurns.map(event=>event.success)).toEqual([false]);
 });
+
+test('the owning review can retain fully evidenced model checkpoints after its shared deadline', async () => {
+  let now = 0;
+  const f = setup((request, n) => {
+    const data = toolData(request);
+    if (n === 1) return { name: 'browser_open', args: {} };
+    if (n === 2) return { name: 'browser_click', args: { behaviorId: 'B01', observationId: data.observationId, ref: 'e1' } };
+    if (n === 3) return { name: 'record_behavior', args: report([data.id]).items[0] };
+    now = 300_001;
+    return { name: 'source_read', args: { path: 'src/App.tsx' } };
+  });
+  f.input.handoff.plan.behaviors.push({ ...plan.behaviors[0], id: 'B02' });
+  try {
+    const result = await runReviewer({ ...f.input, monotonicNow: () => now, deadlineAt: 300_000,
+      preservePartialOnTimeout: true });
+    expect(result.result.items).toMatchObject([
+      { behaviorId: 'B01', verdict: 'passed' },
+      { behaviorId: 'B02', verdict: 'blocked', actual: expect.stringContaining('REVIEW_TIMEOUT') },
+    ]);
+    expect(result.evidence.length).toBeGreaterThan(0);
+  } finally { f.input.handoff.plan.behaviors.pop(); }
+});
+
+test('a later browser failure preserves fully evidenced model checkpoints without completing the review', async () => {
+  const f = setup((request, n) => {
+    const data = toolData(request);
+    if (n === 1) return { name: 'browser_open', args: {} };
+    if (n === 2) return { name: 'browser_click', args: { behaviorId: 'B01', observationId: data.observationId, ref: 'e1' } };
+    if (n === 3) return { name: 'record_behavior', args: report([data.id]).items[0] };
+    return { name: 'browser_observe', args: {} };
+  });
+  f.input.handoff.plan.behaviors.push({ ...plan.behaviors[0], id: 'B02' });
+  f.input.browser.observe = async () => { throw new Error('browser fixture disconnected'); };
+  try {
+    const result = await runReviewer({ ...f.input, preservePartialOnFailure: true });
+    expect(result.result.items.map(item => item.verdict)).toEqual(['passed', 'blocked']);
+    expect(result.incompleteReason).toBe('REVIEWER_TOOL_FAILED');
+    expect(result.evidence.length).toBeGreaterThan(0);
+  } finally { f.input.handoff.plan.behaviors.pop(); }
+});

@@ -1027,7 +1027,10 @@ export function createGenerationRepository(
           try { groups = aggregateCheckGroups(plan, result.items); }
           catch { throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "检查结果未覆盖五组全部子检查及原始证据。"); }
         }
-        const verdict = !receipt.markerVerified || groups?.some((group) => group.verdict === "blocked")
+        const verificationIncomplete = receipt.verification?.timedOut || receipt.verification?.incompleteReason
+          || receipt.verification && Date.now() >= Date.parse(receipt.verification.deadlineAt);
+        if (verificationIncomplete) result.summary = `${receipt.verification?.incompleteReason ?? 'REVIEW_TIMEOUT'}：已保留完成的检查，本次验收未完整完成，候选尚未通过。`;
+        const verdict = verificationIncomplete || !receipt.markerVerified || groups?.some((group) => group.verdict === "blocked")
           || result.items.some((item) => item.verdict === "blocked") ? "blocked"
           : groups?.some((group) => group.verdict === "failed") || result.items.some((item) => item.verdict === "failed") ? "failed" : "passed";
         const repairNextAttempt = verdict === "failed" && current.attempt < 2 ? current.attempt + 1 : null;
@@ -1058,6 +1061,8 @@ export function createGenerationRepository(
         }
         await event(client, changed, { type: "role.completed", roleRunId: role.id, payload: { role: "reviewer", state: verdict === "blocked" ? "failed" : "succeeded", summary: result.summary } });
         await event(client, changed, { type: "check.completed", roleRunId: role.id, payload: { checkId: check.id, revisionId: saved.id, sourceHash: saved.source_hash, verdict, summary: result.summary,
+          ...(receipt.verification ? { verification: { ...receipt.verification,
+            elapsedMs: Math.max(receipt.verification.elapsedMs, Date.now() - Date.parse(receipt.verification.startedAt)) } } : {}),
           ...(groups ? { passedGroups: groups.filter((group) => group.verdict === "passed").length, totalGroups: 5 } : {}) } });
         if (!repairNextAttempt) {
           await event(client, changed, { type: "run.finished", payload: { state, revisionId: saved.id, checkId: check.id } });

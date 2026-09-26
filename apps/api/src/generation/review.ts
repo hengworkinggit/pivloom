@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { ReviewBindingSchema, type ReviewBinding, type ReviewResult, type Handoff } from '@pivloom/contracts';
+import { ReviewBindingSchema, MAX_CHECK_ARTIFACTS, type ReviewBinding, type ReviewResult, type Handoff } from '@pivloom/contracts';
 import { OpenSandboxWorkspace, type SandboxConnector } from '../runtime/workspace.js';
 import { RemoteBrowser } from '../runtime/browser.js';
 import { sourceHash } from '../runtime/generation.js';
@@ -9,7 +9,7 @@ import { runScriptedPlan, type RunScriptedPlanInput } from '../runtime/replay-pl
 import { preflightCapacity } from '../runtime/capacity.js';
 import { createVisualJudgePort } from '../runtime/visual-judge-request.js';
 import { RuntimeError, type ModelConfig, type SandboxConfig, type ProbeEventSink, type ProbeEvent } from '../runtime/types.js';
-import { SANDBOX_LEASE_RENEW_THRESHOLD_MS, SANDBOX_LEASE_SEGMENT_MS } from '../runtime/budgets.js';
+import { SANDBOX_LEASE_RENEW_THRESHOLD_MS, SANDBOX_LEASE_SEGMENT_MS, VERIFICATION_WALL_CLOCK_LIMIT_MS, REVIEW_FINALIZATION_RESERVE_MS } from '../runtime/budgets.js';
 import { type TokenUsage, type RunTokenBudget } from '../runtime/token-budget.js';
 import { assertVerifiedSourceSnapshot, type SourceStore, type VerifiedSourceSnapshot } from '../storage/source.js';
 import type { ArtifactStore, StoredArtifact } from '../storage/artifacts.js';
@@ -20,6 +20,7 @@ export interface VerifiedReviewReceipt {
   markerVerified: boolean; chromeClosed: true;
   /** Internal, allowlisted browser transport failure. Never inferred from a blocked business verdict. */
   recoverableInfrastructureCode?: 'BROWSER_BLOCKED' | 'BROWSER_TIMEOUT';
+  verification?: { startedAt: string; deadlineAt: string; elapsedMs: number; timedOut: boolean; incompleteReason?: string };
 }
 const receipts=new WeakSet<object>();
 const blockedReasons=new Map([
@@ -66,72 +67,101 @@ function freeze<T>(value:T):T{
 }
 /** The only receipt issuer verifies immutable objects, remote source + marker,
  * actual browser evidence and closing. Test injection is external sandbox/HTTP. */
-export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:SandboxConnector;previewFetch?:typeof fetch}={}):Promise<{receipt:VerifiedReviewReceipt;usage?:TokenUsage}>{
+export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:SandboxConnector;previewFetch?:typeof fetch;monotonicNow?:()=>number}={}):Promise<{receipt:VerifiedReviewReceipt;usage?:TokenUsage}>{
+  const now=boundaries.monotonicNow??(()=>performance.now()),startedAt=now(),startedAtWall=Date.now();
+  const deadlineAt=startedAt+VERIFICATION_WALL_CLOCK_LIMIT_MS;
+  const workDeadlineAt=deadlineAt-REVIEW_FINALIZATION_RESERVE_MS;
   const binding=ReviewBindingSchema.parse(input.binding);
   assertVerifiedSourceSnapshot(input.source);
   if(input.source.revisionId!==binding.revisionId||input.source.sourceHash!==binding.sourceHash)
     throw new RuntimeError('INVALID_REVIEW_RECEIPT','检查源码与候选版本不一致');
   const workspace=new OpenSandboxWorkspace(input.sandboxConfig,boundaries.sandboxConnector);
   let handle={sandboxId:binding.sandboxId,expiresAt:input.expiresAt};
-  const browser=new RemoteBrowser(workspace,handle,undefined,binding.browserSessionId);
-  const leaseAbort=new AbortController(),signal=AbortSignal.any([input.signal,leaseAbort.signal]);
+  const leaseAbort=new AbortController(),workAbort=new AbortController(),deadlineAbort=new AbortController();
+  const finalSignal=AbortSignal.any([input.signal,leaseAbort.signal,deadlineAbort.signal]);
+  const signal=AbortSignal.any([finalSignal,workAbort.signal]);
+  const browser=new RemoteBrowser(workspace,handle,undefined,binding.browserSessionId,signal,input.sandboxConfig.browserPrograms===true);
+  const expire=()=>{
+    if(now()>=workDeadlineAt&&!workAbort.signal.aborted)workAbort.abort('REVIEW_TIMEOUT');
+    if(now()>=deadlineAt&&!deadlineAbort.signal.aborted)deadlineAbort.abort(new RuntimeError('REVIEW_TIMEOUT','验收收尾超过统一墙钟上限'));
+  };
+  const workTimer=setTimeout(()=>workAbort.abort('REVIEW_TIMEOUT'),Math.max(0,workDeadlineAt-now()));
+  const deadlineTimer=setTimeout(()=>deadlineAbort.abort(new RuntimeError('REVIEW_TIMEOUT','验收收尾超过统一墙钟上限')),Math.max(0,deadlineAt-now()));
+  workTimer.unref?.();deadlineTimer.unref?.();
   const artifacts:StoredArtifact[]=[];
   let markerVerified=false,connected=false,reviewerStarted=false,usage:TokenUsage|undefined,leaseFailure:RuntimeError|undefined;
   let recoverableInfrastructureCode:VerifiedReviewReceipt['recoverableInfrastructureCode'];
+  let incompleteReason:string|undefined;
   let evidence:ReviewObservationEvent[]=[],result:ReviewResult|undefined;
-  const active=async()=>{signal.throwIfAborted();await input.assertActive();signal.throwIfAborted();};
+  async function bounded<T>(operation:()=>Promise<T>,scopeSignal=signal):Promise<T>{
+    expire();scopeSignal.throwIfAborted();
+    let abort:()=>void=()=>{};
+    const stopped=new Promise<never>((_resolve,reject)=>{
+      abort=()=>reject(scopeSignal.reason);
+      scopeSignal.addEventListener('abort',abort,{once:true});
+    });
+    try{return await Promise.race([operation(),stopped]);}
+    finally{scopeSignal.removeEventListener('abort',abort);}
+  }
+  const active=async()=>{await bounded(input.assertActive);expire();signal.throwIfAborted();};
+  const finalActive=async()=>{await bounded(input.assertActive,finalSignal);expire();finalSignal.throwIfAborted();};
   async function ensureLease(force=false){
     if(!force&&Date.parse(handle.expiresAt)-Date.now()>SANDBOX_LEASE_RENEW_THRESHOLD_MS)return;
     try{
-      const renewed=await workspace.renewLease(handle,SANDBOX_LEASE_SEGMENT_MS,signal);
-      await input.onLeaseRenewed(renewed.expiresAt);
+      const renewed=await bounded(()=>workspace.renewLease(handle,SANDBOX_LEASE_SEGMENT_MS,finalSignal),finalSignal);
+      await bounded(()=>input.onLeaseRenewed(renewed.expiresAt),finalSignal);
       handle=renewed;
-    }catch{
+    }catch(error){
+      if(finalSignal.aborted)throw error;
       leaseFailure=new RuntimeError('SANDBOX_LEASE_RENEW_FAILED','检查沙箱续租未确认，已停止并清理本轮任务');
       leaseAbort.abort(leaseFailure);
       throw leaseFailure;
     }
   }
-  async function verifyVersion(){
-    await active();
-    await input.sources.verify(input.source);
-    signal.throwIfAborted();
-    if(sourceHash(await workspace.listSourceFiles(handle,{signal}))!==binding.sourceHash)
+  async function verifyVersion(finalizing=false){
+    const check=finalizing?finalActive:active,scopeSignal=finalizing?finalSignal:signal;
+    await check();
+    await bounded(()=>input.sources.verify(input.source),scopeSignal);
+    scopeSignal.throwIfAborted();
+    if(sourceHash(await bounded(()=>workspace.listSourceFiles(handle,{signal:scopeSignal}),scopeSignal))!==binding.sourceHash)
       throw new RuntimeError('CHECK_VERSION_MISMATCH','检查前后源码版本发生变化');
-    signal.throwIfAborted();
-    const endpoint=await workspace.endpoint(handle,4173);
-    signal.throwIfAborted();
-    const response=await (boundaries.previewFetch??fetch)(endpoint.url+'/pivloom-revision.json',{
-      headers:endpoint.headers,redirect:'error',signal:AbortSignal.any([signal,AbortSignal.timeout(5000)])});
-    const body=await response.text();
+    scopeSignal.throwIfAborted();
+    const endpoint=await bounded(()=>workspace.endpoint(handle,4173),scopeSignal);
+    scopeSignal.throwIfAborted();
+    const markerSignal=AbortSignal.any([scopeSignal,AbortSignal.timeout(5000)]);
+    const response=await bounded(()=>(boundaries.previewFetch??fetch)(endpoint.url+'/pivloom-revision.json',{
+      headers:endpoint.headers,redirect:'error',signal:markerSignal}),markerSignal);
+    const body=await bounded(()=>response.text(),markerSignal);
     if(!response.ok||Buffer.byteLength(body)>4096)throw new RuntimeError('CHECK_BLOCKED','无法验证候选预览');
     const marker=z.strictObject({revisionId:z.uuid(),sourceHash:z.string()}).parse(JSON.parse(body));
     if(marker.revisionId!==binding.revisionId||marker.sourceHash!==binding.sourceHash)throw new RuntimeError('CHECK_VERSION_MISMATCH','预览标记不匹配当前候选');
-    await active();
+    await check();
   }
   try{
-    await active();await workspace.connect(handle);connected=true;
+    await active();await bounded(()=>workspace.connect(handle));connected=true;
     await ensureLease(true);
     await verifyVersion();
-    const files=(await input.sources.load(input.source)).files;
+    const files=(await bounded(()=>input.sources.load(input.source))).files;
     reviewerStarted=true;
     // Every event either layer emits has to walk the sandbox lease first: a
     // scripted pass performs no model request, so this is the only place that
     // notices the preview lease is close to expiry while the browser works.
-    const emitEvent=async(event:ProbeEvent)=>{await ensureLease();await input.onEvent?.(event);};
+    const emitEvent=async(event:ProbeEvent)=>{await ensureLease();await bounded(async()=>input.onEvent?.(event),finalSignal);expire();};
     const saveScreenshot=async(image:{base64:string;mimeType:'image/png';sha256:string})=>{
-      await active();const artifact=await input.artifacts.save(input.source,image,signal);await active();artifacts.push(artifact);
+      if(artifacts.length>=MAX_CHECK_ARTIFACTS)throw new RuntimeError('REVIEW_ARTIFACT_LIMIT','本次截图达到容量上限，此前检查证据已保留');
+      await active();const artifact=await bounded(()=>input.artifacts.save(input.source,image,signal));await active();artifacts.push(artifact);
       return artifact;
     };
     const onCheckpoint=input.onCheckpoint?async(checkpoint:ReviewCheckpoint)=>{
-      await active();
+      await finalActive();
       const screenshotIds=new Set(checkpoint.item.screenshotIds);
-      await input.onCheckpoint!({...checkpoint,artifacts:artifacts.filter(artifact=>screenshotIds.has(artifact.id))});
-      await active();
+      await bounded(()=>input.onCheckpoint!({...checkpoint,artifacts:artifacts.filter(artifact=>screenshotIds.has(artifact.id))}),finalSignal);
+      await finalActive();
     }:undefined;
     const modelPath=()=>runReviewer({binding,sessionId:input.sessionId,handoff:input.handoff,browser,files,bootstrap:true,
       modelConfig:input.modelConfig,signal,tokenBudget:input.tokenBudget,maxToolCalls:input.maxToolCalls,
-      onEvent:emitEvent,assertActive:active,onCheckpoint,saveScreenshot});
+      onEvent:emitEvent,assertActive:active,onCheckpoint,saveScreenshot,monotonicNow:now,deadlineAt:workDeadlineAt,
+      preservePartialOnTimeout:true,preservePartialOnFailure:true});
     // Capacity pre-flight, in shadow mode: it compares this plan's envelope against the limits that
     // will bound the run and reports what it would do, without changing a limit or stopping anything.
     // Wiring it here is what makes those numbers visible on real plans before any of it is enforced.
@@ -148,7 +178,8 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     // of the expectation, so a blind guess would be admitted as a pass — the exact failure the probe
     // exists to prevent. With no port an uncompiled appearance behaviour is recorded blocked like any
     // other uncompiled behaviour, and when the whole plan is appearance the model path takes over.
-    const visualJudge=input.modelConfig.supportsImages===true?createVisualJudgePort(input.modelConfig,signal):undefined;
+    const controlPort=createVisualJudgePort(input.modelConfig,signal,{tokenBudget:input.tokenBudget,deadlineAt:workDeadlineAt,now});
+    const visualJudge=input.modelConfig.supportsImages===true?controlPort:undefined;
     // Resolution against the page as it stands, rather than against the name the plan predicted before the
     // page existed. It is deliberately not gated on vision: choosing a control from a list of roles and
     // names is a text task, and a model that cannot see can still answer it - which is why it builds its own
@@ -157,7 +188,6 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     // Asked only when a step does not resolve to exactly one match, and its answer is taken only if it names
     // a control the observation carries. The kernel enforces that independently, so a wrong or invented
     // answer costs one step rather than becoming a click on something the reviewer never saw.
-    const controlPort=createVisualJudgePort(input.modelConfig,signal);
     const resolveControl:NonNullable<RunScriptedPlanInput['resolveControl']>=async({step,index,candidates})=>{
       if(candidates.length===0)return undefined;
       const answer=await controlPort.request(
@@ -176,8 +206,11 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
         // The appearance layer's one model call, built from the same configuration the review uses. It
         // is injected here so the replay and judgement modules keep holding no provider client, and it
         // sends no tools: the judge answers about the captured pixels and cannot drive the browser.
-        visualJudge,resolveControl});
-      if(scripted.kind==='scripted')reviewed=scripted.result;
+        visualJudge,resolveControl,deadlineAt:workDeadlineAt});
+      if(scripted.kind==='scripted'){
+        reviewed=scripted.result;
+        reviewed.usage=controlPort.usage();
+      }
       else{
         // This is reached only when nothing was deterministically available: no compiled program and no
         // behaviour the appearance layer could judge. A partially compilable plan no longer lands here —
@@ -219,12 +252,17 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
         message:`脚本回放因浏览器基础设施故障退回模型路径（${error.code}）`});
     }
     if(!reviewed)reviewed=await modelPath();
-    assertReviewerResult(reviewed);usage=reviewed.usage;evidence=reviewed.evidence;result=reviewed.result;
-    await verifyVersion();markerVerified=true;
+    assertReviewerResult(reviewed);usage=reviewed.usage;evidence=reviewed.evidence;result=reviewed.result;incompleteReason=reviewed.incompleteReason;
+    await verifyVersion(true);markerVerified=true;
   }catch(error){
     if(leaseFailure)throw leaseFailure;
     if(input.signal.aborted)throw error;
-    if(error instanceof RuntimeError && ['AGENT_OUTPUT_INVALID','TOKEN_BUDGET_EXCEEDED','TOOL_BUDGET_EXCEEDED','ROLE_NOT_ACTIVE','MODEL_FAILED','MODEL_REQUEST_TIMEOUT','REVIEW_TIMEOUT'].includes(error.code))throw error;
+    const ownTimeout=workAbort.signal.aborted;
+    if(ownTimeout){
+      error=new RuntimeError('REVIEW_TIMEOUT','本次检查超过统一验收时间上限');
+      incompleteReason='REVIEW_TIMEOUT';
+    }
+    if(error instanceof RuntimeError && ['AGENT_OUTPUT_INVALID','TOKEN_BUDGET_EXCEEDED','TOOL_BUDGET_EXCEEDED','ROLE_NOT_ACTIVE','MODEL_FAILED','MODEL_REQUEST_TIMEOUT','REVIEW_TIMEOUT'].includes(error.code)&&!ownTimeout)throw error;
     if(error instanceof RuntimeError&&error.usage)usage=error.usage;
     // Declared once: the code classifies an infrastructure failure and also feeds
     // the redacted diagnostic below.
@@ -251,14 +289,20 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
       behaviorId:behavior.id,verdict:'blocked' as const,expected:behavior.expected,actual:message,observationEventIds:[],screenshotIds:[],reproSteps:[],
     }))};
   }finally{
-    if(connected){
-      const closed=await browser.close().catch(()=>({confirmed:false}));
-      await workspace.releaseClient(handle).catch(()=>{});
-      if(!closed.confirmed)throw new RuntimeError('CHECK_BLOCKED','检查会话关闭尚未确认',undefined,usage);
-    }
+    try{
+      if(connected){
+        // Cancellation still closes Chrome; only the absolute cleanup deadline can end this wait.
+        const closed=await bounded(()=>browser.close(),deadlineAbort.signal).catch(()=>({confirmed:false}));
+        await bounded(()=>workspace.releaseClient(handle),deadlineAbort.signal).catch(()=>{});
+        if(!closed.confirmed)throw new RuntimeError('CHECK_BLOCKED','检查会话关闭尚未确认',undefined,usage);
+      }
+    }finally{clearTimeout(workTimer);clearTimeout(deadlineTimer);}
   }
-  input.signal.throwIfAborted();await input.assertActive();input.signal.throwIfAborted();
+  await finalActive();
+  usage={...(usage??{input:null,output:null,total:null,cachedTokens:null,modelCalls:0,toolCalls:0,source:'unreported' as const}),elapsedMs:Math.max(0,now()-startedAt)};
   const receipt:VerifiedReviewReceipt=freeze({binding,source:input.source,result:result!,artifacts,evidence,markerVerified,chromeClosed:true,
+    verification:{startedAt:new Date(startedAtWall).toISOString(),deadlineAt:new Date(startedAtWall+VERIFICATION_WALL_CLOCK_LIMIT_MS).toISOString(),elapsedMs:usage.elapsedMs,timedOut:workAbort.signal.aborted,
+      ...(incompleteReason?{incompleteReason}:{})},
     ...(recoverableInfrastructureCode?{recoverableInfrastructureCode}:{})});
   receipts.add(receipt);
   return {receipt,usage};

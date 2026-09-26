@@ -488,3 +488,38 @@ test('an abort that is not the budget still raises, so a cancelled run writes no
     signal: controller.signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save,
     onProgress: async () => { controller.abort(); } })).rejects.toThrow();
 });
+
+test('visual capture retains browser capabilities needed by a scoped program', async () => {
+  const fixture = formFixture(SESSION);
+  const captures = await captureVisualPrograms({
+    behaviors: [{ ...visualOnlyPlan().behaviors[0], initialState: 'fresh',
+      assertions: [{ kind: 'target-text', target: { role: 'status', name: '总额' }, text: '12.00', match: 'exact', negated: false }] }],
+    browser: { ...fixture.browser, reset: fixture.browser.open,
+      inspect: async () => ({ observation: await fixture.browser.observe(), matches: [{ text: '12.00', value: null }] }) },
+    signal: new AbortController().signal,
+    saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save,
+  });
+  expect(captures.get('B01')?.item.verdict).toBe('passed');
+  expect(captures.get('B01')?.images).toHaveLength(1);
+});
+
+test.each(['text', 'visual'] as const)('a %s program exceeding shared evidence capacity keeps earlier verified items', async (evidence) => {
+  const plan = twoBehaviourPlan();
+  plan.behaviors[1].steps = [{ type: 'open', path: '/' },
+    ...Array.from({ length: 63 }, () => ({ type: 'press' as const, key: '1' as const }))];
+  plan.behaviors[1].assertions = [{ kind: 'text', text: 'x', negated: false }];
+  plan.behaviors.push({ ...plan.behaviors[1], id: 'B03', evidence });
+  const large = 'x'.repeat(31_000);
+  const fixture = formFixture(SESSION, { after: Object.fromEntries(
+    Array.from({ length: 130 }, (_, i) => [i + 1, i === 0 ? { text: '测试书名' } : { text: large, tree: large }])) });
+  const value=binding(randomUUID());
+  const outcome = await runScriptedPlan({ browser: fixture.browser, binding:value, handoff:handoffFor(plan,value),
+    signal: new AbortController().signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save,
+    visualJudge:{request:async()=>JSON.stringify({judgements:[{id:'B03',verdict:'passed',citation:'x'}]})} });
+  expect(outcome.kind).toBe('scripted');
+  if(outcome.kind!=='scripted')return;
+  expect(outcome.result.result.items[0].verdict).toBe('passed');
+  expect(outcome.result.result.items[1].verdict).toBe('passed');
+  expect(outcome.result.result.items[2]).toMatchObject({ verdict: 'blocked', actual: expect.stringContaining('REVIEW_EVIDENCE_TOO_LARGE') });
+  expect(outcome.result.evidence.every(event => event.behaviorId !== 'B03')).toBe(true);
+});

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { HandoffSchema, ReviewResultSchema, allowsRenderOnlyEvidence,
+import { HandoffSchema, ReviewResultSchema, BehaviorProgramSchema, allowsRenderOnlyEvidence,
   type BehaviorStep, type BehaviorTarget, type Handoff, type ReviewBinding, type ReviewItem, type ReviewResult } from '@pivloom/contracts';
 import { REVIEW_EVIDENCE_LIMIT_BYTES } from './budgets.js';
 import { RuntimeError, type ProbeEventSink } from './types.js';
@@ -19,7 +19,7 @@ import type { StoredArtifact } from '../storage/artifacts.js';
  */
 
 /** Why a behaviour could not be handed to the deterministic layer. */
-export type ReplayFallbackReason = 'missing-steps' | 'missing-assertions' | 'visual-evidence';
+export type ReplayFallbackReason = 'missing-steps' | 'missing-assertions' | 'invalid-setup' | 'visual-evidence';
 export interface ReplayUncompilable {
   behaviorId: string;
   reason: ReplayFallbackReason;
@@ -52,6 +52,11 @@ export function compilePlan(plan: Handoff['plan']): CompiledPlan {
       uncompilable.push({ behaviorId: behavior.id, reason: 'missing-assertions' });
       continue;
     }
+    const modern = behavior.assertions.some(assertion=>'target' in assertion) || behavior.steps.some(step=>step.type==='key_sequence');
+    if (!BehaviorProgramSchema.safeParse({ ...behavior, initialState: behavior.initialState ?? (modern ? undefined : 'continue') }).success) {
+      uncompilable.push({ behaviorId: behavior.id, reason: 'invalid-setup' });
+      continue;
+    }
     if (declaresVisualEvidence(behavior)) {
       // The script executes nothing here: this layer cannot read the render and
       // is forbidden from inventing appearance evidence, so a visual behaviour
@@ -59,7 +64,8 @@ export function compilePlan(plan: Handoff['plan']): CompiledPlan {
       uncompilable.push({ behaviorId: behavior.id, reason: 'visual-evidence' });
       continue;
     }
-    programs.push({ behaviorId: behavior.id, steps: behavior.steps.map(toReplayStep), assertions: behavior.assertions });
+    programs.push({ behaviorId: behavior.id, steps: behavior.steps.map(toReplayStep), assertions: behavior.assertions,
+      ...(behavior.initialState ? { initialState: behavior.initialState } : {}) });
   }
   return { programs, uncompilable };
 }
@@ -77,6 +83,7 @@ export function toReplayStep(step: BehaviorStep): ReplayStep {
     case 'fill': return { type: 'fill', role: step.role, name: step.name, text: step.text };
     case 'select': return { type: 'select', role: step.role, name: step.name, value: step.value };
     case 'press': return { type: 'press', key: step.key };
+    case 'key_sequence': return { ...step };
     case 'wait': return { type: 'wait', ms: step.ms };
     case 'capture': return { type: 'capture' };
   }
@@ -171,8 +178,13 @@ export async function runPrograms(compiled: CompiledPlan, input: ReplayRunProgra
     // more, smaller observations than the model loop, and it must fail with the
     // same code and the same REVIEW_EVIDENCE_TOO_LARGE classification instead of
     // discovering a new limit later in `finishReview`.
-    if (Buffer.byteLength(JSON.stringify([...evidence, ...outcome.events])) > REVIEW_EVIDENCE_LIMIT_BYTES)
-      throw new RuntimeError('CHECK_BLOCKED', '检查记录达到大小上限', undefined, undefined, 'REVIEW_EVIDENCE_TOO_LARGE');
+    if (Buffer.byteLength(JSON.stringify([...evidence, ...outcome.events])) > REVIEW_EVIDENCE_LIMIT_BYTES) {
+      items.set(program.behaviorId, { behaviorId: program.behaviorId, expected: target.expected, verdict: 'blocked',
+        actual: 'REVIEW_EVIDENCE_TOO_LARGE：该行为的完整证据超出本次容量，未接受该项判定；此前证据已保留。',
+        observationEventIds: [], screenshotIds: [], reproSteps: [] });
+      await input.onProgress?.(program, { assertionsPassed: false });
+      continue;
+    }
     evidence.push(...outcome.events);
     artifacts.push(...outcome.screenshots);
     items.set(program.behaviorId, outcome.item);
@@ -187,7 +199,7 @@ export async function runPrograms(compiled: CompiledPlan, input: ReplayRunProgra
         const target = expected.get(program.behaviorId);
         items.set(program.behaviorId, { behaviorId: program.behaviorId, verdict: 'blocked' as const,
           expected: target?.expected ?? '',
-          actual: `验收墙钟预算已耗尽，该行为未执行（本次已完成 ${items.size} 条）`,
+          actual: `REVIEW_TIMEOUT：验收墙钟预算已耗尽，该行为未执行（本次已完成 ${items.size} 条）`,
           observationEventIds: [], screenshotIds: [], reproSteps: [] });
       }
   return { items, evidence, artifacts };
@@ -207,6 +219,8 @@ export interface RunScriptedPlanInput extends Omit<ReplayRunProgramsInput, 'onPr
   handoff: Handoff;
   onEvent?: ProbeEventSink;
   onCheckpoint?(checkpoint: ReviewCheckpoint): Promise<void>;
+  /** Monotonic deadline inherited from runReview, including time already spent preparing the sandbox. */
+  deadlineAt?: number;
 }
 export type ScriptedPlanOutcome =
   | { kind: 'scripted'; result: ReviewerResult }
@@ -237,7 +251,7 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
   const visualIds = new Set(compiled.uncompilable.filter((entry) => entry.reason === 'visual-evidence')
     .map((entry) => entry.behaviorId));
   const judgeVisual = Boolean(input.visualJudge) && visualIds.size > 0;
-  if (compiled.programs.length === 0 && !judgeVisual) {
+  if (compiled.programs.length === 0 && !judgeVisual && !compiled.uncompilable.some(entry=>entry.reason==='invalid-setup')) {
     // Nothing deterministic is available at all: no program to run and no behaviour the appearance
     // layer may judge. Only this state — not a partially compilable plan — sends the check back to the
     // model path, and it is reached before any browser work, so the model path starts from the page
@@ -248,7 +262,7 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
     toolCallId: replayCallId(input.binding.roleRunId, 'start'),
     message: `脚本回放开始：${compiled.programs.length}/${total} 项行为可编译，行为判定不调用模型` });
   const run = await runPrograms(compiled, { browser: input.browser, signal: input.signal, behaviors: handoff.plan.behaviors,
-    saveScreenshot: input.saveScreenshot,
+    saveScreenshot: input.saveScreenshot, resolveControl: input.resolveControl,
     async onProgress(program, progress) {
       // One trusted tool.completed per compiled program. It renews the rolling
       // inactivity lease without any provider request, and `browser_steps` is the
@@ -276,17 +290,25 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
   let judgeCalls = 0;
   const captures = judgedIds.size > 0
     ? await captureVisualPrograms({ behaviors: handoff.plan.behaviors.filter((behavior) => judgedIds.has(behavior.id)),
-        browser: input.browser, signal: input.signal, saveScreenshot: input.saveScreenshot })
+        browser: input.browser, signal: input.signal, saveScreenshot: input.saveScreenshot, resolveControl: input.resolveControl })
     : undefined;
+  const admittedEvidence=[...run.evidence];
+  for(const capture of captures?.values()??[]){
+    if(Buffer.byteLength(JSON.stringify([...admittedEvidence,...capture.evidence]))>REVIEW_EVIDENCE_LIMIT_BYTES){
+      capture.item={...capture.item,verdict:'blocked',actual:'REVIEW_EVIDENCE_TOO_LARGE：视觉证据超出本次容量，此前检查证据已保留。',
+        observationEventIds:[],screenshotIds:[]};
+      capture.evidence=[];capture.artifacts=[];capture.images=[];capture.artifactIds=[];
+    }else admittedEvidence.push(...capture.evidence);
+  }
   const verdicts = captures && input.visualJudge
     ? await judgeVisualBehaviours({
-        behaviours: [...captures.values()].map((capture) => ({
+        behaviours: [...captures.values()].filter((capture) => capture.item.verdict === 'passed').map((capture) => ({
           id: capture.behaviorId,
           expected: handoff.plan.behaviors.find((behavior) => behavior.id === capture.behaviorId)?.expected ?? '',
           images: capture.images,
         })),
         async request(prompt, images) { judgeCalls++; return input.visualJudge!.request(prompt, images); },
-        deadlineMs: Math.max(0, REVIEW_WALL_CLOCK_BUDGET_MS - (clock() - startedAt)),
+        deadlineMs: Math.max(0, (input.deadlineAt ?? startedAt + REVIEW_WALL_CLOCK_BUDGET_MS) - clock()),
         now: clock,
       })
     : undefined;
@@ -370,6 +392,7 @@ function summarize(items: ReviewItem[]): string {
  * where fail-closed is held: neither sentence is a pass, and `finishReview` still refuses the revision.
  */
 function blockedItemText(reason: ReplayFallbackReason): string {
+  if(reason==='invalid-setup')return 'invalid-setup：检查程序必须先打开本候选页面取得初始观察；该行为未执行。';
   return reason === 'missing-steps'
     ? '计划未提供可执行步骤，该行为无法在确定性层复现，未取得可判定证据（missing-steps）；当前候选尚未通过检查。'
     : reason === 'missing-assertions'
@@ -426,6 +449,7 @@ export async function captureVisualPrograms(input: {
   behaviors: BehaviorTarget[];
   browser: ReplayBrowser;
   signal: AbortSignal;
+  resolveControl?: ReplayRunInput['resolveControl'];
   saveScreenshot(image: { base64: string; mimeType: 'image/png'; sha256: string;
     observationId: string; behaviorId: string }): Promise<StoredArtifact>;
 }): Promise<Map<string, VisualCapture>> {
@@ -439,35 +463,57 @@ export async function captureVisualPrograms(input: {
   // live on the prototype, and a spread would hand the kernel an object with none of them.
   const browser: ReplayBrowser = {
     sessionId: input.browser.sessionId,
+    nativePrograms: input.browser.nativePrograms,
+    ...(input.browser.executeProgram ? { executeProgram: input.browser.executeProgram.bind(input.browser) } : {}),
     open: async (path) => remember(await input.browser.open(path)),
     observe: async () => remember(await input.browser.observe()),
     resize: async (width, height) => remember(await input.browser.resize(width, height)),
     act: async (action) => remember(await input.browser.act(action)),
     logs: () => input.browser.logs(),
     screenshot: () => input.browser.screenshot(),
+    ...(input.browser.reset ? { reset: async (path?: string) => remember(await input.browser.reset!(path)) } : {}),
+    ...(input.browser.inspect ? { inspect: async (target: Parameters<NonNullable<ReplayBrowser['inspect']>>[0]) => {
+      const result=await input.browser.inspect!(target);remember(result.observation);return result;
+    } } : {}),
+    ...(input.browser.keyBatch ? { keyBatch: async (batch: Parameters<NonNullable<ReplayBrowser['keyBatch']>>[0]) => {
+      const result=await input.browser.keyBatch!(batch);remember(result.observation);return result;
+    } } : {}),
   };
   for (const behavior of input.behaviors) {
     // A visual behaviour without steps is not a capture problem: nothing says what to drive, so it
     // stays uncompilable for a reason other than appearance and the caller records it blocked with that
     // reason. Skipping here is deliberate, not a silent drop.
     if (behavior.evidence !== 'visual' || !behavior.steps || behavior.steps.length === 0) continue;
-    input.signal.throwIfAborted();
     const images: Array<{ base64: string; mimeType: string }> = [];
-    const run = await runReplayProgram({
+    try {
+      input.signal.throwIfAborted();
+      const run = await runReplayProgram({
       browser,
-      program: { behaviorId: behavior.id, steps: behavior.steps.map(toReplayStep), assertions: behavior.assertions ?? [] },
+      program: { behaviorId: behavior.id, steps: behavior.steps.map(toReplayStep), assertions: behavior.assertions ?? [],
+        ...(behavior.initialState ? { initialState: behavior.initialState } : {}) },
       target: { expected: behavior.expected },
       rendersOnly: allowsRenderOnlyEvidence(behavior),
       signal: input.signal,
+      resolveControl: input.resolveControl,
       async saveScreenshot(image) {
-        const artifact = await input.saveScreenshot({ ...image, observationId: latestObservationId,
+        const artifact = await input.saveScreenshot({ ...image, observationId: image.observationId ?? latestObservationId,
           behaviorId: behavior.id });
         images.push({ base64: image.base64, mimeType: image.mimeType });
         return artifact;
       },
     });
-    captures.set(behavior.id, { behaviorId: behavior.id, images, artifactIds: run.screenshots.map((artifact) => artifact.id),
-      item: run.item, evidence: run.events, artifacts: run.screenshots });
+      captures.set(behavior.id, { behaviorId: behavior.id, images, artifactIds: run.screenshots.map((artifact) => artifact.id),
+        item: run.item, evidence: run.events, artifacts: run.screenshots });
+    } catch (error) {
+      if(input.signal.reason!=='REVIEW_TIMEOUT')input.signal.throwIfAborted();
+      if ((error as { classification?: unknown } | null)?.classification === 'REVIEW_EVIDENCE_TOO_LARGE') throw error;
+      const detail = input.signal.reason==='REVIEW_TIMEOUT'?'REVIEW_TIMEOUT：验收墙钟预算已耗尽，该行为未完成'
+        : error instanceof RuntimeError ? `${error.code}: ${error.message}`
+        : error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      captures.set(behavior.id, { behaviorId: behavior.id, images: [], artifactIds: [], evidence: [], artifacts: [],
+        item: { behaviorId: behavior.id, expected: behavior.expected, verdict: 'blocked',
+          actual: `视觉取证未完成：${detail.slice(0, 300)}`, observationEventIds: [], screenshotIds: [], reproSteps: [] } });
+    }
   }
   return captures;
 }

@@ -9,7 +9,7 @@ import { summarizeReviewCheckpoint } from "./review-checkpoint.js";
 import { RuntimeError, type ProbeEvent, type SandboxConfig, type SourceFile, type TrustedBuildRecord } from "../runtime/types.js";
 import { runCoordinator } from "../runtime/coordinator.js";
 import { createRunTokenBudget, type TokenUsage } from "../runtime/token-budget.js";
-import { ACCEPTED_PREVIEW_LEASE_MS, RESTORE_TIMEOUT_MS, RUN_IDLE_TIMEOUT_MS, RUN_TOOL_LIMIT } from "../runtime/budgets.js";
+import { ACCEPTED_PREVIEW_LEASE_MS, RESTORE_TIMEOUT_MS, RUN_IDLE_TIMEOUT_MS, RUN_TOOL_LIMIT, RUN_TOOL_LIMIT_CEILING, generationToolLimitForPlan } from "../runtime/budgets.js";
 import { ApiFailure } from "../routes/errors.js";
 import { destroyCandidateSandbox, runCandidate, type CandidateSnapshot } from "./candidate.js";
 import { restorePreview } from "./restore.js";
@@ -69,8 +69,8 @@ export function createGenerationExecutor(options: {
 }, boundaries: NonNullable<Parameters<typeof runCandidate>[1]> & {
   modelFetch?: typeof fetch; maxToolCalls?: number; settlementRetryMs?: number; cleanupSweepMs?: number;
 } = {}) {
-  const toolLimit = boundaries.maxToolCalls ?? RUN_TOOL_LIMIT;
-  if (!Number.isInteger(toolLimit) || toolLimit < 1 || toolLimit > RUN_TOOL_LIMIT)
+  const requestedToolLimit = boundaries.maxToolCalls ?? RUN_TOOL_LIMIT;
+  if (!Number.isInteger(requestedToolLimit) || requestedToolLimit < 1 || requestedToolLimit > RUN_TOOL_LIMIT_CEILING)
     throw new Error("Tool limit must be between 1 and the run ceiling");
   const settlementRetryMs = boundaries.settlementRetryMs ?? 3_000;
   if (!Number.isInteger(settlementRetryMs) || settlementRetryMs < 1) throw new Error("Settlement retry interval must be positive");
@@ -107,6 +107,7 @@ export function createGenerationExecutor(options: {
   }
 
   async function execute(run: StoredRun, task: Task) {
+    let toolLimit = requestedToolLimit;
     const watchdog = createRunProgressWatchdog(run.deadlineAt, task.controller);
     const meaningfulProgress = createMeaningfulProgressGate();
     // The candidate sandbox for the current attempt. It is written from inside
@@ -258,6 +259,9 @@ export function createGenerationExecutor(options: {
         activeUsage = undefined;
         const handoff = role.input;
         if (!handoff) throw new RuntimeError("AGENT_OUTPUT_INVALID", "协调目标尚未可靠保存，未开始生成。");
+        // The same ledger pays Coordinator, every Builder and every review. A
+        // per-review scale alone starved the normal repair loop at the old 384 cap.
+        toolLimit = boundaries.maxToolCalls ?? generationToolLimitForPlan(handoff.plan.behaviors.length);
         phase = "provision";
         revisionId = randomUUID();
         resource = undefined;
