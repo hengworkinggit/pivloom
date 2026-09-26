@@ -250,6 +250,7 @@ function reviewerExecution(row: Row): ReviewerExecution {
   return { role: storedRole(row), scope: ReviewBindingSchema.parse(row.review_binding_json), handoff: HandoffSchema.parse(row.input_json) };
 }
 const storedArtifactSchema = ReviewArtifactSchema.extend({ key: z.string().min(1).max(512), bytes: z.number().int().min(8).max(2 * 1024 * 1024) });
+export const REVIEW_EVIDENCE_LIMIT = 4096;
 const reviewEvidenceSchema = z.array(z.strictObject({
   id: z.uuid(), behaviorId: z.string().regex(/^B(?:0[1-9]|[1-9]\d)$/).nullable(),
   action: z.enum(["click", "fill", "select", "press", "scroll", "reload", "key_batch", "wait"]).nullable(), observationId: z.uuid(),
@@ -259,7 +260,13 @@ const reviewEvidenceSchema = z.array(z.strictObject({
       key: BrowserPressKeySchema,
       waitMs: z.number().int().min(0).max(1000), success: z.boolean() })).min(1).max(8) }).optional(),
   url: z.url().max(4000), tree: z.string().max(12000), text: z.string().max(12000), truncated: z.boolean(),
-})).max(256);
+// The cap has to hold every observation a whole plan produces, not one behaviour: a forty-five
+// behaviour plan with a few interactions each overran the previous limit of 256, and because the
+// rejection surfaced as a bare ZodError the run died at save time as a generic GENERATION_FAILED
+// with no check stored, which is how C3 spent a night looking like an unreproducible failure. The
+// same cap had already blocked C2. Raise it well above a realistic plan and name it so the next
+// person can see what it is for.
+})).max(REVIEW_EVIDENCE_LIMIT);
 export function parseReviewEvidence(value: unknown) {
   return reviewEvidenceSchema.parse(value);
 }
