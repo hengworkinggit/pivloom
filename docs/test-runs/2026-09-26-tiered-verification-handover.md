@@ -162,3 +162,81 @@ Error: Review fixtures require an isolated e2e database
 3. 因此测试仍**未能运行**；已把该库 `DROP` 掉，不在环境里留垃圾。
 
 **结论**：补齐这一缺口需要一套**有文档的隔离 e2e 库准备流程**（早前交接信息提到的脚本在本工作树不存在），**不是临时敲几条命令能补上的**。我不把它记为"通过"，也不假装它被绕过。
+
+## 10. 配额重置后的执行手册（开箱即用，无需再勘察）
+
+**触发条件**：`2026-09-27 16:00 UTC` 之后（火山方舟周配额重置）。
+
+**当前 A 账号的配置状态（实测）**：
+
+| profile | 版本 | 模型 | vision | 是否默认 |
+|---|---|---|---|---|
+| `36aa8e40` | v4 | `deepseek-flash`（DeepSeek 官方） | **failed** | **默认** ← 必须换掉 |
+| `ea2e0acf` | v2 | `kimi-k2.7-code`（火山方舟） | **verified** | 否 |
+
+**即：vision 已验证的配置本来就在，只是被顶掉了默认位**——不需要新建凭据。
+
+### 步骤 1：把默认配置换回 vision 已验证的那条
+
+用应用自己的接口（与用户在工作台里点"设为默认"等价，不要直接改库）：
+
+```
+# 以 A 账号登录后
+PATCH /api/v1/model-profiles/ea2e0acf-...  { "isDefault": true }
+```
+
+脚本化做法见 `.cache/rc-helpers/`（此前用 `createClient` 登录 + `fetch` 调 PATCH 的方式已成功过一次；注意 `SUPABASE_URL` 走隧道 `127.0.0.1:15433`，**隧道断则登录失败**——曾因此让整夜验证没提交）。
+
+### 步骤 2：先跑一次能力测试确认它仍然 verified
+
+```
+POST /api/v1/model-profiles/ea2e0acf-.../test
+```
+
+**注意**：探针已被我改成"需要两次答案一致"（`ab16fec`）。若它现在报 `vision: failed`，**不要**再用"多试几次"绕过——那正是我修掉的错误判据（单次命中靠猜）。此时应改用另一个 vision 已验证的配置，或按 §8 记录的产品决策处理。
+
+### 步骤 3：提交真实运行并取两个数字
+
+```
+node .cache/rc-helpers/submit-retry.mjs 13dcc301-e8a4-4e14-bbe2-a8757b4d76d7 C3 e5c126e0-838b-4d94-adc0-c5bff8b4c333
+```
+
+**数字①：A+B 实测墙钟**（完成判据）。口径：按阶段取事件时间跨度（本会话已用此法测出过 30 分钟与 0 分钟两种情形）：
+
+```sql
+SELECT date_trunc('minute', min(created_at)) AS start, max(created_at) AS finish,
+       round(extract(epoch FROM (max(created_at) - min(created_at)))/60, 1) AS minutes
+FROM nano.run_events WHERE run_id='<run>';
+```
+
+**数字②：协调者是否确实产出可执行步骤**（全设计最大的未验证假设）：
+
+```sql
+SELECT jsonb_array_length(plan_json->'behaviors') AS behaviors,
+       (SELECT count(*) FROM jsonb_array_elements(plan_json->'behaviors') b WHERE b ? 'steps') AS with_steps
+FROM nano.runs WHERE id='<run>';
+```
+
+**退回比例与 A 层是否真的跑了**（决定加速是否真实）：
+
+```sql
+SELECT type, payload_json->>'toolName' AS tool, payload_json->>'message' AS message
+FROM nano.run_events WHERE run_id='<run>'
+  AND (payload_json->>'toolName' IN ('replay_fallback','browser_steps','review_wall_clock')
+       OR payload_json->>'message' LIKE '%脚本回放%')
+ORDER BY created_at;
+```
+
+**判定**：
+- `with_steps = 0` → **A 层是死代码**，协调者没有产出可执行步骤，加速为零——**这是必须优先解决的设计问题，不是调参问题**；
+- `replay_fallback` 出现且原因含 `missing-steps` → 同上（写了散文但没写步骤）；
+- 出现 `review_wall_clock` → 预算停止（说明 10 分钟上限被触发，运行未超限但也没完成，需看是哪一层吃掉了预算）；
+- **A+B 实测 ≤10 分钟才达标**；超过就继续改，**不得用估算替代**。
+
+### 步骤 4：达标后才做 C3 + #37 验收
+
+按目标原文执行冻结主线的 C0→C1→C2→回滚 C1→C3 与 390px 贪吃蛇 S0，最终确认三处 SHA 一致后关单。
+
+### 仍未解决的验证缺口（不属外部阻塞，需要工程投入）
+
+**9 个门禁契约测试从未真正运行**（§9）：需要一个**有文档的隔离 e2e 库准备流程**。我试过 `CREATE DATABASE pivloom_e2e_test_review` + 迁移，迁移以刻意通用的错误失败（§9.1），未找到根因。**在这一步补齐前，发布门禁的契约验证是"未运行"，不是"通过"。**
