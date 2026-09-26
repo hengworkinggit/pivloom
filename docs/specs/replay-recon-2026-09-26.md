@@ -123,3 +123,26 @@ export const BehaviorTargetSchema = z.strictObject({
 
 - 间隔必须**小于 `RUN_IDLE_TIMEOUT_MS`（6 分钟）**；A+B 合计上限 10 分钟 > 6 分钟，所以不能只在开始时发一次。
 - `roleRunId` 必须是**该 attempt 的活动 reviewer 角色运行**，否则 `assertRole` 抛 `STALE_ROLE`，续期失败变成错误。
+
+## 11. B 层（视觉批量判定）设计，按 B 已暴露的接口写定
+
+B 工作流（分支 `feat/scripted-replay`）已确定 A 层接口，C 层据此实现，**不需要再造一套**：
+
+- `compilePlan(plan) → { programs, uncompilable }`（`apps/api/src/runtime/replay-plan.ts:36`）
+- `ReplayFallbackReason = 'missing-steps' | 'missing-assertions' | 'visual-evidence'`（`:20`）
+- `requiresVisualJudgement(behavior) → behavior.evidence === 'visual'`（`:63`）——**C 层的分流依据就是它**
+- `runPrograms(...) → ReplayProgramsResult`（`:95`）、`runScriptedPlan(...) → ScriptedPlanOutcome`（`:139`）
+
+**C 层职责（仅此三项，不扩张）**：
+
+1. **输入**：A 层跑完后，取 `requiresVisualJudgement` 为真的行为，连同 A 层已捕获的对应截图产物（capture 步骤产生的 artifact）与该行为的 `expected`。**不重新打开浏览器、不驱动任何步骤。**
+2. **与模型的一次交互**：**不发工具、不让模型操作浏览器**——一次结构化请求，把"期望结果 + 对应图片"交给模型，要求按行为返回 `passed` / `failed` / `blocked` 与一句理由。批量进行（多个视觉行为合并到尽量少的请求里），并且**总请求数受 D 项剩余墙钟预算约束**。
+3. **产出**：与 A 层 verdict 合并成同一份 items，**照常经过 `assertReviewerResult` 与 `finishReview`**。因此必须满足第 10 节那份门禁清单：`item.expected` 与计划严格相等、observation 真实落库、artifact 键精确为 `${ownerId}/${projectId}/${snapshotId}/checks/${artifactId}.png`、非 blocked 项须有真实动作证据或满足渲染证据。
+
+**三条红线**：
+
+- **模型只判定，不驱动**——这是 10 分钟底线得以成立的原因；一旦让模型开始点浏览器，往返成本立刻回到 30 分钟量级。
+- **视觉判定不得被降级为"看起来没问题就通过"**：模型必须给出理由，且理由要引用它实际看到的内容（例如具体颜色/位置/数值），否则该行为按 `blocked` 处理，不得算通过。
+- **既不可编译、又非视觉的行为，仍走完整 `runReviewer`（C 层发布门禁）**，且五组检查一字不改。B 层是加速路径，不是替代品。
+
+**合并顺序**：C 与 B 改同一批文件（`review.ts`、`replay-plan.ts`），因此 **C 必须在 B 落地后于同一个工作树 `pivloom-wt/replay` 上进行**，避免又一次文件与分支争用。
