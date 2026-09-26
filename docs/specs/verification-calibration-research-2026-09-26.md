@@ -295,3 +295,44 @@ Momentic 用 DOM + 无障碍树 + 视口截图三信号且实测 a11y 最可靠�
 
 **原则 14：不确定性应当"隔离并复核"，而不是"拖垮整次"。**
 Momentic 有 **quarantine 隔离**与单次运行最多 3 次的恢复上限；Octomind 要求**人工 approve（Zero Silent Commits）**；QA Wolf 有 Investigating 与 Do Not Investigate 逃生口。**共同点是：不确定的东西被单独拎出来，而不是让整次运行卡死**——这正是我们缺的那一层（我们是整页否决 + 中止）。
+
+## 十二、AI 应用生成器如何证明"生成的东西能用"（第六波调研）
+
+| 产品 | 验证机制 | 确定性 / 模型驱动 | 成本或时间数字 |
+|---|---|---|---|
+| **Lovable** | 分层：**真浏览器测试**（点按填表、截图、读 console/network、抓 runtime error）、前端测试（Vitest+RTL+jsdom）、edge 函数直调、edge tests（Deno） | 混合 | Build mode 单条消息最长 **10 小时**；"Try to fix" 免费 **10 次/24h** |
+| **v0** (Vercel) | 生成循环内自动修错；部署报错有 "Fix with v0"；browser use 自己打开应用、critique、修、**把截图发给你** | **官方博客原话："a set of deterministic and model-driven autofixers"** | "Fix with v0" 付费计划 **10 次/天**免费 |
+| **Bolt** | **无自动构建/测试验证**（官方文档未声明）；安全审计→列出 "Needs your action" | 用户承担 | 安全审计 **30 次/天** |
+| **Replit Agent** | **App Testing 自测**："lets Agent test the apps it builds using an actual browser… catch and fix issues automatically"；测试拆为独立 subagent（REPL + Playwright） | 代码执行（确定性）+ **模型判断何时测、何时算完** | 中位 **$0.20/session**；自主运行 **200+ 分钟**；人类 **10 分钟**无响应则 Skip |
+| **Emergent** | 部署后 **Health Check**（应用响应、API、前端加载、数据库连接、服务存活） | **确定性硬门**：失败则 **"your app won't go live"** | **1–2 分钟** |
+| **Tempo** | **Visual Review**：每个 PR 与默认分支做 **pixel-diff**，发 `visual-review` 状态检查 | **确定性**：**"check stays red until someone approves each changed/new/removed storyboard"**——**模型无法放行** | pending ~1 分钟，抓图与比对 ~**10 分钟** |
+| **Same.new** | 未找到自动自测机制；把验证交给用户看 live preview | 用户承担 | — |
+
+出处：docs.lovable.dev/features/testing、/features/browser-testing、lovable.dev/faq/testing、/features/agent-mode；v0.app/docs/agentic-features、vercel.com/blog/how-we-made-v0-an-effective-coding-agent；support.bolt.new/troubleshooting/preview-issues、/building/security；docs.replit.com/features/agent/app-testing、replit.com/blog/automated-self-testing；help.emergent.sh/platform-documentation；docs.tempo.new/guides/visual-review；docs.same.new/essentials/troubleshooting
+
+**未找到官方依据 / 未取到**：Bolt 无任何官方表述称会自动跑 build/test（官方反而要用户自己跑 `npm run build` 并回贴日志）；Same.new 无自动验证；Softgen、Onlook 未见；Firebase Studio 页面本机超时未取原文（不下结论）。**无任何产品给出"验证必须在 X 分钟内完成"的硬性预算**——上面的数字都是流程耗时、等待上限或每日次数。
+
+### 十二.1 **Lovable 官方文档描述的就是我们踩的那个坑**
+
+Lovable 明确把这类失败写进文档并在界面上告知用户：
+
+- 反复点不中同一元素时，官方提示这**更可能是 "browser interaction limitations"（浏览器交互限制），而不是应用坏了**；
+- 并在 Limitations 清单里限定验证边界：canvas/绘图工具无法交互、复杂文件上传不可靠、拖拽/剪贴板不可靠、**"not reliable for evaluating subtle visual design details or color differences"**。
+
+https://docs.lovable.dev/features/browser-testing
+
+**这就是"工具能力边界"被当作产品事实公开**——而不是让用户以为应用有问题。**我们的实现恰好相反：把工具自身的能力限制报成了整次验收失败。**
+
+### 十二.2 三个可直接采纳的点
+
+1. **"Potemkin interfaces"**（Replit 官方博客用语）：指"看着能用、其实没接线的假界面"——**这正是自动验收存在的理由**，也是一个很好的产品术语。
+2. **验证时机有两种极端，且都被官方采用**：Lovable 是**用户触发**（"Most verification tools run only when you ask for them"，触发语 "verify it works" / "make sure it works" / "test this"）；Replit 是**AI 自己判断**（"intelligently determines when testing would be most valuable"）。**我们选择了每次增量都验，属于第三种选择，需要付得起成本才成立。**
+3. **确定性硬门的量级参考**：Emergent 的 Health Check **1–2 分钟**、Tempo 的 Visual Review ~**10 分钟**——**我们的 10 分钟上限落在同类硬门的同一量级内**，不是异想天开。
+
+### 十二.3 本节新增的两条原则
+
+**原则 15：工具的能力边界必须作为产品事实公开，而不是报成产品失败。**
+Lovable 把"点不中元素更可能是浏览器交互限制"写进界面，Bolt 把做不到的事单列成 **"Needs your action"**，Lovable 用 Limitations 清单限定边界。**这是"无法验证"表达的最后一块：不仅要标三态，还要说清"是我的限制，不是你的问题"。**
+
+**原则 16：混合（确定性 + 模型）是主流，但"放行权"必须留在确定性/人类一侧。**
+v0 官方自称 "deterministic and model-driven autofixers"；而**放行动作是确定性的或需人类签字**——Tempo 的像素检查"**模型无法放行**"、Octomind 需人工 approve、Emergent 健康检查失败即不上线。**模型可以参与诊断与修复，但不能独自决定"通过"。** 这与我们"模型判定不得覆盖脚本已判失败"（本会话修掉的 fail-open）是同一条原则。
