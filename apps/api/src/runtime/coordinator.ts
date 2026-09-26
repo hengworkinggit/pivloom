@@ -71,8 +71,8 @@ const COORDINATOR_OUTPUT_TOKENS = 16_384;
  * whether a plan is acceptable.
  */
 function describeIncrementGap(
-  plan: { behaviors: Array<{ id: string; precondition?: unknown; action?: unknown; expected?: unknown; required?: unknown }> },
-  previousPlan: { behaviors: Array<{ id: string; precondition?: unknown; action?: unknown; expected?: unknown; required?: unknown }> } | null | undefined,
+  plan: { behaviors: Array<{ id: string; precondition?: unknown; action?: unknown; expected?: unknown; required?: unknown }>; groups?: Array<{ id: string; title?: unknown }> },
+  previousPlan: { behaviors: Array<{ id: string; precondition?: unknown; action?: unknown; expected?: unknown; required?: unknown }>; groups?: Array<{ id: string; title?: unknown }> } | null | undefined,
 ): string {
   if (!previousPlan) return "计划与上一版不一致，但服务端没有可对照的上一版计划。";
   const present = new Map(plan.behaviors.map((behavior) => [behavior.id, behavior]));
@@ -86,8 +86,15 @@ function describeIncrementGap(
     }
     if (Boolean(now.required) !== Boolean(prior.required)) changed.push(`${prior.id}.required 必须为 ${String(prior.required)}`);
   }
+  const renamed: string[] = [];
+  for (const group of previousPlan.groups ?? []) {
+    const current = (plan.groups ?? []).find((item) => item.id === group.id);
+    if (!current) renamed.push(`${group.id} 分组缺失`);
+    else if (current.title !== group.title) renamed.push(`${group.id}.title 必须逐字为「${String(group.title).slice(0, 70)}」`);
+  }
   const parts: string[] = [];
   if (missing.length) parts.push(`缺少旧必需行为：${missing.join(",").slice(0, 120)}`);
+  if (renamed.length) parts.push(`以下分组与上一版不一致：${renamed.join("；").slice(0, 300)}`);
   if (changed.length) parts.push(`以下字段与上一版不一致：${changed.slice(0, 5).join("；").slice(0, 420)}`);
   return parts.length ? parts.join("。") : "计划与上一版不一致，但具体差异未能定位。";
 }
