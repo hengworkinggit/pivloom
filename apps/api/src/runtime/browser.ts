@@ -158,9 +158,12 @@ export class RemoteBrowser {
     // be driven no matter how good its plan is. A calculator with a history list is exactly such a page,
     // and a measured replay reported all forty behaviours blocked because of it. Sized so a realistic
     // page fits while forty-one observations stay inside the evidence byte ceiling.
-    const tree = boundedText(data.snapshot, 32000);
-    const text = boundedText(body.text, 32000);
+    const tree = boundedText(data.snapshot, 200000);
+    const text = boundedText(body.text, 200000);
     let truncated = tree !== data.snapshot || text !== body.text;
+    // Which condition fired, and how large the inputs were, is exactly what was missing: three rounds
+    // went into the wrong lever because the record said only that the observation was incomplete.
+    if (truncated) console.info(`[browser] observation flagged incomplete: tree ${data.snapshot.length} chars (kept ${tree.length}), text ${body.text.length} chars (kept ${text.length}), refs offered ${Object.keys(typeof data.refs === 'object' && data.refs !== null ? data.refs : {}).length}`);
     const treeRefs = new Set<string>();
     for (const match of tree.matchAll(/\[([^\[\]\r\n]*)\]/g)) {
       for (const attribute of match[1].split(",")) {
@@ -177,7 +180,7 @@ export class RemoteBrowser {
         : [];
     for (const [key, item] of entries) {
       if (
-        Object.keys(refs).length >= 400 ||
+        Object.keys(refs).length >= 2000 ||
         !/^e[0-9]{1,6}$/.test(key) ||
         !treeRefs.has(key) ||
         typeof item !== "object" ||
@@ -195,7 +198,10 @@ export class RemoteBrowser {
         typeof metadata.name === "string"
           ? boundedText(metadata.name, 160)
           : undefined;
-      if (role !== metadata.role || name !== metadata.name) truncated = true;
+      if (role !== metadata.role || name !== metadata.name) {
+        truncated = true;
+        console.info(`[browser] observation flagged incomplete: ref ${key} metadata was itself bounded (name ${String(metadata.name).length} chars)`);
+      }
       refs[key] = {
         ...(role === undefined ? {} : { role }),
         ...(name === undefined ? {} : { name }),
