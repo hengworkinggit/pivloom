@@ -3,13 +3,12 @@
  *
  * Every failure this file exists to prevent had the same shape: a limit was an
  * independent constant, the work was a function of plan size, and nothing
- * compared the two before the run started. So none of the numbers below is an
- * estimate of how a review "should" be sized. Each one is either read from the
- * constant that is enforced today (budgets.ts, data/generation.ts, contracts) or
- * measured from a record written in this repository by a real run, and the
- * comment above it says which. `envelope()` turns them into the work for N
- * behaviours; `limits()` turns that into the limit the work implies;
- * `preflightCapacity()` compares the two before the first model call.
+ * compared the two before the run started. The first-pass estimates below use
+ * historical measurements and named assumptions; their comments identify the
+ * source. `currentLimits()` uses the production budget helpers, including the
+ * shared allowance for repair attempts, while `required()` remains a calibration
+ * estimate rather than a completion guarantee. `preflightCapacity()` compares
+ * that estimate with the current limits before browser work begins.
  *
  * Shadow mode: `CAPACITY_ENFORCEMENT` is "shadow". The pre-flight always
  * reports what it would do, never throws, and changes no limit anywhere:
@@ -22,9 +21,8 @@ import {
   REVIEW_EVIDENCE_ENTRY_LIMIT,
   REVIEW_EVIDENCE_LIMIT_BYTES,
   REVIEW_TOOL_CALLS_PER_BEHAVIOR,
-  REVIEW_TOOL_LIMIT,
-  REVIEW_TOOL_LIMIT_CEILING,
-  RUN_TOOL_LIMIT,
+  generationToolLimitForPlan,
+  reviewToolLimitForPlan,
 } from "./budgets.js";
 import { RuntimeError } from "./types.js";
 
@@ -46,16 +44,15 @@ export const CAPACITY_ENFORCEMENT: CapacityMode = "shadow";
 // ---------------------------------------------------------------------------
 
 /**
- * MEASURED first-pass reviewer work per behaviour. budgets.ts:47-49 records the
- * production measurement this model is built on: a forty-five behaviour plan
+ * Historical first-pass calibration recorded beside the review budget: a forty-five behaviour plan
  * spent "about 240 calls on its first pass". 240 / 45.
  */
 export const MEASURED_TOOL_CALLS_PER_BEHAVIOR = 240 / 45;
 
 /**
- * The headroom the code already uses, not an invented one. budgets.ts:51 sets
+ * The headroom the code already uses, not an invented one. budgets.ts sets
  * REVIEW_TOOL_CALLS_PER_BEHAVIOR = 8 as the per-behaviour allowance the
- * Reviewer's own budget is scaled with (reviewer.ts:233-235). 8 / (240/45) is
+ * Reviewer's budget helper scales with. 8 / (240/45) is
  * exactly 1.5, so the envelope with this headroom reproduces the constant the
  * code enforces today rather than inventing a second opinion.
  */
@@ -64,26 +61,26 @@ export const CAPACITY_HEADROOM = REVIEW_TOOL_CALLS_PER_BEHAVIOR / MEASURED_TOOL_
 /**
  * Fixed tool calls a check spends that belong to no single behaviour. The
  * production path bootstraps the page and its first image before the model
- * starts, charging both to the same budget (generation/review.ts:111 sets
- * bootstrap: true; reviewer.ts:800 adds 2), and the instruction reserves one
- * more call for submit_review (reviewer.ts:806). Measured against the test
- * anchor at tests/runtime/reviewer.test.ts:1230, where 21 behaviours cost
+ * starts, charging both to the same budget (runReview enables bootstrap;
+ * runReviewer records two tool calls), and the instruction reserves one
+ * more call for submit_review. Measured against the test
+ * in tests/runtime/reviewer.test.ts where 21 behaviours cost
  * exactly 1 + 21 x 3 calls because no bootstrap was used: that single call is
  * the same fixed cost, so 3 is the bootstrap path and 1 the in-test one.
  */
 export const FIXED_TOOL_CALLS_PER_CHECK = 3;
 
 /**
- * Coordinator allowance: executor.ts:217 passes `Math.min(12, toolLimit)`, the
- * code's own figure for planning (coordinator.ts:105).
+ * Coordinator allowance: createGenerationExecutor passes Math.min(12, toolLimit)
+ * to runCoordinator. This term estimates the first pass, not all repair attempts.
  */
 export const COORDINATOR_TOOL_CALLS = 12;
 
 /**
  * NOT MEASURED — the only input in this file without a repository measurement.
- * pi.ts:217 is the Builder's own default tool allowance (`?? 64`), and the
+ * runBuilder's default tool allowance is 64 when none is supplied, and the
  * executor hands the Builder whatever is left of the run ledger rather than this
- * number (executor.ts:269). It is kept as a named constant precisely so the
+ * number. It is kept as a named constant precisely so the
  * run-ledger finding below can be re-costed in one place once a real Builder
  * tool-call measurement exists.
  */
@@ -92,19 +89,19 @@ export const BUILDER_TOOL_CALLS = 64;
 /**
  * MEASURED evidence entries per behaviour. The previous 256-entry array cap
  * overflowed on a forty-two behaviour check (docs/specs/
- * review-capacity-and-tiered-verification-v1.md:25 records "42 behaviours >
+ * review-capacity-and-tiered-verification-v1.md records "42 behaviours >
  * 256 entries"), so the measured cost is strictly more than 257 / 42 = 6.12.
  * Rounded up to the next whole entry.
  */
 export const MEASURED_EVIDENCE_ENTRIES_PER_BEHAVIOR = Math.ceil(257 / 42);
 
 /**
- * MEASURED evidence bytes per behaviour. budgets.ts:57-60 records that the
+ * Historical evidence bytes per behaviour. The budget's measurement note records that the
  * previous 480 KiB observation record was "roughly twenty observations" ("at
  * 480 KB that was roughly twenty observations ... not for the 44-behaviour one,
  * which aborted"). 480 KiB / 20 = 24 KiB for one observation, and every
  * behaviour that is reported needs at least one real action observation
- * (reviewer.ts itemProblem; persisted re-check in data/generation.ts:984-998),
+ * (runReviewer's itemProblem; the persisted re-check in finishReview),
  * so one observation is the per-behaviour floor. This is the conservative upper
  * bound of that record, not its average: the same comment says 480 KiB was
  * still enough for the 28- and 38-behaviour checks (about 12.6 KiB per
@@ -114,22 +111,20 @@ export const MEASURED_EVIDENCE_BYTES_PER_BEHAVIOR = (480 * 1024) / 20;
 
 /**
  * One post-action screenshot per visual behaviour: browser_steps saves one
- * artifact per captured step (reviewer.ts:543-547), key_batch saves one
- * (reviewer.ts:579-583) and the persisted re-check requires a screenshot for
- * render evidence (data/generation.ts:996). Measured 1 artifact per behaviour
- * in tests/runtime/reviewer.test.ts:1229 (21 behaviours, 21 artifacts).
+ * artifact per captured step, key_batch saves one, and finishReview requires a screenshot for
+ * render evidence. Measured 1 artifact per behaviour
+ * in tests/runtime/reviewer.test.ts (21 behaviours, 21 artifacts).
  */
 export const ARTIFACTS_PER_BEHAVIOR = 1;
 
 // ---------------------------------------------------------------------------
 // Plan and handoff bytes. These are resources that grow with plan size too, and
 // they fail at coordinator submit time rather than mid-review (contracts/
-// planning.ts:147 and :237), which is why the pre-flight has to cover them.
+// GroupedPlanSchema and HandoffSchema), which is why the pre-flight has to cover them.
 //
 // Every byte constant below was measured by serializing the repository's own
 // contract fixtures through the real schemas:
-//   prose behaviour  -> tests/generation/planning-contracts.test.ts:32-34
-//   compiled sequence -> tests/generation/planning-contracts.test.ts:56-65
+//   prose behaviour and compiled sequence -> tests/generation/planning-contracts.test.ts
 //     (9 steps: open, reload, resize, click, fill, select, press, wait, capture;
 //      5 assertions: text, negated text, control, negated control, console-error)
 // JSON is serialized with JSON.stringify of the PARSED value, because the plan
@@ -187,18 +182,18 @@ export const REVIEWER_HANDOFF_FIXED_BYTES = 422;
 
 /**
  * MEASURED worst case a repair handoff adds: five failed checks of 1000
- * characters each, which is what data/generation.ts:1448-1449 stores
+ * characters each, which is what startRepairBuilder stores
  * (`slice(0, 5)`, `slice(0, 1000)`), plus their JSON punctuation.
  */
 export const REPAIR_FAILED_CHECKS_BYTES = 15_053;
 
-/** contracts/planning.ts:147 caps a grouped plan at 96 KiB. */
+/** GroupedPlanSchema caps a grouped plan at 96 KiB. */
 export const PLAN_BYTE_LIMIT = 96 * 1024;
-/** contracts/planning.ts:237 caps the whole handoff at 160 KiB. */
+/** HandoffSchema caps the whole handoff at 160 KiB. */
 export const HANDOFF_BYTE_LIMIT = 160 * 1024;
 /**
- * contracts/planning.ts:93-94 allows at most eighty behaviours, and the persisted
- * report has the same ceiling (contracts/review.ts:47). The capacity test proves
+ * GroupedPlanSchema allows at most eighty behaviours, and ReviewResultSchema has
+ * the same ceiling. The capacity test proves
  * this number against GroupedPlanSchema rather than trusting the comment.
  */
 export const MAX_PLAN_BEHAVIORS = 80;
@@ -206,7 +201,7 @@ export const MAX_PLAN_BEHAVIORS = 80;
 /**
  * MEASURED bytes the persistence payload adds around the evidence array. The
  * Reviewer measures `JSON.stringify(evidence)` against
- * REVIEW_EVIDENCE_LIMIT_BYTES (reviewer.ts:284) while persistence measures
+ * REVIEW_EVIDENCE_LIMIT_BYTES while persistence measures
  * `JSON.stringify({ evidence })` (data/generation.ts assertReviewEvidenceFitsPersistence), so the wrapper is the
  * one place the two can disagree by a handful of bytes. It is measured here
  * instead of assumed so the persistence bound can be the Reviewer's bound plus
@@ -301,23 +296,22 @@ export const BATCHABLE_RESOURCES: ReadonlySet<CapacityResource> = new Set<Capaci
 
 /** Where each number the check compares against comes from. */
 export const CAPACITY_LIMIT_SOURCES: Record<CapacityResource, string> = {
-  planBehaviours: "contracts/src/planning.ts:94 (GroupedPlanSchema .max(80))",
-  reviewToolCalls: "reviewer.ts:233-235 max(REVIEW_TOOL_LIMIT, min(N x REVIEW_TOOL_CALLS_PER_BEHAVIOR, REVIEW_TOOL_LIMIT_CEILING))",
-  runToolCalls: "budgets.ts:43 RUN_TOOL_LIMIT, charged across every role by executor.ts:270-273",
-  evidenceEntries: "data/generation.ts:285-300 (reviewEvidenceSchema .max(REVIEW_EVIDENCE_ENTRY_LIMIT))",
-  evidenceBytes: "budgets.ts:63 REVIEW_EVIDENCE_LIMIT_BYTES, enforced in-run at reviewer.ts:284 and at persistence from the same source (data/generation.ts assertReviewEvidenceFitsPersistence)",
-  artifacts: "contracts/src/review.ts:9 MAX_CHECK_ARTIFACTS",
-  planBytes: "contracts/src/planning.ts:147 (96 KiB)",
-  handoffBytes: "contracts/src/planning.ts:237 (160 KiB)",
+  planBehaviours: "contracts/src/planning.ts GroupedPlanSchema behavior-count ceiling",
+  reviewToolCalls: "budgets.ts reviewToolLimitForPlan, also used by runReviewer",
+  runToolCalls: "budgets.ts generationToolLimitForPlan, shared by Coordinator, Builder, Reviewer and repairs in createGenerationExecutor",
+  evidenceEntries: "budgets.ts REVIEW_EVIDENCE_ENTRY_LIMIT, applied by data/generation.ts reviewEvidenceSchema",
+  evidenceBytes: "budgets.ts REVIEW_EVIDENCE_LIMIT_BYTES, enforced by Reviewer and assertReviewEvidenceFitsPersistence",
+  artifacts: "contracts/src/review.ts MAX_CHECK_ARTIFACTS",
+  planBytes: "contracts/src/planning.ts GroupedPlanSchema serialized size limit (96 KiB)",
+  handoffBytes: "contracts/src/planning.ts HandoffSchema serialized size limit (160 KiB)",
 };
 
-/** The limits the code enforces today, exactly as the cited lines compute them. */
+/** Default limits enforced by the production helpers; callers can assess explicit lower limits via preflight overrides. */
 export function currentLimits(behaviours: number): CapacityLimits {
   return {
     planBehaviours: MAX_PLAN_BEHAVIORS,
-    reviewToolCalls: Math.max(REVIEW_TOOL_LIMIT,
-      Math.min(behaviours * REVIEW_TOOL_CALLS_PER_BEHAVIOR, REVIEW_TOOL_LIMIT_CEILING)),
-    runToolCalls: RUN_TOOL_LIMIT,
+    reviewToolCalls: reviewToolLimitForPlan(behaviours),
+    runToolCalls: generationToolLimitForPlan(behaviours),
     evidenceEntries: REVIEW_EVIDENCE_ENTRY_LIMIT,
     evidenceBytes: REVIEW_EVIDENCE_LIMIT_BYTES,
     artifacts: MAX_CHECK_ARTIFACTS,
@@ -443,7 +437,7 @@ function compare(behaviours: number, limitsUnderTest: CapacityLimits) {
 
 /**
  * Does one pass of `behaviours` fit inside every batchable limit? The Reviewer's
- * own limit scales with the batch (reviewer.ts:233-235), so a batch is checked
+ * own limit scales with the batch through reviewToolLimitForPlan, so a batch is checked
  * against the limit it would actually run under rather than the whole plan's.
  */
 function oneBatchFits(behaviours: number, overrides: Partial<CapacityLimits>) {
@@ -487,7 +481,7 @@ function describeNear(finding: CapacityFinding) {
  * rests on a measured number when one of its terms does not.
  */
 export const UNMEASURED_CAPACITY_INPUTS: ReadonlyArray<string> = Object.freeze([
-  `BUILDER_TOOL_CALLS=${BUILDER_TOOL_CALLS} (pi.ts:217 default allowance, not a measured Builder tool-call count)`,
+  `BUILDER_TOOL_CALLS=${BUILDER_TOOL_CALLS} (runBuilder default allowance, not a measured Builder tool-call count)`,
 ]);
 
 /**
@@ -521,7 +515,7 @@ export function preflightCapacity(behaviours: number, options: CapacityPreflight
       : `容量预检通过：${behaviours} 条行为在现有上限内${near.length ? `；接近上限：${near.map(describeNear).join("；")}` : ""}`;
   const sharedLedger = unbatchable.some((finding) => finding.resource === "runToolCalls");
   const assumptions = sharedLedger ? `；未实测输入：${UNMEASURED_CAPACITY_INPUTS.join("，")}` : "";
-  const message = `${summary}${sharedLedger ? "；运行级工具账本由整个 run 共用，分批只会增加总消耗，需拆分为独立 run 或调整 RUN_TOOL_LIMIT" : ""}${assumptions}`;
+  const message = `${summary}${sharedLedger ? "；运行级工具账本由整个 run 共用，分批只会增加总消耗，需拆分为独立 run 或调整本次运行的工具限额" : ""}${assumptions}`;
   if (mode === "enforce" && verdict === "refuse") throw new RuntimeError("CAPACITY_REFUSED", message);
   return { mode, enforced: false, behaviours, verdict,
     envelope: envelope(behaviours), required: required(behaviours), limits: limitsUnderTest,
