@@ -72,6 +72,31 @@ test("all previous required IDs and observable meanings survive an increment; re
     replacements: [{ ...replacement.replacements[0], newBehaviorId: "B01" }] }), previous, "把金额改为两位小数")).toBe(false);
 });
 
+test("compiling a preserved behavior into steps or assertions is verification, never a semantic change", () => {
+  const previous = GroupedPlanSchema.parse(base);
+  const compiled = GroupedPlanSchema.parse({ ...base, behaviors: base.behaviors.map((item) => item.id === "B01"
+    ? { ...item, steps: [{ type: "open" }, { type: "click", name: "添加" }, { type: "capture" }],
+        assertions: [{ kind: "control", name: "添加" }, { kind: "text", text: "已添加" }], evidence: "text" }
+    : item) });
+  expect(preservesPreviousBehavior(compiled, previous, "")).toBe(true);
+  // Refining an existing program is equally free: rebuilding the same promise
+  // with a sharper check must not retire a behavior the user never changed.
+  const refined = GroupedPlanSchema.parse({ ...compiled, behaviors: compiled.behaviors.map((item) => item.id === "B01"
+    ? { ...item, steps: [{ type: "open", path: "/" }, { type: "fill", name: "书名", text: "三体" }, { type: "capture" }],
+        assertions: [{ kind: "console-error", negated: true }], evidence: "visual" }
+    : item) });
+  expect(preservesPreviousBehavior(refined, compiled, "")).toBe(true);
+  // The prose fields stay authoritative: a stricter assertion cannot justify
+  // moving what the user was promised.
+  for (const changed of [{ expected: "另一种结果" }, { action: "另一种动作" }, { precondition: "另一种前提" }, { required: false }]) {
+    const mutated = GroupedPlanSchema.parse({ ...refined, behaviors: refined.behaviors.map((item) => item.id === "B01" ? { ...item, ...changed } : item) });
+    expect(preservesPreviousBehavior(mutated, previous, "改颜色"), JSON.stringify(changed)).toBe(false);
+  }
+  const compensated = GroupedPlanSchema.parse({ ...compiled, behaviors: compiled.behaviors.map((item) => item.id === "B01"
+    ? { ...item, expected: "别的结果", assertions: [{ kind: "text", text: "别的结果" }] } : item) });
+  expect(preservesPreviousBehavior(compensated, previous, "")).toBe(false);
+});
+
 test("server group aggregate cannot call a failed, blocked or missing child 5/5", () => {
   const plan = GroupedPlanSchema.parse(base);
   const ids = plan.behaviors.map((item) => item.id);

@@ -16,9 +16,73 @@ export const RoleUsageSchema = z.strictObject({
   return usage.source === source;
 }, "用量来源必须明确反映供应商字段的已知程度。");
 export type RoleUsage = z.infer<typeof RoleUsageSchema>;
+/**
+ * Replay operations a plan can carry. Controls are addressed by accessible role
+ * and name because nothing else survives from planning to replay: a runtime ref
+ * (`e123`) is minted per observation, and a CSS selector or coordinate binds the
+ * plan to markup the Builder is still free to change. This mirrors the
+ * Reviewer's browser_steps steps (apps/api/src/runtime/reviewer.ts) without the
+ * runtime-only fields (observationId, ref, behaviorIds, capture).
+ */
+const planControl = { role: nonempty(80).default("button"), name: nonempty(300) };
+/**
+ * The browser CLI recognizes exactly these keys (BrowserPressKeySchema in
+ * apps/api/src/runtime/browser.ts). The list is duplicated because the contract
+ * package cannot import the API package; an unsupported key is refused here for
+ * one correction turn instead of failing a replay after the browser started.
+ */
+const planPressKey = z.enum(["Enter", "Backspace", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space",
+  "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "+", "-", "*", "/", "(", ")"]);
+/**
+ * The Reviewer's browser_steps kernel already runs at most 64 steps in one
+ * call, so a compiled behavior never needs a longer program than the executor
+ * that exists. The plan byte cap, not this array, is what binds in practice: a
+ * compiled 41-behavior plan spends roughly 1 KiB per behavior on steps alone.
+ */
+export const MAX_BEHAVIOR_STEPS = 64;
+/** A behavior needing more than a dozen script checks is several behaviors. */
+export const MAX_BEHAVIOR_ASSERTIONS = 16;
+export const BehaviorStepSchema = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("open"), path: nonempty(500).default("/") }),
+  z.strictObject({ type: z.literal("reload") }),
+  z.strictObject({ type: z.literal("resize"), width: z.number().int().min(320).max(2560), height: z.number().int().min(320).max(2000) }),
+  z.strictObject({ type: z.literal("click"), ...planControl }),
+  z.strictObject({ type: z.literal("fill"), ...planControl, text: z.string().max(2000) }),
+  z.strictObject({ type: z.literal("select"), ...planControl, value: z.string().max(2000) }),
+  z.strictObject({ type: z.literal("press"), key: planPressKey }),
+  z.strictObject({ type: z.literal("wait"), ms: z.number().int().min(1).max(3000) }),
+  // A marker, not a model request: the replay records where an image is taken
+  // so that an evidence:"visual" behavior has an artifact to hand to a model.
+  z.strictObject({ type: z.literal("capture") }),
+]);
+export type BehaviorStep = z.infer<typeof BehaviorStepSchema>;
+/**
+ * v1 decides only what BrowserObservation plus logs() already return: page text,
+ * the observation's role/name table of controls, and console output. `negated`
+ * flips the predicate instead of doubling the kind list, so one evaluator covers
+ * both "the message appears" and "the error is gone". Kinds that need a rendered
+ * judgement (colour, overflow, canvas) are evidence "visual" and go to a model;
+ * they must not pretend to be script-decidable assertions.
+ */
+const negated = z.boolean().default(false);
+export const BehaviorAssertionSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("text"), text: nonempty(500), negated }),
+  z.strictObject({ kind: z.literal("control"), ...planControl, negated }),
+  z.strictObject({ kind: z.literal("console-error"), negated }),
+]);
+export type BehaviorAssertion = z.infer<typeof BehaviorAssertionSchema>;
+export const BehaviorEvidenceSchema = z.enum(["text", "visual"]);
+export type BehaviorEvidence = z.infer<typeof BehaviorEvidenceSchema>;
 export const BehaviorTargetSchema = z.strictObject({
   id: z.string().regex(/^B(?:0[1-9]|[1-9]\d)$/),
   title: nonempty(120), precondition: nonempty(500), action: nonempty(500), expected: nonempty(500), required: z.boolean(),
+  // Optional so every plan written before the replay existed — and every
+  // behavior no script can drive — still validates, and is simply treated as
+  // not-compilable by the replay instead of failing the whole plan.
+  steps: z.array(BehaviorStepSchema).max(MAX_BEHAVIOR_STEPS).optional(),
+  assertions: z.array(BehaviorAssertionSchema).max(MAX_BEHAVIOR_ASSERTIONS).optional(),
+  // Absent means unchanged for callers that predate executable verification.
+  evidence: BehaviorEvidenceSchema.optional(),
 });
 export type BehaviorTarget = z.infer<typeof BehaviorTargetSchema>;
 export const LegacyPlanSchema = z.strictObject({
@@ -72,7 +136,13 @@ export const GroupedPlanSchema = z.strictObject({
       context.addIssue({ code: "custom", message: "替代关系必须由旧 ID 指向一个新的子检查 ID。", path: ["replacements", index] });
     replaced.add(item.oldBehaviorId); incoming.add(item.newBehaviorId);
   }
-}).refine(boundedJson(64 * 1024), "五组计划不得超过 64 KiB。");
+})
+  // Executable steps and assertions cost roughly 1 KiB per behavior on top of
+  // prose, so a compiled 41-behavior plan passes the old 64 KiB ceiling and a
+  // maximal 80-behavior one does not. 96 KiB is the largest raise that still
+  // leaves the 160 KiB HandoffSchema at least 64 KiB for its task text; the
+  // bound stays 1.5x rather than doubling so plan bloat still fails loudly.
+  .refine(boundedJson(96 * 1024), "五组计划不得超过 96 KiB。");
 export const PlanSchema = z.discriminatedUnion("schemaVersion", [LegacyPlanSchema, GroupedPlanSchema]);
 export type Plan = z.infer<typeof PlanSchema>;
 export type GroupedPlan = z.infer<typeof GroupedPlanSchema>;
@@ -81,6 +151,17 @@ export type GroupedPlan = z.infer<typeof GroupedPlanSchema>;
  * differences. Models reliably re-wrap lines and swap punctuation, which says
  * nothing about the behavior, while any real rewording of the expected result
  * still has to be reproduced exactly.
+ *
+ * Two classes of field are deliberately treated differently. precondition,
+ * action, expected and required are what the user was promised, so changing any
+ * of them is a redefinition and must go through an explicit replacement record.
+ * steps, assertions and evidence are only how that promise is verified: a later
+ * increment that compiles a prose behavior into steps, or sharpens an assertion,
+ * makes verification more precise while the promised behavior stays identical,
+ * so it must not be rejected — otherwise every attempt to speed up verification
+ * would retire a behavior the user never changed, and the plan would be forced
+ * into a bogus replacement. The prose fields stay authoritative: a change may
+ * not weaken expected and "compensate" with a stricter assertion.
  */
 function observable(value: string) {
   return value.replace(/\s+/gu, " ").trim().replace(/[。．.,，;；:：!！?？]+$/u, "");
@@ -91,7 +172,11 @@ export function sameObservableBehavior(left: BehaviorTarget, right: BehaviorTarg
     && observable(left.action) === observable(right.action)
     && observable(left.expected) === observable(right.expected);
 }
-/** A cosmetic title change is allowed; every old required observable contract remains intact. */
+/**
+ * A cosmetic title change is allowed; every old required observable contract
+ * remains intact. Executable verification is not part of that contract, so it
+ * may be added or refined freely (see sameObservableBehavior).
+ */
 export function preservesPreviousBehavior(plan: Plan, previousPlan: Plan | null, userRequest = "") {
   if (!previousPlan) return plan.schemaVersion !== 2 || plan.replacements.length === 0;
   if (previousPlan.schemaVersion === 2 && plan.schemaVersion !== 2) return false;
