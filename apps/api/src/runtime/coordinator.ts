@@ -53,6 +53,13 @@ const schemaFields = new Set(["plan", "question", "schemaVersion", "goal", "chan
   // otherwise the Coordinator cannot tell which field to fix.
   "steps", "type", "path", "width", "height", "role", "name", "text", "value", "key", "ms",
   "assertions", "kind", "negated", "evidence"]);
+/**
+ * Output floor for the coordinator. Sized from the measured cost of a stepped plan (5,120 tokens for the
+ * cheapest possible one) with room for app-specific steps, which are longer than the repeated ones used
+ * for that measurement.
+ */
+const COORDINATOR_OUTPUT_TOKENS = 16_384;
+
 function schemaIssues(issues: readonly { path: readonly PropertyKey[]; code: string; expected?: unknown; received?: unknown }[]) {
   // The correction goes back to the model that produced the arguments, and a bare `field:invalid_type`
   // does not tell it what it sent or what was wanted — a measured run failed twice on `groups` and
@@ -256,7 +263,12 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
     session.agent.toolExecution = "sequential";
     session.agent.streamFunction = (selected, messageContext, options) => {
       checkSignal(); requestNumber++; receivedStream = false;
-      const maxTokens = Math.min(input.modelConfig.maxTokens ?? 4096, 4096);
+      // Measured, not guessed: the sealed forty-one behaviour plan costs 2,905 tokens as prose and
+      // 5,120 as soon as every behaviour carries a step list and an assertion — the smallest stepped
+      // plan, with identical steps throughout. The 4,096 ceiling therefore truncates exactly the plans
+      // this project now asks for, and a truncated plan arrives as malformed JSON that blames the
+      // schema. The floor follows the plan we require; a configured value only raises it further.
+      const maxTokens = Math.max(input.modelConfig.maxTokens ?? 0, COORDINATOR_OUTPUT_TOKENS);
       try {
         return tokens.stream(maxTokens, input.modelConfig.fetch, (modelFetch) => runtime.streamSimple(selected, messageContext, { ...options, fetch: modelFetch, transport: "sse",
           timeoutMs: MODEL_REQUEST_TIMEOUT_MS, maxRetries: 0, maxTokens }));

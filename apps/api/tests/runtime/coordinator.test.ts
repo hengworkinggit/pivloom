@@ -206,7 +206,7 @@ test.each(["structured", "plain-text"] as const)("cache-inclusive usage blocks a
 
 test.each([null, { completion_tokens: 5 }, { prompt_tokens: 10 }])("incomplete provider usage retains the request reservation before a correction: %j", async (usage) => {
   const model = provider(["普通文字不是结构化交接", [{ name: "submit_plan", args: { plan } }]], key, [usage]);
-  const budget = createRunTokenBudget(10000);
+  const budget = createRunTokenBudget(30000);
   await expect(runCoordinator({
     runId: randomUUID(), roleRunId: randomUUID(), sessionId: randomUUID(), attempt: 0, baseRevisionId: null,
     modelConfig: model.modelConfig, signal: new AbortController().signal, context: context(), tokenBudget: budget,
