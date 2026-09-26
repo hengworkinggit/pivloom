@@ -192,6 +192,13 @@ export class RemoteBrowser {
       // flagged ordinary pages as incomplete, and because the replay used to refuse to resolve a control
       // from an incomplete observation, that stopped every plan after its first behaviour. The cap and a
       // malformed entry still mean the observation cannot be trusted.
+      // Scoped steps (the documented answer to same-named controls) need to know whether a control sits
+      // inside another one, and this map is flat - ref to role and name, nothing else. Whether the browser
+      // offers more and we are discarding it cannot be answered from this repository: the snapshot is
+      // produced inside the sandbox. So the next observation records the field names the payload actually
+      // carries - names only, never values - which settles the question in one run instead of a guess.
+      if (Object.keys(refs).length === 0)
+        console.info(`[browser] ref payload fields: ${Object.keys(item as Record<string, unknown>).sort().join(',')}`);
       const metadata = item as Record<string, unknown>;
       const role =
         typeof metadata.role === "string"
