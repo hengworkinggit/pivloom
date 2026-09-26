@@ -746,9 +746,11 @@ export function createGenerationRepository(
         }
         if (input.failureDetail) {
           const d = input.failureDetail;
-          await client.query(`INSERT INTO nano.run_failures(run_id,phase,code,cause_class,detail_json) VALUES($1,$2,$3,$4,$5)
-            ON CONFLICT (run_id) DO UPDATE SET phase=$2,code=$3,cause_class=$4,detail_json=$5,created_at=now()`,
-          [runId, d.phase.slice(0, 40), input.code.slice(0, 80), d.causeClass.slice(0, 40), JSON.stringify(d.detail).slice(0, 4000)]);
+          // owner_id is part of the row, not decoration: the policy on this table scopes reads to
+          // the owner, so a write without it would be invisible to the very run that produced it.
+          await client.query(`INSERT INTO nano.run_failures(run_id,owner_id,phase,code,cause_class,detail_json) VALUES($1,$2,$3,$4,$5,$6)
+            ON CONFLICT (run_id) DO UPDATE SET owner_id=$2,phase=$3,code=$4,cause_class=$5,detail_json=$6,created_at=now()`,
+          [runId, ownerId, d.phase.slice(0, 40), input.code.slice(0, 80), d.causeClass.slice(0, 40), JSON.stringify(d.detail).slice(0, 4000)]);
         }
         const summary = (input.summary ?? input.message).slice(0, 4000);
         const result = await client.query(`UPDATE nano.runs SET state='failed',phase='cleanup',cleanup_state=$3,
@@ -763,7 +765,7 @@ export function createGenerationRepository(
     },
     async readFailureDetail(ownerId, runId) {
       return owned(ownerId, async (client) => {
-        const found = await client.query("SELECT phase,code,cause_class,detail_json,created_at FROM nano.run_failures WHERE run_id=$1", [runId]);
+        const found = await client.query("SELECT phase,code,cause_class,detail_json,created_at FROM nano.run_failures WHERE owner_id=$1 AND run_id=$2", [ownerId, runId]);
         const row = found.rows[0];
         if (!row) return null;
         return { phase: row.phase, code: row.code, causeClass: row.cause_class,
