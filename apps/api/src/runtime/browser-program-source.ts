@@ -2,7 +2,7 @@
 export const browserProgramSource = String.raw`
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { readFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 const execute = promisify(execFile);
 const input = JSON.parse(process.argv[2]);
@@ -72,10 +72,10 @@ async function open(path, fresh = false) {
 }
 async function capture() {
   await checkOrigin(); await mkdir('/tmp/pivloom-browser', {recursive:true});
-  const path = '/tmp/pivloom-browser/' + randomUUID() + '.png';
+  const fileName = randomUUID() + '.png';const path = '/tmp/pivloom-browser/' + fileName;
   await cli(['screenshot', path]); const bytes = await readFile(path); await checkOrigin();
   if (bytes.length > 2 * 1024 * 1024 || !bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) fail('INVALID_SCREENSHOT', '截图格式或大小错误');
-  return {base64:bytes.toString('base64'), mimeType:'image/png', sha256:createHash('sha256').update(bytes).digest('hex')};
+  return {fileName,bytes:bytes.length,mimeType:'image/png',sha256:createHash('sha256').update(bytes).digest('hex')};
 }
 let cdp;
 async function connectCdp() {
@@ -118,6 +118,10 @@ async function inspect(target) {
 async function logs(){await checkOrigin();const result=await cli(['errors']);await checkOrigin();return result;}
 async function act(action){
   await checkOrigin();
+  if(['fill','select'].includes(action.type)){
+    const value=action.type==='fill'?action.text:action.value;
+    if(typeof value!=='string'||value.length>2000||value.includes('\0')||/^\s*-(?:-|[a-z])/i.test(value))fail('INVALID_BROWSER_ACTION','无效浏览器输入值');
+  }
   const args=action.type==='click'?['click','@'+action.ref]:action.type==='fill'?['fill','@'+action.ref,action.text]:action.type==='select'?['select','@'+action.ref,action.value]:action.type==='scroll'?['scroll',action.direction,'600']:['press',action.key];
   await cli(args);return observe();
 }
@@ -163,11 +167,20 @@ async function program(payload){
   for(const target of payload.targets??[]){try{inspections.push({target,...await inspect(target)});}catch(error){return {frames,error:{index:steps.length,code:error.code??'BROWSER_BLOCKED',message:error.message},commandCount};}}
   return {frames,inspections,logs:await logs(),commandCount};
 }
+async function respond(packet){
+  let serialized=JSON.stringify(packet);
+  if(Buffer.byteLength(serialized)>16*1024*1024)serialized=JSON.stringify({success:false,error:{code:'REVIEW_EVIDENCE_TOO_LARGE',message:'本程序证据超过16MiB传输上限，未判断应用通过'},commandCount});
+  if(input.resultFile){
+    if(!/^browser-result-[0-9a-f-]{36}\.json$/.test(input.resultFile))fail('INVALID_SERVICE_PATH','无效结果路径');
+    await writeFile('/opt/pivloom/'+input.resultFile,serialized,{mode:0o600});
+    process.stdout.write(JSON.stringify({resultFile:input.resultFile}));
+  }else process.stdout.write(serialized);
+}
 try {
   const op=input.operation;
   const result=op.kind==='program'?await program(op):op.kind==='inspect'?await inspect(op.target):op.kind==='reset'?await open(op.path,true):op.kind==='open'?await open(op.path):op.kind==='observe'?await observe():op.kind==='act'?await act(op.action):op.kind==='keys'?await keys(op.steps):op.kind==='resize'?await resize(op.width,op.height):op.kind==='screenshot'?await capture():op.kind==='logs'?await logs():null;
   if(result===null)fail('INVALID_BROWSER_ACTION','不支持的浏览器操作');
-  process.stdout.write(JSON.stringify({success:true,data:result,commandCount}));
-}catch(error){process.stdout.write(JSON.stringify({success:false,error:{code:error.code??'BROWSER_BLOCKED',message:String(error.message).slice(0,500)},commandCount}));process.exitCode=1;}
+  await respond({success:true,data:result,commandCount});
+}catch(error){await respond({success:false,error:{code:error.code??'BROWSER_BLOCKED',message:String(error.message).slice(0,500)},commandCount});process.exitCode=1;}
 finally{socket?.close();}
 `;

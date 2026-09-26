@@ -28,3 +28,22 @@ test('a native runner missing one input frame cannot certify the application',as
 test('a partly executed key sequence cannot certify the application',async()=>{
  const f=fixture();f.response.frames[1].batch!.steps.pop();await expect(f.run()).rejects.toMatchObject({code:'BROWSER_ACTION_FAILED'});
 });
+
+test('a native unresolved control resumes at that step without replaying earlier actions',async()=>{
+ const f=fixture();const before=f.response.frames[0].observation!;
+ const pending={...before,id:randomUUID(),refs:{e1:{role:'button',name:'Compute'},e2:{role:'button',name:'Calculate'}}};
+ const program:ReplayProgram={behaviorId:'B01',initialState:'fresh',steps:[{type:'open',path:'/'},{type:'press',key:'6'},{type:'click',role:'button',name:'='},{type:'capture'}],assertions:[{kind:'target-text',target:{role:'status',name:'Result'},text:'42',match:'exact',negated:false}]};
+ const requests:Array<Parameters<NonNullable<ReplayBrowser['executeProgram']>>[0]>=[];
+ const browser:ReplayBrowser={...f.base.browser,nativePrograms:true,reset:()=>f.base.browser.open(),executeProgram:async input=>{
+  requests.push(structuredClone(input));
+  if(requests.length===1)return {frames:[{index:0,kind:'observation',observation:before},{index:1,kind:'observation',observation:pending}],pending:{index:2,step:program.steps[2],observation:pending},commandCount:2};
+  return {frames:[{index:2,kind:'observation',observation:{...pending,id:randomUUID()}},{index:3,kind:'screenshot',image:{base64:PNG_BASE64,mimeType:'image/png',sha256:PNG_SHA256}}],inspections:f.response.inspections,logs:{errors:[]},commandCount:2};
+ }};
+ let resolutions=0;
+ const result=await runReplayProgram({browser,program,signal:new AbortController().signal,target:{expected:'Result is exactly 42'},rendersOnly:false,
+  resolveControl:async request=>{resolutions++;expect(request.index).toBe(2);expect(request.candidates.map(candidate=>candidate.ref)).toEqual(['e1','e2']);return 'e2';},
+  saveScreenshot:async image=>({id:randomUUID(),key:'fixture/check.png',bytes:Buffer.from(image.base64,'base64').length,sha256:image.sha256,mimeType:'image/png'})});
+ expect(result.item.verdict).toBe('passed');expect(resolutions).toBe(1);expect(requests).toHaveLength(2);
+ expect(requests[0].startIndex).toBe(0);expect(requests[1]).toMatchObject({startIndex:2,resolvedRefs:{2:'e2'},observation:{id:pending.id}});
+ expect(result.events.filter(event=>event.action==='press')).toHaveLength(1);expect(result.events.filter(event=>event.action==='click')).toHaveLength(1);
+});

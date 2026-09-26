@@ -129,7 +129,16 @@ export class RemoteBrowser {
       if (typeof raw !== 'object' || raw === null || !('frames' in raw) || !Array.isArray(raw.frames))
         throw new RuntimeError('BROWSER_BLOCKED','批量检查响应不完整');
       const result=raw as BrowserProgramResponse;
-      for (const frame of result.frames) if (frame.observation) frame.observation=this.acceptObservation(frame.observation);
+      for (const frame of result.frames) {
+        if (frame.observation) frame.observation=this.acceptObservation(frame.observation);
+        if(frame.kind==='screenshot' && frame.image && 'fileName' in frame.image){
+          const image=z.object({fileName:z.string().regex(/^[0-9a-f-]{36}\.png$/),bytes:z.number().int().min(8).max(2*1024*1024),mimeType:z.literal('image/png'),sha256:z.string().regex(/^[a-f0-9]{64}$/)}).parse(frame.image);
+          const bytes=Buffer.from(await this.workspace.readArtifact(this.handle,image.fileName));
+          if(bytes.length!==image.bytes||createHash('sha256').update(bytes).digest('hex')!==image.sha256)
+            throw new RuntimeError('INVALID_SCREENSHOT','截图工件校验失败');
+          frame.image={base64:bytes.toString('base64'),mimeType:image.mimeType,sha256:image.sha256};
+        }
+      }
       for (const inspection of result.inspections??[]) inspection.observation=this.acceptObservation(inspection.observation);
       if(result.pending) result.pending.observation=this.acceptObservation(result.pending.observation);
       return result;
@@ -150,13 +159,24 @@ export class RemoteBrowser {
     this.signal?.throwIfAborted();this.assertOpen();
     this.programReady??=this.workspace.writeServiceFile(this.handle,'browser-program.mjs',browserProgramSource);
     await this.programReady;
-    const payload=JSON.stringify({session:this.session,timeoutMs:this.remainingTime(),operation});
+    const resultFile=`browser-result-${randomUUID()}.json`;
+    const payload=JSON.stringify({session:this.session,timeoutMs:this.remainingTime(),resultFile,operation});
     if(Buffer.byteLength(payload)>96000)throw new RuntimeError('INVALID_BROWSER_ACTION','浏览器程序超过传输上限');
-    const result=await this.workspace.executeService(this.handle,`node /opt/pivloom/browser-program.mjs ${shellQuote(payload)}`,{
-      uid:0,timeoutMs:this.remainingTime(),signal:this.signal?AbortSignal.any([this.stopController.signal,this.signal]):this.stopController.signal,
-    });
+    this.started=true;this.commandsInFlight++;
+    let result;
+    try{
+      result=await this.workspace.executeService(this.handle,`node /opt/pivloom/browser-program.mjs ${shellQuote(payload)}`,{
+        uid:0,timeoutMs:this.remainingTime(),signal:this.signal?AbortSignal.any([this.stopController.signal,this.signal]):this.stopController.signal,
+      });
+    }finally{this.commandsInFlight--;}
     this.signal?.throwIfAborted();this.assertOpen();
     let decoded:unknown;try{decoded=JSON.parse(result.stdoutTail);}catch{throw new RuntimeError('BROWSER_BLOCKED','批量浏览器响应格式错误');}
+    if(typeof decoded==='object'&&decoded!==null&&'resultFile'in decoded){
+      if(decoded.resultFile!==resultFile)throw new RuntimeError('BROWSER_BLOCKED','浏览器结果与当前请求不匹配');
+      const bytes=await this.workspace.readServiceResult(this.handle,resultFile);
+      if(bytes.byteLength>16*1024*1024)throw new RuntimeError('BROWSER_BLOCKED','浏览器结果超过证据传输上限');
+      try{decoded=JSON.parse(Buffer.from(bytes).toString('utf8'));}catch{throw new RuntimeError('BROWSER_BLOCKED','浏览器结果文件不完整');}
+    }
     const packet=z.object({success:z.boolean(),data:z.unknown().optional(),error:z.object({code:z.string(),message:z.string()}).optional()}).safeParse(decoded);
     if(!packet.success)throw new RuntimeError('BROWSER_BLOCKED','批量浏览器响应不完整');
     if(!packet.data.success)throw new RuntimeError(packet.data.error?.code??'BROWSER_BLOCKED',packet.data.error?.message??'浏览器程序未完成');
@@ -505,6 +525,13 @@ export class RemoteBrowser {
     this.operating = true;
     this.deadline = Date.now() + timeoutMs;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const operationSignal=this.signal?AbortSignal.any([this.stopController.signal,this.signal]):this.stopController.signal;
+    let onAbort:()=>void=()=>{};
+    const interrupted=new Promise<never>((_resolve,reject)=>{
+      onAbort=()=>reject(operationSignal.reason);
+      operationSignal.addEventListener('abort',onAbort,{once:true});
+      if(operationSignal.aborted)onAbort();
+    });
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
         this.stopped = true;
@@ -513,7 +540,7 @@ export class RemoteBrowser {
       }, timeoutMs);
     });
     try {
-      const result=await Promise.race([operation(), timeout]);
+      const result=await Promise.race([operation(), timeout, interrupted]);
       this.signal?.throwIfAborted();return result;
     } catch (error) {
       if (error instanceof RuntimeError && error.code === "BROWSER_TIMEOUT")
@@ -521,6 +548,7 @@ export class RemoteBrowser {
       throw error;
     } finally {
       clearTimeout(timer);
+      operationSignal.removeEventListener('abort',onAbort);
       this.operating = false;
       this.deadline = 0;
     }

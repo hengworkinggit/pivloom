@@ -145,7 +145,7 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     await check();
   }
   try{
-    const admission=admitVerification(input.handoff.plan,{remainingMs:Math.max(0,workDeadlineAt-now())});
+    const admission=admitVerification(input.handoff.plan,{remainingMs:Math.max(0,workDeadlineAt-now()),maxArtifacts:MAX_CHECK_ARTIFACTS});
     await bounded(async()=>input.onEvent?.({id:randomUUID(),at:new Date().toISOString(),type:'tool.output',toolName:'verification_admission',
       message:`脚本检查准入：${admission.stats.behaviors} 项行为，${admission.stats.steps} 步，${admission.stats.expandedKeys} 次按键，显式等待 ${admission.stats.explicitWaitMs}ms；${admission.invalidPrograms.length} 项程序需进一步处理。准入不代表通过。`}));
     if(admission.budgetExceeded.length){
