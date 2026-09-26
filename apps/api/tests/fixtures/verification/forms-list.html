@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forms and dynamic list verification fixture</title>
+<style>
+  body{font:16px system-ui;margin:0;padding:16px;background:#f4f6fa;color:#172033}
+  main{max-width:680px;margin:auto}form,.controls,li{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  input,select,button{font:inherit;padding:8px;max-width:100%;box-sizing:border-box}input{min-width:0;flex:1}
+  ul{padding:0;list-style:none}li{padding:10px 0;border-bottom:1px solid #c9d0dd}.title{flex:1;overflow-wrap:anywhere}
+  section{background:white;padding:12px;margin:12px 0;border-radius:8px}label{display:block}
+</style>
+<main>
+  <h1>Tasks</h1>
+  <form aria-label="Create task">
+    <label for="title">Task title</label><input id="title" required>
+    <button type="submit">Add task</button>
+  </form>
+  <section aria-label="Task controls">
+    <label for="filter">Filter tasks</label>
+    <select id="filter"><option value="all">All</option><option value="active">Active</option><option value="completed">Completed</option></select>
+    <button id="reveal" type="button">Reveal quick add</button>
+    <div id="quick"></div>
+  </section>
+  <p role="status" aria-label="Task count">0 items</p>
+  <p role="status" aria-label="Latest action">Ready</p>
+  <ul aria-label="Tasks"></ul>
+  <section aria-label="Activity panel"><h2>Activity</h2><ul aria-label="Activity"></ul></section>
+</main>
+<script type="module">
+  const storageKey='forms-native-v1';
+  const tasks=JSON.parse(localStorage.getItem(storageKey)||'[]');
+  const list=document.querySelector('ul[aria-label="Tasks"]');
+  const filter=document.querySelector('#filter');
+  const action=document.querySelector('[aria-label="Latest action"]');
+  const count=document.querySelector('[aria-label="Task count"]');
+  const title=document.querySelector('#title');
+  function announce(text){action.textContent=text;const li=document.createElement('li');li.textContent=text;document.querySelector('ul[aria-label="Activity"]').append(li);}
+  function save(){localStorage.setItem(storageKey,JSON.stringify(tasks));render();}
+  function render(){
+    list.replaceChildren();
+    const visible=tasks.filter(task=>filter.value==='all'||(filter.value==='completed'?task.done:!task.done));
+    count.textContent=`${visible.length} item${visible.length===1?'':'s'}`;
+    for(const task of visible){
+      const li=document.createElement('li');li.setAttribute('aria-label',`Task ${task.title}`);
+      const text=document.createElement('span');text.className='title';text.textContent=task.title;
+      const complete=document.createElement('button');complete.type='button';complete.textContent=task.done?'Undo':'Done';
+      complete.setAttribute('aria-label',`${task.done?'Undo':'Complete'} ${task.title}`);
+      complete.addEventListener('click',()=>{task.done=!task.done;announce(`${task.done?'Completed':'Reopened'} ${task.title}`);save();});
+      const remove=document.createElement('button');remove.type='button';remove.textContent='Delete';remove.setAttribute('aria-label',`Delete ${task.title}`);
+      remove.addEventListener('click',()=>{tasks.splice(tasks.indexOf(task),1);announce(`Deleted ${task.title}`);save();});
+      li.append(text,complete,remove);list.append(li);
+    }
+  }
+  function add(value){const trimmed=value.trim();if(!trimmed)return;tasks.push({title:trimmed,done:false});announce(`Added ${trimmed}`);save();}
+  document.querySelector('form').addEventListener('submit',event=>{event.preventDefault();add(title.value);title.value='';});
+  filter.addEventListener('change',render);
+  document.querySelector('#reveal').addEventListener('click',event=>{
+    event.currentTarget.disabled=true;
+    setTimeout(()=>{
+      const form=document.createElement('form');form.setAttribute('aria-label','Quick create task');
+      const input=document.createElement('input');input.setAttribute('aria-label','Quick task title');input.required=true;
+      const button=document.createElement('button');button.type='submit';button.textContent='Add quick task';
+      form.append(input,button);form.addEventListener('submit',event=>{event.preventDefault();add(input.value);input.value='';});
+      document.querySelector('#quick').append(form);
+    },200);
+  });
+  render();
+</script>
+</html>
