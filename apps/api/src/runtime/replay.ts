@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { ReviewItemSchema, type BehaviorAssertion, type BehaviorStep, type BehaviorTarget } from '@pivloom/contracts';
+import { BehaviorProgramSchema, ReviewItemSchema, type BehaviorAssertion, type BehaviorStep, type BehaviorTarget, type BehaviorTargetLocator } from '@pivloom/contracts';
 import { RuntimeError } from './types.js';
 import type { ReviewObservationEvent } from './reviewer.js';
-import type { BrowserAction, BrowserObservation } from './browser.js';
+import type { BrowserAction, BrowserObservation, BrowserKeyBatch, BrowserKeyBatchResult } from './browser.js';
 import type { StoredArtifact } from '../storage/artifacts.js';
 
 /**
@@ -22,6 +22,7 @@ export interface ReplayProgram {
   behaviorId: string;
   steps: ReplayStep[];
   assertions: BehaviorAssertion[];
+  initialState?: 'fresh' | 'continue';
 }
 export interface ReplayStepResult {
   index: number;
@@ -43,6 +44,7 @@ export interface ReplayObservation {
   text: string;
   truncated: boolean;
   key?: string;
+  batch?: Pick<BrowserKeyBatchResult, 'startedAt' | 'finishedAt' | 'steps'>;
 }
 export interface ReplayAssertionResult {
   index: number;
@@ -73,6 +75,7 @@ export type ReplayAction = 'click' | 'fill' | 'select' | 'press' | 'scroll' | 'r
 export function replayAction(step: ReplayStep): ReplayAction | null {
   if (step.type === 'click' || step.type === 'fill' || step.type === 'select' || step.type === 'press') return step.type;
   if (step.type === 'reload') return 'reload';
+  if (step.type === 'key_sequence') return 'key_batch';
   return null;
 }
 export interface ReplayRunInput {
@@ -131,11 +134,19 @@ export type ResolveControl = (input: ControlResolutionRequest) => Promise<string
 export interface ReplayBrowser {
   readonly sessionId: string;
   open(path?: string): Promise<BrowserObservation>;
+  /** Start a clean app context. Later opens/reloads in this program retain its state. */
+  reset?(path?: string): Promise<BrowserObservation>;
   observe(): Promise<BrowserObservation>;
   resize(width: number, height: number): Promise<BrowserObservation>;
   act(action: BrowserAction): Promise<BrowserObservation>;
   logs(): Promise<Record<string, unknown>>;
   screenshot(): Promise<{ base64: string; mimeType: 'image/png'; sha256: string }>;
+  inspect?(target: BehaviorTargetLocator): Promise<ReplayTargetObservation>;
+  keyBatch?(input: BrowserKeyBatch): Promise<BrowserKeyBatchResult>;
+}
+export interface ReplayTargetObservation {
+  observation: BrowserObservation;
+  matches: Array<{ text: string; value: string | null }>;
 }
 const REF = /^e[0-9]{1,6}$/;
 /** Same bound as the reviewer's observation record: one step must not persist an
@@ -172,10 +183,30 @@ export function evaluateAssertions(
     /** The full body text the browser returned. */
     observationText: string;
     logs: Record<string, unknown>;
+    targetMatches?: ReadonlyMap<number, ReplayTargetObservation['matches']>;
   },
 ): ReplayAssertionResult[] {
   const consoleErrors = Array.isArray(evidence.logs.errors) ? evidence.logs.errors.length : 0;
   return assertions.map((assertion, index) => {
+    if ('target' in assertion) {
+      const matches = evidence.targetMatches?.get(index);
+      if (!matches) throw new RuntimeError('INVALID_TEST_PROGRAM', '目标断言缺少浏览器作用域证据');
+      const label = `${assertion.target.role}/${JSON.stringify(assertion.target.name ?? '*')}`;
+      if (assertion.kind === 'target-count') {
+        const equal = matches.length === assertion.count;
+        return { index, kind: assertion.kind, passed: assertion.negated ? !equal : equal,
+          detail: `目标 ${label} 数量 ${matches.length}，预期 ${assertion.negated ? '非 ' : ''}${assertion.count}` };
+      }
+      if (matches.length !== 1) throw new RuntimeError('TEST_TARGET_AMBIGUOUS', `目标 ${label} 匹配 ${matches.length} 个，无法唯一判断结果`);
+      const match = matches[0];
+      if (assertion.kind === 'target-value' && match.value === null)
+        throw new RuntimeError('INVALID_TEST_PROGRAM', `目标 ${label} 不是可读取 value 的表单控件`);
+      const actual = assertion.kind === 'target-value' ? match.value! : match.text.trim();
+      const expected = assertion.kind === 'target-value' ? assertion.value : assertion.text.trim();
+      const found = assertion.kind === 'target-text' && assertion.match === 'contains' ? actual.includes(expected) : actual === expected;
+      return { index, kind: assertion.kind, passed: assertion.negated ? !found : found,
+        detail: `目标 ${label} ${assertion.kind === 'target-value' ? '值' : '文本'} ${JSON.stringify(actual)}，预期 ${assertion.negated ? '非 ' : ''}${JSON.stringify(expected)}` };
+    }
     if (assertion.kind === 'text') {
       const haystack = assertion.negated ? evidence.text : evidence.observationText;
       const found = haystack.includes(assertion.text);
@@ -263,6 +294,15 @@ async function resolveControlWithFallback(
 export async function runReplayProgram(input: ReplayRunInput): Promise<ReplayProgramResult> {
   const { browser, program, signal } = input;
   if (program.steps.length === 0) throw new RuntimeError('REPLAY_PROGRAM_EMPTY', '空程序无法回放');
+  const modern = program.assertions.some(assertion => 'target' in assertion) || program.steps.some(step => step.type === 'key_sequence');
+  const admitted = BehaviorProgramSchema.safeParse({ ...program,
+    initialState: program.initialState ?? (modern ? undefined : 'continue') });
+  if (!admitted.success)
+    throw new RuntimeError('INVALID_TEST_PROGRAM', `测试程序不能执行：${admitted.error.issues[0]?.message ?? '缺少明确初态或有效步骤'}`);
+  if (program.initialState === 'fresh' && !browser.reset)
+    throw new RuntimeError('INVALID_TEST_PROGRAM', '当前浏览器不能创建独立场景，未执行检查');
+  if (program.steps.some(step => step.type === 'key_sequence') && !browser.keyBatch)
+    throw new RuntimeError('INVALID_TEST_PROGRAM', '当前浏览器不支持有界键盘序列，未执行检查');
   signal.throwIfAborted();
 
   const observations: ReplayObservation[] = [];
@@ -298,16 +338,35 @@ export async function runReplayProgram(input: ReplayRunInput): Promise<ReplayPro
       return latest;
     };
     let observation: BrowserObservation;
-    // Carried as a local rather than on the record: the observation record must stay exactly the
-    // reviewer's evidence shape, and a test pins that. This is only for the message below.
-    let observedTextLength = 0;
-    if (step.type === 'open') observation = await browser.open(step.path ?? '/');
+    if (step.type === 'open') observation = index === 0 && program.initialState === 'fresh'
+      ? await browser.reset!(step.path ?? '/') : await browser.open(step.path ?? '/');
     else if (step.type === 'reload') {
       // A reload is bound to the page the check is actually on: reconstructing it
       // from the newest observation is what makes it a persistence check rather
       // than a fresh first open, which the reviewer treats as non-behavioural.
       const url = new URL(freshest().url);
       observation = await browser.open(url.pathname + url.search + url.hash);
+    } else if (step.type === 'key_sequence') {
+      const keys = Array.from({ length: step.repeat }, () => step.keys).flat();
+      // The existing browser/evidence protocol accepts eight real key events per batch.
+      for (let offset = 0; offset < keys.length; offset += 8) {
+        signal.throwIfAborted();
+        const chunk = keys.slice(offset, offset + 8);
+        const batch = await browser.keyBatch!({ observationId: freshest().id,
+          steps: chunk.map(key => ({ key, waitMs: 0 })) });
+        signal.throwIfAborted();
+        if (batch.steps.length !== chunk.length || batch.steps.some((value, index) => !value.success || value.key !== chunk[index]))
+          throw new RuntimeError('BROWSER_ACTION_FAILED', '键盘序列未完整执行，不能判断该行为通过');
+        latest = batch.observation;
+        const tree = truncate(latest.tree), text = truncate(latest.text);
+        const record: ReplayObservation = { id: randomUUID(), behaviorId: program.behaviorId, action: 'key_batch',
+          observationId: latest.id, url: latest.url, tree: tree.text, text: text.text,
+          truncated: latest.truncated || tree.truncated || text.truncated,
+          batch: { startedAt: batch.startedAt, finishedAt: batch.finishedAt, steps: batch.steps } };
+        observations.push(record);
+        stepResults.push({ index, type: step.type, observationId: latest.id, evidenceId: record.id, url: latest.url, text: record.text });
+      }
+      continue;
     } else if (step.type === 'resize') observation = await browser.resize(step.width!, step.height!);
     else if (step.type === 'wait') {
       await delay(step.ms!, undefined, { signal });
@@ -335,19 +394,30 @@ export async function runReplayProgram(input: ReplayRunInput): Promise<ReplayPro
     const record: ReplayObservation = { id: randomUUID(), behaviorId: program.behaviorId, action, observationId: observation.id,
       url: observation.url, tree: tree.text, text: text.text,
       truncated: observation.truncated || tree.truncated || text.truncated, ...(actionKey ? { key: actionKey } : {}) };
-    observedTextLength = text.textLength;
     observations.push(record);
     stepResults.push({ index, type: step.type, observationId: observation.id, evidenceId: record.id,
       url: observation.url, text: record.text });
   }
 
   signal.throwIfAborted();
+  const targetMatches = new Map<number, ReplayTargetObservation['matches']>();
+  for (const [index, assertion] of program.assertions.entries()) {
+    if (!('target' in assertion)) continue;
+    if (!browser.inspect) throw new RuntimeError('INVALID_TEST_PROGRAM', '当前浏览器不支持作用域目标检查');
+    const inspected = await browser.inspect(assertion.target);
+    signal.throwIfAborted();
+    latest = inspected.observation;
+    targetMatches.set(index, inspected.matches);
+    const summary = truncate(JSON.stringify({ target: assertion.target, matches: inspected.matches }));
+    observations.push({ id: randomUUID(), behaviorId: program.behaviorId, action: null, observationId: latest.id,
+      url: latest.url, tree: truncate(latest.tree).text, text: summary.text, truncated: summary.truncated || latest.truncated });
+  }
   // One logs() call per program, after the last step: an error count read before
   // the steps would judge the behaviour on the previous page state.
   const logs = await browser.logs();
   const logged = truncate(latest?.text ?? '');
   const assertionResults = evaluateAssertions(program.assertions, { text: logged.text, refs: latest?.refs ?? {},
-    observationText: latest?.text ?? '', logs });
+    observationText: latest?.text ?? '', logs, targetMatches });
   const assertionsPassed = assertionResults.every((result) => result.passed);
   // `finishReview` refuses a passed item whose observations hold no interaction
   // (generation.ts: the "actual action and follow-up observation" guard) unless
@@ -360,7 +430,9 @@ export async function runReplayProgram(input: ReplayRunInput): Promise<ReplayPro
   const passable = actionEvidence || renderEvidence;
   const verdict = !passable ? 'blocked' as const
     : !assertionsPassed ? 'failed' as const : 'passed' as const;
-  const summary = assertionResults.map((result) => `${result.passed ? '✓' : '✗'} ${result.detail}`).join('；');
+  const scopeNotice = program.assertions.some(assertion => assertion.kind === 'text')
+    ? '旧版页面文本检查（仅证明页面文本事实，不证明特定结果区域）：' : '';
+  const summary = scopeNotice + assertionResults.map((result) => `${result.passed ? '✓' : '✗'} ${result.detail}`).join('；');
   const item = ReviewItemSchema.parse({
     behaviorId: program.behaviorId,
     verdict,
@@ -380,6 +452,7 @@ function describeStep(step: ReplayStep): string {
   if (step.type === 'reload') return '刷新当前页面';
   if (step.type === 'resize') return `调整视口 ${step.width}×${step.height}`;
   if (step.type === 'press') return `按键 ${step.key}`;
+  if (step.type === 'key_sequence') return `执行 ${step.keys.length * step.repeat} 个真实按键`;
   if (step.type === 'wait') return `等待 ${step.ms}ms`;
   if (step.type === 'capture') return '截图';
   return `${step.type} ${step.role ?? 'button'}/${JSON.stringify(step.name ?? '')}`;
@@ -388,5 +461,5 @@ function describeStep(step: ReplayStep): string {
 export function toObservationEvent(record: ReplayObservation): ReviewObservationEvent {
   return { id: record.id, behaviorId: record.behaviorId, action: record.action, observationId: record.observationId,
     url: record.url, tree: record.tree, text: record.text, truncated: record.truncated,
-    ...(record.key ? { key: record.key } : {}) };
+    ...(record.key ? { key: record.key } : {}), ...(record.batch ? { batch: record.batch } : {}) };
 }

@@ -9,8 +9,8 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import {
-  GroupedPlanSchema, PlanningContextSchema, ClarificationRequestSchema, preservesPreviousBehavior,
-  type Plan, type PlanningContext,
+  BehaviorProgramSchema, GroupedPlanSchema, PlanningContextSchema, ClarificationRequestSchema, preservesPreviousBehavior,
+  type GroupedPlan, type Plan, type PlanningContext,
 } from "@pivloom/contracts";
 import { createServiceModel } from "./pi.js";
 import { RuntimeError, type ModelConfig, type ProbeEvent, type ProbeEventSink } from "./types.js";
@@ -52,7 +52,22 @@ const schemaFields = new Set(["plan", "question", "schemaVersion", "goal", "chan
   // reason as the prose ones: a rejected step must be named in the correction,
   // otherwise the Coordinator cannot tell which field to fix.
   "steps", "type", "path", "width", "height", "role", "name", "text", "value", "key", "ms",
-  "assertions", "kind", "negated", "evidence"]);
+  "assertions", "kind", "negated", "evidence", "initialState", "target", "within", "match", "count", "keys", "repeat"]);
+
+/** Omitted inherited fields reuse the sealed program; an explicitly changed field is still rejected. */
+function inheritPrograms(plan: GroupedPlan, previous: Plan | null): GroupedPlan {
+  const byId = new Map(previous?.behaviors.map(behavior => [behavior.id, behavior]));
+  return { ...plan, behaviors: plan.behaviors.map(behavior => {
+    const prior = byId.get(behavior.id);
+    if (!prior) return behavior;
+    return { ...behavior,
+      ...(behavior.steps === undefined && prior.steps ? { steps: prior.steps } : {}),
+      ...(behavior.assertions === undefined && prior.assertions ? { assertions: prior.assertions } : {}),
+      ...(behavior.initialState === undefined && prior.initialState ? { initialState: prior.initialState } : {}),
+      ...(behavior.evidence === undefined && prior.evidence ? { evidence: prior.evidence } : {}),
+    };
+  }) };
+}
 /**
  * Output floor for the coordinator. Sized from the measured cost of a stepped plan (5,120 tokens for the
  * cheapest possible one) with room for app-specific steps, which are longer than the repeated ones used
@@ -71,8 +86,8 @@ const COORDINATOR_OUTPUT_TOKENS = 16_384;
  * whether a plan is acceptable.
  */
 function describeIncrementGap(
-  plan: { behaviors: Array<{ id: string; precondition?: unknown; action?: unknown; expected?: unknown; required?: unknown }>; groups?: Array<{ id: string; title?: unknown }> },
-  previousPlan: { behaviors: Array<{ id: string; precondition?: unknown; action?: unknown; expected?: unknown; required?: unknown }>; groups?: Array<{ id: string; title?: unknown }> } | null | undefined,
+  plan: { behaviors: Array<{ id: string; precondition?: unknown; action?: unknown; expected?: unknown; required?: unknown; steps?: unknown; assertions?: unknown; initialState?: unknown; evidence?: unknown }>; groups?: Array<{ id: string; title?: unknown }> },
+  previousPlan: { behaviors: Array<{ id: string; precondition?: unknown; action?: unknown; expected?: unknown; required?: unknown; steps?: unknown; assertions?: unknown; initialState?: unknown; evidence?: unknown }>; groups?: Array<{ id: string; title?: unknown }> } | null | undefined,
 ): string {
   if (!previousPlan) return "计划与上一版不一致，但服务端没有可对照的上一版计划。";
   const present = new Map(plan.behaviors.map((behavior) => [behavior.id, behavior]));
@@ -85,6 +100,9 @@ function describeIncrementGap(
       if (now[field] !== prior[field]) changed.push(`${prior.id}.${field} 必须逐字为「${String(prior[field]).slice(0, 70)}」`);
     }
     if (Boolean(now.required) !== Boolean(prior.required)) changed.push(`${prior.id}.required 必须为 ${String(prior.required)}`);
+    for (const field of ['steps', 'assertions', 'initialState', 'evidence'] as const)
+      if (prior[field] !== undefined && JSON.stringify(now[field]) !== JSON.stringify(prior[field]))
+        changed.push(`${prior.id}.${field} 必须保留已封存的执行程序；可省略让服务端复用，不能静默改写`);
   }
   const renamed: string[] = [];
   for (const group of previousPlan.groups ?? []) {
@@ -233,55 +251,21 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
       noPromptTemplates: true, noThemes: true, noContextFiles: true,
       systemPrompt: [
         "You are the Coordinator for a frontend React application builder. You only have project_summary, submit_plan and request_clarification. You cannot read host files, execute commands, write source, create sandboxes, delegate roles or change service state.",
-        "Use the supplied project summary to preserve the original request and clarification answers. Submit schemaVersion 2 with exactly five stable groups G1–G5, each named for this app and containing at least one required atomic behavior. Every child behavior must belong to exactly one group; five groups do not mean only five requirements.",
-        // A measured run kept failing the increment guard while the prose rule was already present, and
-        // the guard only compares id, required, precondition, action and expected: asking for steps gave
-        // the model a reason to reword that prose, which the guard then correctly rejected. Saying
-        // verbatim, and saying which fields may change, removes the ambiguity.
-        "The plan has exactly five groups and no more: their ids are literally G1, G2, G3, G4 and G5. Never emit G6, never renumber, never invent another id. Every behaviour id in the plan - preserved or new - appears in exactly one of these five groups, so a new requirement joins an existing group rather than creating a sixth.",
-        "When the project summary contains a previous plan, every required behaviour in it must appear in your plan with the same id and with precondition, action and expected copied VERBATIM, character for character. You may add steps and assertions to those behaviours and you may add entirely new behaviours with new ids; you may not reword, rename, merge or drop an existing one.",
-        "Use the five groups as distinct application-specific facets in this order: G1 primary outcome, G2 input and control, G3 edge cases or progression, G4 result and state, G5 visual layout or restart and persistence. Give each group a title that describes the actual app. Do not use a group only to inventory visible buttons when the request asks what those buttons must do.",
-        // A measured coordinator run failed twice on the group count and the behavior-id format while
-        // every rule above was already stated in prose, so the shape is shown literally: models follow
-        // a worked example far more reliably than a rule they have to translate into structure.
-        // A measured run left three behaviours without steps or assertions, and because the deterministic
-        // layer can only execute what the plan describes, those behaviours could not be verified at all:
-        // they were recorded blocked and the whole check with them. The shape example below shows what
-        // steps and assertions look like; this says that having them is not optional, and names the one
-        // exception so a behaviour that genuinely cannot be described that way is declared, not left blank.
-        // A measured run produced a behaviour whose steps were an open followed by assertions about a
-        // history list it had never created, so one step was not enough for that behaviour. Requiring
-        // more interactions of every behaviour, however, turned thirty-seven passes into thirty-five
-        // and eight point three minutes into eleven: the rule belongs only where the expectation
-        // depends on state that earlier actions create.
-        // A measured increment inherited the previous revision's plan, and the behaviours carried over from
-        // it had no steps: only the newly added ones did. Thirty-two of forty-four behaviours were therefore
-        // uncompilable and the acceptance reported three passes and forty-one blocked. The prose of an
-        // inherited behaviour must not change, but steps and assertions are explicitly not a semantic change,
-        // so they can and must be written for it.
-        "When you carry a behaviour over from the previous plan, you must write `steps` and `assertions` for it as well - its title, precondition, action, expected and required must stay exactly as they were, but a behaviour whose prose you inherit without its steps cannot be executed or checked. Filling them in is not a change to the behaviour.",
-        // Same-named controls are the second shape of the prediction problem, and the runtime resolver cannot
-        // help with them: it is handed ref, role and name, so twenty buttons all called 删除 leave it as blind
-        // as the kernel. The plan has to ask for a name that distinguishes them. I withdrew this instruction
-        // once because it pushed the coordinator towards literal labels and the resulting misses blocked whole
-        // behaviours; the resolver now recovers a wrongly guessed name, so the two changes cover both shapes
-        // together and this one can stand.
-        "When several controls share an accessible name - the usual case being a list where every row carries the same button - the expectation must require a name that distinguishes them, for example the row's own text included in the button name. Identical names are also an accessibility defect: a screen reader user cannot tell those controls apart either.",
-        "Every behaviour must carry at least one `steps` entry and at least one `assertions` entry. A behaviour without them cannot be executed or checked, and the whole acceptance then reports it as unverifiable. The only exception is an appearance-only claim - a layout, colour or alignment result that no interaction can settle - and for those set evidence to 'visual' instead; never use that to skip an interaction you did not describe.",
-        "Exact shape (abbreviated values, all five groups present, ids in this form): {\"schemaVersion\":2,\"goal\":\"…\",\"changeSummary\":\"…\",\"assumptions\":[],\"outOfScope\":[],\"replacements\":[],\"behaviors\":[{\"id\":\"B01\",\"title\":\"…\",\"precondition\":\"…\",\"action\":\"…\",\"expected\":\"…\",\"required\":true,\"steps\":[{\"type\":\"open\",\"path\":\"/\"},{\"type\":\"click\",\"role\":\"button\",\"name\":\"添加\"},{\"type\":\"capture\"}],\"assertions\":[{\"kind\":\"text\",\"text\":\"…\",\"negated\":false}]}],\"groups\":[{\"id\":\"G1\",\"title\":\"…\",\"behaviorIds\":[\"B01\"]},{\"id\":\"G2\",\"title\":\"…\",\"behaviorIds\":[\"B02\"]},{\"id\":\"G3\",\"title\":\"…\",\"behaviorIds\":[\"B03\"]},{\"id\":\"G4\",\"title\":\"…\",\"behaviorIds\":[\"B04\"]},{\"id\":\"G5\",\"title\":\"…\",\"behaviorIds\":[\"B05\"]}]}. Behavior ids are always B01, B02, … with two digits, group ids are exactly G1 to G5, and every behavior id appears in exactly one group.",
-        "On an increment preserve EVERY previous required behavior's ID, precondition, action, expected result and required flag, in the same group. Keep all five group names and IDs stable. Carry all prior replacement records unchanged so retired IDs stay retired. Add new behaviors with new IDs. Never reuse an old ID for a changed meaning. Only when the user's current request explicitly changes an old behavior may you record a replacement: oldBehaviorId, newBehaviorId, a verbatim userRequestQuote expressing the change, and reason; keep the replacement in the old group. Do not silently omit a prior requirement.",
-        "Reviewer starts in a fresh isolated browser and can navigate/reload the bound app, fill/select/click/press controls and inspect DOM/source. Write acceptance steps using those capabilities: verify initial empty state before adding records, and persistence by reloading. Do not require developer tools, manually clearing storage, editing DOM or backend access as test steps. Use the smallest dataset that distinguishes the requested behavior; do not invent extra business requirements.",
-        "Each behavior target must include a meaningful interaction from the requested workflow and an observed result. Combine static initial-state assertions with the first actual business flow, such as requested form validation, instead of a standalone open-and-look target. Preserve every explicit requirement, including the initial empty state; do not add arbitrary clicks or new functionality just to produce action evidence.",
-        "Before submit_plan, compare every explicit clause of requestText and originalRequest against the required targets. If the user named an operation, example expression, numeric form, keyboard shortcut, error-and-recovery path, saved state, color, or viewport width, include an action and expected observation that actually tests it. A control merely existing, a generic 'works' assertion, or a different viewport does not cover the named requirement. Fill any missing clause before submitting.",
-        "Keep the plan executable by one independent Reviewer: combine closely related keys or buttons into one short reproducible behavior sequence with all requested outcomes stated explicitly, instead of making every key and button a separate target. Do not combine unrelated requirements or hide any requested outcome inside a vague title; the child checks must still make omissions visible.",
-        "Make each verified behavior replayable without a model: steps is an ordered list of { type, ... } operations — open(path), reload, resize(width,height), click/fill/select(name,role,...), press(key), wait(ms) and capture as a screenshot marker. Locate every control by accessible role and name from the accessibility tree, never by CSS selector, coordinates or DOM path, and use only operations the Reviewer's browser already has.",
-        "assertions are script-decidable checks over the accessibility tree, page text or console: { kind: text|control|console-error, text?, name?, role?, negated? }. Assert only what those observations prove without a model or a judgement call, and reserve evidence: \"visual\" for a result that genuinely cannot be judged from text — colour, alignment, overflow or canvas drawing.",
-        "steps, assertions and evidence are optional; a behavior without them stays prose-only and the five-group completeness rules still apply to it. Compiling or refining them on a preserved behavior is not a change of meaning and needs no replacement record, but its precondition, action, expected and required must still be preserved exactly.",
-        "Every explicitly requested observable behavior MUST have required: true. Use required: false only for unrequested refinements. Never downgrade explicitly requested persistence or saving results to an optional behavior.",
-        "Use reasonable defaults for reversible choices such as colors and layout. Ask one concise, essential business question only when implementation would otherwise guess important meaning. Do not ask again about information already supplied.",
-        "Ask ONLY ONE essential question that blocks the core behavior. Use a single line of at most 300 characters with at most one question mark, only at the end. No checklist, numbered list, compound questions, or options about optional history, export, rounding or layout. Use reasonable defaults for such secondary details. Never assume a missing business formula: ask only for that formula when it is the blocker.",
-        "This product generates a frontend demonstration. Explain real payments, cross-user backend data and other unsupported capabilities in outOfScope; never promise actual payment or backend execution. Prefer an honest, useful frontend plan when feasible.",
-        "Submit exactly one structured decision using submit_plan or request_clarification. A tool acceptance only means the proposal awaits service confirmation. Do not claim persistence or successful handoff yourself. Do not reveal private reasoning or credentials. Keep responses concise; use one tool call per response.",
+        "Read project_summary to retain the original request and clarification answers. Submit schemaVersion 2 with exactly five groups, literally G1, G2, G3, G4 and G5. Every atomic behavior has an id B01, B02, ... and belongs to exactly one group. Five groups do not mean only five requirements. Never create G6.",
+        "Use distinct application-specific facets: G1 primary outcome, G2 input/control, G3 edge cases/progression, G4 result/state, G5 layout/restart/persistence. Name them for this application. On increments preserve all group ids and titles.",
+        "On an increment copy every previous required behavior's id, precondition, action, expected and required VERBATIM. Do not merge, drop, renumber or change the meaning of an existing behavior. Preserve prior replacement records. Only an explicit user-requested behavior change permits a replacement with oldBehaviorId, newBehaviorId, a verbatim userRequestQuote expressing that change, and reason, in the same group.",
+        "Reuse existing executable programs. You may OMIT inherited steps, assertions, initialState and evidence; the service restores those exact saved fields. If you include them, copy them unchanged. Never invert an assertion, change its target or shorten an existing input sequence to get a pass. Legacy missing fields may be filled without rewriting requirement prose. A defective saved test needs an explicit test correction, not a silent rewrite.",
+        "Every new executable behavior needs initialState, steps and assertions. Use initialState: 'fresh' for independent scenarios: it opens a clean isolated application context. Use 'continue' only when a scenario intentionally depends on earlier state. Steps must start with open(path:'/'). Create every precondition through real UI actions in that scenario. reload inside the same scenario preserves its state and tests persistence; do not request a new fresh context between save and reload.",
+        "Steps are open, reload, resize(width,height), click/fill/select(role,name,...), press(key), key_sequence(keys,repeat), wait(ms), capture. Use actual accessible role/name contracts that Builder can implement, not guessed CSS, coordinates, arbitrary code or injected app state. A key_sequence dispatches each listed key as a real input; repeat repeats the complete list. Total expanded keys are bounded at 512, regular steps at 64. For a requirement with N distinct submissions list ALL N inputs; never replace the middle with an ellipsis or test only the first and last.",
+        "Use typed outcome assertions: target-text {target:{role,name?,within?:{role,name}},text,match:'exact'|'contains',negated}; target-value {target,value,negated}; target-count {target,count,negated}. Locate the expression, result, status, list or row you mean. An empty value is ''. Scope repeated rows with within and count listitem/row targets. Text/value targets must resolve uniquely. Whole-page kind:'text' can only describe legacy page-text facts and must not be used for a new result/field/list outcome. Keypad labels and retained history do not prove the current result.",
+        "Keep controls and outcomes accessible: use labels for inputs, named result/status regions, and named lists or tables. Individual actions on repeated rows need names that identify the row, while assertions can use within to narrow their scope. Builder must render the real requested content in those regions, never hidden verification-only text.",
+        "Check each explicit clause in requestText and originalRequest: named operations, example inputs, keyboard shortcuts, error recovery, saved state, colors and viewport widths need meaningful actions and expected results. Merely finding a button or checking console silence does not verify an outcome. Combine related controls into short meaningful scenarios rather than generating one behavior per key.",
+        "For requested input flows, include applicable invalid-input and recovery checks. If the requested app has a history or saved-results list, also verify that an unchanged repeated submission does not duplicate the same saved outcome unless duplicates are intentional. Do not add history or a deduplication feature when the request does not need it. Validation rules must follow the domain, not assume every form is a calculator.",
+        "Reserve evidence:'visual' for appearance that text cannot prove, such as color, alignment, overflow or canvas drawing. Such a program still declares initialState, opens the app, sets the requested viewport/state and captures an image; retain relevant typed or console assertions. Do not mark an undescribed interaction visual to avoid executing it.",
+        "Every explicitly requested observable behavior has required:true. Optional means only an unrequested refinement. Do not downgrade persistence, input validation or saved state to optional.",
+        "Choose defaults for reversible presentation choices. Ask one essential business question only when implementation would otherwise guess critical meaning, never ask again for supplied information. The question is one line, at most 300 characters, at most one question mark at the end, no numbered list or optional-feature checklist.",
+        "This product generates a frontend demonstration. Explain real payments, cross-user backend data and other unsupported capabilities in outOfScope; never promise actual payment or backend execution. Prefer an honest useful frontend plan when feasible.",
+        "Submit exactly one structured decision with submit_plan or request_clarification. Tool acceptance means the proposal awaits service confirmation, not that it was persisted. Do not reveal private reasoning or credentials. Keep responses concise and use one tool call per response.",
       ].join("\n"),
     });
     await loader.reload();
@@ -314,8 +298,18 @@ export async function runCoordinator(input: CoordinatorInput): Promise<Coordinat
             const parsed = name === "submit_plan" ? planInput.safeParse(normalized) : questionInput.safeParse(params);
             if (!parsed.success) throw await reject(schemaIssues(parsed.error.issues));
             if (JSON.stringify(parsed.data).includes(input.modelConfig.apiKey)) throw await reject("input:protected_value");
-            if ("plan" in parsed.data && !preservesPreviousBehavior(parsed.data.plan, context.data.previousPlan, context.data.requestText)) {
-              throw await reject(`plan.behaviors:previous_behavior_required——${describeIncrementGap(parsed.data.plan, context.data.previousPlan)}`);
+            if ("plan" in parsed.data) {
+              parsed.data.plan = inheritPrograms(parsed.data.plan, context.data.previousPlan);
+              if (!preservesPreviousBehavior(parsed.data.plan, context.data.previousPlan, context.data.requestText))
+                throw await reject(`plan.behaviors:previous_behavior_required——${describeIncrementGap(parsed.data.plan, context.data.previousPlan)}`);
+              for (const behavior of parsed.data.plan.behaviors) {
+                const program = BehaviorProgramSchema.safeParse(behavior);
+                if (!program.success)
+                  throw await reject(`plan.behaviors.${behavior.id}:invalid_setup——${program.error.issues[0]?.message ?? '缺少明确初态或执行步骤'}`);
+                const inherited = context.data.previousPlan?.behaviors.find(prior => prior.id === behavior.id);
+                if (!inherited?.assertions?.length && behavior.assertions?.some(assertion => assertion.kind === 'text'))
+                  throw await reject(`plan.behaviors.${behavior.id}:unscoped_outcome——页面文本不能证明特定结果区域；新程序必须用 target-text/value/count。旧错误程序需要明确修订，不能翻转其断言。`);
+              }
             }
             decision = "plan" in parsed.data ? { kind: "plan", plan: parsed.data.plan } : { kind: "clarification", question: parsed.data.question };
             result = toolResult("方案已接收，等待服务端确认；尚未持久化或交接。");

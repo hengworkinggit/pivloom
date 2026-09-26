@@ -25,6 +25,12 @@ export type RoleUsage = z.infer<typeof RoleUsageSchema>;
  * runtime-only fields (observationId, ref, behaviorIds, capture).
  */
 const planControl = { role: nonempty(80).default("button"), name: nonempty(300) };
+/** User-facing targets, optionally narrowed to a named region or list. No arbitrary selectors/scripts. */
+export const BehaviorTargetLocatorSchema = z.strictObject({
+  role: nonempty(80), name: nonempty(300).optional(),
+  within: z.strictObject({ role: nonempty(80), name: nonempty(300) }).optional(),
+});
+export type BehaviorTargetLocator = z.infer<typeof BehaviorTargetLocatorSchema>;
 /**
  * The browser CLI recognizes exactly these keys (BrowserPressKeySchema in
  * apps/api/src/runtime/browser.ts). The list is duplicated because the contract
@@ -42,6 +48,8 @@ const planPressKey = z.enum(["Enter", "Backspace", "Tab", "Escape", "ArrowDown",
 export const MAX_BEHAVIOR_STEPS = 64;
 /** A behavior needing more than a dozen script checks is several behaviors. */
 export const MAX_BEHAVIOR_ASSERTIONS = 16;
+/** A bounded sequence executes actual keyboard events, never application state injection. */
+export const MAX_BEHAVIOR_KEYS = 512;
 export const BehaviorStepSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("open"), path: nonempty(500).default("/") }),
   z.strictObject({ type: z.literal("reload") }),
@@ -50,6 +58,9 @@ export const BehaviorStepSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("fill"), ...planControl, text: z.string().max(2000) }),
   z.strictObject({ type: z.literal("select"), ...planControl, value: z.string().max(2000) }),
   z.strictObject({ type: z.literal("press"), key: planPressKey }),
+  z.strictObject({ type: z.literal("key_sequence"), keys: z.array(planPressKey).min(1).max(MAX_BEHAVIOR_KEYS),
+    repeat: z.number().int().min(1).max(MAX_BEHAVIOR_KEYS).default(1) })
+    .refine((step) => step.keys.length * step.repeat <= MAX_BEHAVIOR_KEYS, "键盘序列展开后不得超过 512 个按键。"),
   z.strictObject({ type: z.literal("wait"), ms: z.number().int().min(1).max(3000) }),
   // A marker, not a model request: the replay records where an image is taken
   // so that an evidence:"visual" behavior has an artifact to hand to a model.
@@ -69,8 +80,30 @@ export const BehaviorAssertionSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("text"), text: nonempty(500), negated }),
   z.strictObject({ kind: z.literal("control"), ...planControl, negated }),
   z.strictObject({ kind: z.literal("console-error"), negated }),
+  z.strictObject({ kind: z.literal("target-text"), target: BehaviorTargetLocatorSchema,
+    text: z.string().max(2000), match: z.enum(["exact", "contains"]).default("exact"), negated }),
+  z.strictObject({ kind: z.literal("target-value"), target: BehaviorTargetLocatorSchema, value: z.string().max(2000), negated }),
+  z.strictObject({ kind: z.literal("target-count"), target: BehaviorTargetLocatorSchema, count: z.number().int().min(0).max(500), negated }),
 ]);
 export type BehaviorAssertion = z.infer<typeof BehaviorAssertionSchema>;
+/** Execution admission is stricter than the historical plan reader. */
+export const BehaviorProgramSchema = z.object({
+  initialState: z.enum(["fresh", "continue"]),
+  steps: z.array(BehaviorStepSchema).min(1).max(MAX_BEHAVIOR_STEPS),
+  assertions: z.array(BehaviorAssertionSchema).min(1).max(MAX_BEHAVIOR_ASSERTIONS),
+}).superRefine((program, context) => {
+  if (program.steps[0]?.type !== "open")
+    context.addIssue({ code: "custom", message: "场景必须先打开候选页面。", path: ["steps", 0] });
+  let keys = 0;
+  for (const [index, step] of program.steps.entries()) {
+    if (step.type === "open" && (!step.path.startsWith("/") || step.path.startsWith("//") || /[\\\u0000-\u001f\u007f]/u.test(step.path)))
+      context.addIssue({ code: "custom", message: "只能打开当前候选的相对路径。", path: ["steps", index, "path"] });
+    keys += step.type === "key_sequence" ? step.keys.length * step.repeat : step.type === "press" ? 1 : 0;
+  }
+  if (keys > MAX_BEHAVIOR_KEYS)
+    context.addIssue({ code: "custom", message: "整个场景展开后不得超过 512 个真实按键。", path: ["steps"] });
+});
+export type BehaviorProgram = z.infer<typeof BehaviorProgramSchema>;
 export const BehaviorEvidenceSchema = z.enum(["text", "visual"]);
 export type BehaviorEvidence = z.infer<typeof BehaviorEvidenceSchema>;
 export const BehaviorTargetSchema = z.strictObject({
@@ -78,6 +111,8 @@ export const BehaviorTargetSchema = z.strictObject({
   title: nonempty(120), precondition: nonempty(500), action: nonempty(500), expected: nonempty(500), // Omitted means required: a behaviour the plan lists is one it expects to hold, and a measured
   // coordinator run failed a whole plan because it left this one boolean out.
   required: z.boolean().default(true),
+  // Legacy plans remain readable. New executable programs must declare their setup.
+  initialState: z.enum(["fresh", "continue"]).optional(),
   // Optional so every plan written before the replay existed — and every
   // behavior no script can drive — still validates, and is simply treated as
   // not-compilable by the replay instead of failing the whole plan.
@@ -157,13 +192,9 @@ export type GroupedPlan = z.infer<typeof GroupedPlanSchema>;
  * Two classes of field are deliberately treated differently. precondition,
  * action, expected and required are what the user was promised, so changing any
  * of them is a redefinition and must go through an explicit replacement record.
- * steps, assertions and evidence are only how that promise is verified: a later
- * increment that compiles a prose behavior into steps, or sharpens an assertion,
- * makes verification more precise while the promised behavior stays identical,
- * so it must not be rejected — otherwise every attempt to speed up verification
- * would retire a behavior the user never changed, and the plan would be forced
- * into a bogus replacement. The prose fields stay authoritative: a change may
- * not weaken expected and "compensate" with a stricter assertion.
+ * Executable fields are checked separately by preservesVerificationProgram:
+ * prose-only legacy records may gain a program, but a preserved assertion must
+ * not silently change its polarity, target or result between increments.
  */
 function observable(value: string) {
   return value.replace(/\s+/gu, " ").trim().replace(/[。．.,，;；:：!！?？]+$/u, "");
@@ -174,10 +205,17 @@ export function sameObservableBehavior(left: BehaviorTarget, right: BehaviorTarg
     && observable(left.action) === observable(right.action)
     && observable(left.expected) === observable(right.expected);
 }
+/** Missing legacy programs may be completed; existing executable criteria are immutable. */
+function preservesVerificationProgram(candidate: BehaviorTarget, previous: BehaviorTarget) {
+  return (!previous.steps?.length || JSON.stringify(candidate.steps) === JSON.stringify(previous.steps))
+    && (!previous.assertions?.length || JSON.stringify(candidate.assertions) === JSON.stringify(previous.assertions))
+    && (previous.evidence === undefined || candidate.evidence === previous.evidence)
+    && (previous.initialState === undefined || candidate.initialState === previous.initialState);
+}
 /**
  * A cosmetic title change is allowed; every old required observable contract
- * remains intact. Executable verification is not part of that contract, so it
- * may be added or refined freely (see sameObservableBehavior).
+ * remains intact. Missing executable fields may be filled; existing programs
+ * remain stable so the same requirement is not given a different test each run.
  */
 export function preservesPreviousBehavior(plan: Plan, previousPlan: Plan | null, userRequest = "") {
   if (!previousPlan) return plan.schemaVersion !== 2 || plan.replacements.length === 0;
@@ -204,7 +242,7 @@ export function preservesPreviousBehavior(plan: Plan, previousPlan: Plan | null,
   for (const previous of previousPlan.behaviors) {
     const candidate = plan.behaviors.find((behavior) => behavior.id === previous.id);
     if (candidate) {
-      if (!sameObservableBehavior(candidate, previous)) return false;
+      if (!sameObservableBehavior(candidate, previous) || !preservesVerificationProgram(candidate, previous)) return false;
       if (previousPlan.schemaVersion === 2 && plan.schemaVersion === 2
         && groupOf(plan, candidate.id) !== groupOf(previousPlan, previous.id)) return false;
       continue;

@@ -37,6 +37,19 @@ function response(delta: Record<string, unknown>, usage?: Record<string, unknown
   return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({ ...chunk, choices: [{ index: 0, delta: {}, finish_reason: delta.tool_calls ? "tool_calls" : "stop" }], ...(usage ? { usage } : {}) })}\n\ndata: [DONE]\n\n`, { headers: { "Content-Type": "text/event-stream" } });
 }
 
+test('Builder receives domain recovery rules without inventing history for an unrelated app', async () => {
+  let system = '';
+  await builder({ budget: createRunTokenBudget(), fetch: async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    system = body.messages.filter((message: { role: string }) => message.role === 'system' || message.role === 'developer')
+      .map((message: { content: unknown }) => String(message.content)).join('\n');
+    return response({ role: 'assistant', content: '完成' });
+  } });
+  expect(system).toContain('After invalid input, a subsequent valid submission must recover');
+  expect(system).toContain('If the requested app has a history or saved-results list');
+  expect(system).toContain('Do not add history or a deduplication feature when the request does not need it');
+});
+
 test("Builder refuses an exhausted shared token budget before provider I/O", async () => {
   let requests = 0;
   await expect(builder({ budget: createRunTokenBudget(1), fetch: async () => { requests++; throw new Error("No provider call is permitted"); } }))
@@ -66,7 +79,9 @@ test("Coordinator and Builder charge the same lower run budget, including cached
   const budget = createRunTokenBudget(60_000);
   const plan = { schemaVersion: 2, goal: "记录书名", changeSummary: "增加书单", assumptions: [], outOfScope: [],
     behaviors: ["B01", "B02", "B03", "B04", "B05"].map((id) => ({ id, title: `书单检查 ${id}`,
-      precondition: "页面已打开", action: `执行 ${id}`, expected: `出现 ${id} 结果`, required: true })),
+      precondition: "页面已打开", action: `执行 ${id}`, expected: `出现 ${id} 结果`, required: true,
+      initialState: 'fresh', steps: [{ type: 'open', path: '/' }, { type: 'press', key: 'Enter' }],
+      assertions: [{ kind: 'target-text', target: { role: 'status', name: '保存结果' }, text: `${id} 结果`, match: 'exact', negated: false }] })),
     groups: ["G1", "G2", "G3", "G4", "G5"].map((id, index) => ({ id, title: `验收组 ${index + 1}`, behaviorIds: [`B0${index + 1}`] })),
     replacements: [] };
   const coordinator = await runCoordinator({

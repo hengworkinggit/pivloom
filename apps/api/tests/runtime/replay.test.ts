@@ -12,7 +12,7 @@ const capture = BehaviorStepSchema.parse({ type: 'capture' });
 const text = (value: string, negated = false): BehaviorAssertion => ({ kind: 'text', text: value, negated });
 const control = (name: string, negated = false): BehaviorAssertion => ({ kind: 'control', role: 'button', name, negated });
 const program = (steps: ReplayProgram['steps'], assertions: BehaviorAssertion[] = [text('测试书名')]): ReplayProgram =>
-  ({ behaviorId: 'B01', steps, assertions });
+  ({ behaviorId: 'B01', initialState: 'continue', steps, assertions });
 
 /** The kernel returns a ReviewerResult item, so the same contract parse the save path uses can validate it. */
 function parsedItem(value: unknown) {
@@ -87,9 +87,9 @@ test('a truncated observation still refuses a control it cannot resolve uniquely
     .rejects.toMatchObject({ code: 'STALE_BROWSER_REF' });
 });
 
-test('a control step before any observation is a stale ref rather than an implicit open', async () => {
+test('a control step before an explicit open is an invalid setup rather than an implicit navigation', async () => {
   const fixture = formFixture(SESSION);
-  await expect(run(fixture, program([clickAdd]))).rejects.toMatchObject({ code: 'STALE_BROWSER_REF' });
+  await expect(run(fixture, program([clickAdd]))).rejects.toMatchObject({ code: 'INVALID_TEST_PROGRAM' });
   expect(fixture.calls.open).toBe(0);
 });
 
