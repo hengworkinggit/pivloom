@@ -175,6 +175,19 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
       // re-done on the same page, rather than reporting a candidate failure for
       // an infrastructure fault. Everything else (a stale ref, a failed
       // assertion, a corrupt plan) is a real result and must travel as one.
+      // Record the code before it travels. A measured run aborted the entire replay after the first
+      // behaviour and the stream said only that the check had not finished, so the cause was invisible
+      // and three rounds went into guessing at it. This adds no decision: the same error is raised
+      // either way, and the event is not progress, so it cannot keep a dead run alive. The emit is
+      // best-effort because a failing listener must not replace the failure being reported.
+      if(error instanceof RuntimeError){
+        console.info(`[review] scripted replay failed code=${error.code} message=${error.message.slice(0,120)}`);
+        try{
+          await input.onEvent?.({id:randomUUID(),at:new Date().toISOString(),type:'tool.output',toolName:'replay_error',
+            message:`脚本回放失败（${error.code}）：${error.message.slice(0,180)}`});
+        }catch{/* a failing listener must not replace the failure being reported */}
+
+      }
       if(!(error instanceof RuntimeError&&['BROWSER_BLOCKED','BROWSER_TIMEOUT','COMMAND_TIMEOUT','BROWSER_SESSION_LOST'].includes(error.code)))throw error;
       console.info(`[review] scripted replay infrastructure fallback code=${error.code}`);
       await input.onEvent?.({id:randomUUID(),at:new Date().toISOString(),type:'tool.output',toolName:'replay_fallback',
