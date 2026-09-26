@@ -20,7 +20,7 @@ export interface BrowserObservation {
 export interface BrowserTarget { role: string; name?: string; within?: { role: string; name: string } }
 export interface BrowserInspection { observation: BrowserObservation; matches: Array<{ text: string; value: string | null }> }
 export interface BrowserProgramFrame { index: number; kind: 'observation' | 'screenshot'; observation?: BrowserObservation;
-  image?: { base64: string; mimeType: 'image/png'; sha256: string } }
+  image?: { base64: string; mimeType: 'image/png'; sha256: string }; batch?: Omit<BrowserKeyBatchResult,'observation'> }
 export interface BrowserProgramResponse {
   frames: BrowserProgramFrame[];
   inspections?: Array<BrowserInspection & { target: BrowserTarget }>;
@@ -98,6 +98,7 @@ export class RemoteBrowser {
     private onEvent?: ProbeEventSink,
     sessionId = "pivloom-" + randomUUID(),
     private readonly signal?: AbortSignal,
+    readonly nativePrograms = false,
   ) {
     if (
       !/^pivloom-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(

@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { BehaviorProgramSchema, ReviewItemSchema, type BehaviorAssertion, type BehaviorStep, type BehaviorTarget, type BehaviorTargetLocator } from '@pivloom/contracts';
 import { RuntimeError } from './types.js';
 import type { ReviewObservationEvent } from './reviewer.js';
-import type { BrowserAction, BrowserObservation, BrowserKeyBatch, BrowserKeyBatchResult } from './browser.js';
+import type { BrowserAction, BrowserProgramResponse, BrowserProgramFrame, BrowserObservation, BrowserKeyBatch, BrowserKeyBatchResult } from './browser.js';
 import type { StoredArtifact } from '../storage/artifacts.js';
 
 /**
@@ -98,7 +98,7 @@ export interface ReplayRunInput {
    * guess in the plan no longer costs a whole behaviour.
    */
   resolveControl?: ResolveControl;
-  saveScreenshot(image: { base64: string; mimeType: 'image/png'; sha256: string }): Promise<StoredArtifact>;
+  saveScreenshot(image: { base64: string; mimeType: 'image/png'; sha256: string; observationId?: string }): Promise<StoredArtifact>;
 }
 /** One control the freshest observation actually carries; a ref is minted per observation. */
 export interface ReplayControlCandidate {
@@ -132,6 +132,9 @@ export type ResolveControl = (input: ControlResolutionRequest) => Promise<string
  * tick timing stays a model judgement and never becomes a replay step).
  */
 export interface ReplayBrowser {
+  readonly nativePrograms?: boolean;
+  executeProgram?(input: { steps: unknown[]; initialState?: string; targets?: BehaviorTargetLocator[];
+    startIndex?: number; observation?: BrowserObservation; resolvedRefs?: Record<number, string> }): Promise<BrowserProgramResponse>;
   readonly sessionId: string;
   open(path?: string): Promise<BrowserObservation>;
   /** Start a clean app context. Later opens/reloads in this program retain its state. */
@@ -151,7 +154,7 @@ export interface ReplayTargetObservation {
 const REF = /^e[0-9]{1,6}$/;
 /** Same bound as the reviewer's observation record: one step must not persist an
  * unbounded accessibility snapshot into the check's evidence. */
-const OBSERVATION_TEXT_LIMIT = 32_000;
+const OBSERVATION_TEXT_LIMIT = 12_000;
 const TRUNCATION_SUFFIX = '…[truncated]';
 
 function truncate(text: string): { text: string; truncated: boolean; textLength: number } {
@@ -160,7 +163,7 @@ function truncate(text: string): { text: string; truncated: boolean; textLength:
   // fixes. A recorded run could say no more than "the observation was incomplete".
   return text.length <= OBSERVATION_TEXT_LIMIT
     ? { text, truncated: false, textLength: text.length }
-    : { text: `${text.slice(0, OBSERVATION_TEXT_LIMIT)}${TRUNCATION_SUFFIX}`, truncated: true, textLength: text.length };
+    : { text: `${text.slice(0, OBSERVATION_TEXT_LIMIT - TRUNCATION_SUFFIX.length)}${TRUNCATION_SUFFIX}`, truncated: true, textLength: text.length };
 }
 
 /**
@@ -304,6 +307,7 @@ export async function runReplayProgram(input: ReplayRunInput): Promise<ReplayPro
   if (program.steps.some(step => step.type === 'key_sequence') && !browser.keyBatch)
     throw new RuntimeError('INVALID_TEST_PROGRAM', '当前浏览器不支持有界键盘序列，未执行检查');
   signal.throwIfAborted();
+  if (browser.nativePrograms && browser.executeProgram) return runNativeReplayProgram(input);
 
   const observations: ReplayObservation[] = [];
   const stepResults: ReplayStepResult[] = [];
@@ -323,7 +327,7 @@ export async function runReplayProgram(input: ReplayRunInput): Promise<ReplayPro
       // state, and the newest observation is what the image belongs to.
       if (!latest) throw new RuntimeError('STALE_BROWSER_REF', `第 ${index + 1} 步截图前还没有可用的页面观察`);
       const image = await browser.screenshot();
-      const artifact = await input.saveScreenshot(image);
+      const artifact = await input.saveScreenshot({ ...image, observationId: latest.id });
       screenshots.push(artifact);
       stepResults.push({ index, type: step.type, observationId: latest.id, evidenceId: observations.at(-1)?.id ?? null,
         url: latest.url, text: latest.text, artifactId: artifact.id });
@@ -408,13 +412,23 @@ export async function runReplayProgram(input: ReplayRunInput): Promise<ReplayPro
     signal.throwIfAborted();
     latest = inspected.observation;
     targetMatches.set(index, inspected.matches);
-    const summary = truncate(JSON.stringify({ target: assertion.target, matches: inspected.matches }));
+    const summary = truncate(JSON.stringify(assertion.kind === 'target-count' ? { target: assertion.target, count: inspected.matches.length } : { target: assertion.target, matches: inspected.matches }));
     observations.push({ id: randomUUID(), behaviorId: program.behaviorId, action: null, observationId: latest.id,
       url: latest.url, tree: truncate(latest.tree).text, text: summary.text, truncated: summary.truncated || latest.truncated });
   }
   // One logs() call per program, after the last step: an error count read before
   // the steps would judge the behaviour on the previous page state.
   const logs = await browser.logs();
+  return finishProgram(input, { observations, stepResults, screenshots, latest, logs, targetMatches });
+}
+
+function finishProgram(input: ReplayRunInput, completed: {
+  observations: ReplayObservation[]; stepResults: ReplayStepResult[]; screenshots: StoredArtifact[];
+  latest: BrowserObservation | undefined; logs: Record<string, unknown>;
+  targetMatches: ReadonlyMap<number, ReplayTargetObservation['matches']>;
+}): ReplayProgramResult {
+  const { program } = input;
+  const { observations, stepResults, screenshots, latest, logs, targetMatches } = completed;
   const logged = truncate(latest?.text ?? '');
   const assertionResults = evaluateAssertions(program.assertions, { text: logged.text, refs: latest?.refs ?? {},
     observationText: latest?.text ?? '', logs, targetMatches });
@@ -433,18 +447,94 @@ export async function runReplayProgram(input: ReplayRunInput): Promise<ReplayPro
   const scopeNotice = program.assertions.some(assertion => assertion.kind === 'text')
     ? '旧版页面文本检查（仅证明页面文本事实，不证明特定结果区域）：' : '';
   const summary = scopeNotice + assertionResults.map((result) => `${result.passed ? '✓' : '✗'} ${result.detail}`).join('；');
+  const cited = observations.length <= 32 ? observations : observations.filter(record =>
+    record === observations.find(candidate => candidate.action !== null && candidate.action !== 'wait') || observations.slice(-31).includes(record));
   const item = ReviewItemSchema.parse({
     behaviorId: program.behaviorId,
     verdict,
     expected: input.target.expected,
     actual: !passable ? `脚本断言成立，但步骤中没有真实交互动作，也没有可替代的渲染证据，无法判定通过。${summary}`
       : summary || `已执行 ${program.steps.length} 个步骤并观察结果`,
-    observationEventIds: observations.map((record) => record.id).slice(0, 32),
+    observationEventIds: cited.map(record => record.id),
     screenshotIds: screenshots.map((artifact) => artifact.id).slice(0, 6),
     reproSteps: program.steps.map((step) => describeStep(step)).slice(0, 8),
   });
   return { item, observations, stepResults, screenshots, assertionResults, assertionsPassed,
     events: observations.map(toObservationEvent) };
+}
+
+
+/** One bounded program crosses the sandbox transport; assertions and artifact admission stay here. */
+async function runNativeReplayProgram(input: ReplayRunInput): Promise<ReplayProgramResult> {
+  const { browser, program, signal } = input;
+  const targets = program.assertions.flatMap(assertion => 'target' in assertion ? [assertion.target] : []);
+  const frames: BrowserProgramFrame[] = [];
+  const resolvedRefs: Record<number, string> = {};
+  let startIndex = 0;
+  let resumeObservation: BrowserObservation | undefined;
+  let response: BrowserProgramResponse;
+  for (;;) {
+    signal.throwIfAborted();
+    response = await browser.executeProgram!({ steps: program.steps, initialState: program.initialState,
+      targets, startIndex, observation: resumeObservation, resolvedRefs });
+    signal.throwIfAborted();
+    frames.push(...response.frames);
+    if (response.error) throw new RuntimeError(response.error.code, `第 ${response.error.index + 1} 步：${response.error.message}`);
+    if (!response.pending) break;
+    const pending = response.pending;
+    const step = program.steps[pending.index];
+    if (!step || !['click', 'fill', 'select'].includes(step.type) || resolvedRefs[pending.index])
+      throw new RuntimeError('STALE_BROWSER_REF', '控件解析后仍无法执行原步骤');
+    const ref = await resolveControlWithFallback(input, pending.observation.refs,
+      step as Extract<ReplayStep, { type: 'click' | 'fill' | 'select' }>, pending.index);
+    resolvedRefs[pending.index] = ref;
+    startIndex = pending.index; resumeObservation = pending.observation;
+  }
+  if (frames.length !== program.steps.length || frames.some((frame, index) => frame.index !== index))
+    throw new RuntimeError('BROWSER_ACTION_FAILED', '浏览器程序没有完整的顺序执行证据');
+  const observations: ReplayObservation[] = [];
+  const stepResults: ReplayStepResult[] = [];
+  const screenshots: StoredArtifact[] = [];
+  let latest: BrowserObservation | undefined;
+  for (const frame of frames) {
+    const step = program.steps[frame.index];
+    if (!step) throw new RuntimeError('BROWSER_BLOCKED', '浏览器返回了计划外步骤');
+    if (frame.kind === 'screenshot') {
+      if (step.type !== 'capture' || !latest || !frame.image) throw new RuntimeError('BROWSER_BLOCKED', '截图没有对应页面观察');
+      const artifact = await input.saveScreenshot({ ...frame.image, observationId: latest.id }); screenshots.push(artifact);
+      stepResults.push({ index: frame.index, type: step.type, observationId: latest.id,
+        evidenceId: observations.at(-1)?.id ?? null, url: latest.url, text: latest.text, artifactId: artifact.id });
+      continue;
+    }
+    if (!frame.observation) throw new RuntimeError('BROWSER_BLOCKED', '步骤缺少实际观察');
+    latest = frame.observation;
+    const tree = truncate(latest.tree), text = truncate(latest.text);
+    if (step.type === 'key_sequence') {
+      const keys = Array.from({ length: step.repeat }, () => step.keys).flat();
+      if (!frame.batch || frame.batch.steps.length !== keys.length || frame.batch.steps.some((entry, index) => !entry.success || entry.key !== keys[index]))
+        throw new RuntimeError('BROWSER_ACTION_FAILED', '键盘序列没有逐项完成证据');
+    }
+    const record: ReplayObservation = { id: randomUUID(), behaviorId: program.behaviorId, action: replayAction(step),
+      observationId: latest.id, url: latest.url, tree: tree.text, text: text.text,
+      truncated: latest.truncated || tree.truncated || text.truncated,
+      ...(step.type === 'press' ? { key: step.key } : {}), ...(frame.batch ? { batch: frame.batch } : {}) };
+    observations.push(record); stepResults.push({ index: frame.index, type: step.type, observationId: latest.id,
+      evidenceId: record.id, url: latest.url, text: record.text });
+  }
+  const targetMatches = new Map<number, ReplayTargetObservation['matches']>();
+  let scopeIndex = 0;
+  for (const [index, assertion] of program.assertions.entries()) {
+    if (!('target' in assertion)) continue;
+    const inspected = response.inspections?.[scopeIndex++];
+    if (!inspected || JSON.stringify(inspected.target) !== JSON.stringify(assertion.target))
+      throw new RuntimeError('BROWSER_BLOCKED', '作用域检查与原断言不匹配');
+    latest = inspected.observation; targetMatches.set(index, inspected.matches);
+    const summary = truncate(JSON.stringify(assertion.kind === 'target-count' ? { target: assertion.target, count: inspected.matches.length } : { target: assertion.target, matches: inspected.matches }));
+    observations.push({ id: randomUUID(), behaviorId: program.behaviorId, action: null, observationId: latest.id,
+      url: latest.url, tree: truncate(latest.tree).text, text: summary.text, truncated: summary.truncated || latest.truncated });
+  }
+  signal.throwIfAborted();
+  return finishProgram(input, { observations, stepResults, screenshots, latest, targetMatches, logs: response.logs ?? {} });
 }
 
 function describeStep(step: ReplayStep): string {

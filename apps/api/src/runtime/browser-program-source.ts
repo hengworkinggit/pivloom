@@ -135,6 +135,7 @@ async function program(payload){
       else if(step.type==='key_sequence'){
         const expanded=Array.from({length:step.repeat??1},()=>step.keys).flat();if(expanded.length>512)fail('INVALID_BROWSER_ACTION','按键序列过大');
         const batch=await keys(expanded.map(key=>({key,waitMs:0})));latest=batch.observation;
+        frames.push({index,kind:'observation',observation:latest,batch:{startedAt:batch.startedAt,finishedAt:batch.finishedAt,steps:batch.steps}});continue;
       }else if(step.type==='press')latest=await act({type:'press',key:step.key});
       else{
         const candidates=Object.entries(latest.refs).filter(([,r])=>r.role===step.role&&r.name===step.name);
