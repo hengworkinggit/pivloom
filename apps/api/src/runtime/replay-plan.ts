@@ -204,6 +204,9 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
   // The appearance behaviours were driven and captured rather than compiled into the scripted pass,
   // so their items come from the judge. A kernel `blocked` item is never upgraded: it records that the
   // behaviour produced no real action and no render-only evidence, and no model verdict can supply that.
+  // The judge really does spend a provider request per batch, so the usage this result reports must say
+  // so; claiming zero calls would understate the cost of every appearance behaviour.
+  let judgeCalls = 0;
   const captures = judgeVisual
     ? await captureVisualPrograms({ behaviors: handoff.plan.behaviors, browser: input.browser,
         signal: input.signal, saveScreenshot: input.saveScreenshot })
@@ -215,7 +218,7 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
           expected: handoff.plan.behaviors.find((behavior) => behavior.id === capture.behaviorId)?.expected ?? '',
           images: capture.images,
         })),
-        request: input.visualJudge.request,
+        async request(prompt, images) { judgeCalls++; return input.visualJudge!.request(prompt, images); },
         deadlineMs: Math.max(0, REVIEW_WALL_CLOCK_BUDGET_MS - (clock() - startedAt)),
         now: clock,
       })
@@ -243,7 +246,7 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
   const visualArtifacts = captures ? [...captures.values()].flatMap((capture) => capture.artifacts) : [];
   const assembled = markReviewerResultVerified({ result,
     evidence: [...run.evidence, ...visualEvidence], artifacts: [...run.artifacts, ...visualArtifacts],
-    usage: zeroUsage(), chromeClosed: true } as ReviewerResult);
+    usage: { ...zeroUsage(), modelCalls: judgeCalls }, chromeClosed: true } as ReviewerResult);
   // The same assertion the model-driven path must pass. Marking this result is
   // what lets the existing receipt path accept it unchanged; it does not relax
   // the assertion for any other producer, and every item here was produced by a
