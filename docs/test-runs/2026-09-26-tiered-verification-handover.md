@@ -134,3 +134,21 @@
 
 1. **真实沙箱上 A+B 的实测墙钟**（≤10 分钟才算达标）；
 2. **协调者是否确实产出可执行步骤**（不产出则 A 层编译不出程序、加速为零）。
+
+## 9. 一个我必须如实记录的验证缺口：门禁契约测试从未真正跑过
+
+目标里写明 `apps/api/tests/generation/review.integration.test.ts`（9 个，发布门禁契约测试）**必须保持全绿**。实际情况：
+
+- 默认跳过（`describe.skipIf(PIVLOOM_REVIEW_INTEGRATION !== "1")`）；
+- 我尝试用 `PIVLOOM_REVIEW_INTEGRATION=1` 跑，**它拒绝运行**：
+
+```
+Error: Review fixtures require an isolated e2e database
+   if (!databaseName.startsWith("pivloom_e2e_test_")) throw Error(...)
+```
+
+**这个拒绝是正确的安全设计**（不会拿开发库当测试库），但后果是：**这 9 个测试在本会话中从未真正执行过**，我此前说的"保持全绿"**实际上只是"保持未被破坏／处于跳过状态"**。这是措辞上的夸大，我在此更正。
+
+**要真正验证它们**，需要一个隔离的 `pivloom_e2e_test_*` 数据库的准备脚本或流程；本检出中未找到（早前交接信息提到的 `tests/testing/prepare-ci-database.mjs` 在此工作树不存在）。**在这一步补上之前，发布门禁的契约验证属于"未运行"，不是"通过"。**
+
+同样地，A/C 层产出的证据**是否真能通过真实的 `finishReview`**（DB 门 + artifact 存储 + RLS），目前只由桩测试**逐条断言那些条件**来覆盖，**不是真的走了一遍 `finishReview`**——执行者已如实说明过这一点，我确认属实。
