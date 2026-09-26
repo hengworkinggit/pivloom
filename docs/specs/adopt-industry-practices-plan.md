@@ -102,3 +102,47 @@
 - **不为让流程跑通而弱化断言或判定标准**；批次一改的是**严格性的作用域**（单动作 vs 整页），不是放宽判定；
 - **不用估算替代实测**；每项以"本地测试全绿 + 真实运行实测"为完成判据；
 - **不批量改测试期望**；每个受影响测试逐个判定"固化了旧机制"还是"真实保证被破坏"。
+
+---
+
+## 附：确定性覆盖率——指标口径与首次实测（2026-09-26）
+
+按 mabl（八家同类产品中唯一公开质量指标者）的做法，我们从今天起保留这条可复现指标。
+**口径必须写明，否则数字会误导**——这就是一个反面例子：全历史口径得 13.6%，而当前口径得约 98%，
+两者都"真实"，但只有后者说明当前能力。
+
+### 口径
+
+- **只统计"计划支持可执行步骤"之后的运行**（旧运行的计划生成于 schema 支持 `steps` 之前，纳入会稀释）；
+- **分子**：计划中带 `steps` 的行为数；**分母**：计划中的行为总数；
+- 必须同时报**样本量**（运行数、行为总数），不得只报百分比。
+
+### 可复现查询
+
+```sql
+-- 确定性覆盖率（近 N 次有计划的运行）
+SELECT to_char(created_at,'MM-DD HH24:MI') AS at,
+       jsonb_array_length(plan_json->'behaviors') AS behaviors,
+       (SELECT count(*) FROM jsonb_array_elements(plan_json->'behaviors') b WHERE b ? 'steps') AS with_steps,
+       state, coalesce(error_code,'') AS err
+FROM nano.runs WHERE plan_json IS NOT NULL ORDER BY created_at DESC LIMIT 8;
+```
+
+```sql
+-- 回放层的健康度（开始 / 退回 / 失败）
+SELECT count(*) FILTER (WHERE payload_json->>'message' LIKE '脚本回放开始%') AS replays,
+       count(*) FILTER (WHERE payload_json->>'toolName' = 'replay_fallback') AS fallbacks,
+       count(*) FILTER (WHERE payload_json->>'toolName' = 'replay_error')    AS failures
+FROM nano.run_events;
+```
+
+### 首次实测（2026-09-26）
+
+| 指标 | 值 | 口径 |
+|---|---|---|
+| **确定性覆盖率** | **≈ 97.9%（237/242）** | 近 6 次运行（05:24–06:11），计划支持 steps 之后 |
+| 对照：历史全量 | 13.6%（238/1750） | 含 100 次旧运行，**不得作为当前能力指标** |
+| 对照：更早期两次 | **0/41、0/41** | 04:13、02:19，计划被 4096 输出上限截断的时代 |
+| 回放开始 / 退回 / 失败 | 6 / 1 / 4 | 失败全部为同一 bug（`STALE_BROWSER_REF`，批次一正在修） |
+
+**解读**：**计划侧已基本解决**（真实应用上 ~98% 行为带可执行步骤）；**卡点集中在回放**（6 次中 4 次中止于同一处）。
