@@ -76,6 +76,94 @@ test('recording a screenshot from a different action is rejected on that behavio
   expect(result.result.items.map(result=>result.verdict)).toEqual(['passed','passed']);
 });
 
+test('a delivered later frame from the same behavior is linked to the report without replacing its original action',async()=>{
+  let actionId='',frameId='',imageId='',latestObservation='';
+  let acknowledged:string[]|undefined;
+  const checkpoints:ReviewCheckpoint[]=[];
+  const item=(behaviorId:string,ids:string[])=>({behaviorId,verdict:'passed',expected:'出现书名',actual:'实际操作后查看了返回图像',
+    observationEventIds:ids,screenshotIds:[imageId],reproSteps:['点击添加后按Enter并观察']});
+  const f=setup((request,n)=>{
+    const text=request.messages.filter(message=>message.role==='tool').at(-1)?.content??'';
+    let data:{id?:string;reportEvidenceId?:string;observationId?:string;artifactId?:string;observationEventIds?:string[]}={};
+    try{data=JSON.parse(text);}catch{/* An old implementation rejects the incomplete reference pair. */}
+    if(n===1)return{name:'browser_open',args:{}};
+    if(n===2)return{name:'browser_click',args:{behaviorId:'B01',observationId:data.observationId,ref:'e1'}};
+    if(n===3){actionId=data.reportEvidenceId??data.id!;latestObservation=data.observationId!;return{name:'browser_press',args:{behaviorId:'B01',observationId:latestObservation,key:'Enter'}};}
+    if(n===4){frameId=data.reportEvidenceId??data.id!;return{name:'browser_screenshot',args:{}};}
+    if(n===5){imageId=data.artifactId!;return{name:'record_behavior',args:item('B01',[actionId])};}
+    if(n===6){acknowledged=data.observationEventIds;return{name:'record_behavior',args:item('B02',[actionId,frameId])};}
+    return{name:'record_behavior',args:item('B01',[actionId,frameId])};
+  });
+  f.input.handoff.plan={...f.input.handoff.plan,behaviors:[plan.behaviors[0],{...plan.behaviors[0],id:'B02',title:'同一场景中的另一个结果'}]};
+  const result=await runReviewer({...f.input,requireVisionEvidence:true,onCheckpoint:async checkpoint=>{checkpoints.push(checkpoint);}});
+  expect(acknowledged).toEqual([actionId,frameId]);
+  expect(checkpoints[0].item).toMatchObject({behaviorId:'B01',observationEventIds:[actionId,frameId],verdict:'passed'});
+  expect(result.result.items[0].observationEventIds).toEqual([actionId,frameId]);
+  expect(result.evidence.find(event=>event.id===actionId)?.action).toBe('click');
+  expect(result.evidence.find(event=>event.id===frameId)?.action).toBe('press');
+});
+
+test.each(['cross-behavior','before-action','no-original-action','missing-image','ambiguous-frame'] as const)(
+  'screenshot bookkeeping refuses %s evidence instead of manufacturing a passing record',async(scenario)=>{
+    let initialId='',actionId='',frameId='',observationId='',firstImage='',lastImage='',rejection='';
+    const checkpoints:ReviewCheckpoint[]=[];
+    const bad=()=>({behaviorId:'B01',verdict:'passed',expected:'出现书名',actual:'声称检查通过',
+      observationEventIds:[scenario==='no-original-action'?initialId:scenario==='before-action'?frameId:actionId],
+      screenshotIds:[scenario==='missing-image'?randomUUID():scenario==='before-action'?firstImage:lastImage],reproSteps:['实际动作后查看截图']});
+    const blocked=()=>({revisionId,sourceHash,summary:'未取得有效关联证据',items:['B01','B02'].map(behaviorId=>({
+      ...report([initialId]).items[0],behaviorId,verdict:'blocked',actual:'缺少可信图像关联',screenshotIds:[],
+    }))});
+    const f=setup((request,n)=>{
+      const text=request.messages.filter(message=>message.role==='tool').at(-1)?.content??'';
+      let data:Record<string,string>={};try{data=JSON.parse(text);}catch{/* rejected record */}
+      if(n===1)return{name:'browser_open',args:{}};
+      if(n===2){initialId=data.reportEvidenceId??data.id;return{name:'browser_click',args:{behaviorId:'B01',observationId:data.observationId,ref:'e1'}};}
+      if(n===3){actionId=data.reportEvidenceId??data.id;observationId=data.observationId;return{name:'browser_screenshot',args:{}};}
+      if(n===4){firstImage=data.artifactId;return{name:'browser_press',args:{behaviorId:scenario==='cross-behavior'?'B02':'B01',observationId,key:'Enter'}};}
+      if(n===5){frameId=data.reportEvidenceId??data.id;return scenario==='ambiguous-frame'
+        ?{name:'browser_press',args:{behaviorId:'B01',observationId:data.observationId,key:'Enter'}}
+        :{name:'browser_screenshot',args:{}};}
+      if(n===6&&scenario==='ambiguous-frame')return{name:'browser_screenshot',args:{}};
+      if(n===(scenario==='ambiguous-frame'?7:6)){lastImage=data.artifactId;return{name:'record_behavior',args:bad()};}
+      rejection=text;return{name:'submit_review',args:blocked()};
+    });
+    f.input.handoff.plan={...f.input.handoff.plan,behaviors:[plan.behaviors[0],{...plan.behaviors[0],id:'B02',title:'另一行为'}]};
+    if(scenario==='ambiguous-frame'){
+      const act=f.input.browser.act,duplicateId=randomUUID();let actions=0;
+      f.input.browser.act=async(action)=>{const observation=await act(action);return ++actions>=2?{...observation,id:duplicateId}:observation;};
+    }
+    const result=await runReviewer({...f.input,requireVisionEvidence:true,onCheckpoint:async checkpoint=>{checkpoints.push(checkpoint);}});
+    const expected=scenario==='no-original-action'?'ACTION_EVIDENCE_REQUIRED':scenario==='missing-image'?'ARTIFACT_SCOPE':'IMAGE_EVIDENCE_REQUIRED';
+    expect(rejection).toContain(`${expected}:B01`);
+    expect(checkpoints).toEqual([]);
+    expect(result.result.items.every(item=>item.verdict==='blocked')).toBe(true);
+  });
+
+test('a frame not yet delivered to the model cannot supply an omitted observation reference',async()=>{
+  const imageId=randomUUID();let initialId='',actionId='',rejection='';
+  const checkpoints:ReviewCheckpoint[]=[];
+  const f=setup((request,n)=>{
+    const text=request.messages.filter(message=>message.role==='tool').at(-1)?.content??'';
+    let data:Record<string,string>={};try{data=JSON.parse(text);}catch{/* rejected record */}
+    if(n===1)return{name:'browser_open',args:{}};
+    if(n===2){initialId=data.reportEvidenceId??data.id;return{name:'browser_click',args:{behaviorId:'B01',observationId:data.observationId,ref:'e1'}};}
+    if(n===3){actionId=data.reportEvidenceId??data.id;return[
+      {name:'browser_press',args:{behaviorId:'B01',observationId:data.observationId,key:'Enter'}},
+      {name:'browser_screenshot',args:{}},
+      {name:'record_behavior',args:{...report([actionId]).items[0],screenshotIds:[imageId]}},
+    ];}
+    rejection=text;return{name:'submit_review',args:{...report([initialId]),items:['B01','B02'].map(behaviorId=>({
+      ...report([initialId]).items[0],behaviorId,verdict:'blocked',actual:'尚未读到当前图像',screenshotIds:[],
+    }))}};
+  });
+  f.input.handoff.plan={...f.input.handoff.plan,behaviors:[plan.behaviors[0],{...plan.behaviors[0],id:'B02',title:'另一行为'}]};
+  f.input.saveScreenshot=async()=>({id:imageId,mimeType:'image/png',sha256:'b'.repeat(64)});
+  const result=await runReviewer({...f.input,requireVisionEvidence:true,onCheckpoint:async checkpoint=>{checkpoints.push(checkpoint);}});
+  expect(rejection).toContain('IMAGE_EVIDENCE_REQUIRED:B01');
+  expect(checkpoints).toEqual([]);
+  expect(result.result.items.every(item=>item.verdict==='blocked')).toBe(true);
+});
+
 test('interactive reset restores scenario setup but cannot substitute for a real business action',async()=>{
   let resetObservation: { observationId: string; reportEvidenceId: string } | undefined;
   let resetCalls=0;

@@ -388,8 +388,31 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     const matches = evidence.filter((event) => event.observationId === id);
     return matches.length === 1 ? matches[0].id : id;
   };
-  const canonicalItem = (item: ReviewItem): ReviewItem => ({ ...item,
-    observationEventIds: item.observationEventIds.map(canonicalObservationId) });
+  const validAction=(event:ReviewObservationEvent|undefined)=>Boolean(event?.action && event.action !== 'scroll'
+    && !(event.action === 'press' && event.key === 'Tab')
+    && (event.action!=='key_batch'||event.batch?.steps.every(step=>step.success)));
+  const canonicalItem = (item: ReviewItem): ReviewItem => {
+    const observationEventIds=item.observationEventIds.map(canonicalObservationId);
+    const normalized={...item,observationEventIds};
+    const original=observationEventIds.map(id=>evidence.find(event=>event.id===id));
+    if(item.verdict!=='passed'||original.some(event=>!event))return normalized;
+    // Credit must already come from the submitted report's real action. A
+    // screenshot can add its own later observation, never invent an action.
+    const anchors=original.filter(event=>event?.behaviorId===item.behaviorId&&validAction(event));
+    if(!anchors.length)return normalized;
+    const lastActionIndex=Math.max(...anchors.map(event=>evidence.indexOf(event!)));
+    for(const id of item.screenshotIds){
+      const captured=screenshots.get(id);
+      if(!captured?.observationId||!imageDelivered.has(id))continue;
+      // Both maps belong exclusively to this bound revision/browser session.
+      // An ambiguous, foreign-behavior or earlier frame is never supplemented.
+      const matches=evidence.filter(event=>event.observationId===captured.observationId&&event.behaviorId===item.behaviorId);
+      if(matches.length!==1||evidence.indexOf(matches[0])<=lastActionIndex||observationEventIds.includes(matches[0].id))continue;
+      const supplemented=[...observationEventIds,matches[0].id];
+      if(ReviewItemSchema.safeParse({...item,observationEventIds:supplemented}).success)observationEventIds.push(matches[0].id);
+    }
+    return normalized;
+  };
   /** Pi delivers steer only after the current tool turn. It asks for a real
    * per-scenario verdict; it never creates one or skips a sealed plan item. */
   const steerScenarioCheckpoint = () => {
@@ -426,9 +449,6 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
     // the immutable candidate and browser session, not a model-supplied label.
     if(!observations.every(e=>e))return 'OBSERVATION_SCOPE';
     if(failedInputBehaviors.has(item.behaviorId) && item.verdict!=='blocked')return 'INPUT_FAILED';
-    const validAction=(event:ReviewObservationEvent|undefined)=>Boolean(event?.action && event.action !== 'scroll'
-      && !(event.action === 'press' && event.key === 'Tab')
-      && (event.action!=='key_batch'||event.batch?.steps.every(step=>step.success)));
     const actionEvidence=observations.some(validAction);
     if(item.verdict!=='blocked' && observations.some(event=>event?.action==='key_batch'&&event.behaviorId===item.behaviorId
       && event.batch?.steps.some(step=>!step.success)) && !actionEvidence)return 'INPUT_FAILED';
@@ -537,7 +557,8 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             const logs=await input.browser.logs();
             fatalPageError ||= Array.isArray(logs.errors) && logs.errors.length>0;
             const problem=reportProblem(canonicalReport);if(problem)throw invalid(problem.problem, problem.behaviorId);
-            decision={...canonicalReport,items:canonicalReport.items.map(bindExpected)};value={accepted:true};
+            decision={...canonicalReport,items:canonicalReport.items.map(bindExpected)};
+            value={accepted:true,items:decision.items.map(item=>({behaviorId:item.behaviorId,observationEventIds:item.observationEventIds}))};
           } else if(name==='record_behavior'){
             const item=canonicalItem(ReviewItemSchema.parse(params));
             const problem=itemProblem(item,{deferImageDelivery:true});if(problem)throw invalid(problem,item.behaviorId);
@@ -573,7 +594,8 @@ export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult>
             // item must not spend the next item's single correction opportunity.
             // Browser actions alone never reset consecutive report rejections.
             invalidReports=0; lastInvalidTurn=-1;
-            value={recorded:true,accepted:Boolean(decision),remainingBehaviorIds:handoff.plan.behaviors.filter(b=>!completedBehaviors.has(b.id)).map(b=>b.id)};
+            value={recorded:true,accepted:Boolean(decision),observationEventIds:recorded.observationEventIds,
+              remainingBehaviorIds:handoff.plan.behaviors.filter(b=>!completedBehaviors.has(b.id)).map(b=>b.id)};
           } else if(name==='source_read'){
             const {path}=schemas.source_read.parse(params),file=input.files.find(f=>f.path===path);
             if(!file)throw new RuntimeError('SOURCE_NOT_FOUND','只能读取当前候选清单中的源码');
