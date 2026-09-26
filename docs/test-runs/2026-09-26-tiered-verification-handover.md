@@ -240,3 +240,19 @@ ORDER BY created_at;
 ### 仍未解决的验证缺口（不属外部阻塞，需要工程投入）
 
 **9 个门禁契约测试从未真正运行**（§9）：需要一个**有文档的隔离 e2e 库准备流程**。我试过 `CREATE DATABASE pivloom_e2e_test_review` + 迁移，迁移以刻意通用的错误失败（§9.1），未找到根因。**在这一步补齐前，发布门禁的契约验证是"未运行"，不是"通过"。**
+
+### 9.2 第二次尝试：往前走了三步，仍卡在最后一步
+
+| 步骤 | 结果 |
+|---|---|
+| `CREATE DATABASE pivloom_e2e_test_review` | 成功 |
+| `manage.ts migrate` 指向该库 | **这次 `migrate: PASS`**（上次的失败应是瞬态或环境变量优先级问题） |
+| 直接用该库 URL 连接：`SELECT current_database()` | **返回 `pivloom_e2e_test_review`**（正确） |
+| 检查 `PG*` 覆盖变量 | **无**（`PGDATABASE` 未设置，URL 环境干净） |
+| `PIVLOOM_REVIEW_INTEGRATION=1 npx vitest run ... review.integration.test.ts` | **仍被判定"不是隔离库"**（`beforeAll` 在 `:72` 抛错），9 个用例仍跳过 |
+
+**即：库已建好、迁移通过、从外部连接确实落在该库，但测试进程内部仍认为目标库不合法。** 我未能用剩余上下文定位这个差异（`vitest.config.ts` 中未见 setup 或 env 注入；测试文件的导入里也没有环境加载）。
+
+**保留该库**（已迁移完成，供下次直接使用；名字带 `pivloom_e2e_test_`，正是测试框架要求的形状）。
+
+**结论不变：这 9 个门禁契约测试仍未运行。** 下一步应在一个干净的会话里，直接在测试进程内打印 `process.env.MIGRATION_DATABASE_URL` 与 `current_database()` 做对照——这是我没有上下文再做的一步。
