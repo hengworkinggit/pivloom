@@ -32,32 +32,76 @@ function completion(text: string) {
     { headers: { "content-type": "text/event-stream" } });
 }
 
-test("Pi sends two real PNGs with image MIME, and only their pixel colors can verify vision", async () => {
-  let outbound = 0;
+/** Answers from the tiles that really reached the endpoint, so a test only varies the wording. */
+function answers(reply: (expected: string, call: number) => string) {
+  let calls = 0;
   const fetch: typeof globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(String(init?.body));
     const images = body.messages.flatMap((message: { content: unknown }) => Array.isArray(message.content)
       ? message.content.filter((part: { type: string }) => part.type === "image_url") : []);
-    outbound = images.length;
     const [a, b] = images.map((part: { image_url: { url: string } }) => centerColor(part.image_url.url));
     expect(a).toBeDefined(); expect(b).toBeDefined(); expect(a).not.toBe(b);
-    return completion(`A=${a};B=${b}`);
+    calls++;
+    return completion(reply(`A=${a};B=${b}`, calls));
   };
-  const result = await probeModelVision(input, fetch, new AbortController().signal);
-  expect(result).toMatchObject({ state: "verified", declaredImageInput: true, outboundImages: 2, answerMatched: true });
+  return { fetch, calls: () => calls };
+}
+
+function signal() { return new AbortController().signal; }
+
+function swapped(expected: string) {
+  const [a, b] = expected.slice(2).split(";B=");
+  return `A=${b};B=${a}`;
+}
+
+function wrongFirstColor(expected: string) {
+  const [a, b] = expected.slice(2).split(";B=");
+  return `A=${a === "RED" ? "GREEN" : "RED"};B=${b}`;
+}
+
+test("Pi sends two real PNGs with image MIME, and only their pixel colors can verify vision", async () => {
+  const answering = answers((expected) => expected);
+  const result = await probeModelVision(input, answering.fetch, signal());
+  expect(result).toMatchObject({ state: "verified", declaredImageInput: true, outboundImages: 2, answerMatched: true, attempts: 1, verifiedOnAttempt: 1 });
   expect(result.observedAnswer).toBe(result.expectedAnswer);
-  expect(outbound).toBe(2);
+  expect(answering.calls()).toBe(1);
 });
 
 test("a text-only or hallucinated color answer cannot verify the model", async () => {
-  const result = await probeModelVision(input, async () => completion("A=RED;B=RED"), new AbortController().signal);
-  expect(result).toMatchObject({ state: "failed", outboundImages: 2, answerMatched: false });
+  const result = await probeModelVision(input, async () => completion("A=RED;B=RED"), signal());
+  expect(result).toMatchObject({ state: "failed", outboundImages: 2, answerMatched: false, verifiedOnAttempt: null });
+});
+
+test("harmless punctuation around the right colors still verifies the first sample", async () => {
+  // The real false negative: a capable model answered with spacing and a trailing full stop.
+  const answering = answers((expected) => ` ${expected.toLowerCase().replace("=", " = ").replace(";", " ; ")}. `);
+  const result = await probeModelVision(input, answering.fetch, signal());
+  expect(result).toMatchObject({ state: "verified", outboundImages: 2, answerMatched: true, attempts: 1, verifiedOnAttempt: 1 });
+  expect(result.observedAnswer).not.toBe(result.expectedAnswer);
+  expect(result.observedAnswer?.endsWith(".")).toBe(true);
+});
+
+test("a wrong first sample is retried with a fresh pair and verifies on the second", async () => {
+  const answering = answers((expected, call) => call === 1 ? swapped(expected) : expected);
+  const result = await probeModelVision(input, answering.fetch, signal());
+  expect(result).toMatchObject({ state: "verified", outboundImages: 2, answerMatched: true, attempts: 2, verifiedOnAttempt: 2 });
+  expect(result.observedAnswer).toBe(result.expectedAnswer);
+  expect(answering.calls()).toBe(2);
+});
+
+test("a wrong colour or a swapped order still fails after every sample", async () => {
+  const wrongColor = await probeModelVision(input, answers((expected) => wrongFirstColor(expected)).fetch, signal());
+  expect(wrongColor).toMatchObject({ state: "failed", answerMatched: false, verifiedOnAttempt: null });
+  expect(wrongColor.attempts).toBe(3);
+  const wrongOrder = await probeModelVision(input, answers((expected) => swapped(expected)).fetch, signal());
+  expect(wrongOrder).toMatchObject({ state: "failed", answerMatched: false, verifiedOnAttempt: null });
 });
 
 test("an explicit provider image rejection is unsupported; a transport failure stays unknown", async () => {
   const rejected = await probeModelVision(input, async () => new Response(JSON.stringify({ error: { message: "image input unsupported" } }),
-    { status: 400, headers: { "content-type": "application/json" } }), new AbortController().signal);
-  expect(rejected).toMatchObject({ state: "unsupported", answerMatched: false });
-  const unavailable = await probeModelVision(input, async () => { throw new Error("connection reset"); }, new AbortController().signal);
+    { status: 400, headers: { "content-type": "application/json" } }), signal());
+  expect(rejected).toMatchObject({ state: "unsupported", answerMatched: false, verifiedOnAttempt: null });
+  expect(rejected.attempts).toBe(1);
+  const unavailable = await probeModelVision(input, async () => { throw new Error("connection reset"); }, signal());
   expect(unavailable).toMatchObject({ state: "unknown", answerMatched: false });
 });
