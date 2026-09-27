@@ -127,7 +127,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     await database?.close(); await admin?.end();
   }, 30_000);
 
-  async function fixture(mode: "normal" | "review-blocked" | "reviewer-infra-once" | "reviewer-infra-twice" | "build-once" | "tool-budget" | "cleanup-fails" | "restore-cleanup-fails" | "restore-build-fails" | "cancel-builder" | "cancel-builder-cleanup-fails" | "model-fails",
+  async function fixture(mode: "normal" | "review-blocked" | "review-blocked-once" | "reviewer-infra-once" | "reviewer-infra-twice" | "build-once" | "tool-budget" | "cleanup-fails" | "restore-cleanup-fails" | "restore-build-fails" | "cancel-builder" | "cancel-builder-cleanup-fails" | "model-fails",
     options: { failCancelledWrites?: number; failFailedWrites?: number; failRestoreWrites?: number; settlementRetryMs?: number; cleanupSweepMs?: number;
       observeTerminalWrites?: boolean;
       monotonicNow?: () => number;
@@ -253,7 +253,8 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
         const completed = priorCalls.filter((name) => name === "record_behavior").length;
         const section = priorCalls.slice(priorCalls.lastIndexOf("record_behavior") + 1);
         const parsedResponses = responses.map((message) => { try { return JSON.parse(message.content); } catch { return null; } });
-        const current = plan.behaviors[completed];
+        const scoped = mode === "review-blocked-once" && reviewerSessions.size > 1 ? plan.behaviors.slice(0, 1) : plan.behaviors;
+        const current = scoped[completed];
         if (!priorCalls.includes("browser_open")) calls = [{ name: "browser_open", args: {} }];
         else if (current && !section.includes("browser_click")) {
           const observation = [...parsedResponses].reverse().find((value) => value?.observationId);
@@ -268,7 +269,7 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
               && part.image_url?.url.startsWith("data:image/png;base64,")))).toBe(true);
           const failed = completed === 0 && (options.failFirstReview ? reviewerSessions.size === 1
             : (mode === "tool-budget" || mode === "cleanup-fails") && builderSessions === 1);
-          const blocked = mode === "review-blocked" && completed === 0;
+          const blocked = (mode === "review-blocked" || mode === "review-blocked-once" && reviewerSessions.size === 1) && completed === 0;
           calls = [{ name: "record_behavior", args: { behaviorId: current.id, verdict: blocked ? "blocked" : failed ? "failed" : "passed",
             expected: current.expected, actual: blocked ? "隔离夹具无法确认计数行为" : failed ? "点击后仍为0" : `点击后观察 ${current.id}`,
             observationEventIds: [observation.id], screenshotIds: [screenshot.artifactId], reproSteps: [`点击加一检查 ${current.id}`] } }];
@@ -500,6 +501,20 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     expect(claimedNext?.state).toBe("accepted");
     await repository.finishCancelled(owner, claimedNext!.id, { cleanupState: "confirmed", summary: "隔离夹具已结束" });
   }, 900_000);
+
+  test("a partial Reviewer result continues only the missing behavior in one Run and promotes after it passes", async () => {
+    const remote = await fixture("review-blocked-once");
+    const result = await run(remote);
+    expect(result.run.state).toBe("completed");
+    expect(remote.reviewerSessions.size).toBe(2);
+    expect(remote.builderPrompts).toHaveLength(1);
+    const check = await repository.getRunCheck(owner, result.run.id);
+    expect(check?.verdict).toBe("passed");
+    expect(check?.items).toHaveLength(5);
+    expect(check?.items.every(item => item.verdict === "passed")).toBe(true);
+    expect(new Set(check?.itemProvenance?.map(item => item.binding.browserSessionId)).size).toBe(2);
+    expect((await createProjectRepository(database).get(owner, result.projectId)).currentRevisionId).toBe(result.run.resultRevisionId);
+  }, 30_000);
 
   test("linked retry rebuilds a blocked candidate without Coordinator or Builder model calls", async () => {
     const old = await run(await fixture("review-blocked"));

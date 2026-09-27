@@ -67,7 +67,7 @@ export interface ReviewInput {
   programCache?: VerificationProgramCache;
   /** Server-selected pending requirements; prior evidence never enters this session. */
   behaviorIds?: readonly string[];
-  /** All review/rebind/repair attempts of one Run inherit this same monotonic window. */
+  /** One Reviewer attempt owns this monotonic safety window, including final persistence. */
   verificationWindow?: { startedAt:number; deadlineAt:number; startedAtWall:number };
 }
 function freeze<T>(value:T):T{

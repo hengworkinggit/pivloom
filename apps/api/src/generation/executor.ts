@@ -5,6 +5,7 @@ import type { ModelProfileService } from "../models/service.js";
 import { sourceBundleFiles, type SourceStore } from "../storage/source.js";
 import type { ArtifactStore } from "../storage/artifacts.js";
 import { runReview } from "./review.js";
+import { classifyReviewRoute } from "./review-routing.js";
 import { summarizeReviewCheckpoint } from "./review-checkpoint.js";
 import { RuntimeError, type ProbeEvent, type SandboxConfig, type SourceFile, type TrustedBuildRecord } from "../runtime/types.js";
 import { runCoordinator } from "../runtime/coordinator.js";
@@ -367,6 +368,7 @@ export function createGenerationExecutor(options: {
           const verificationWindow=createVerificationAttemptWindow({now:boundaries.monotonicNow});
           checked = await runReview({
             binding: reviewer.scope, sessionId: reviewer.role.sessionId, handoff: reviewer.handoff,
+            behaviorIds: reviewer.pendingBehaviorIds,
             expiresAt: currentResource()?.expiresAt ?? result.preview.expiresAt,
             source: await sources.verify(candidateRevision.source), sources, artifacts,
             sandboxConfig: sandbox, modelConfig, tokenBudget, signal: task.controller.signal,verificationWindow,
@@ -400,6 +402,23 @@ export function createGenerationExecutor(options: {
             const rebound = await repository.retryReviewer(run.ownerId, run.id,
               { receipt: checked.receipt, usage: activeUsage });
             if (rebound) {
+              reviewer = await repository.startReviewer(run.ownerId, run.id);
+              continue;
+            }
+          }
+          const route = classifyReviewRoute({
+            plan: reviewer.handoff.plan,
+            result: checked.receipt.result,
+            binding: checked.receipt.binding,
+            markerVerified: checked.receipt.markerVerified,
+            evidence: checked.receipt.evidence,
+            artifactIds: checked.receipt.artifacts.map(artifact => artifact.id),
+            incomplete: Boolean(checked.receipt.verification?.timedOut || checked.receipt.verification?.incompleteReason),
+          });
+          if (route.destination === "reviewer" && toolCalls < toolLimit) {
+            const continuation = await repository.continueReviewer(run.ownerId, run.id,
+              { receipt: checked.receipt, usage: activeUsage });
+            if (continuation) {
               reviewer = await repository.startReviewer(run.ownerId, run.id);
               continue;
             }

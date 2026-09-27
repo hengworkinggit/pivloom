@@ -1155,13 +1155,13 @@ export function createGenerationRepository(
       const {receipt}=input;
       receiptContent(ownerId,runId,receipt);
       // Only a closed, source-verified execution can contribute acceptance evidence.
-      if (!receipt.markerVerified || receipt.verification?.timedOut) return null;
+      if (!receipt.markerVerified) return null;
       return owned(ownerId,async client=>{
         const {current,role,saved,plan,ledger,result,fresh}=await validatedReview(client,ownerId,runId,receipt);
         const pending=result.items.filter(item=>item.verdict!=='passed').map(item=>item.behaviorId);
-        // At most two continuations; a retry that adds no verified pass is terminal.
-        if(!pending.length || ledger.length>=2 || !fresh.result.items.some(item=>item.verdict==='passed')) return null;
-        if(receipt.verification && Date.now()>=Date.parse(receipt.verification.deadlineAt)) return null;
+        // Every continuation must add a newly verified pass, so the finite
+        // requirement set bounds the loop without an arbitrary retry count.
+        if(!pending.length || !fresh.result.items.some(item=>item.verdict==='passed')) return null;
         await client.query(`INSERT INTO nano.review_continuations(id,owner_id,project_id,run_id,role_run_id,attempt,revision_id,source_hash,receipt_json)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [randomUUID(),ownerId,current.project_id,runId,role.id,current.attempt,saved.id,saved.source_hash,
