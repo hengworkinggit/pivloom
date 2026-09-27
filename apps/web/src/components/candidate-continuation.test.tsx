@@ -66,7 +66,7 @@ it("explicitly continues a saved candidate after reopening while preserving the 
   const { ApiWorkbench } = await import("./api-workbench");
   const container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   await act(async () => root?.render(<ApiWorkbench projectId={projectId} />));
-  expect(container.querySelector('button[aria-label="选择查看版本，当前显示 v1"]')).not.toBeNull();
+  expect(container.querySelector('.a-toolbar-version')?.textContent).toContain('正式版 v1');
   await act(async () => container.querySelector<HTMLButtonElement>('.a-toolbar-version')?.click());
   const picker = container.querySelector<HTMLSelectElement>('[data-testid="history-version-select"]')!;
   expect(picker.options).toHaveLength(1);
@@ -74,24 +74,24 @@ it("explicitly continues a saved candidate after reopening while preserving the 
   expect(picker.options).toHaveLength(2);
   await act(async () => { picker.value = candidateId; picker.dispatchEvent(new Event('change', { bubbles: true })); });
   const continueButton = [...container.querySelectorAll<HTMLButtonElement>('.version-history-continue button')]
-    .find((button) => button.textContent?.includes('从 v2 继续修改'));
+    .find((button) => button.textContent?.includes('从 尝试 #2 继续修改'));
   expect(continueButton).not.toBeNull();
   expect([...container.querySelectorAll("button")].some((button) => button.textContent === "重新启动预览")).toBe(true);
   await act(async () => continueButton!.click());
-  expect(container.textContent).toContain("下次修改将从 v2 开始");
+  expect(container.textContent).toContain("下次修改将从 尝试 #2 开始");
   let selection = [...container.querySelectorAll<HTMLElement>('[role="status"]')]
-    .find(element => element.textContent?.includes('下次修改将从 v2 开始'))!;
+    .find(element => element.textContent?.includes('下次修改将从 尝试 #2 开始'))!;
   expect(getComputedStyle(selection).display).not.toBe('none');
-  expect(container.textContent).toContain("当前正式版本仍是 v1，发布内容不变");
+  expect(container.textContent).toContain("当前仍是 正式版 v1，发布内容不变");
   expect(mutations).toEqual([]);
   await act(async () => root?.render(null));
   await act(async () => root?.render(<ApiWorkbench projectId={projectId} />));
-  expect(container.querySelector('button[aria-label="选择查看版本，当前显示 v1"]')).not.toBeNull();
-  expect(container.textContent).toContain("下次修改将从 v2 开始");
+  expect(container.querySelector('.a-toolbar-version')?.textContent).toContain('正式版 v1');
+  expect(container.textContent).toContain("下次修改将从 尝试 #2 开始");
   selection = [...container.querySelectorAll<HTMLElement>('[role="status"]')]
-    .find(element => element.textContent?.includes('下次修改将从 v2 开始'))!;
+    .find(element => element.textContent?.includes('下次修改将从 尝试 #2 开始'))!;
   expect(getComputedStyle(selection).display).not.toBe('none');
-  expect(container.textContent).toContain('当前正式版本仍是 v1');
+  expect(container.textContent).toContain('当前仍是 正式版 v1');
   const textarea = container.querySelector<HTMLTextAreaElement>("textarea")!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "在候选上增加搜索");
@@ -102,7 +102,7 @@ it("explicitly continues a saved candidate after reopening while preserving the 
   expect(mutations).toEqual([`/api/v1/projects/${projectId}/runs`]);
   expect(project.project.currentRevisionId).toBe(acceptedId);
   await act(async () => selection.querySelector<HTMLButtonElement>('button')!.click());
-  expect(container.textContent).not.toContain('下次修改将从 v2 开始');
-  expect(container.querySelector('button[aria-label="选择查看版本，当前显示 v1"]')).not.toBeNull();
+  expect(container.textContent).not.toContain('下次修改将从 尝试 #2 开始');
+  expect(container.querySelector('.a-toolbar-version')?.textContent).toContain('正式版 v1');
   expect(project.project.currentRevisionId).toBe(acceptedId);
 });

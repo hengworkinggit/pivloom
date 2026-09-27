@@ -10,6 +10,7 @@ import { Button } from "./ui/button";
 import { GenerationReview } from "./generation-review";
 import { useUiPreferences } from "@/lib/ui-preferences";
 import { activatePrivatePreview } from "@/lib/preview-session";
+import { displayRevision, snapshotLabel } from "@/lib/revision-label";
 
 const PREVIEW_COOKIE_REFRESH_WINDOW_MS = 120_000;
 interface PreviewAuthorization {
@@ -50,7 +51,7 @@ function SourceViewer({ revision, generation }: { revision: Revision; generation
       </button>)}
     </aside>
     <section className="source-editor">
-      <div className="source-file-bar"><span><FileCode2 size={14} />{file?.path ?? ui.text("没有源文件", "No source file")}</span><div><span className="readonly-badge">v{revision.revisionNo} · {ui.text("只读", "Read only")}</span>
+      <div className="source-file-bar"><span><FileCode2 size={14} />{file?.path ?? ui.text("没有源文件", "No source file")}</span><div><span className="readonly-badge">{snapshotLabel(revision, ui.locale === "en")} · {ui.text("只读", "Read only")}</span>
         <Button variant="ghost" size="icon" aria-label={ui.text("复制当前文件", "Copy current file")} disabled={!source.data} onClick={async () => {
           if (!source.data) return;
           try { await navigator.clipboard.writeText(source.data.content); setNotice(ui.text("代码已复制", "Code copied")); }
@@ -75,12 +76,13 @@ function previewUrl(preview: Preview | null, revision: Revision | null, origin: 
   } catch { return null; }
 }
 
-export function GenerationResult({ projectId, revision, preview, generation, active, queued = false, latestCheck, historicalCheck = false, checking = false, restoring = false, onRestore, toolbarExtras, showReview = true }: {
+export function GenerationResult({ projectId, revision, preview, generation, active, queued = false, latestCheck, historicalCheck = false, checking = false, restoring = false, onRestore, toolbarExtras, showReview = true, versionLabel }: {
   projectId: string; revision: Revision | null; preview: Preview | null; generation: GenerationApi; active: boolean; latestCheck?: Check | null; checking?: boolean;
   queued?: boolean;
-  historicalCheck?: boolean; restoring?: boolean; onRestore?: () => void; toolbarExtras?: ReactNode; showReview?: boolean;
+  historicalCheck?: boolean; restoring?: boolean; onRestore?: () => void; toolbarExtras?: ReactNode; showReview?: boolean; versionLabel?: string;
 }) {
   const ui = useUiPreferences();
+  const visibleVersion = revision ? versionLabel ?? displayRevision(revision, null, ui.locale === "en") : "";
   const [tab, setTab] = useState<"preview" | "code">("preview");
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [reloadKey, setReloadKey] = useState(0);
@@ -154,7 +156,7 @@ export function GenerationResult({ projectId, revision, preview, generation, act
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
         event.preventDefault(); const next = value === "preview" ? "code" : "preview"; setTab(next); document.getElementById(`${next}-tab`)?.focus();
       }}>{value === "preview" ? <Monitor size={14} /> : <Code2 size={15} />}{value === "preview" ? ui.text("预览", "Preview") : ui.text("代码", "Code")}</button>)}
-    </div>{revision && <span className="version-badge">v{revision.revisionNo}{candidate ? ui.text(" 待确认", " Pending") : ""}</span>}</div>
+    </div>{revision && <span className="version-badge">{visibleVersion}{candidate ? ui.text(" · 未完成", " · Incomplete") : ""}</span>}</div>
       {tab === "preview" && <div className="preview-actions"><div className="device-toggle" aria-label={ui.text("预览宽度", "Preview width")}>
         <button aria-label={ui.text("桌面预览", "Desktop preview")} aria-pressed={device === "desktop"} onClick={() => setDevice("desktop")}><Monitor size={14} /></button>
         <button aria-label={ui.text("窄屏预览", "Narrow preview")} aria-pressed={device === "mobile"} onClick={() => setDevice("mobile")}><Smartphone size={13} /></button>
@@ -168,9 +170,9 @@ export function GenerationResult({ projectId, revision, preview, generation, act
     </div>
     {revision && <><div className="previous-version-note">{candidate ? ui.text("待确认版本已保存；正式版本未变", "Pending revision saved; current version unchanged") : ui.text("已保存版本", "Saved version")}{active ? ui.text(queued ? " · 新任务已排队，当前显示此版本" : " · 新任务正在执行，当前显示此版本", queued ? " · New task queued; showing this version" : " · New run in progress; showing this version") : ""}</div>
       {showReview && historicalCheck && <p className="historical-check-note" data-testid="historical-check-note">{ui.text(
-        `以下是 v${revision.revisionNo} 原 Run ${revision.runId.slice(0, 8)} 的历史验收记录；回滚重建后的预览尚未重新验收。`,
-        `The check below belongs to the original v${revision.revisionNo} run ${revision.runId.slice(0, 8)}. The preview rebuilt by rollback has not been reverified.`)}</p>}
-      {showReview && <GenerationReview key={`${revision.id}:${checking}`} revision={revision} latestCheck={latestCheck} generation={generation} checking={checking} />}</>}
+        `以下是${snapshotLabel(revision)}原 Run ${revision.runId.slice(0, 8)} 的历史验收记录；回滚重建后的预览尚未重新验收。`,
+        `The check belongs to original ${snapshotLabel(revision, true)} run ${revision.runId.slice(0, 8)}. The preview rebuilt by rollback has not been reverified.`)}</p>}
+      {showReview && <GenerationReview key={`${revision.id}:${checking}`} revision={revision} latestCheck={latestCheck} generation={generation} checking={checking} versionLabel={visibleVersion} />}</>}
     <div id="code-panel" role="tabpanel" aria-labelledby="code-tab" className="code-panel" hidden={tab !== "code"}>
       {tab === "code" && (revision ? <SourceViewer key={revision.id} revision={revision} generation={generation} /> : <div className="preview-empty"><Code2 size={28} /><h2>{ui.text("还没有生成源码", "No source yet")}</h2><p>{ui.text("版本保存后，可以在这里查看源码文件。", "Saved revisions show their source files here.")}</p></div>)}
     </div>
@@ -190,6 +192,6 @@ export function GenerationResult({ projectId, revision, preview, generation, act
           <Button onClick={onRestore} disabled={restoring}>{restoring ? <><LoaderCircle className="spin" size={14} />{ui.text("正在重建…", "Restoring…")}</> : ui.text("重新启动预览", "Restart preview")}</Button>}
       </div>}
     </div>
-    <footer className="result-footer"><span>{revision ? `${ui.text("版本", "Version")} ${revision.revisionNo} · ${revision.id.slice(0, 8)}` : ui.text("尚无版本", "No version yet")}</span><span>{device === "mobile" ? ui.text("窄屏布局 · 非移动设备模拟", "Narrow layout · not a device emulator") : ui.text("临时预览 · 会到期，可在发布抽屉永久发布", "Temporary preview · expires; publish permanently from the publish drawer")}</span></footer>
+    <footer className="result-footer"><span>{revision ? `${visibleVersion} · ${snapshotLabel(revision, ui.locale === "en")} · ${revision.id.slice(0, 8)}` : ui.text("尚无版本", "No version yet")}</span><span>{device === "mobile" ? ui.text("窄屏布局 · 非移动设备模拟", "Narrow layout · not a device emulator") : ui.text("临时预览 · 会到期，可在发布抽屉永久发布", "Temporary preview · expires; publish permanently from the publish drawer")}</span></footer>
   </section>;
 }

@@ -7,6 +7,7 @@ import type { GenerationApi } from "@/lib/generation-api";
 import { usePrivateQuery } from "@/lib/use-workspace";
 import { errorMessage } from "@/lib/utils";
 import { useUiPreferences } from "@/lib/ui-preferences";
+import { snapshotLabel } from "@/lib/revision-label";
 
 export function checkMatchesRevision(check: Check, revision: Revision) {
   return check.revisionId === revision.id && check.sourceHash === revision.sourceHash
@@ -66,8 +67,8 @@ function VerificationMetrics({ check }: { check: Check }) {
   </div>;
 }
 
-export function GenerationReview({ revision, latestCheck, generation, checking }: {
-  revision: Revision; latestCheck?: Check | null; generation: GenerationApi; checking: boolean;
+export function GenerationReview({ revision, latestCheck, generation, checking, versionLabel }: {
+  revision: Revision; latestCheck?: Check | null; generation: GenerationApi; checking: boolean; versionLabel?: string;
 }) {
   const ui = useUiPreferences();
   const fromSnapshot = latestCheck && checkMatchesRevision(latestCheck, revision) ? latestCheck : null;
@@ -106,7 +107,7 @@ export function GenerationReview({ revision, latestCheck, generation, checking }
     }).join("、")}</p>}
   </article>;
   return <section className={`generation-review review-${check?.verdict ?? "unchecked"}`} aria-label={ui.text("版本检查结果", "Version check result")}>
-    <div className="generation-review-heading"><Icon size={16} aria-hidden="true" /><strong role="status">{title}</strong><span>v{revision.revisionNo}</span></div>
+    <div className="generation-review-heading"><Icon size={16} aria-hidden="true" /><strong role="status">{title}</strong><span>{versionLabel ?? snapshotLabel(revision, ui.locale === "en")}</span></div>
     {query.error && !check ? <p className="generation-review-error" role="alert">{query.error}<button onClick={query.refresh}>{ui.text("重新读取检查", "Reload check")}</button></p>
       : check ? <><p className="generation-review-summary">{plainSummary}</p>
         <details className="generation-review-diagnostics"><summary>{ui.text("检查诊断与耗时", "Check diagnostics and timing")}</summary>
@@ -129,7 +130,7 @@ export function GenerationReview({ revision, latestCheck, generation, checking }
                 {shown && <div id={`review-image-${artifact.id}`}><ReviewScreenshot checkId={check.id} artifact={artifact} label={label} generation={generation} /></div>}
               </div>;
             })}</section>}
-          <p className="generation-review-scope">{ui.text("对应", "Saved snapshot for")} v{revision.revisionNo} · {new Date(check.createdAt).toLocaleString(ui.locale === "en" ? "en-US" : "zh-CN", { hour12: false })}</p>
+          <p className="generation-review-scope">{snapshotLabel(revision, ui.locale === "en")} · {new Date(check.createdAt).toLocaleString(ui.locale === "en" ? "en-US" : "zh-CN", { hour12: false })}</p>
         </details></> : <p className="generation-review-summary">{checking ? ui.text("检查者正在操作这个候选版本，结果保存后会更新。", "The reviewer is testing this candidate; the result will appear when saved.") : ui.text("候选源码已保存，暂没有此版本的检查结论。", "Candidate source is saved; no check result yet.")}</p>}
   </section>;
 }
