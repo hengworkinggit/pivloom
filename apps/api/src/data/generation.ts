@@ -674,7 +674,7 @@ export function createGenerationRepository(
           options.executorBootId, plan])).rows[0];
         await client.query("INSERT INTO nano.template_imports(owner_id,idempotency_key,slug,project_id) VALUES($1,$2,$3,$4)",
           [ownerId, input.idempotencyKey, input.slug, projectRow.id]);
-        if (input.slug === "event-signup" || input.slug === "appointments")
+        if (["event-signup", "appointments", "reading-list", "task-board"].includes(input.slug))
           await client.query("INSERT INTO nano.app_data_profiles(project_id,owner_id,kind) VALUES($1,$2,$3)",
             [projectRow.id, ownerId, input.slug]);
         await client.query("INSERT INTO nano.messages(owner_id,project_id,run_id,kind,content) VALUES($1,$2,$3,'user',$4)",

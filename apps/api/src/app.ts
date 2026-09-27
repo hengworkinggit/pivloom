@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import Fastify from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
 import { readIdentityConfig } from "./config/identity.js";
 import { createIdentityVerifier } from "./auth/supabase.js";
@@ -107,17 +107,6 @@ export function createApp(options: CreateAppOptions = {}) {
     }));
   } else if (database && verifier) {
     app.register(async (configured) => {
-      configured.get("/__published/", async (request, reply) => {
-        const file = await generation?.publishedFile(request.headers.host ?? "", "");
-        return file ? reply.header("x-content-type-options", "nosniff").header("cache-control", "public, max-age=60")
-          .type(file.mime).send(file.bytes) : reply.code(404).send();
-      });
-      configured.get("/__published/*", async (request, reply) => {
-        const path = new URL(request.url, "http://localhost").pathname.slice("/__published/".length);
-        const file = await generation?.publishedFile(request.headers.host ?? "", path);
-        return file ? reply.header("x-content-type-options", "nosniff").header("cache-control", "public, max-age=60")
-          .type(file.mime).send(file.bytes) : reply.code(404).send();
-      });
       // The public proxy calls this before it issues a certificate for a
       // revision subdomain; it is unauthenticated on purpose and answers only
       // for names this service actually serves.
@@ -177,9 +166,30 @@ export function createApp(options: CreateAppOptions = {}) {
         loadProjectDetail: service ? (ownerId, projectId) => service.projectDetail(ownerId, projectId) : undefined,
         loadQuota: service ? (ownerId) => service.repository.quota(ownerId) : undefined });
       await registerGenerationRoutes(configured, { generation, verifyIdentity: verifier.verify });
-      await registerAppDataRoutes(configured, { database,
+      const appDataAccess = await registerAppDataRoutes(configured, { database,
         publishedFromHost: (host) => service?.publishedFromHost(host) ?? Promise.resolve(null),
+        publishedForOwner: async (ownerId, projectId) => (await service?.publication(ownerId, projectId))?.publication ?? null,
+        appOrigin: configuration.value.appOrigin,
+        isSessionActive: async (ownerId, sessionId) => (sessionDatabase ?? database).system(async (client) => {
+          const result = await client.query<{ active: boolean }>(
+            "SELECT nano.preview_session_active($1::uuid, $2::uuid) AS active", [ownerId, sessionId]);
+          return result.rows[0]?.active === true;
+        }),
         verifyIdentity: verifier.verify });
+      const publishedFile = async (request: FastifyRequest, reply: FastifyReply, path: string) => {
+        const visibility = await appDataAccess.staticVisibility(request);
+        if (visibility === "denied") return reply.header("cache-control", "no-store").code(403)
+          .type("text/plain; charset=utf-8").send("仅项目主人可访问。请登录 Pivloom 并从项目工作台打开此应用。");
+        const file = await generation?.publishedFile(request.headers.host ?? "", path);
+        return file ? reply.header("x-content-type-options", "nosniff")
+          .header("cache-control", visibility === "owner" ? "private, no-store" : "public, max-age=60")
+          .header("referrer-policy", "no-referrer").type(file.mime).send(file.bytes) : reply.code(404).send();
+      };
+      configured.get("/__published/", async (request, reply) => publishedFile(request, reply, ""));
+      configured.get("/__published/*", async (request, reply) => {
+        const path = new URL(request.url, "http://localhost").pathname.slice("/__published/".length);
+        return publishedFile(request, reply, path);
+      });
       await registerVersionHistoryRoutes(configured, {
         generation,
         sources: generation ? createSourceStore({ url: configuration.value.supabaseUrl,

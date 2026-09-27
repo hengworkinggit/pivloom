@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ProjectMessageSchema, RunSchema, RevisionSchema, PreviewSchema, ProjectQuotaSchema } from "./generation.js";
 import { CheckSchema } from "./review.js";
+import { AppDataKindSchema } from "./app-data.js";
 export * from "./models.js";
 export * from "./generation.js";
 export * from "./planning.js";
@@ -42,7 +43,7 @@ export type ProjectListResponse = z.infer<typeof ProjectListResponseSchema>;
 
 export const ProjectDetailResponseSchema = z.object({
   project: ProjectSummarySchema,
-  dataProfile: z.enum(["event-signup", "appointments"]).nullable().optional(),
+  dataProfile: AppDataKindSchema.nullable().optional(),
   messages: z.array(ProjectMessageSchema),
   currentRevision: RevisionSchema.nullable(),
   activeRun: RunSchema.nullable(),
