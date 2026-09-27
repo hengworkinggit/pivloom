@@ -141,8 +141,8 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     return { project, run: claimed, builder, revision, source, sandbox, sourceStore, artifactStore, inMemoryObjects };
   }
 
-  async function reviewed(fixture: Awaited<ReturnType<typeof candidate>>, verdict: "passed" | "failed" | "blocked" = "passed", action: "click" | "press" | "reload" = "click", browserFault?: "BROWSER_BLOCKED" | "BROWSER_TIMEOUT") {
-    await generation.queueReviewer(ownerA, fixture.run.id, { revisionId: fixture.revision.id });
+  async function reviewed(fixture: Awaited<ReturnType<typeof candidate>>, verdict: "passed" | "failed" | "blocked" = "passed", action: "click" | "press" | "reload" = "click", browserFault?: "BROWSER_BLOCKED" | "BROWSER_TIMEOUT", options: { blockedBehaviorId?: string; continuing?: boolean } = {}) {
+    if (!options.continuing) await generation.queueReviewer(ownerA, fixture.run.id, { revisionId: fixture.revision.id });
     const execution = await generation.startReviewer(ownerA, fixture.run.id);
     const staging = new Map<string, Uint8Array>();
     let actions = 0, closes = 0, calls = 0;
@@ -183,7 +183,7 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
         .map((message: { content: string }) => { try { return JSON.parse(message.content); } catch { return null; } });
       const last = responses.at(-1);
       const completed = priorCalls.filter((name: string) => name === "record_behavior").length;
-      const current = plan.behaviors[completed];
+      const current = plan.behaviors.filter(behavior => !execution.pendingBehaviorIds || execution.pendingBehaviorIds.includes(behavior.id))[completed];
       const section = priorCalls.slice(priorCalls.lastIndexOf("record_behavior") + 1);
       const latestObservation = [...responses].reverse().find((item) => item?.observationId);
       const hasAction = section.some((name: string) => ["browser_click", "browser_press", "browser_reload"].includes(name));
@@ -202,7 +202,7 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
           && message.content.some((part: { type: string; image_url?: { url: string } }) => part.type === "image_url"
             && part.image_url?.url.startsWith("data:image/png;base64,")))).toBe(true);
         choice = { name: "record_behavior", args: { behaviorId: current.id,
-          verdict: completed === 0 ? verdict : "passed", expected: current.expected,
+          verdict: current.id === options.blockedBehaviorId ? "blocked" : completed === 0 ? verdict : "passed", expected: current.expected,
           actual: completed === 0 && verdict === "failed" ? "列表未更新" : `已操作 ${current.id} 并观察页面`,
           observationEventIds: [observed.id], screenshotIds: [last.artifactId], reproSteps: [`操作 ${current.id}`] } };
       }
@@ -212,7 +212,7 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     };
     const connector = { create: async () => connection, connect: async () => connection };
     const artifactStore = fixture.artifactStore ?? createArtifactStore({ url: process.env.SUPABASE_URL!, secret: process.env.SUPABASE_SECRET_KEY! });
-    const output = await runReview({ binding: execution.scope, sessionId: execution.role.sessionId, handoff: execution.handoff, expiresAt: fixture.sandbox.expiresAt,
+    const output = await runReview({ behaviorIds: execution.pendingBehaviorIds, binding: execution.scope, sessionId: execution.role.sessionId, handoff: execution.handoff, expiresAt: fixture.sandbox.expiresAt,
       source: fixture.source, sources: fixture.sourceStore, artifacts: { load: artifactStore.load, async save(scope, image) {
         const artifact = await artifactStore.save(scope, image);
         if (!fixture.inMemoryObjects) { sourceKeys.push(artifact.key); await save(); }
@@ -268,6 +268,64 @@ describe.skipIf(process.env.PIVLOOM_REVIEW_INTEGRATION !== "1")("review persiste
     }
     await database?.close(); await admin?.end();
   }, 120_000);
+
+  test("same-source continuation retains verified items across sessions and checks only the pending behavior", async () => {
+    const fixture = await candidate(true);
+    const first = await reviewed(fixture, "passed", "click", undefined, { blockedBehaviorId: "B05" });
+    expect(first.receipt.result.items.map(item => item.verdict)).toEqual(["passed", "passed", "passed", "passed", "blocked"]);
+    const next = await generation.continueReviewer(ownerA, fixture.run.id, { receipt: first.receipt });
+    expect(next?.pendingBehaviorIds).toEqual(["B05"]);
+    expect(next?.scope).toMatchObject({ runId: fixture.run.id, revisionId: fixture.revision.id, attempt: 0, sourceHash: fixture.source.sourceHash });
+    expect(next?.scope.browserSessionId).not.toBe(first.execution.scope.browserSessionId);
+    expect((await generation.getRun(ownerA, fixture.run.id)).state).toBe("verifying");
+    expect(await generation.getRunCheck(ownerA, fixture.run.id)).toBeNull();
+    expect((await generation.readProjectSnapshot(ownerA, fixture.project.id)).project.currentRevisionId).toBeNull();
+    // Reloading the execution obtains its scope from durable state, not the previous return value.
+    const second = await reviewed(fixture, "passed", "click", undefined, { continuing: true });
+    expect(second.execution.pendingBehaviorIds).toEqual(["B05"]);
+    expect(second.receipt.result.items.map(item => item.behaviorId)).toEqual(["B05"]);
+    expect(second.stats.actions).toBe(1);
+    expect(second.receipt.evidence.some(event => event.behaviorId === "B01")).toBe(false);
+    const finished = await generation.finishReview(ownerA, fixture.run.id, { receipt: second.receipt });
+    expect(finished.run.state).toBe("completed");
+    expect(finished.check.items.map(item => item.verdict)).toEqual(["passed", "passed", "passed", "passed", "passed"]);
+    expect(finished.check.items[0]).toEqual(first.receipt.result.items[0]);
+    const check = await generation.getCheck(ownerA, finished.check.id);
+    expect((await generation.getArtifact(ownerA,first.receipt.result.items[0].screenshotIds[0])).checkId).toBe(check.id);
+    expect(check.itemProvenance?.find(item => item.behaviorId === "B01")?.binding).toEqual(first.execution.scope);
+    expect(check.itemProvenance?.find(item => item.behaviorId === "B05")?.binding).toEqual(second.execution.scope);
+    expect((await generation.readProjectSnapshot(ownerA, fixture.project.id)).project.currentRevisionId).toBe(fixture.revision.id);
+  }, 30_000);
+
+  test("same-source continuation rejects forged, foreign and stale receipts and stops when no item progresses", async () => {
+    const fixture=await candidate(true);
+    const first=await reviewed(fixture,"passed","click",undefined,{blockedBehaviorId:"B05"});
+    await expect(generation.continueReviewer(ownerB,fixture.run.id,{receipt:first.receipt})).rejects.toMatchObject({code:"NOT_FOUND"});
+    await expect(generation.continueReviewer(ownerA,randomUUID(),{receipt:first.receipt})).rejects.toMatchObject({code:"REVIEW_BINDING_MISMATCH"});
+    // A reconstructed/provisional checkpoint is not a capability issued by runReview.
+    await expect(generation.continueReviewer(ownerA,fixture.run.id,{receipt:{...first.receipt}})).rejects.toMatchObject({code:"INVALID_REVIEW_RECEIPT"});
+    expect(await generation.continueReviewer(ownerA,fixture.run.id,{receipt:first.receipt})).not.toBeNull();
+    await expect(generation.continueReviewer(ownerA,fixture.run.id,{receipt:first.receipt})).rejects.toMatchObject({code:"ROLE_NOT_ACTIVE"});
+    const second=await reviewed(fixture,"passed","click",undefined,{blockedBehaviorId:"B05",continuing:true});
+    expect(await generation.continueReviewer(ownerA,fixture.run.id,{receipt:second.receipt})).toBeNull();
+    const finished=await generation.finishReview(ownerA,fixture.run.id,{receipt:second.receipt});
+    expect(finished.check.items.map(item=>item.verdict)).toEqual(["passed","passed","passed","passed","blocked"]);
+    expect(finished.check.verdict).toBe("blocked");
+    expect((await generation.readProjectSnapshot(ownerA,fixture.project.id)).project.currentRevisionId).toBeNull();
+  },30_000);
+
+  test("source changes invalidate saved continuation passes instead of promoting the old evidence", async () => {
+    const fixture=await candidate(true);
+    const first=await reviewed(fixture,"passed","click",undefined,{blockedBehaviorId:"B05"});
+    await generation.continueReviewer(ownerA,fixture.run.id,{receipt:first.receipt});
+    const second=await reviewed(fixture,"passed","click",undefined,{continuing:true});
+    // Explicit storage-corruption fixture: the immutable candidate metadata changes
+    // after execution. Both continuation and finalization must retain the source guard.
+    await admin.query("UPDATE nano.revisions SET source_hash=$2 WHERE id=$1",[fixture.revision.id,"f".repeat(64)]);
+    await expect(generation.finishReview(ownerA,fixture.run.id,{receipt:second.receipt})).rejects.toMatchObject({code:"REVIEW_BINDING_MISMATCH"});
+    expect(await generation.getRunCheck(ownerA,fixture.run.id)).toBeNull();
+    expect((await generation.readProjectSnapshot(ownerA,fixture.project.id)).project.currentRevisionId).toBeNull();
+  },30_000);
 
   test("a saved candidate queues one version-bound reviewer before execution and never promotes on handoff", async () => {
     const fixture = await candidate();

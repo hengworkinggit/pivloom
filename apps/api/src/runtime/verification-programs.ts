@@ -1,3 +1,4 @@
+import { selectReviewBehaviors } from './review-scope.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { TSchema } from '@earendil-works/pi-ai';
@@ -15,6 +16,7 @@ export interface VerificationProgramCompilerPort {
 }
 export interface PrepareVerificationProgramsInput {
   plan: Plan;
+  behaviorIds?: readonly string[];
   sourceHash: string;
   files: readonly {path:string;content:string}[];
   observe(): Promise<BrowserObservation>;
@@ -47,7 +49,7 @@ export async function prepareVerificationPrograms(input: PrepareVerificationProg
   const stored=await input.cache.load(input.plan);await active();
   let plan=applyVerificationPrograms(input.plan,stored);
   const reused=plan.behaviors.filter((behavior,index)=>ownsProgram(behavior)&&!ownsProgram(input.plan.behaviors[index])).length;
-  const missing=plan.behaviors.filter(behavior=>!ownsProgram(behavior));
+  const missing=selectReviewBehaviors(plan.behaviors,input.behaviorIds).filter(behavior=>!ownsProgram(behavior));
   if(!missing.length)return {plan,reused,compiled:0,failures:[]};
   const observation=await input.observe();await active();
   const source=input.files.filter(file=>/\.(tsx?|jsx?|html|css)$/.test(file.path))

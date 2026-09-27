@@ -1,3 +1,4 @@
+import { selectReviewBehaviors } from './review-scope.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { HandoffSchema, ReviewResultSchema, ReviewItemSchema, BehaviorProgramSchema, allowsRenderOnlyEvidence,
   type BehaviorStep, type BehaviorTarget, type Handoff, type ReviewBinding, type ReviewItem, type ReviewResult } from '@pivloom/contracts';
@@ -217,6 +218,7 @@ export interface VisualJudgePort {
 }
 export interface RunScriptedPlanInput extends Omit<ReplayRunProgramsInput, 'onProgress' | 'behaviors'> {
   visualJudge?: VisualJudgePort;
+  behaviorIds?: readonly string[];
   binding: ReviewBinding;
   handoff: Handoff;
   onEvent?: ProbeEventSink;
@@ -236,6 +238,8 @@ export type ScriptedPlanOutcome =
 /** Compiles, runs and assembles the whole A layer, or reports why the model path must still run. */
 export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<ScriptedPlanOutcome> {
   const handoff = HandoffSchema.parse(input.handoff);
+  const originalBehaviors=handoff.plan.behaviors;
+  handoff.plan.behaviors=selectReviewBehaviors(originalBehaviors,input.behaviorIds);
   if (handoff.toRole !== 'reviewer' || handoff.runId !== input.binding.runId || handoff.attempt !== input.binding.attempt
     || handoff.expectedRevisionId !== input.binding.revisionId || handoff.sourceHash !== input.binding.sourceHash
     || input.browser.sessionId !== input.binding.browserSessionId)
@@ -289,8 +293,10 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
   for (const behavior of handoff.plan.behaviors) {
     const program = programById.get(behavior.id);
     const runnable = Boolean(program) || judgedIds.has(behavior.id);
+    const originalIndex=originalBehaviors.findIndex(item=>item.id===behavior.id);
+    if (input.behaviorIds && originalIndex>0 && !handoff.plan.behaviors.some(item=>item.id===originalBehaviors[originalIndex-1].id)) unavailablePriorState=true;
     if (runnable && behavior.initialState === 'fresh') unavailablePriorState = false;
-    if (runnable && behavior.initialState === 'continue' && unavailablePriorState) {
+    if (runnable && behavior.initialState !== 'fresh' && unavailablePriorState) {
         const item: ReviewItem = { behaviorId: behavior.id, expected: behavior.expected, verdict: 'blocked',
           actual: 'invalid-setup：声明的前置场景未执行，继续场景缺少所需初态；该行为未执行。',
           observationEventIds: [], screenshotIds: [], reproSteps: [] };

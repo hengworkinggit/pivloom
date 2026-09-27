@@ -114,6 +114,8 @@ export const CheckSchema = ReviewBindingSchema.extend({
   // Absent on historical flat checks. New grouped checks are derived and saved by the service.
   groups: z.array(CheckGroupSchema).length(5).optional(),
   verification: CheckVerificationSchema.optional(),
+  /** Original validated session for each item, including retained same-source receipts. */
+  itemProvenance: z.array(z.object({ behaviorId: z.string(), binding: ReviewBindingSchema, verifiedAt: z.iso.datetime() })).max(80).optional(),
 }).superRefine((check, context) => {
   if (!check.groups) return;
   const ids = GroupIdSchema.options;

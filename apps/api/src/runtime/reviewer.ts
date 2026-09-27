@@ -1,3 +1,4 @@
+import { selectReviewBehaviors } from './review-scope.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -112,6 +113,7 @@ export interface ReviewCheckpoint {
   artifacts: CheckArtifact[];
 }
 export interface ReviewerInput {
+  behaviorIds?: readonly string[];
   binding: ReviewBinding; sessionId: string; handoff: Handoff;
   browser: ReviewBrowser; files: ReadonlyArray<{ path: string; content: string }>;
   modelConfig: ModelConfig; signal: AbortSignal; tokenBudget?: RunTokenBudget; maxToolCalls?: number;
@@ -234,6 +236,7 @@ const schemaIssuePath = (issues: ReadonlyArray<{path:PropertyKey[]}>, fields = r
 };
 export async function runReviewer(input: ReviewerInput): Promise<ReviewerResult> {
   const handoff = HandoffSchema.parse(input.handoff), binding = input.binding;
+  handoff.plan.behaviors = selectReviewBehaviors(handoff.plan.behaviors,input.behaviorIds);
   if (handoff.toRole !== 'reviewer' || handoff.runId !== binding.runId || handoff.attempt !== binding.attempt
     || handoff.expectedRevisionId !== binding.revisionId || handoff.sourceHash !== binding.sourceHash || input.browser.sessionId !== binding.browserSessionId)
     throw new RuntimeError('INVALID_HANDOFF', '检查交接与当前候选不匹配');

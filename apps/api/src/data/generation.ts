@@ -64,7 +64,7 @@ export interface RoleReference { roleRunId: string; attempt: number; role: Role 
 export interface SubmitPlanInput { roleRunId: string; attempt: number; plan: Plan; usage?: RoleUsage }
 export interface ClarificationInput { roleRunId: string; attempt: number; question: string; usage?: RoleUsage }
 export interface PlanSubmission { run: StoredRun; coordinator: StoredRoleRun; builder: StoredRoleRun; handoff: Handoff }
-export interface ReviewerExecution { role: StoredRoleRun; scope: ReviewBinding; handoff: Handoff }
+export interface ReviewerExecution { role: StoredRoleRun; scope: ReviewBinding; handoff: Handoff; pendingBehaviorIds?: string[] }
 export interface ReviewCompletion { run: StoredRun; check: Check; revision: StoredRevision; repairNextAttempt: number | null }
 export interface BuildFailureInput {
   revisionId: string; code: "TYPECHECK_FAILED" | "BUILD_FAILED"; message: string; usage?: RoleUsage;
@@ -115,6 +115,8 @@ export interface GenerationRepository {
   startReviewer(ownerId: string, runId: string): Promise<ReviewerExecution>;
   /** Rebind one confirmed-closed browser infrastructure failure to a fresh Reviewer session on the same candidate. */
   retryReviewer(ownerId: string, runId: string, input: { receipt: VerifiedReviewReceipt; usage?: RoleUsage }): Promise<ReviewerExecution | null>;
+  /** Preserve validated same-source passes and queue only pending requirements in the same Run. */
+  continueReviewer(ownerId: string, runId: string, input: { receipt: VerifiedReviewReceipt; usage?: RoleUsage }): Promise<ReviewerExecution | null>;
   finishReview(ownerId: string, runId: string, input: { receipt: VerifiedReviewReceipt; usage?: RoleUsage }): Promise<ReviewCompletion>;
   finishBuildFailure(ownerId: string, runId: string, input: BuildFailureInput): Promise<BuildFailureCompletion>;
   getCheck(ownerId: string, checkId: string): Promise<Check>;
@@ -316,6 +318,7 @@ function storedCheck(row: Row): Check {
     revisionId: row.revision_id, sourceHash: row.source_hash, sandboxId: row.sandbox_id, browserSessionId: row.browser_session_id,
     verdict: row.verdict, items: row.items_json, summary: row.summary,
     groups: row.group_results_json ?? undefined,
+    itemProvenance: row.item_provenance_json ?? undefined,
     ...(row.verification_json ? { verification: CheckVerificationSchema.parse(row.verification_json) } : {}),
     artifacts: z.array(storedArtifactSchema).parse(row.artifacts_json).map(({ id, mimeType, sha256 }) => ({ id, mimeType, sha256 })),
     createdAt: date(row.created_at).toISOString() });
@@ -479,6 +482,113 @@ export function createGenerationRepository(
     const result = await client.query("SELECT * FROM nano.role_runs WHERE owner_id=$1 AND run_id=$2 AND id=$3", [current.owner_id, current.id, input.roleRunId]);
     assertRole(current, result.rows[0], input);
     return result.rows[0];
+  }
+  const reviewPlanHash = (plan: Plan) => createHash("sha256").update(JSON.stringify(plan)).digest("hex");
+  async function reviewLedger(client: PoolClient, ownerId: string, binding: ReviewBinding, plan: Plan) {
+    const rows = (await client.query(`SELECT receipt_json FROM nano.review_continuations
+      WHERE owner_id=$1 AND run_id=$2 AND attempt=$3 AND revision_id=$4 AND source_hash=$5 ORDER BY created_at,id`,
+    [ownerId,binding.runId,binding.attempt,binding.revisionId,binding.sourceHash])).rows;
+    return rows.map(row => {
+      const saved = row.receipt_json;
+      if (saved.planHash !== reviewPlanHash(plan)) throw new ApiFailure(409,"REVIEW_BINDING_MISMATCH","续验要求已经变化，原结果不可复用。");
+      const origin = ReviewBindingSchema.parse(saved.binding);
+      if (origin.runId!==binding.runId || origin.attempt!==binding.attempt || origin.revisionId!==binding.revisionId || origin.sourceHash!==binding.sourceHash)
+        throw new ApiFailure(409,"REVIEW_BINDING_MISMATCH","续验证据与当前候选不一致。");
+      return {binding:origin,result:ReviewResultSchema.parse(saved.result),artifacts:z.array(storedArtifactSchema).max(MAX_CHECK_ARTIFACTS).parse(saved.artifacts),
+        evidence:parseReviewEvidence(saved.evidence),verifiedAt:z.iso.datetime().parse(saved.verifiedAt)};
+    });
+  }
+  async function pendingExecution(client: PoolClient, ownerId: string, execution: ReviewerExecution): Promise<ReviewerExecution> {
+    const ledger=await reviewLedger(client,ownerId,execution.scope,execution.handoff.plan);
+    if (!ledger.length) return execution;
+    const passed=new Set(ledger.flatMap(entry=>entry.result.items.filter(item=>item.verdict==='passed').map(item=>item.behaviorId)));
+    return {...execution,pendingBehaviorIds:execution.handoff.plan.behaviors.filter(item=>!passed.has(item.id)).map(item=>item.id)};
+  }
+  function receiptContent(ownerId: string, runId: string, receipt: VerifiedReviewReceipt) {
+    assertVerifiedReviewReceipt(receipt);
+    if (receipt.source.ownerId !== ownerId) throw notFound();
+    const binding=ReviewBindingSchema.parse(receipt.binding),result=ReviewResultSchema.parse(receipt.result);
+    const artifacts=z.array(storedArtifactSchema).max(MAX_CHECK_ARTIFACTS).parse(receipt.artifacts),evidence=parseReviewEvidence(receipt.evidence);
+    assertReviewEvidenceFitsPersistence(evidence);
+    if (receipt.chromeClosed!==true || binding.runId!==runId || result.revisionId!==binding.revisionId || result.sourceHash!==binding.sourceHash)
+      throw new ApiFailure(409,"REVIEW_BINDING_MISMATCH","检查结果尚未完成会话关闭或版本校验。");
+    return {binding,result,artifacts,evidence};
+  }
+  async function validatedReview(client: PoolClient, ownerId: string, runId: string, receipt: VerifiedReviewReceipt) {
+    const fresh=receiptContent(ownerId,runId,receipt),{binding}=fresh;
+    const { current, parent } = await lockedRun(client, ownerId, runId);
+    const role = await activeRole(client, current, { roleRunId: binding.roleRunId, attempt: binding.attempt, role: "reviewer" });
+    const storedBinding = ReviewBindingSchema.parse(role.review_binding_json);
+    if (Object.keys(storedBinding).some((key) => Reflect.get(storedBinding, key) !== Reflect.get(binding, key))) {
+      throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查结果来自其它版本、沙箱或浏览器会话。");
+    }
+    if (parent.current_revision_id !== current.expected_current_revision_id) throw new ApiFailure(409, "STALE_BASE", "当前成功版本已经变化，未提交此次检查。");
+    const saved = await revision(client, ownerId, binding.revisionId);
+    if (saved.run_id !== runId || saved.project_id !== current.project_id || saved.attempt !== current.attempt
+      || current.result_revision_id !== saved.id || saved.status !== "candidate" || saved.source_hash !== binding.sourceHash
+      || receipt.source.projectId !== saved.project_id || receipt.source.revisionId !== saved.id
+      || receipt.source.sourceHash !== saved.source_hash || receipt.source.key !== saved.source_key) {
+      throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查结果或已验证源码对象与当前候选不一致。");
+    }
+    const build = saved.build_json;
+    if (saved.build_status !== "passed" || build?.schemaVersion !== 1 || build.sourceHash !== saved.source_hash
+      || build.typecheck?.exitCode !== 0 || build.build?.exitCode !== 0) throw new ApiFailure(409, "BUILD_NOT_VERIFIED", "候选缺少与源码匹配的可信构建记录。");
+    const sandbox = (await client.query(`SELECT * FROM nano.sandboxes WHERE owner_id=$1 AND run_id=$2 AND attempt=$3
+      AND remote_id=$4 AND revision_id=$5 AND source_hash=$6 AND purpose='candidate-preview' AND state='active' AND expires_at>now()`,
+    [ownerId, runId, binding.attempt, binding.sandboxId, saved.id, saved.source_hash])).rows[0];
+    if (!sandbox) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查结果绑定的候选预览已经失效。");
+
+    const plan=PlanSchema.parse(current.plan_json),ledger=await reviewLedger(client,ownerId,binding,plan);
+    const retained=new Map<string,{item:typeof fresh.result.items[number];entry:typeof ledger[number]}>();
+    for (const entry of ledger) for (const item of entry.result.items) if(item.verdict==='passed') retained.set(item.behaviorId,{item,entry});
+    const pending=plan.behaviors.filter(item=>!retained.has(item.id)).map(item=>item.id);
+    if(fresh.result.items.length!==pending.length || new Set(fresh.result.items.map(item=>item.behaviorId)).size!==pending.length
+      || fresh.result.items.some(item=>!pending.includes(item.behaviorId)))
+      throw new ApiFailure(422,"AGENT_OUTPUT_INVALID","当前会话必须且只能报告服务端待检查项。");
+    const result={...fresh.result,
+      summary:retained.size ? `同一源码复用 ${retained.size} 项验证，本会话检查 ${fresh.result.items.length} 项，完整计划共 ${plan.behaviors.length} 项。\n${fresh.result.summary.slice(0,3800)}` : fresh.result.summary,
+      items:plan.behaviors.map(behavior=>retained.get(behavior.id)?.item??fresh.result.items.find(item=>item.behaviorId===behavior.id)!)};
+    const evidence=[...fresh.evidence],artifacts=[...fresh.artifacts];
+    const itemProvenance: NonNullable<Check['itemProvenance']>=[];
+    for(const {item,entry} of retained.values()) {
+      for(const event of entry.evidence) if(item.observationEventIds.includes(event.id)&&!evidence.some(existing=>existing.id===event.id)) evidence.push(event);
+      for(const artifact of entry.artifacts) if(item.screenshotIds.includes(artifact.id)&&!artifacts.some(existing=>existing.id===artifact.id)) artifacts.push(artifact);
+      itemProvenance.push({behaviorId:item.behaviorId,binding:entry.binding,verifiedAt:entry.verifiedAt});
+    }
+    for(const item of fresh.result.items) itemProvenance.push({behaviorId:item.behaviorId,binding,verifiedAt:new Date().toISOString()});
+    z.array(storedArtifactSchema).max(MAX_CHECK_ARTIFACTS).parse(artifacts);
+    parseReviewEvidence(evidence);assertReviewEvidenceFitsPersistence(evidence);
+
+    const byBehavior = new Map(plan.behaviors.map((behavior) => [behavior.id, behavior]));
+    const observations = new Map(evidence.map((observation) => [observation.id, observation]));
+    const artifactIds = new Set(artifacts.map((artifact) => artifact.id));
+    if (observations.size !== evidence.length || artifactIds.size !== artifacts.length) throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "检查证据标识重复。");
+    for (const artifact of artifacts) {
+      if (artifact.key !== `${ownerId}/${saved.project_id}/${saved.id}/checks/${artifact.id}.png`) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查工件不属于当前候选。");
+    }
+    for (const item of result.items) {
+      const behavior = byBehavior.get(item.behaviorId);
+      const itemObservations = item.observationEventIds.map((id) => observations.get(id));
+      const actionEvidence = itemObservations.some((observation) => observation?.action && observation.action !== "scroll"
+        && !(observation.action === "press" && observation.key === "Tab"));
+      // Static pages have no interactive element: a real check observation
+      // plus a captured screenshot is render/content verification, matching
+      // the Reviewer's own evidence rule.
+      const renderedEvidence = Boolean(behavior && allowsRenderOnlyEvidence(behavior))
+        && item.observationEventIds.length >= 1 && item.screenshotIds.length > 0;
+      if (!behavior || item.expected !== behavior.expected || item.screenshotIds.some((id) => !artifactIds.has(id))
+        || item.observationEventIds.some((id) => !observations.has(id))
+        || item.verdict !== "blocked" && !actionEvidence && !renderedEvidence) {
+        throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "检查结果缺少相同目标的实际动作及后续观察。");
+      }
+    }
+    let groups: ReturnType<typeof aggregateCheckGroups> | undefined;
+    if (plan.schemaVersion === 2) {
+      try { groups = aggregateCheckGroups(plan, result.items); }
+      catch { throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "检查结果未覆盖五组全部子检查及原始证据。"); }
+    }
+
+    return {current,role,saved,sandbox,plan,ledger,result,evidence,artifacts,groups,itemProvenance,fresh};
   }
   return {
     // A single statement keeps related values in one MVCC snapshot and avoids repeated remote transaction setup.
@@ -980,10 +1090,10 @@ export function createGenerationRepository(
         AND revision_id=$4 AND source_hash=$5 AND remote_id=$6 AND state='active' AND purpose='candidate-preview' AND expires_at>now()`,
       [ownerId, runId, current.attempt, execution.scope.revisionId, execution.scope.sourceHash, execution.scope.sandboxId])).rows[0];
       if (!binding) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查者绑定的预览已不可用。");
-      if (prior.state === "running") return execution;
+      if (prior.state === "running") return pendingExecution(client,ownerId,execution);
       const updated = await client.query("UPDATE nano.role_runs SET state='running',started_at=now() WHERE owner_id=$1 AND id=$2 RETURNING *", [ownerId, prior.id]);
       await event(client, current, { type: "role.started", roleRunId: prior.id, payload: { role: "reviewer", phase: "review" } });
-      return reviewerExecution(updated.rows[0]);
+      return pendingExecution(client,ownerId,reviewerExecution(updated.rows[0]));
     }),
     retryReviewer: async (ownerId, runId, input) => {
       const { receipt } = input;
@@ -1041,18 +1151,42 @@ export function createGenerationRepository(
         return reviewerExecution(inserted);
       });
     },
+    continueReviewer: async (ownerId, runId, input) => {
+      const {receipt}=input;
+      receiptContent(ownerId,runId,receipt);
+      // Only a closed, source-verified execution can contribute acceptance evidence.
+      if (!receipt.markerVerified || receipt.verification?.timedOut) return null;
+      return owned(ownerId,async client=>{
+        const {current,role,saved,plan,ledger,result,fresh}=await validatedReview(client,ownerId,runId,receipt);
+        const pending=result.items.filter(item=>item.verdict!=='passed').map(item=>item.behaviorId);
+        // At most two continuations; a retry that adds no verified pass is terminal.
+        if(!pending.length || ledger.length>=2 || !fresh.result.items.some(item=>item.verdict==='passed')) return null;
+        if(receipt.verification && Date.now()>=Date.parse(receipt.verification.deadlineAt)) return null;
+        await client.query(`INSERT INTO nano.review_continuations(id,owner_id,project_id,run_id,role_run_id,attempt,revision_id,source_hash,receipt_json)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [randomUUID(),ownerId,current.project_id,runId,role.id,current.attempt,saved.id,saved.source_hash,
+          JSON.stringify({...fresh,planHash:reviewPlanHash(plan),verifiedAt:new Date().toISOString()})]);
+        await client.query(`UPDATE nano.role_runs SET state='failed',finished_at=now(),output_json=$3,usage_json=$4 WHERE owner_id=$1 AND id=$2`,
+          [ownerId,role.id,{...fresh.result,retainedBehaviorIds:result.items.filter(item=>item.verdict==='passed').map(item=>item.behaviorId)},roleUsage(input.usage)]);
+        const id=randomUUID(),scope=ReviewBindingSchema.parse({...fresh.binding,roleRunId:id,browserSessionId:`pivloom-${randomUUID()}`});
+        const handoff=HandoffSchema.parse({...HandoffSchema.parse(role.input_json),fromRoleRunId:role.id,
+          task:`同一候选的已验证结果已由服务端保存。本次仅检查 ${pending.join(', ')}；新会话须通过真实界面建立前置状态，不能引用旧会话证据。`});
+        const inserted=(await client.query(`INSERT INTO nano.role_runs(id,owner_id,project_id,run_id,predecessor_id,role,attempt,session_id,state,input_json,review_binding_json)
+          VALUES($1,$2,$3,$4,$5,'reviewer',$6,$7,'queued',$8,$9) RETURNING *`,
+          [id,ownerId,current.project_id,runId,role.id,current.attempt,randomUUID(),handoff,scope])).rows[0];
+        const changed=(await client.query(`UPDATE nano.runs SET reviewer_role_run_id=$3 WHERE owner_id=$1 AND id=$2 AND reviewer_role_run_id=$4 AND state='verifying' RETURNING *`,
+          [ownerId,runId,id,role.id])).rows[0];
+        if(!changed) throw new ApiFailure(409,"ROLE_NOT_ACTIVE","检查者交接已经变化。");
+        await event(client,changed,{type:'role.completed',roleRunId:role.id,payload:{role:'reviewer',state:'failed',summary:'已保存验证结果，继续检查未完成项。'}});
+        await event(client,changed,{type:'run.phase',payload:{state:'verifying',phase:'review',reviewerContinuation:ledger.length+1,pendingBehaviorIds:pending,
+          retainedBehaviorIds:result.items.filter(item=>item.verdict==='passed').map(item=>item.behaviorId),revisionId:saved.id,sourceHash:saved.source_hash}});
+        return {...reviewerExecution(inserted),pendingBehaviorIds:pending};
+      });
+    },
     finishReview: async (ownerId, runId, input) => {
       const persistenceStartedAt = performance.now();
       const { receipt } = input;
-      assertVerifiedReviewReceipt(receipt);
-      if (receipt.source.ownerId !== ownerId) throw notFound();
-      const binding = ReviewBindingSchema.parse(receipt.binding);
-      const result = ReviewResultSchema.parse(receipt.result);
-      const artifacts = z.array(storedArtifactSchema).max(MAX_CHECK_ARTIFACTS).parse(receipt.artifacts);
-      const evidence = parseReviewEvidence(receipt.evidence);
-      assertReviewEvidenceFitsPersistence(evidence);
-      if (receipt.chromeClosed !== true || binding.runId !== runId || result.revisionId !== binding.revisionId
-        || result.sourceHash !== binding.sourceHash) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查结果尚未完成会话关闭或版本校验。");
+      const {binding}=receiptContent(ownerId,runId,receipt);
       let persistenceTimedOut=false;
       const deadline=receipt.verification?Date.parse(receipt.verification.deadlineAt):undefined;
       const persistReview=()=>owned(ownerId, async (client) => {
@@ -1062,56 +1196,7 @@ export function createGenerationRepository(
           // waiting for locks or inside a trigger after the application verdict.
           await client.query("SELECT set_config('statement_timeout',$1,true), set_config('transaction_timeout',$1,true)",[String(remaining)]);
         }
-        const { current, parent } = await lockedRun(client, ownerId, runId);
-        const role = await activeRole(client, current, { roleRunId: binding.roleRunId, attempt: binding.attempt, role: "reviewer" });
-        const storedBinding = ReviewBindingSchema.parse(role.review_binding_json);
-        if (Object.keys(storedBinding).some((key) => Reflect.get(storedBinding, key) !== Reflect.get(binding, key))) {
-          throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查结果来自其它版本、沙箱或浏览器会话。");
-        }
-        if (parent.current_revision_id !== current.expected_current_revision_id) throw new ApiFailure(409, "STALE_BASE", "当前成功版本已经变化，未提交此次检查。");
-        const saved = await revision(client, ownerId, binding.revisionId);
-        if (saved.run_id !== runId || saved.project_id !== current.project_id || saved.attempt !== current.attempt
-          || current.result_revision_id !== saved.id || saved.status !== "candidate" || saved.source_hash !== binding.sourceHash
-          || receipt.source.projectId !== saved.project_id || receipt.source.revisionId !== saved.id
-          || receipt.source.sourceHash !== saved.source_hash || receipt.source.key !== saved.source_key) {
-          throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查结果或已验证源码对象与当前候选不一致。");
-        }
-        const build = saved.build_json;
-        if (saved.build_status !== "passed" || build?.schemaVersion !== 1 || build.sourceHash !== saved.source_hash
-          || build.typecheck?.exitCode !== 0 || build.build?.exitCode !== 0) throw new ApiFailure(409, "BUILD_NOT_VERIFIED", "候选缺少与源码匹配的可信构建记录。");
-        const sandbox = (await client.query(`SELECT * FROM nano.sandboxes WHERE owner_id=$1 AND run_id=$2 AND attempt=$3
-          AND remote_id=$4 AND revision_id=$5 AND source_hash=$6 AND purpose='candidate-preview' AND state='active' AND expires_at>now()`,
-        [ownerId, runId, binding.attempt, binding.sandboxId, saved.id, saved.source_hash])).rows[0];
-        if (!sandbox) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查结果绑定的候选预览已经失效。");
-        const plan = PlanSchema.parse(current.plan_json);
-        const byBehavior = new Map(plan.behaviors.map((behavior) => [behavior.id, behavior]));
-        const observations = new Map(evidence.map((observation) => [observation.id, observation]));
-        const artifactIds = new Set(artifacts.map((artifact) => artifact.id));
-        if (observations.size !== evidence.length || artifactIds.size !== artifacts.length) throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "检查证据标识重复。");
-        for (const artifact of artifacts) {
-          if (artifact.key !== `${ownerId}/${saved.project_id}/${saved.id}/checks/${artifact.id}.png`) throw new ApiFailure(409, "REVIEW_BINDING_MISMATCH", "检查工件不属于当前候选。");
-        }
-        for (const item of result.items) {
-          const behavior = byBehavior.get(item.behaviorId);
-          const itemObservations = item.observationEventIds.map((id) => observations.get(id));
-          const actionEvidence = itemObservations.some((observation) => observation?.action && observation.action !== "scroll"
-            && !(observation.action === "press" && observation.key === "Tab"));
-          // Static pages have no interactive element: a real check observation
-          // plus a captured screenshot is render/content verification, matching
-          // the Reviewer's own evidence rule.
-          const renderedEvidence = Boolean(behavior && allowsRenderOnlyEvidence(behavior))
-            && item.observationEventIds.length >= 1 && item.screenshotIds.length > 0;
-          if (!behavior || item.expected !== behavior.expected || item.screenshotIds.some((id) => !artifactIds.has(id))
-            || item.observationEventIds.some((id) => !observations.has(id))
-            || item.verdict !== "blocked" && !actionEvidence && !renderedEvidence) {
-            throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "检查结果缺少相同目标的实际动作及后续观察。");
-          }
-        }
-        let groups: ReturnType<typeof aggregateCheckGroups> | undefined;
-        if (plan.schemaVersion === 2) {
-          try { groups = aggregateCheckGroups(plan, result.items); }
-          catch { throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "检查结果未覆盖五组全部子检查及原始证据。"); }
-        }
+        const {current,role,saved,sandbox,plan,result,evidence,artifacts,groups,itemProvenance}=await validatedReview(client,ownerId,runId,receipt);
         const verificationIncomplete = persistenceTimedOut || receipt.verification?.timedOut || receipt.verification?.incompleteReason
           || receipt.verification && Date.now() >= Date.parse(receipt.verification.deadlineAt);
         if (verificationIncomplete) result.summary = `${receipt.verification?.incompleteReason ?? 'REVIEW_TIMEOUT'}：已保留完成的检查，本次验收未完整完成，候选尚未通过。`;
@@ -1122,11 +1207,11 @@ export function createGenerationRepository(
         if (verdict === "passed" && plan.behaviors.some((behavior) => behavior.required && !result.items.some((item) => item.behaviorId === behavior.id && item.verdict === "passed"))) {
           throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "仍有必需行为未完成检查。");
         }
-        const check = (await client.query(`INSERT INTO nano.checks(id,owner_id,project_id,run_id,role_run_id,attempt,revision_id,source_hash,sandbox_id,browser_session_id,verdict,items_json,artifacts_json,evidence_json,summary,group_results_json)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+        const check = (await client.query(`INSERT INTO nano.checks(id,owner_id,project_id,run_id,role_run_id,attempt,revision_id,source_hash,sandbox_id,browser_session_id,verdict,items_json,artifacts_json,evidence_json,summary,group_results_json,item_provenance_json)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
         [randomUUID(), ownerId, current.project_id, runId, role.id, binding.attempt, saved.id, binding.sourceHash, binding.sandboxId,
           binding.browserSessionId, verdict, JSON.stringify(result.items), JSON.stringify(artifacts), JSON.stringify(evidence), result.summary,
-          groups ? JSON.stringify(groups) : null])).rows[0];
+          groups ? JSON.stringify(groups) : null,JSON.stringify(itemProvenance)])).rows[0];
         const publicCheck = storedCheck(check);
         await client.query("UPDATE nano.role_runs SET state=$3,finished_at=now(),output_json=$4,usage_json=$5 WHERE owner_id=$1 AND id=$2",
           [ownerId, role.id, verdict === "blocked" ? "failed" : "succeeded", result, roleUsage(input.usage)]);

@@ -6,6 +6,7 @@ import { RemoteBrowser } from '../runtime/browser.js';
 import { sourceHash } from '../runtime/generation.js';
 import { runReviewer, assertReviewerResult, type ReviewObservationEvent, type ReviewCheckpoint } from '../runtime/reviewer.js';
 import { runScriptedPlan, type RunScriptedPlanInput } from '../runtime/replay-plan.js';
+import { selectReviewBehaviors } from '../runtime/review-scope.js';
 import { preflightCapacity } from '../runtime/capacity.js';
 import { admitVerification } from '../runtime/verification-admission.js';
 import { createVisualJudgePort } from '../runtime/visual-judge-request.js';
@@ -64,6 +65,8 @@ export interface ReviewInput {
   onCheckpoint?(checkpoint:DurableReviewCheckpoint):Promise<void>;
   onLeaseRenewed(expiresAt:string):Promise<void>;
   programCache?: VerificationProgramCache;
+  /** Server-selected pending requirements; prior evidence never enters this session. */
+  behaviorIds?: readonly string[];
   /** All review/rebind/repair attempts of one Run inherit this same monotonic window. */
   verificationWindow?: { startedAt:number; deadlineAt:number; startedAtWall:number };
 }
@@ -90,6 +93,8 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
   const workDeadlineAt=deadlineAt-REVIEW_FINALIZATION_RESERVE_MS;
   let preparationCompletedAt:number|undefined,executionCompletedAt:number|undefined,finishing=false;
   const binding=ReviewBindingSchema.parse(input.binding);
+  const scopedBehaviors=selectReviewBehaviors(HandoffSchema.parse(input.handoff).plan.behaviors,input.behaviorIds);
+  const scopedPlan={...input.handoff.plan,behaviors:scopedBehaviors};
   assertVerifiedSourceSnapshot(input.source);
   if(input.source.revisionId!==binding.revisionId||input.source.sourceHash!==binding.sourceHash)
     throw new RuntimeError('INVALID_REVIEW_RECEIPT','检查源码与候选版本不一致');
@@ -159,7 +164,7 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     await check();
   }
   try{
-    const admission=admitVerification(input.handoff.plan,{remainingMs:Math.max(0,workDeadlineAt-now()),maxArtifacts:MAX_CHECK_ARTIFACTS});
+    const admission=admitVerification(scopedPlan,{remainingMs:Math.max(0,workDeadlineAt-now()),maxArtifacts:MAX_CHECK_ARTIFACTS});
     await bounded(async()=>input.onEvent?.({id:randomUUID(),at:new Date().toISOString(),type:'tool.output',toolName:'verification_admission',
       message:`脚本检查准入：${admission.stats.behaviors} 项行为，${admission.stats.steps} 步，${admission.stats.expandedKeys} 次按键，显式等待 ${admission.stats.explicitWaitMs}ms；${admission.invalidPrograms.length} 项程序需进一步处理。准入不代表通过。`}));
     if(admission.budgetExceeded.length){
@@ -190,17 +195,17 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     let compileFailures:ReadonlyMap<string,string>|undefined;
     if(handoff.plan.verificationMode==='programs'){
       programCompiler=createVerificationProgramCompiler(input.modelConfig,signal,{tokenBudget:input.tokenBudget,deadlineAt:workDeadlineAt,now,onEvent:emitEvent});
-      const prepared=await bounded(()=>prepareVerificationPrograms({plan:handoff.plan,sourceHash:binding.sourceHash,files,
+      const prepared=await bounded(()=>prepareVerificationPrograms({plan:handoff.plan,sourceHash:binding.sourceHash,files,behaviorIds:input.behaviorIds,
         observe:()=>browser.open('/'),cache:input.programCache??{load:async()=>[],save:async assets=>assets},compiler:programCompiler!,
         maxToolCalls:input.maxToolCalls,signal,assertActive:active,onEvent:emitEvent}));
       handoff=HandoffSchema.parse({...handoff,plan:prepared.plan});
       compileFailures=new Map(prepared.failures.map(item=>[item.behaviorId,item.reason]));
       if(compileFailures.size)incompleteReason='VERIFICATION_PROGRAM_INVALID';
-      const finalAdmission=admitVerification(handoff.plan,{remainingMs:Math.max(0,workDeadlineAt-now()),maxArtifacts:MAX_CHECK_ARTIFACTS});
+      const finalAdmission=admitVerification({...handoff.plan,behaviors:selectReviewBehaviors(handoff.plan.behaviors,input.behaviorIds)},{remainingMs:Math.max(0,workDeadlineAt-now()),maxArtifacts:MAX_CHECK_ARTIFACTS});
       if(finalAdmission.budgetExceeded.length)throw new RuntimeError('VERIFICATION_CAPACITY',`编译后的检查工作量超出剩余预算：${finalAdmission.budgetExceeded.map(item=>`${item.resource} ${item.required}/${item.limit}`).join('；')}`);
     }
     preparationCompletedAt=now();
-    const modelPath=()=>runReviewer({binding,sessionId:input.sessionId,handoff,browser,files,bootstrap:true,
+    const modelPath=()=>runReviewer({binding,behaviorIds:input.behaviorIds,sessionId:input.sessionId,handoff,browser,files,bootstrap:true,
       modelConfig:input.modelConfig,signal,tokenBudget:input.tokenBudget,maxToolCalls:input.maxToolCalls===undefined?undefined:Math.max(0,input.maxToolCalls-(programCompiler?.usage().toolCalls??0)),
       onEvent:emitEvent,assertActive:active,onCheckpoint,saveScreenshot,monotonicNow:now,deadlineAt:workDeadlineAt,
       preservePartialOnTimeout:true,preservePartialOnFailure:true});
@@ -243,7 +248,7 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
       return ref&&candidates.some((candidate)=>candidate.ref===ref)?ref:undefined;
     };
     try{
-      const scripted=await runScriptedPlan({binding,handoff,browser,signal,compileFailures,
+      const scripted=await runScriptedPlan({binding,handoff,behaviorIds:input.behaviorIds,browser,signal,compileFailures,
         saveScreenshot,onEvent:emitEvent,onCheckpoint,
         // The appearance layer's one model call, built from the same configuration the review uses. It
         // is injected here so the replay and judgement modules keep holding no provider client, and it
@@ -328,7 +333,7 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
       console.error(`[review] unclassified failure code=${fingerprint} length=${code?.length??0} reviewerStarted=${reviewerStarted}`);
     }
     const message=code==='VERIFICATION_CAPACITY'&&error instanceof RuntimeError?error.message:versionMismatch?'候选源码或预览版本不一致，未接受检查结果。':reason??'浏览器或检查过程未完成，当前候选尚未通过检查。';
-    result={revisionId:binding.revisionId,sourceHash:binding.sourceHash,summary:message,items:input.handoff.plan.behaviors.map(behavior=>({
+    result={revisionId:binding.revisionId,sourceHash:binding.sourceHash,summary:message,items:scopedBehaviors.map(behavior=>({
       behaviorId:behavior.id,verdict:'blocked' as const,expected:behavior.expected,actual:message,observationEventIds:[],screenshotIds:[],reproSteps:[],
     }))};
   }finally{

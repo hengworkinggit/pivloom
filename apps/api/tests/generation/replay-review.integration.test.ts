@@ -95,6 +95,27 @@ const scriptedPlan: Plan = { schemaVersion: 1, goal: '新增书籍', changeSumma
     steps: [{ type: 'open', path: '/' }, { type: 'click', role: 'button', name: '添加' }, { type: 'capture' }],
     assertions: [{ kind: 'text', text: '测试书名', negated: false }] }] };
 
+test.each(['fresh','continue'] as const)('partial scripted review executes only pending independent programs: initialState=%s', async (initialState) => {
+  const plan: Plan={...scriptedPlan,behaviors:[scriptedPlan.behaviors[0],{...scriptedPlan.behaviors[0],id:'B02',initialState}]};
+  const f=await fixture(plan);
+  const {receipt}=await runReview({...f.input,behaviorIds:['B02']},f.boundaries);
+  expect(receipt.result.items.map(item=>item.behaviorId)).toEqual(['B02']);
+  expect(receipt.result.items[0].verdict).toBe(initialState==='fresh'?'passed':'blocked');
+  expect(f.remote.clicks).toBe(initialState==='fresh'?1:0);
+  expect(f.remote.modelCalls).toBe(0);
+  expect(receipt.evidence.some(event=>event.behaviorId==='B01')).toBe(false);
+});
+
+test('a pending fresh program establishes the state for its following pending continue program', async () => {
+  const plan: Plan={...scriptedPlan,behaviors:[scriptedPlan.behaviors[0],
+    {...scriptedPlan.behaviors[0],id:'B02',initialState:'fresh'},
+    {...scriptedPlan.behaviors[0],id:'B03',initialState:'continue'}]};
+  const f=await fixture(plan);
+  const {receipt}=await runReview({...f.input,behaviorIds:['B02','B03']},f.boundaries);
+  expect(receipt.result.items.map(item=>item.verdict)).toEqual(['passed','passed']);
+  expect(f.remote.clicks).toBe(2);
+});
+
 function compilerCompletion(program: unknown) {
   const chunk = (delta: unknown, finish_reason: string | null, usage?: unknown) => ({
     id: 'compiler-fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture',
