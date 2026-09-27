@@ -40,6 +40,7 @@ describe.skipIf(process.env.PIVLOOM_TEMPLATE_INTEGRATION !== "1")("curated templ
       expect(replay.replayed).toBe(true);
       expect(replay.project.id).toBe(first.project.id);
       await expect(repository.createTemplateProject(owner, { ...input, slug: "portfolio" })).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+      await expect(projects.remove(owner, first.project.id)).rejects.toMatchObject({ code: "PROJECT_BUSY" });
 
       const claimed = await repository.claimNextQueuedRun(first.run.id);
       expect(claimed?.id).toBe(first.run.id);
@@ -61,7 +62,10 @@ describe.skipIf(process.env.PIVLOOM_TEMPLATE_INTEGRATION !== "1")("curated templ
       const completed = await repository.completeTemplate(owner, first.run.id, { revisionId,
         sourceHash: source.sourceHash, sandboxId, pageVerified: true });
       expect(completed).toMatchObject({ state: "completed", kind: "template", resultRevisionId: revisionId });
-      expect((await projects.get(owner, first.project.id)).currentRevisionId).toBe(revisionId);
+      expect(await projects.get(owner, first.project.id)).toMatchObject({
+        currentRevisionId: revisionId, thumbnailTemplateSlug: "reading-list",
+      });
+      expect((await projects.list(owner)).projects[0].thumbnailTemplateSlug).toBe("reading-list");
       expect((await repository.getRevision(owner, revisionId)).status).toBe("accepted");
       expect(await repository.isRevisionEligible(owner, first.project.id, revisionId)).toBe(true);
       expect((await repository.getRun(owner, first.run.id)).plan?.behaviors).toHaveLength(5);
@@ -94,6 +98,14 @@ describe.skipIf(process.env.PIVLOOM_TEMPLATE_INTEGRATION !== "1")("curated templ
         expectedCurrentRevisionId: secondId, idempotencyKey: randomUUID() });
       expect(rollback.operation.targetRevisionId).toBe(revisionId);
       await rollbacks.fail(owner, first.project.id, rollback.operation.id, { code: "TEST_STOP", message: "测试回滚目标后释放占用" });
+      expect((await projects.rename(owner, first.project.id, "我的书架")).title).toBe("我的书架");
+      expect((await projects.setArchived(owner, first.project.id, true)).archivedAt).toBeTruthy();
+      expect((await projects.list(owner)).projects).toHaveLength(0);
+      expect((await projects.list(owner, 20, undefined, true)).projects.map((item) => item.id)).toEqual([first.project.id]);
+      expect((await projects.setArchived(owner, first.project.id, false)).archivedAt).toBeNull();
+      await expect(projects.remove(randomUUID(), first.project.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await projects.remove(owner, first.project.id);
+      await expect(projects.get(owner, first.project.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
     } finally { await database.close(); await admin.end(); }
   }, 30_000);
 });

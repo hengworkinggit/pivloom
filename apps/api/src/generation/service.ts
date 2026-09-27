@@ -289,6 +289,35 @@ export function createGenerationService(options: {
       await projects.get(ownerId, projectId);
       return { publication: publications ? await publications.get(projectId) : null };
     },
+    async deleteProject(ownerId: string, projectId: string) {
+      await projects.get(ownerId, projectId);
+      const retained = await options.database.owned(ownerId, async (client) => {
+        const busy = await client.query(`SELECT 1 FROM nano.projects p WHERE p.owner_id=$1 AND p.id=$2
+          AND (p.operation_kind IS NOT NULL OR EXISTS (SELECT 1 FROM nano.runs r
+            WHERE r.owner_id=$1 AND r.project_id=$2 AND (r.state IN
+              ('queued','accepted','planning','building','verifying','repairing','finalizing','cancel_requested')
+              OR r.cleanup_state='pending')))`, [ownerId, projectId]);
+        if (busy.rowCount) throw new ApiFailure(409, "PROJECT_BUSY", "项目仍有执行任务，请任务完成后重试。");
+        return (await client.query<{ run_id: string; remote_id: string; revision_id: string | null }>(
+          `SELECT run_id,remote_id,revision_id FROM nano.sandboxes
+           WHERE owner_id=$1 AND project_id=$2 AND state NOT IN ('destroyed','expired')`,
+          [ownerId, projectId])).rows;
+      });
+      for (const binding of retained) {
+        const result = await destroyCandidateSandbox({ sandboxConfig: options.sandbox,
+          sandboxId: binding.remote_id, sandboxConnector: options.generationBoundaries?.sandboxConnector });
+        if (!result.confirmed) throw new ApiFailure(409, "PREVIEW_CLEANUP_PENDING", "项目预览资源暂时未能回收，请稍后重试。");
+        await repository.markDestroyed(ownerId, binding.run_id, binding.remote_id);
+        if (binding.revision_id) previews.revoke(binding.revision_id, binding.remote_id);
+      }
+      if (retained.length) scheduler.wake();
+      const staged = await publications?.stageDelete(projectId);
+      try { await projects.remove(ownerId, projectId); }
+      catch (error) { await staged?.rollback(); throw error; }
+      // The public URL is already gone. A failed directory cleanup may be
+      // retried from its hidden .deleted-* path without restoring the project.
+      await staged?.commit().catch(() => {});
+    },
     async publish(ownerId: string, projectId: string) {
       if (!publications) throw new ApiFailure(503, "PUBLICATION_UNAVAILABLE", "永久发布尚未配置。");
       const project = await projects.get(ownerId, projectId);

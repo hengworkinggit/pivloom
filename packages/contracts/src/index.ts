@@ -14,6 +14,8 @@ export const ProjectSummarySchema = z.object({
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   currentRevisionId: z.uuid().nullable(),
+  archivedAt: z.iso.datetime().nullable().optional(),
+  thumbnailTemplateSlug: z.enum(["event-signup", "reading-list", "portfolio", "appointments", "creative-studio", "task-board"]).nullable().optional(),
   /**
    * What the project is doing right now, so a list card can tell a task waiting
    * for capacity apart from a task that is really executing. Null when the

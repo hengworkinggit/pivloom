@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowRight, ArrowUp, ArrowUpRight, ChevronRight, FolderOpen, Layers3, LoaderCircle, Plus } from "lucide-react";
+import { Archive, ArrowRight, ArrowUp, ArrowUpRight, ChevronRight, FolderOpen, Layers3, LoaderCircle, MoreHorizontal, Pencil, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import type { ProjectSummary } from "@pivloom/contracts";
 import { AppHeader } from "./app-header";
 import { AuthGate } from "./auth-gate";
@@ -22,7 +22,7 @@ import { featuredTemplates, findTemplate } from "@/lib/templates";
 import { useUiPreferences } from "@/lib/ui-preferences";
 
 const DemoProjects = dynamic(() => import("./demo-projects-page").then((module) => module.ProjectsPage));
-function ProjectCard({ project, generation }: { project: ProjectSummary; generation: GenerationApi }) {
+function ProjectCard({ project, generation, onManage }: { project: ProjectSummary; generation: GenerationApi; onManage(project: ProjectSummary): void }) {
   const ui = useUiPreferences();
   const loadCheck = useCallback(() => project.currentRevisionId ? generation.getCheck(project.currentRevisionId) : Promise.resolve(null), [generation, project.currentRevisionId]);
   const { data: check } = usePrivateQuery(loadCheck);
@@ -40,6 +40,9 @@ function ProjectCard({ project, generation }: { project: ProjectSummary; generat
     return () => { controller.abort(); if (url) URL.revokeObjectURL(url); };
   }, [artifact, check, generation]);
   const thumbnail = image?.key === `${check?.id}:${artifact?.id}` ? image.url : null;
+  const templateScreenshot = project.thumbnailTemplateSlug === "reading-list" ? "/template-thumbnails/reading-list.png"
+    : project.thumbnailTemplateSlug === "event-signup" ? "/template-thumbnails/event-signup.png" : null;
+  const screenshot = thumbnail ?? templateScreenshot;
   // The card reports the project's real task state: a task waiting for capacity
   // must not read as an idle saved version, and the position comes from the
   // scheduler rather than an estimate. A blocked task reports no position.
@@ -48,18 +51,18 @@ function ProjectCard({ project, generation }: { project: ProjectSummary; generat
     : project.activeRunState === "cancel_requested"
       ? { label: ui.text("正在停止", "Stopping"), tone: "stopping" }
       : project.activeRunState ? { label: ui.text("执行中", "Running"), tone: "running" } : null;
-  return <Link className="project-card project-card-api" href={`/projects/${project.id}`}>
-    <div className={`project-thumbnail api-project-thumbnail ${thumbnail ? "has-screenshot" : "no-screenshot"}`}>
-      {thumbnail ? <img className="project-screenshot" src={thumbnail} alt={ui.text(`${project.title} 的已保存应用截图`, `Saved app screenshot for ${project.title}`)} />
+  return <article className="project-card project-card-api"><Link className="project-card-link" href={`/projects/${project.id}`}>
+    <div className={`project-thumbnail api-project-thumbnail ${screenshot ? "has-screenshot" : "no-screenshot"}`}>
+      {screenshot ? <img className="project-screenshot" src={screenshot} alt={ui.text(`${project.title} 的应用截图`, `App screenshot for ${project.title}`)} />
         : <div className="project-thumbnail-placeholder"><div className="thumbnail-skeleton-top"><i /><i /><i /><span /></div><div className="thumbnail-skeleton-content"><b /><b /><div><i /><i /><i /></div></div><span>{project.currentRevisionId ? ui.text("暂无截图", "No screenshot available") : ui.text("生成后显示预览", "Preview appears after generation")}</span></div>}
-      <span className="project-thumbnail-caption">{thumbnail ? ui.text("应用截图", "App screenshot") : project.currentRevisionId ? ui.text("已保存版本", "Saved version") : ui.text("空项目", "Empty project")}</span><span className="project-open"><ArrowUpRight size={18} /></span>
+      <span className="project-thumbnail-caption">{screenshot ? ui.text("应用截图", "App screenshot") : project.currentRevisionId ? ui.text("已保存版本", "Saved version") : ui.text("空项目", "Empty project")}</span><span className="project-open"><ArrowUpRight size={18} /></span>
     </div>
     <div className="project-card-body">
       <div className="project-name-row"><h3>{project.title}</h3><ChevronRight size={15} /></div>
       <p>{project.currentRevisionId ? ui.text("继续完善你的应用", "Keep building your app") : ui.text("项目已保存，随时开始创作", "Saved and ready whenever you are")}</p>
       <div className="project-card-meta"><span className={`card-state${activity ? ` card-state-${activity.tone}` : ""}`} data-testid={activity ? `project-activity-${activity.tone}` : undefined}><span className="mini-dot" />{activity ? activity.label : project.currentRevisionId ? ui.text("已有版本", "Version ready") : ui.text("空项目", "Empty project")}</span><time dateTime={project.updatedAt}>{relativeTime(project.updatedAt)}</time></div>
     </div>
-  </Link>;
+  </Link><button type="button" className="project-card-manage" aria-label={`管理项目：${project.title}`} onClick={() => onManage(project)}><MoreHorizontal size={17} /></button></article>;
 }
 
 function ApiProjectsContent({ initialSurface }: { initialSurface: "new" | "projects" }) {
@@ -76,10 +79,16 @@ function ApiProjectsContent({ initialSurface }: { initialSurface: "new" | "proje
   const creating = useRef(false);
   const [error, setError] = useState("");
   const [templateToRetry, setTemplateToRetry] = useState<string | null>(null);
+  const [listKind, setListKind] = useState<"active" | "archived">("active");
+  const [managed, setManaged] = useState<ProjectSummary | null>(null);
+  const [manageMode, setManageMode] = useState<"menu" | "rename" | "delete">("menu");
+  const [manageTitle, setManageTitle] = useState("");
+  const [manageBusy, setManageBusy] = useState(false);
+  const [manageError, setManageError] = useState("");
   const [pages, setPages] = useState<ProjectSummary[]>([]);
   const [next, setNext] = useState<string | null | undefined>();
   const [loadingMore, setLoadingMore] = useState(false);
-  const loader = useCallback(() => api.listProjects(), [api]);
+  const loader = useCallback(() => api.listProjects(undefined, listKind === "archived"), [api, listKind]);
   const modelLoader = useCallback(() => modelsApi.list(), [modelsApi]);
   const { data, error: loadError, refresh } = usePrivateQuery(loader);
   const modelQuery = usePrivateQuery(modelLoader);
@@ -96,6 +105,42 @@ function ApiProjectsContent({ initialSurface }: { initialSurface: "new" | "proje
   function showSurface(next: "new" | "projects") {
     setSurface(next);
     router.push(next === "projects" ? "/projects?view=list" : "/projects", { scroll: false });
+  }
+  function showList(kind: "active" | "archived") {
+    setListKind(kind); setPages([]); setNext(undefined);
+  }
+  function openManage(project: ProjectSummary) {
+    setManaged(project); setManageMode("menu"); setManageTitle(project.title); setManageError("");
+  }
+  async function renameManaged() {
+    if (!managed || manageBusy || !manageTitle.trim() || manageTitle.trim().length > 120) return;
+    setManageBusy(true); setManageError("");
+    try {
+      const changed = await api.renameProject(managed.id, manageTitle.trim());
+      setPages((items) => items.map((item) => item.id === changed.id ? changed : item));
+      refresh(); setManaged(null);
+    } catch (cause) { setManageError(errorMessage(cause)); }
+    finally { setManageBusy(false); }
+  }
+  async function archiveManaged() {
+    if (!managed || manageBusy) return;
+    setManageBusy(true); setManageError("");
+    try {
+      await api.setProjectArchived(managed.id, listKind !== "archived");
+      setPages((items) => items.filter((item) => item.id !== managed.id));
+      refresh(); setManaged(null);
+    } catch (cause) { setManageError(errorMessage(cause)); }
+    finally { setManageBusy(false); }
+  }
+  async function deleteManaged() {
+    if (!managed || manageBusy || manageTitle !== managed.title) return;
+    setManageBusy(true); setManageError("");
+    try {
+      await api.deleteProject(managed.id);
+      setPages((items) => items.filter((item) => item.id !== managed.id));
+      refresh(); setManaged(null);
+    } catch (cause) { setManageError(errorMessage(cause)); }
+    finally { setManageBusy(false); }
   }
   function updatePrompt(value: string) { setPrompt(value); saveDraft(user!.id, "new", value); }
   async function createFromTemplate(slug: string) {
@@ -151,7 +196,7 @@ function ApiProjectsContent({ initialSurface }: { initialSurface: "new" | "proje
     if (!cursor || loadingMore) return;
     setLoadingMore(true); setError("");
     try {
-      const result = await api.listProjects(cursor);
+      const result = await api.listProjects(cursor, listKind === "archived");
       setPages((items) => [...items, ...result.projects.filter((project) => !items.some((item) => item.id === project.id))]);
       setNext(result.nextCursor);
     } catch (error) { setError(errorMessage(error)); }
@@ -186,14 +231,28 @@ function ApiProjectsContent({ initialSurface }: { initialSurface: "new" | "proje
       </div>
     </main> : <main className="a-project-list">
       <div className="a-project-list-heading"><div><span className="section-eyebrow">YOUR WORKSPACE</span><h1>{ui.text("我的项目", "My projects")}</h1><p>{ui.text("把想法变成作品，再慢慢完善。", "Make an idea real, then keep improving it.")}</p></div><Button onClick={() => { updatePrompt(""); showSurface("new"); }}><Plus size={17} />{ui.text("新建项目", "New project")}</Button></div>
-      <div className="a-project-list-filter"><strong>{ui.text("全部项目", "All projects")} <span>{projects?.length ?? "—"}</span></strong><span>{ui.text("最近编辑", "Recently edited")}</span></div>
+      <div className="a-project-list-filter"><strong>{listKind === "active" ? ui.text("全部项目", "All projects") : ui.text("已归档", "Archived")} <span>{projects?.length ?? "—"}</span></strong><div className="project-list-tabs"><button type="button" aria-pressed={listKind === "active"} onClick={() => showList("active")}>{ui.text("使用中", "Active")}</button><button type="button" aria-pressed={listKind === "archived"} onClick={() => showList("archived")}>{ui.text("已归档", "Archived")}</button></div></div>
       {loadError ? <div className="empty-projects" role="alert"><p>{loadError}</p><Button variant="outline" onClick={refresh}>重新加载</Button></div>
         : !projects ? <div className="project-grid" aria-label="正在加载项目">{[0, 1, 2].map((i) => <div className="project-skeleton" key={i} />)}</div>
-        : projects.length === 0 ? <div className="empty-projects"><FolderOpen size={32} /><h2>{ui.text("还没有项目", "No projects yet")}</h2><p>{ui.text("从一个想法开始，作品会保存在这里。", "Start with an idea. Your work will appear here.")}</p><Button onClick={() => showSurface("new")}>{ui.text("开始创作", "Start creating")}</Button></div>
-        : <div className="project-grid">{projects.map((project) => <ProjectCard key={project.id} project={project} generation={generation} />)}</div>}
+        : projects.length === 0 ? <div className="empty-projects"><FolderOpen size={32} /><h2>{listKind === "archived" ? ui.text("没有归档项目", "No archived projects") : ui.text("还没有项目", "No projects yet")}</h2><p>{listKind === "archived" ? ui.text("归档的项目会出现在这里，可以随时恢复。", "Archived projects appear here and can be restored.") : ui.text("从一个想法开始，作品会保存在这里。", "Start with an idea. Your work will appear here.")}</p>{listKind === "active" && <Button onClick={() => showSurface("new")}>{ui.text("开始创作", "Start creating")}</Button>}</div>
+        : <div className="project-grid">{projects.map((project) => <ProjectCard key={project.id} project={project} generation={generation} onManage={openManage} />)}</div>}
       {cursor && <div className="load-more-projects"><Button variant="outline" disabled={loadingMore} onClick={() => void more()}>{loadingMore ? "正在加载" : "加载更多项目"}</Button></div>}
       <div className="a-project-list-bottom">{ui.text("从空白开始，或使用一个模板。", "Start blank or use a template.")}<Link href="/templates">{ui.text("探索模板", "Explore templates")}<ArrowRight size={14} /></Link></div>
     </main>}
+    {managed && <div className="project-manage-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !manageBusy) setManaged(null); }}>
+      <section className="project-manage-dialog" role="dialog" aria-modal="true" aria-label={`管理项目：${managed.title}`}>
+        <div className="project-manage-heading"><div><span>PROJECT MANAGEMENT</span><h2>{managed.title}</h2></div><button type="button" aria-label="关闭项目管理" disabled={manageBusy} onClick={() => setManaged(null)}><X size={18} /></button></div>
+        {manageMode === "menu" && <div className="project-manage-actions">
+          <button type="button" disabled={manageBusy} onClick={() => { setManageMode("rename"); setManageTitle(managed.title); setManageError(""); }}><Pencil size={16} />重命名</button>
+          <button type="button" disabled={manageBusy} onClick={() => void archiveManaged()}>{listKind === "archived" ? <RotateCcw size={16} /> : <Archive size={16} />}{listKind === "archived" ? "恢复到使用中" : "归档项目"}</button>
+          <button type="button" className="project-manage-danger" disabled={manageBusy} onClick={() => { setManageMode("delete"); setManageTitle(""); setManageError(""); }}><Trash2 size={16} />删除项目</button>
+          <p className="project-manage-note">归档只整理项目列表；已发布的应用仍可访问。</p>
+        </div>}
+        {manageMode === "rename" && <form onSubmit={(event) => { event.preventDefault(); void renameManaged(); }}><label className="field">项目名称<input autoFocus value={manageTitle} maxLength={120} onChange={(event) => setManageTitle(event.target.value)} required /></label><div className="project-manage-footer"><Button type="button" variant="outline" disabled={manageBusy} onClick={() => setManageMode("menu")}>返回</Button><Button type="submit" disabled={manageBusy || !manageTitle.trim()}>保存名称</Button></div></form>}
+        {manageMode === "delete" && <div><p className="project-manage-warning">删除会移除项目、对话、源码版本、检查记录和线上业务数据，并关闭该项目的发布地址；不能在工作台恢复。私有存储工件和备份不会因此立即物理擦除。</p><label className="field">输入项目名称以确认删除<input autoFocus value={manageTitle} onChange={(event) => setManageTitle(event.target.value)} placeholder={managed.title} /></label><div className="project-manage-footer"><Button type="button" variant="outline" disabled={manageBusy} onClick={() => setManageMode("menu")}>返回</Button><Button type="button" variant="danger" disabled={manageBusy || manageTitle !== managed.title} onClick={() => void deleteManaged()}>确认删除</Button></div></div>}
+        {manageError && <p className="inline-error" role="alert">{manageError}</p>}
+      </section>
+    </div>}
   </div>;
 }
 export function ProjectsPage({ initialSurface = "new" }: { initialSurface?: "new" | "projects" }) { return isDemoMode ? <DemoProjects initialSurface={initialSurface} /> : <AuthGate><ApiProjectsContent initialSurface={initialSurface} /></AuthGate>; }

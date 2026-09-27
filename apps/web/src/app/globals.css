@@ -3060,3 +3060,28 @@ svg {
   .version-history-hash-row code { max-width: 100%; overflow-wrap: anywhere; }
   .version-history-details li > button { flex-wrap: wrap; }
 }
+
+.project-card-api { position: relative; }
+.project-card-link { display: block; height: 100%; color: inherit; text-decoration: none; }
+.project-card-api .project-open { display: none; }
+.project-card-manage { position: absolute; z-index: 5; top: 11px; right: 11px; display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid #dfe4df; border-radius: 9px; background: #ffffffed; color: #34423d; box-shadow: 0 2px 10px #16201718; }
+.project-card-manage:hover, .project-card-manage:focus-visible { background: #fff; border-color: #697d69; }
+.project-list-tabs { display: flex; align-items: center; gap: 5px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--subtle); }
+.project-list-tabs button { border: 0; border-radius: 7px; padding: 6px 10px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; }
+.project-list-tabs button[aria-pressed="true"] { background: var(--surface); color: var(--foreground); box-shadow: 0 1px 5px #17211e17; }
+.project-manage-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 18px; background: #121d1aba; }
+.project-manage-dialog { width: min(100%, 460px); padding: 25px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); color: var(--foreground); box-shadow: 0 25px 70px #0004; }
+.project-manage-heading { display: flex; align-items: start; justify-content: space-between; gap: 15px; margin-bottom: 22px; }
+.project-manage-heading span { font-size: 10px; letter-spacing: .15em; color: var(--muted); font-weight: 800; }
+.project-manage-heading h2 { margin: 5px 0 0; font-size: 18px; line-height: 1.4; overflow-wrap: anywhere; }
+.project-manage-heading > button { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: var(--subtle); color: var(--foreground); }
+.project-manage-actions { display: grid; gap: 8px; }
+.project-manage-actions button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--foreground); text-align: left; font-size: 13px; font-weight: 700; }
+.project-manage-actions button:hover { background: var(--subtle); }
+.project-manage-actions .project-manage-danger { color: #a43c3c; }
+.project-manage-note { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.project-manage-dialog .field { display: grid; gap: 8px; font-size: 12px; font-weight: 700; }
+.project-manage-dialog .field input { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--foreground); }
+.project-manage-footer { display: flex; justify-content: flex-end; gap: 9px; margin-top: 18px; }
+.project-manage-warning { padding: 12px; border: 1px solid #e8c9c9; border-radius: 9px; background: #fff4f2; color: #8d3838; font-size: 12px; line-height: 1.6; }
+@media (max-width: 640px) { .project-manage-dialog { padding: 18px; } .project-list-tabs button { padding: 6px 8px; } }

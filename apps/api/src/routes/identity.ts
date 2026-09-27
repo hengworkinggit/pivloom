@@ -14,6 +14,7 @@ export interface IdentityRoutesOptions {
   verifyIdentity: (request: FastifyRequest) => Promise<void>;
   loadProjectDetail?: (ownerId: string, id: string) => Promise<unknown>;
   loadQuota?: (ownerId: string) => Promise<unknown>;
+  deleteProject?: (ownerId: string, id: string) => Promise<void>;
 }
 
 export function requireOwner(request: FastifyRequest) {
@@ -40,8 +41,9 @@ export async function registerIdentityRoutes(app: FastifyInstance, options: Iden
       const query = parseInput(z.strictObject({
         cursor: z.string().max(256).optional(),
         limit: z.coerce.number().int().min(1).max(50).default(20),
+        archived: z.enum(["true", "false"]).default("false"),
       }), request.query);
-      return ProjectListResponseSchema.parse(await projects.list(requireOwner(request), query.limit, query.cursor));
+      return ProjectListResponseSchema.parse(await projects.list(requireOwner(request), query.limit, query.cursor, query.archived === "true"));
     });
     secured.post("/api/v1/projects", async (request, reply) => {
       const input = parseInput(CreateProjectRequestSchema, request.body ?? {});
@@ -53,6 +55,25 @@ export async function registerIdentityRoutes(app: FastifyInstance, options: Iden
       if (options.loadProjectDetail) return options.loadProjectDetail(requireOwner(request), id);
       const project = await projects.get(requireOwner(request), id);
       return ProjectDetailResponseSchema.parse({ project, messages: [], currentRevision: null, activeRun: null, preview: null });
+    });
+    secured.patch("/api/v1/projects/:id", async (request) => {
+      const { id } = parseInput(z.object({ id: z.uuid() }), request.params);
+      const { title } = parseInput(z.strictObject({ title: z.string().trim().min(1).max(120) }), request.body);
+      return { project: await projects.rename(requireOwner(request), id, title) };
+    });
+    secured.post("/api/v1/projects/:id/archive", async (request) => {
+      const { id } = parseInput(z.object({ id: z.uuid() }), request.params);
+      return { project: await projects.setArchived(requireOwner(request), id, true) };
+    });
+    secured.post("/api/v1/projects/:id/restore", async (request) => {
+      const { id } = parseInput(z.object({ id: z.uuid() }), request.params);
+      return { project: await projects.setArchived(requireOwner(request), id, false) };
+    });
+    secured.delete("/api/v1/projects/:id", async (request, reply) => {
+      const { id } = parseInput(z.object({ id: z.uuid() }), request.params);
+      if (!options.deleteProject) throw new ApiFailure(503, "PROJECT_DELETE_UNAVAILABLE", "项目删除暂时不可用。");
+      await options.deleteProject(requireOwner(request), id);
+      return reply.code(204).send();
     });
   });
 }
