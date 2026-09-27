@@ -35,6 +35,8 @@ it("explicitly continues a saved candidate after reopening while preserving the 
   const user = { id: ownerId, email: "owner@example.test", aud: "authenticated", app_metadata: {}, user_metadata: {}, created_at: now };
   const encode = (value: object) => btoa(JSON.stringify(value)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
   localStorage.setItem("pivloom.auth.v1", JSON.stringify({ access_token: `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ sub: ownerId, exp: expiresAt })}.fixture`, refresh_token: "fixture-refresh", token_type: "bearer", expires_in: 3600, expires_at: expiresAt, user }));
+  const oldSelectionKey = `pivloom.candidate-base.v1:${ownerId}:${projectId}`;
+  localStorage.setItem(oldSelectionKey, JSON.stringify({ revisionId: candidateId, expectedCurrentRevisionId: acceptedId }));
   const accepted: Revision = { id: acceptedId, projectId, runId, revisionNo: 1, attempt: 0, sourceHash: "a".repeat(64), templateVersion: "fixture", buildStatus: "passed", status: "accepted", createdAt: now, manifest: [] };
   const candidate: Revision = { ...accepted, id: candidateId, revisionNo: 2, sourceHash: "b".repeat(64), status: "candidate" };
   const run: Run = { id: runId, projectId, state: "failed", phase: "review", attempt: 0, requestText: "保存待检查修改", modelProfileId: profileId, modelConfigVersion: 1, modelId: null, baseRevisionId: acceptedId, resultRevisionId: candidateId, createdAt: now, deadlineAt: now, finishedAt: now, cleanupState: "confirmed", error: { code: "CHECK_BLOCKED", message: "浏览器检查受阻", retryable: true }, summary: null };
@@ -67,6 +69,8 @@ it("explicitly continues a saved candidate after reopening while preserving the 
   const container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   await act(async () => root?.render(<ApiWorkbench projectId={projectId} />));
   expect(container.querySelector('.a-toolbar-version')?.textContent).toContain('正式版 v1');
+  expect(container.querySelector('.candidate-base-selection')).toBeNull();
+  expect(localStorage.getItem(oldSelectionKey)).toBeNull();
   await act(async () => container.querySelector<HTMLButtonElement>('.a-toolbar-version')?.click());
   const picker = container.querySelector<HTMLSelectElement>('[data-testid="history-version-select"]')!;
   expect(picker.options).toHaveLength(1);
@@ -74,22 +78,23 @@ it("explicitly continues a saved candidate after reopening while preserving the 
   expect(picker.options).toHaveLength(2);
   await act(async () => { picker.value = candidateId; picker.dispatchEvent(new Event('change', { bubbles: true })); });
   const continueButton = [...container.querySelectorAll<HTMLButtonElement>('.version-history-continue button')]
-    .find((button) => button.textContent?.includes('从 尝试 #2 继续修改'));
+    .find((button) => button.textContent?.includes('下一轮使用 尝试 #2 的源码'));
   expect(continueButton).not.toBeNull();
   expect([...container.querySelectorAll("button")].some((button) => button.textContent === "重新启动预览")).toBe(true);
   await act(async () => continueButton!.click());
-  expect(container.textContent).toContain("下次修改将从 尝试 #2 开始");
+  expect(container.textContent).toContain("下一轮将使用 尝试 #2 的源码作为起点");
   let selection = [...container.querySelectorAll<HTMLElement>('[role="status"]')]
-    .find(element => element.textContent?.includes('下次修改将从 尝试 #2 开始'))!;
+    .find(element => element.textContent?.includes('下一轮将使用 尝试 #2 的源码作为起点'))!;
   expect(getComputedStyle(selection).display).not.toBe('none');
-  expect(container.textContent).toContain("当前仍是 正式版 v1，发布内容不变");
+  expect(container.textContent).toContain("当前仍是 正式版 v1，已发布作品不变");
+  expect(selection.querySelector('button')?.textContent).toBe('取消此选择，使用 正式版 v1');
   expect(mutations).toEqual([]);
   await act(async () => root?.render(null));
   await act(async () => root?.render(<ApiWorkbench projectId={projectId} />));
   expect(container.querySelector('.a-toolbar-version')?.textContent).toContain('正式版 v1');
-  expect(container.textContent).toContain("下次修改将从 尝试 #2 开始");
+  expect(container.textContent).toContain("下一轮将使用 尝试 #2 的源码作为起点");
   selection = [...container.querySelectorAll<HTMLElement>('[role="status"]')]
-    .find(element => element.textContent?.includes('下次修改将从 尝试 #2 开始'))!;
+    .find(element => element.textContent?.includes('下一轮将使用 尝试 #2 的源码作为起点'))!;
   expect(getComputedStyle(selection).display).not.toBe('none');
   expect(container.textContent).toContain('当前仍是 正式版 v1');
   const textarea = container.querySelector<HTMLTextAreaElement>("textarea")!;
@@ -102,7 +107,7 @@ it("explicitly continues a saved candidate after reopening while preserving the 
   expect(mutations).toEqual([`/api/v1/projects/${projectId}/runs`]);
   expect(project.project.currentRevisionId).toBe(acceptedId);
   await act(async () => selection.querySelector<HTMLButtonElement>('button')!.click());
-  expect(container.textContent).not.toContain('下次修改将从 尝试 #2 开始');
+  expect(container.textContent).not.toContain('下一轮将使用 尝试 #2 的源码作为起点');
   expect(container.querySelector('.a-toolbar-version')?.textContent).toContain('正式版 v1');
   expect(project.project.currentRevisionId).toBe(acceptedId);
 });

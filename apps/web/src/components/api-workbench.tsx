@@ -469,11 +469,12 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
       </section>
       <div className="generation-result-shell">
         {candidateBase && <div className="candidate-base-selection" role="status">
-          <span>{selectedBaseStale ? "正式版本已变化，原先选择的修改起点已失效；请重新选择。"
-            : selectedBase ? `下次修改将从 ${versionName(selectedBase)} 开始；当前${project.currentRevision ? `仍是 ${versionName(project.currentRevision)}` : "尚未生成正式版"}，发布内容不变。`
-              : "所选版本已不可用，请重新选择。"}
-          {!candidateBaseStored && " 此选择未能保存，请保持页面打开。"}</span>
-          <Button variant="ghost" size="sm" onClick={() => chooseCandidateBase(null)}>改回从正式版本继续</Button>
+          <span>{selectedBaseStale ? "当前正式版已变化，这次选择不能再用于下一轮修改。"
+            : selectedBase ? `下一轮将使用 ${versionName(selectedBase)} 的源码作为起点；它尚未通过完整检查。${project.currentRevision ? `当前仍是 ${versionName(project.currentRevision)}` : "当前尚无正式版"}，已发布作品不变。`
+              : "所选尝试已不可用；下一轮修改起点需要重新选择。"}
+          {!candidateBaseStored && " 此选择未能保存，刷新页面后可能消失。"}</span>
+          <Button variant="ghost" size="sm" onClick={() => chooseCandidateBase(null)}>{selectedBase && !selectedBaseStale && project.currentRevision
+            ? `取消此选择，使用 ${versionName(project.currentRevision)}` : "清除这次选择"}</Button>
         </div>}
         {collapsed && <button className="generation-expand-chat icon-button" aria-label={ui.text("展开对话", "Expand chat")} onClick={() => setCollapsed(false)}><PanelLeftOpen size={16} /></button>}
         {previewQuery.error && <p className="inline-error" role="alert">{previewQuery.error}</p>}
