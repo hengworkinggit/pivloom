@@ -54,7 +54,7 @@ function anthropicResponse(submissions: Call[] = calls, finish = 'tool_use') {
 }
 const responseFor = (api: Protocol) => api === 'openai-completions' ? openAIResponse : anthropicResponse;
 
-test('the OpenAI wire forces only submit_programs with the caller schema and returns its actual arguments', async () => {
+test('the OpenAI wire advertises only submit_programs with the caller schema and returns its actual arguments', async () => {
   const wire: Record<string, unknown>[] = [], events: ProbeEvent[] = [];
   const budget = createRunTokenBudget(40_000);
   const compiler = createVerificationProgramCompiler(config('openai-completions', async (_url, init) => {
@@ -66,7 +66,7 @@ test('the OpenAI wire forces only submit_programs with the caller schema and ret
   expect(compiler.maxOutputTokens).toBe(16_384);
   expect(wire).toHaveLength(1);
   expect(wire[0]).toMatchObject({ tools: [{ type: 'function', function: { name: 'submit_programs', parameters } }],
-    tool_choice: { type: 'function', function: { name: 'submit_programs' } } });
+    tool_choice: 'auto' });
   expect(wire[0].tools).toHaveLength(1);
   expect(wire[0].max_tokens ?? wire[0].max_completion_tokens).toBe(16_384);
   expect(compiler.usage()).toMatchObject({ modelCalls: 1, toolCalls: 1, input: 11, output: 7, total: 18 });
@@ -74,7 +74,7 @@ test('the OpenAI wire forces only submit_programs with the caller schema and ret
   expect(events.filter((event) => event.type === 'model.stream.started')).toMatchObject([{ success: true, requestNumber: 1 }]);
 });
 
-test('the Anthropic wire forces the same caller schema, respects its configured output cap and shares usage', async () => {
+test('the Anthropic wire uses a compatible automatic choice, respects its output cap and shares usage', async () => {
   const wire: Record<string, unknown>[] = [];
   const budget = createRunTokenBudget(40_000);
   const compiler = createVerificationProgramCompiler(config('anthropic-messages', async (_url, init) => {
@@ -87,7 +87,7 @@ test('the Anthropic wire forces the same caller schema, respects its configured 
   expect(wire[0]).toMatchObject({ max_tokens: 8_192,
     // Pi's Anthropic adapter retains type/properties/required and adapts root metadata.
     tools: [{ name: 'submit_programs', input_schema: { type: 'object', properties: jsonSchema.properties, required: ['programs'] } }],
-    tool_choice: { type: 'tool', name: 'submit_programs' } });
+    tool_choice: { type: 'auto' } });
   expect(wire[0].tools).toHaveLength(1);
   expect(compiler.usage()).toMatchObject({ modelCalls: 1, toolCalls: 1, input: 11, output: 7, total: 18 });
   expect(budget.snapshot()).toMatchObject({ accountedTokens: 18, requests: 1, pendingRequests: 0 });

@@ -60,9 +60,9 @@ export function createVerificationProgramCompiler(config: ModelConfig, signal: A
       try {
         const stream = tokens.stream(maxOutputTokens, config.fetch, fetch => api === 'openai-completions'
           ? openAIStream({ ...model, api: 'openai-completions' } satisfies Model<'openai-completions'>, context,
-            { ...streamOptions, fetch, toolChoice: { type: 'function', function: { name: 'submit_programs' } } })
+            { ...streamOptions, fetch, toolChoice: 'auto' })
           : anthropicStream({ ...model, api: 'anthropic-messages' } satisfies Model<'anthropic-messages'>, context,
-            { ...streamOptions, fetch, toolChoice: { type: 'tool', name: 'submit_programs' } }));
+            { ...streamOptions, fetch, toolChoice: 'auto' }));
         let result: AssistantMessage | undefined;
         for await (const event of stream) {
           if ('delta' in event && typeof event.delta === 'string' && event.delta.length && !receivedDelta) {
