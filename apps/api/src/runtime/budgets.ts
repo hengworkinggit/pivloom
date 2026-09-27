@@ -124,35 +124,27 @@ export function piCompactionSettings(contextWindow: number) {
 }
 
 /**
- * Hard wall-clock ceiling for the verification phase of one increment, which is
- * the product's ten-minute acceptance floor. This is a total ceiling, not an
- * inactivity lease: a check that keeps producing real progress still stops. It is
- * enforced per layer: `runReviewer` enforces the model-judged share on a monotonic
- * clock today, and the replay layer enforces its own share when it lands.
- *
- * The phase is split between the deterministic, model-free replay layer and the
- * model-judged layer, so the two shares below always sum to this ceiling by
- * construction, and a test pins that arithmetic.
+ * Safety ceiling for one verification attempt, including preparation and finalization.
+ * It is neither a promised acceptance time nor a total Run duration. A legitimately
+ * routed next Reviewer attempt receives a fresh window; replay, fallback, visual
+ * judgement and persistence within that attempt share the existing one. The Run's
+ * independently persisted rolling idle lease still requires real progress.
  */
-export const VERIFICATION_WALL_CLOCK_LIMIT_MS = 600_000;
+export const VERIFICATION_ATTEMPT_TIMEOUT_MS = 600_000;
+/** Compatibility alias for existing callers; it must not become a cross-attempt Run stopwatch. */
+export const VERIFICATION_WALL_CLOCK_LIMIT_MS = VERIFICATION_ATTEMPT_TIMEOUT_MS;
 /** Inside the same deadline: leave time to bind evidence, close Chrome and persist the Check. */
 export const REVIEW_FINALIZATION_RESERVE_MS = 30_000;
 
 /**
- * Share of the verification ceiling reserved for the deterministic replay layer,
- * which drives the browser from compiled plan steps without a model. Its measured
- * target is one to two minutes, so two minutes are reserved here. The model-judged
- * layer receives only the remainder, which keeps the sum inside the product
- * ceiling even when the replay layer runs to the end of its own reserve.
+ * Standalone replay share of the default attempt allowance. An owning review may
+ * supply its actual shared deadline; this constant never resets that deadline.
  */
 export const REPLAY_WALL_CLOCK_BUDGET_MS = 120_000;
 
 /**
- * Share of the verification ceiling owned by the model-judged layer (today the
- * only production path, `runReviewer`): the total ceiling minus the replay
- * reserve, eight minutes. `runReviewer` starts its monotonic clock when it begins,
- * so its own elapsed time is bounded by exactly this value, and the two shares
- * add back to `VERIFICATION_WALL_CLOCK_LIMIT_MS` by construction.
+ * Standalone model-review share. Calls inside an owning review use its deadline,
+ * so falling back from a replay never renews the attempt budget.
  */
 export const REVIEW_WALL_CLOCK_BUDGET_MS = VERIFICATION_WALL_CLOCK_LIMIT_MS - REPLAY_WALL_CLOCK_BUDGET_MS;
 
