@@ -213,14 +213,14 @@ it("labels a rejected candidate separately while the earlier accepted revision r
   const view = await openWorkbench({ verdict: "failed", previousCurrent: true });
   await view.openHistory();
   const picker = view.container.querySelector<HTMLSelectElement>("[data-testid=history-version-select]");
-  expect(Array.from(picker?.options ?? [], (option) => option.textContent)).toEqual(["v1 · 当前正式版"]);
+  expect(Array.from(picker?.options ?? [], (option) => option.textContent)).toEqual(["正式版 v1 · 当前"]);
   await act(async () => view.container.querySelector<HTMLButtonElement>(".version-history-attempts-toggle")?.click());
-  expect(Array.from(picker?.options ?? [], (option) => option.textContent)).toEqual(["v1 · 当前正式版", "v2 · 未通过"]);
-  expect(picker?.selectedOptions[0].textContent).toBe("v1 · 当前正式版");
+  expect(Array.from(picker?.options ?? [], (option) => option.textContent)).toEqual(["正式版 v1 · 当前", "尝试 #2 · 未通过"]);
+  expect(picker?.selectedOptions[0].textContent).toBe("正式版 v1 · 当前");
   await act(async () => { if (picker) { picker.value = revisionId; picker.dispatchEvent(new Event("change", { bubbles: true })); } });
   const currentSummary = view.container.querySelector('[data-testid="current-version-summary"]');
   expect(currentSummary?.textContent).toContain("当前成功版本");
-  expect(currentSummary?.querySelector("strong")?.textContent).toBe("v1");
+  expect(currentSummary?.querySelector("strong")?.textContent).toBe("正式版 v1");
   await view.openChecks();
   expect(view.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain("发现 1 项需要修复");
 });
@@ -231,7 +231,7 @@ it("explains that two failed repairs reached the limit while the accepted revisi
   expect(outcome?.textContent).toContain("已尝试修复 2 轮，已达上限，停止自动修复。");
   expect(outcome?.textContent).toContain("报名提交尚未达到预期。");
   await view.openHistory();
-  expect(view.container.querySelector<HTMLSelectElement>("[data-testid=history-version-select]")?.selectedOptions[0].textContent).toBe("v1 · 当前正式版");
+  expect(view.container.querySelector<HTMLSelectElement>("[data-testid=history-version-select]")?.selectedOptions[0].textContent).toBe("正式版 v1 · 当前");
 });
 
 it("rejects a check bound to a different source snapshot before showing its verdict or screenshots", async () => {

@@ -30,11 +30,12 @@ test("history identifies current versus inspected versions and exposes full-tree
   await act(async () => root.render(<VersionHistoryPanel revisions={[current, selected, rejected]} currentRevisionId={current.id}
     selectedRevision={selected} messages={messages} onSelect={onSelect} onCompare={onCompare}
     comparison={comparison} comparing={false} comparisonError="" />));
-  expect(container.querySelector('[data-testid="current-version-summary"]')?.textContent).toContain("当前成功版本v3");
+  expect(container.querySelector('[data-testid="current-version-summary"]')?.textContent).toContain("当前成功版本正式版 v2");
+  expect(container.querySelector('[data-testid="current-version-summary"]')?.textContent).toContain("2 个正式版、1 次未完成尝试");
   expect(container.querySelector('[data-testid="current-source-hash-short"]')?.textContent).toContain("333333333333");
   expect(container.querySelector(".version-history-full-hash")?.textContent).toContain(current.sourceHash);
   expect(container.textContent).toContain("不是平台部署 SHA");
-  expect(container.textContent).toContain("正在查看 v2");
+  expect(container.textContent).toContain("正在查看 正式版 v1");
   expect(container.querySelector('[data-testid="selected-version-kind"]')?.textContent).toContain("历史已验收版本");
   const writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
@@ -44,7 +45,7 @@ test("history identifies current versus inspected versions and exposes full-tree
   expect(container.textContent).toContain("把按钮改成蓝色");
   expect(container.textContent).toContain("src/旧/颜色.css");
   expect(container.textContent).toContain("src/新/颜色.css");
-  expect(container.textContent).toContain("v1 · 未通过");
+  expect(container.textContent).toContain("尝试 #1 · 源码快照 #1 · 未通过");
   const compare = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "查看差异")!;
   await act(async () => compare.click());
   expect(onCompare).toHaveBeenCalledWith(rejected.id, selected.id);
@@ -84,16 +85,16 @@ test("accepted history requires an explicit from-to confirmation and exposes the
       selectedRevision={selected} messages={messages} onSelect={vi.fn()} onCompare={vi.fn()}
       comparison={null} comparing={false} comparisonError="" currentFromRollback={currentFromRollback} rollback={rollback} />);
   await act(async () => render(target));
-  const entry = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "回滚到 v1");
+  const entry = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "回滚到 正式版 v1");
   expect(entry).toBeTruthy();
   await act(async () => entry?.click());
-  expect(container.querySelector('[data-testid="rollback-direction"]')?.textContent).toBe("v3 → v1");
+  expect(container.querySelector('[data-testid="rollback-direction"]')?.textContent).toBe("正式版 v2 → 正式版 v1");
   expect(start).not.toHaveBeenCalled();
   await act(async () => Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "确认回滚")?.click());
   expect(start).toHaveBeenCalledOnce();
   expect(start).toHaveBeenCalledWith(target.id, current.id);
   await act(async () => render(rejected));
-  expect(container.textContent).not.toContain("回滚到 v2");
+  expect(container.textContent).not.toContain("回滚到尝试 #2");
   rollback.operation = { id: "00000000-0000-4000-8000-000000000005", projectId,
     fromRevisionId: current.id, targetRevisionId: target.id, sourceHash: target.sourceHash,
     status: "committed", error: null, createdAt: now, finishedAt: now };

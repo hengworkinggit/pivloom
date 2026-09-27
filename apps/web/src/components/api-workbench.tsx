@@ -31,6 +31,7 @@ import { summarizeTasks } from "@/lib/task-queue";
 import { createAppDataApi } from "@/lib/app-data-api";
 import { AppDataPanel } from "./app-data-panel";
 import { activatePublishedOwner } from "@/lib/published-session";
+import { displayRevision, snapshotLabel } from "@/lib/revision-label";
 import type { Revision, TaskListItem } from "@pivloom/contracts";
 
 const rejectedSubmissions = new Set(["INVALID_INPUT", "PROJECT_BUSY", "CLEANUP_PENDING", "STALE_BASE", "IDEMPOTENCY_CONFLICT", "SERVICE_BUSY", "QUOTA_EXCEEDED", "NOT_FOUND", "UNAUTHENTICATED", "MODEL_PROFILE_NOT_FOUND", "MODEL_CONFIG_CHANGED", "MODEL_NOT_VERIFIED", "MODEL_VISION_NOT_VERIFIED", "MODEL_CONFIGURATION_MISSING"]);
@@ -155,6 +156,8 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
     && (!project?.latestCandidate || historyQuery.data.revisions.some((item) => item.id === project.latestCandidate!.id));
   const revisions: Revision[] = savedHistory ? historyQuery.data!.revisions
     : [project?.currentRevision, project?.latestCandidate].filter((item): item is Revision => !!item);
+  const completeHistory = savedHistory ? revisions : null;
+  const versionName = (item: Revision) => displayRevision(item, completeHistory);
   const revision = revisions.find((item) => item.id === selectedRevisionId) ?? project?.currentRevision ?? project?.latestCandidate ?? null;
   const selectedBase = candidateBase ? revisions.find((item) => item.id === candidateBase.revisionId && item.buildStatus === "passed" && item.status !== "accepted") : null;
   const selectedBaseStale = !!candidateBase && candidateBase.expectedCurrentRevisionId !== project?.project.currentRevisionId;
@@ -385,18 +388,18 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   if (!project) return <><AppHeader /><div className="page-loader" aria-label={ui.text("正在打开项目", "Opening project")}><LoaderCircle className="spin" size={24} /></div></>;
   const toolbarExtras = <>
     {revision && <>
-      <button type="button" className="a-toolbar-version" onClick={() => setDrawer("history")} aria-label={`选择查看版本，当前显示 v${revision.revisionNo}`}>
-        {revision.id === project.project.currentRevisionId ? "正式版" : "正在查看"} v{revision.revisionNo}<span>{revision.id === project.project.currentRevisionId ? "当前" : revision.status !== "accepted" ? state.active && revision.runId === run?.id ? "检查中" : "未通过" : "历史"}</span><ChevronDown size={12} />
+      <button type="button" className="a-toolbar-version" onClick={() => setDrawer("history")} aria-label={`选择查看版本，当前显示${versionName(revision)}，${snapshotLabel(revision)}`}>
+        {revision.id === project.project.currentRevisionId ? versionName(revision) : `正在查看 ${versionName(revision)}`}<span>{revision.id === project.project.currentRevisionId ? "当前" : revision.status !== "accepted" ? state.active && revision.runId === run?.id ? "检查中" : "未通过" : "历史"}</span><ChevronDown size={12} />
       </button>
       {/* Viewing a historical version must never hide which version is really
           current: the two are labelled separately, and this returns to it. */}
-      {revision.id !== project.project.currentRevisionId && project.currentRevision && <button type="button" className="a-toolbar-current" onClick={() => setViewSelection(null)} aria-label={`返回当前正式版本 v${project.currentRevision.revisionNo}`}>
-        返回正式版 v{project.currentRevision.revisionNo}<code>{project.currentRevision.sourceHash.slice(0, 8)}</code>
+      {revision.id !== project.project.currentRevisionId && project.currentRevision && <button type="button" className="a-toolbar-current" onClick={() => setViewSelection(null)} aria-label={`返回当前${versionName(project.currentRevision)}`}>
+        返回 {versionName(project.currentRevision)}<code>{project.currentRevision.sourceHash.slice(0, 8)}</code>
       </button>}
       <button type="button" className="a-toolbar-hash" title={revision.sourceHash} onClick={() => void copySourceHash()} aria-label="复制完整源码 hash">
         <span>hash</span><code data-testid="workbench-source-hash-short">{revision.sourceHash.slice(0, 8)}</code><Copy size={12} />
       </button>
-      <button type="button" className="a-toolbar-check" aria-label={`查看 v${revision.revisionNo} 的检查结果`} onClick={() => setDrawer("checks")}><Check size={14} />{revision.id === project.project.currentRevisionId
+      <button type="button" className="a-toolbar-check" aria-label={`查看${versionName(revision)}的检查结果`} onClick={() => setDrawer("checks")}><Check size={14} />{revision.id === project.project.currentRevisionId
         ? project.latestCheckHistorical ? "历史检查" : `检查 ${checkBadge}`
         : revision.status === "accepted" ? "历史检查" : "未完成检查"}</button>
     </>}
@@ -411,7 +414,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
         {taskSummary.open + taskSummary.attention > 0 && <span className="a-header-task-count" data-testid="header-task-count">{taskSummary.open + taskSummary.attention}</span>}
       </button>}
     </AppHeader>
-    <nav className="mobile-workbench-tabs" aria-label={ui.text("工作区", "Workspace")}><button aria-pressed={mobileTab === "chat"} onClick={() => setMobileTab("chat")}><MessageSquare size={15} />{ui.text("对话", "Chat")}{state.active && <span className="mini-dot" />}</button><button aria-pressed={mobileTab === "result"} onClick={() => setMobileTab("result")}><Monitor size={15} />{ui.text("结果", "Result")}{revision && <span>v{revision.revisionNo}</span>}</button></nav>
+    <nav className="mobile-workbench-tabs" aria-label={ui.text("工作区", "Workspace")}><button aria-pressed={mobileTab === "chat"} onClick={() => setMobileTab("chat")}><MessageSquare size={15} />{ui.text("对话", "Chat")}{state.active && <span className="mini-dot" />}</button><button aria-pressed={mobileTab === "result"} onClick={() => setMobileTab("result")}><Monitor size={15} />{ui.text("结果", "Result")}{revision && <span>{versionName(revision)}</span>}</button></nav>
     <main className={cn("workbench-layout", `mobile-show-${mobileTab}`, collapsed && "chat-collapsed")}>
       <section className="chat-panel" aria-label={ui.text("与 Pivloom 对话", "Chat with Pivloom")}>
         <div className="chat-panel-heading"><div><strong>{ui.text("对话", "Chat")}</strong><span className="conversation-badge">{ui.text("让想法继续生长", "Let ideas grow")}</span></div><button className="icon-button collapse-button" onClick={() => setCollapsed(true)} aria-label={ui.text("收起对话", "Collapse chat")}><PanelLeftClose size={16} /></button></div>
@@ -422,7 +425,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
               : <article className="assistant-message" key={message.id}><div className="assistant-message-heading"><LoomMark /><strong>{message.kind === "question" ? ui.text("协调者", "Coordinator") : "Pivloom"}</strong></div><div className="assistant-message-body"><p className="message-content">{message.content}</p></div></article>)}
           {run && <GenerationActivity run={run} events={state.view!.events} roles={state.view!.roles} />}
           {run?.selectedBaseRevisionId && <p className="previous-version-note" data-testid="run-candidate-base">
-            本轮修改从未通过的 {revisions.find((item) => item.id === run.selectedBaseRevisionId) ? `v${revisions.find((item) => item.id === run.selectedBaseRevisionId)!.revisionNo}` : run.selectedBaseRevisionId.slice(0, 8)} 开始；只有新版本检查通过，正式版本才会切换。
+            本轮修改从未通过的 {revisions.find((item) => item.id === run.selectedBaseRevisionId) ? versionName(revisions.find((item) => item.id === run.selectedBaseRevisionId)!) : run.selectedBaseRevisionId.slice(0, 8)} 开始；只有新版本检查通过，正式版本才会切换。
           </p>}
           {run && <GenerationOutcome run={run} candidateSaved={project.latestCandidate?.runId === run.id && project.latestCandidate.id === run.resultRevisionId} check={runCheck} failureDetail={state.view?.failureDetail ?? null} />}
           <div ref={bottom} />
@@ -467,19 +470,19 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
       <div className="generation-result-shell">
         {candidateBase && <div className="candidate-base-selection" role="status">
           <span>{selectedBaseStale ? "正式版本已变化，原先选择的修改起点已失效；请重新选择。"
-            : selectedBase ? `下次修改将从 v${selectedBase.revisionNo} 开始；当前正式版本${project.currentRevision ? `仍是 v${project.currentRevision.revisionNo}` : "尚未生成"}，发布内容不变。`
+            : selectedBase ? `下次修改将从 ${versionName(selectedBase)} 开始；当前${project.currentRevision ? `仍是 ${versionName(project.currentRevision)}` : "尚未生成正式版"}，发布内容不变。`
               : "所选版本已不可用，请重新选择。"}
           {!candidateBaseStored && " 此选择未能保存，请保持页面打开。"}</span>
           <Button variant="ghost" size="sm" onClick={() => chooseCandidateBase(null)}>改回从正式版本继续</Button>
         </div>}
         {collapsed && <button className="generation-expand-chat icon-button" aria-label={ui.text("展开对话", "Expand chat")} onClick={() => setCollapsed(false)}><PanelLeftOpen size={16} /></button>}
         {previewQuery.error && <p className="inline-error" role="alert">{previewQuery.error}</p>}
-        <GenerationResult projectId={projectId} revision={revision} preview={hasSnapshotPreview ? snapshotPreview! : previewQuery.data ?? null} generation={state.generation} active={state.active} queued={queued} latestCheck={project.latestCheck} historicalCheck={revision?.status === "accepted" && (revision.id !== project.project.currentRevisionId || !!project.latestCheckHistorical)} checking={state.active && run?.phase === "review" && revision?.runId === run.id} restoring={restoring || (previewQuery.data?.state === "restoring" && previewQuery.data.revisionId === revision?.id)} onRestore={busy ? undefined : () => void restore()} toolbarExtras={toolbarExtras} showReview={false} />
+        <GenerationResult projectId={projectId} revision={revision} preview={hasSnapshotPreview ? snapshotPreview! : previewQuery.data ?? null} generation={state.generation} active={state.active} queued={queued} latestCheck={project.latestCheck} historicalCheck={revision?.status === "accepted" && (revision.id !== project.project.currentRevisionId || !!project.latestCheckHistorical)} checking={state.active && run?.phase === "review" && revision?.runId === run.id} restoring={restoring || (previewQuery.data?.state === "restoring" && previewQuery.data.revisionId === revision?.id)} onRestore={busy ? undefined : () => void restore()} toolbarExtras={toolbarExtras} showReview={false} versionLabel={revision ? versionName(revision) : undefined} />
       </div>
     </main>
     <DeploymentVersion />
     {drawer === "history" && <WorkbenchDrawer key="history" title="版本历史" onClose={() => setDrawer(null)}>
-      {revisions.length ? <VersionHistoryPanel revisions={revisions} currentRevisionId={project.project.currentRevisionId} selectedRevision={revision}
+      {revisions.length ? <VersionHistoryPanel revisions={revisions} completeHistory={savedHistory} currentRevisionId={project.project.currentRevisionId} selectedRevision={revision}
         messages={project.messages} historyError={historyQuery.error} currentFromRollback={!!project.latestCheckHistorical}
         continueFromRevisionId={candidateBase?.revisionId}
         onContinueFrom={chooseCandidateBase} continueDisabled={busy || !!unknownSubmission}
@@ -496,12 +499,12 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
           clearResult: rollback.clearResult }} /> : <p>还没有保存的版本。</p>}
     </WorkbenchDrawer>}
     {drawer === "checks" && <WorkbenchDrawer key="checks" title="检查结果" onClose={() => setDrawer(null)}>
-      {revision ? <>{revision.id !== project.project.currentRevisionId ? <p className="a-drawer-context">正在查看{revision.status === "accepted" ? "历史版本" : "未完成尝试"} v{revision.revisionNo} 的旧检查；{project.currentRevision
-        ? `当前正式版是 v${project.currentRevision.revisionNo}${currentPassedGroups ? `，检查 ${currentPassedGroups} 组通过` : ""}` : "目前没有正式版本"}。仅查看不会切换版本或发布内容。</p>
+      {revision ? <>{revision.id !== project.project.currentRevisionId ? <p className="a-drawer-context">正在查看 {versionName(revision)} 的旧检查；{project.currentRevision
+        ? `当前是 ${versionName(project.currentRevision)}${currentPassedGroups ? `，检查 ${currentPassedGroups} 组通过` : ""}` : "目前没有正式版本"}。仅查看不会切换版本或发布内容。</p>
         : project.latestCheckHistorical ? <p className="a-drawer-context">这是回滚目标原 Run 的历史检查；重建后的预览尚未重新验收。</p> : null}
         {revision.templateSlug && revision.status === "accepted"
           ? <p className="a-drawer-context">这是从现成模板导入的版本，已通过类型检查、生产构建和页面打开验证。模板导入没有调用模型，也没有执行完整的增量行为验收。</p>
-          : <GenerationReview key={`${revision.id}:${state.active}`} revision={revision} latestCheck={project.latestCheck} generation={state.generation} checking={state.active && run?.phase === "review" && revision.runId === run.id} />}</> : <p>生成首个版本后可查看检查结果。</p>}
+          : <GenerationReview key={`${revision.id}:${state.active}`} revision={revision} latestCheck={project.latestCheck} generation={state.generation} checking={state.active && run?.phase === "review" && revision.runId === run.id} versionLabel={versionName(revision)} />}</> : <p>生成首个版本后可查看检查结果。</p>}
     </WorkbenchDrawer>}
     {drawer === "publish" && <WorkbenchDrawer key="publish" title="发布作品" onClose={() => setDrawer(null)}>
       {project.currentRevision && <div className="a-publish-panel"><div className="a-publish-icon"><ExternalLink size={26} /></div><h3>让作品拥有自己的地址</h3>
@@ -511,14 +514,14 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
           : `${project.dataProfile === "event-signup" ? "报名" : "预约"}的 Preview 示例数据不会进入线上。发布后访客只能提交，记录由本项目的服务端数据区保存，只有项目主人可在“应用数据”管理；更换或回滚源码不会自动删除这些记录。`}</p>}
         {!currentDataSourceReady && <p className="inline-error" role="alert">这个旧模板版本仍只使用浏览器数据。请<Link href={`/templates/${project.dataProfile}`}>使用最新模板</Link>重新创建项目，或在本项目增量加入托管数据代码后再发布。</p>}
         {personalData && publicationQuery.data && !publishedDataSourceReady && <p className="inline-error" role="alert">已发布的旧版本仍只使用浏览器数据。请先将个人数据功能升级为托管版，再发布新版本。</p>}
-        <div className="a-publish-version"><span>当前源码版本</span><strong>v{project.currentRevision.revisionNo}<code>{project.currentRevision.sourceHash.slice(0, 8)}</code></strong></div>
+        <div className="a-publish-version"><span>当前正式版</span><strong>{versionName(project.currentRevision)}<code>{project.currentRevision.sourceHash.slice(0, 8)}</code></strong></div>
         {/* Which revision the permanent site actually serves. It is not always
             the current one, and the user cannot tell them apart otherwise. */}
         {publicationQuery.data && (() => {
           const published = revisions.find((item) => item.id === publicationQuery.data!.revisionId);
           return <div className="a-publish-version" data-testid="published-version">
             <span>已发布版本</span>
-            <strong>{published ? `v${published.revisionNo}` : "已发布"}<code>{publicationQuery.data!.sourceHash.slice(0, 8)}</code></strong>
+            <strong>{published ? versionName(published) : "已发布"}<code>{publicationQuery.data!.sourceHash.slice(0, 8)}</code></strong>
             {published && published.id !== project.currentRevision!.id ? <em>与当前版本不同</em> : null}
           </div>;
         })()}
