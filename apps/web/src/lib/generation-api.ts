@@ -68,6 +68,16 @@ export function createGenerationApi(api: Pick<ApiWorkspace, "request" | "request
       if (hash !== artifact.sha256) throw new Error("检查截图与已保存记录不一致，请重新加载。");
       return image;
     },
+    getCover: async (revisionId: string, signal?: AbortSignal): Promise<Blob | null> => {
+      try {
+        const image = await api.requestBlob(`/revisions/${encodeURIComponent(revisionId)}/cover`, { signal });
+        if (image.type !== "image/png" || image.size > 2 * 1024 * 1024) throw new Error("应用截图格式不正确。");
+        return image;
+      } catch (error) {
+        if (error instanceof WorkspaceError && error.code === "NOT_FOUND") return null;
+        throw error;
+      }
+    },
     getFiles: async (revisionId: string) => RevisionFilesResponseSchema.parse(await api.request(`/revisions/${encodeURIComponent(revisionId)}/files`)),
     getFile: async (revisionId: string, path: string) => RevisionFileResponseSchema.parse(await api.request(`/revisions/${encodeURIComponent(revisionId)}/file?path=${encodeURIComponent(path)}`)),
     getPreview: async (projectId: string, revisionId: string) => PreviewResponseSchema.parse(await api.request(`/projects/${encodeURIComponent(projectId)}/preview?revisionId=${encodeURIComponent(revisionId)}`)).preview,

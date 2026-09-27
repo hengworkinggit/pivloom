@@ -149,7 +149,7 @@ it.each([
   expect(view.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain(heading);
   expect(view.container.querySelector('[data-testid="run-result"] strong')?.textContent).toBe(heading);
   expect(view.container.textContent).not.toContain("关键流程检查通过");
-  expect(view.container.textContent).not.toContain("候选已保存 · 尚未检查");
+  expect(view.container.textContent).not.toContain("版本已保存 · 等待检查");
 });
 
 it("does not label an unchecked candidate as a passed check", async () => {

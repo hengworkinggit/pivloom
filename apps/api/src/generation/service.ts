@@ -24,6 +24,7 @@ import { createPublicationStore } from "./publication.js";
 import { createGenerationScheduler } from "./scheduler.js";
 import { starter, starterPlan, type StarterSlug } from "../starters/catalog.js";
 import { createAppDataRepository } from "../data/app-data.js";
+import { createCoverRepository } from "../data/covers.js";
 import { assertManagedDataSource } from "../starters/data-contract.js";
 
 export function createGenerationService(options: {
@@ -40,6 +41,7 @@ export function createGenerationService(options: {
 }) {
   const projects = createProjectRepository(options.database);
   const appData = createAppDataRepository(options.database);
+  const covers = createCoverRepository(options.database);
   const eventHub = createRunEventHub();
   const repository = createGenerationRepository(options.database, options.models, {
     executorBootId: options.bootId, maxSandboxes: options.maxSandboxes,
@@ -60,7 +62,7 @@ export function createGenerationService(options: {
   // executor stops owning the run. The scheduler only looks; the durable queue
   // and nano.claim_next_queued_run decide what may start.
   let wakeQueue: () => void = () => {};
-  const executor = createGenerationExecutor({ repository, models: options.models, sources, artifacts, previews,
+  const executor = createGenerationExecutor({ repository, models: options.models, sources, artifacts, covers, previews,
     sandbox: options.sandbox, maxSandboxes: options.maxSandboxes, onTaskSettled: () => wakeQueue() }, options.generationBoundaries);
   const scheduler = createGenerationScheduler({ repository, start: (run) => executor.start(run),
     // A restore that waited for capacity is handed to the same executor path
@@ -285,6 +287,7 @@ export function createGenerationService(options: {
     publishedHostAllowed(host: string) { return publications?.hostAllowed(host) ?? Promise.resolve(false); },
     publishedFromHost(host: string) { return publications?.fromHost(host) ?? Promise.resolve(null); },
     publishedFile(host: string, path: string) { return publications?.publicFile(host, path) ?? Promise.resolve(null); },
+    cover(ownerId: string, revisionId: string) { return covers.read(ownerId, revisionId); },
     async publication(ownerId: string, projectId: string) {
       await projects.get(ownerId, projectId);
       return { publication: publications ? await publications.get(projectId) : null };

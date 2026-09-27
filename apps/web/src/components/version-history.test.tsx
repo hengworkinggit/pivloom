@@ -95,7 +95,7 @@ test("accepted history requires an explicit from-to confirmation and exposes the
     fromRevisionId: current.id, targetRevisionId: target.id, sourceHash: target.sourceHash,
     status: "committed", error: null, createdAt: now, finishedAt: now };
   await act(async () => render(target, target.id, true));
-  expect(container.textContent).toContain("从历史版本恢复的当前基线");
+  expect(container.textContent).toContain("当前正式版本由历史版本恢复");
   expect(container.textContent).toContain("回滚事件");
   expect(container.textContent).toContain("已从 v3 回滚到 v1");
   expect(container.textContent).toContain("回滚完成");

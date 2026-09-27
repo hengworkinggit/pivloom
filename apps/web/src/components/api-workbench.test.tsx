@@ -192,7 +192,7 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
   Object.assign(run, { state: "failed", phase: "review", cleanupState: completesBetweenReads ? "confirmed" : "pending", resultRevisionId: revisionId, finishedAt: now, error: { code: "CHECK_BLOCKED", message: "检查能力尚未就绪", retryable: false } });
   project.activeRun = null; project.latestCandidate = candidate;
   await act(async () => { window.dispatchEvent(new Event("focus")); });
-  expect(container.textContent).toContain("尚未检查");
+  expect(container.textContent).toContain("行为检查尚未完成");
   expect(container.textContent).not.toContain("检查通过");
   const connectionsAtTerminal = eventConnections;
   if (!completesBetweenReads) {
@@ -210,7 +210,7 @@ it.each(["normal", "snapshot failure", "slow run read", "accepted during snapsho
     if (scenario === "stale terminal snapshot") staleRunOnce = executingSnapshot.activeRun;
     else staleSnapshotReads = 2; // Both project reads predate the saved candidate.
     await act(async () => { window.dispatchEvent(new Event("focus")); });
-    expect(container.querySelector('[data-testid="run-result"]')?.textContent).toContain("候选已保存 · 尚未检查");
+    expect(container.querySelector('[data-testid="run-result"]')?.textContent).toContain("版本已保存 · 等待检查");
     expect(container.querySelector('[data-testid="role-timeline"]')?.textContent).toContain("本次任务已结束");
     expect(submit()?.disabled).toBe(false);
     expect(eventConnections).toBe(connectionsAtTerminal);
