@@ -29,6 +29,10 @@ export const CreateProjectRequestSchema = z.strictObject({
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 export const CreateProjectResponseSchema = z.object({ project: ProjectSummarySchema });
+export const CreateTemplateProjectResponseSchema = z.object({
+  project: ProjectSummarySchema, runId: z.uuid(), state: RunSchema.shape.state, replayed: z.boolean(),
+});
+export type CreateTemplateProjectResponse = z.infer<typeof CreateTemplateProjectResponseSchema>;
 export const ProjectListResponseSchema = z.object({
   projects: z.array(ProjectSummarySchema),
   nextCursor: z.string().nullable(),

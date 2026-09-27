@@ -75,6 +75,7 @@ function ApiProjectsContent({ initialSurface }: { initialSurface: "new" | "proje
   const [busy, setBusy] = useState(false);
   const creating = useRef(false);
   const [error, setError] = useState("");
+  const [templateToRetry, setTemplateToRetry] = useState<string | null>(null);
   const [pages, setPages] = useState<ProjectSummary[]>([]);
   const [next, setNext] = useState<string | null | undefined>();
   const [loadingMore, setLoadingMore] = useState(false);
@@ -97,6 +98,22 @@ function ApiProjectsContent({ initialSurface }: { initialSurface: "new" | "proje
     router.push(next === "projects" ? "/projects?view=list" : "/projects", { scroll: false });
   }
   function updatePrompt(value: string) { setPrompt(value); saveDraft(user!.id, "new", value); }
+  async function createFromTemplate(slug: string) {
+    if (creating.current || !findTemplate(slug)) return;
+    creating.current = true; setBusy(true); setError("");
+    setTemplateToRetry(slug);
+    const keyName = `pivloom:template-import:${user!.id}:${slug}`;
+    let idempotencyKey = crypto.randomUUID();
+    try { idempotencyKey = sessionStorage.getItem(keyName) ?? idempotencyKey; sessionStorage.setItem(keyName, idempotencyKey); }
+    catch { /* The request still has an idempotency key for this click. */ }
+    try {
+      const { project } = await api.createTemplateProject(slug, idempotencyKey);
+      try { sessionStorage.removeItem(keyName); } catch { /* Navigation still succeeds. */ }
+      setTemplateToRetry(null);
+      window.history.replaceState(window.history.state, "", "/projects");
+      router.push(`/projects/${project.id}`);
+    } catch (cause) { setError(errorMessage(cause)); creating.current = false; setBusy(false); }
+  }
   useEffect(() => {
     const onPopState = () => setSurface(new URLSearchParams(window.location.search).get("view") === "list" ? "projects" : "new");
     window.addEventListener("popstate", onPopState);
@@ -104,13 +121,8 @@ function ApiProjectsContent({ initialSurface }: { initialSurface: "new" | "proje
   }, []);
   useEffect(() => {
     const slug = new URLSearchParams(window.location.search).get("template");
-    const template = slug ? findTemplate(slug) : undefined;
-    if (!template) return;
-    queueMicrotask(() => {
-      updatePrompt(ui.locale === "en" ? template.promptEn : template.prompt);
-      window.history.replaceState(window.history.state, "", "/projects");
-    });
-  // Read the arriving template only once; a later locale switch must not overwrite edits.
+    if (slug && findTemplate(slug)) queueMicrotask(() => void createFromTemplate(slug));
+  // The arriving template is submitted once. A locale switch cannot create another project.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
   async function create() {
@@ -165,10 +177,11 @@ function ApiProjectsContent({ initialSurface }: { initialSurface: "new" | "proje
           </div>
         </form>
         {tooLong && <p id="prompt-error" className="inline-error" role="alert">需求最多 {promptLimit.toLocaleString()} 个字符，请缩短后再创建。</p>}
-        {error && <p className="inline-error" role="alert">{error}</p>}
+        {busy && <p className="a-start-model-error" role="status">{ui.text("正在创建可运行的模板项目…", "Creating a runnable template project…")}</p>}
+        {error && <p className="inline-error" role="alert">{error} {templateToRetry && <button type="button" onClick={() => void createFromTemplate(templateToRetry)}>{ui.text("重试创建", "Retry")}</button>}</p>}
         {modelQuery.error && <p className="a-start-model-error" role="status">{modelQuery.error} <Link href="/settings/models">{ui.text("查看模型配置", "Model settings")}</Link></p>}
         {!modelQuery.error && modelQuery.data && !modelReady && <p className="a-start-model-error" role="status">当前模型尚未通过流式输出、工具调用与图像能力测试。<Link href="/settings/models">去测试模型</Link></p>}
-        <div className="a-start-suggestions"><div><span>{ui.text("试试一个想法", "Try an idea")}</span><Link href="/templates">{ui.text("浏览全部模板", "Browse templates")}<ArrowRight size={13} /></Link></div><div>{featuredTemplates.map((template) => <button key={template.slug} onClick={() => updatePrompt(ui.locale === "en" ? template.promptEn : template.prompt)}>{ui.text(template.title, template.titleEn)}<ArrowRight size={13} /></button>)}</div></div>
+        <div className="a-start-suggestions"><div><span>{ui.text("从现成模板开始", "Start from a ready-made template")}</span><Link href="/templates">{ui.text("浏览全部模板", "Browse templates")}<ArrowRight size={13} /></Link></div><div>{featuredTemplates.map((template) => <button key={template.slug} disabled={busy} onClick={() => void createFromTemplate(template.slug)}>{ui.text(template.title, template.titleEn)}<ArrowRight size={13} /></button>)}</div></div>
         <button className="a-start-project-link" onClick={() => showSurface("projects")}>{ui.text("查看已有项目", "View existing projects")}<ArrowRight size={14} /></button>
       </div>
     </main> : <main className="a-project-list">

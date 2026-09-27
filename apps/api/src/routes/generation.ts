@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   CancelRunResponseSchema, CreateRunRequestSchema, CreateRunResponseSchema, PreviewResponseSchema, PreviewAccessResponseSchema,
   RestorePreviewRequestSchema, RollbackRequestSchema, TaskListResponseSchema,
+  CreateTemplateProjectResponseSchema,
 } from "@pivloom/contracts";
 import type { GenerationService } from "../generation/service.js";
 import { ApiFailure } from "./errors.js";
@@ -21,6 +22,16 @@ export async function registerGenerationRoutes(app: FastifyInstance, options: {
   await app.register(async (secured) => {
     secured.addHook("preHandler", options.verifyIdentity);
     const id = (request: FastifyRequest) => parseInput(z.object({ id: z.uuid() }), request.params).id;
+    secured.post("/api/v1/templates/:slug/projects", async (request, reply) => {
+      const { slug } = parseInput(z.object({ slug: z.string().min(1).max(80) }), request.params);
+      const key = parseInput(z.uuid(), request.headers["idempotency-key"]);
+      const generation = service();
+      const created = await generation.createTemplateProject(requireOwner(request), slug, key);
+      if (!created.replayed) generation.wake();
+      return reply.header("cache-control", "private, no-store").code(created.replayed ? 200 : 202)
+        .send(CreateTemplateProjectResponseSchema.parse({ project: created.project, runId: created.run.id,
+          state: created.run.state, replayed: created.replayed }));
+    });
     secured.post("/api/v1/projects/:id/runs", async (request, reply) => {
       const ownerId = requireOwner(request);
       const projectId = id(request);

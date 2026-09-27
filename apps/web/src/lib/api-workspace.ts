@@ -2,6 +2,7 @@ import {
   ApiErrorSchema,
   CreateProjectRequestSchema,
   CreateProjectResponseSchema,
+  CreateTemplateProjectResponseSchema,
   MeResponseSchema,
   ProjectDetailResponseSchema,
   ProjectListResponseSchema,
@@ -220,6 +221,10 @@ export function createApiWorkspace(identity: IdentityPort, transport: typeof fet
       const body = CreateProjectRequestSchema.parse(title ? { title } : {});
       return CreateProjectResponseSchema.parse(await request("/projects", { method: "POST", body: JSON.stringify(body) })).project;
     },
+    createTemplateProject: async (slug: string, idempotencyKey: string) =>
+      CreateTemplateProjectResponseSchema.parse(await request(`/templates/${encodeURIComponent(slug)}/projects`, {
+        method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: "{}",
+      })),
     getProject: async (id: string) => ProjectDetailResponseSchema.parse(await request(`/projects/${encodeURIComponent(id)}`)),
     dispose: () => { unsubscribe?.(); requests.forEach((request) => request.abort()); listeners.clear(); },
   };

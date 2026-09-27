@@ -162,7 +162,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const selectedCheckQuery = usePrivateQuery(selectedCheckLoader);
   const selectedCheck = snapshotCheck ?? selectedCheckQuery.data;
   const checkBadge = selectedCheckQuery.error ? "检查异常" : selectedCheck?.groups ? `${selectedCheck.groups.filter((group) => group.verdict === "passed").length}/${selectedCheck.groups.length}`
-    : selectedCheck?.verdict === "passed" ? "已通过" : "检查";
+    : selectedCheck?.verdict === "passed" ? "已通过" : revision?.templateSlug && revision.status === "accepted" ? "模板已构建" : "检查";
   const snapshotPreview = project?.preview;
   const revisionId = revision?.id;
   const hasSnapshotPreview = !!snapshotPreview && snapshotPreview.revisionId === revisionId && snapshotPreview.sourceHash === revision?.sourceHash;
@@ -425,7 +425,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
                 {project.quota && <span className="generation-quota">{ui.text("今日额度", "Daily allowance")} <strong>{project.quota.dailyAccepted}/{project.quota.dailyLimit}</strong></span>}
               </div>
               <div className="composer-toolbar">
-                <div className="composer-model"><SessionModelPicker profiles={modelQuery.data} selectedProfileId={selectedModel?.id} catalog={credentialModels} effectiveModelId={effectiveModelId} lockedLabel={state.active && run ? `${lockedProfile?.name ?? "已保存配置"} · ${run.modelId ?? lockedProfile?.modelId ?? "模型"} · v${run.modelConfigVersion}` : undefined} disabled={pending || state.active} onProfile={(id) => { const next = modelQuery.data?.find((profile) => profile.id === id); setSelectedModelId(id); setModelOverrideId(null); setCustomModelMode(false); if (next) saveSessionModel(ownerId, projectId, id, next.modelId); }} onModel={(id) => { if (!selectedModel) return; setCustomModelMode(false); setModelOverrideId(id); saveSessionModel(ownerId, projectId, selectedModel.id, id); }} onCustom={(id) => { if (!selectedModel) return; setCustomModelMode(true); setModelOverrideId(id); saveSessionModel(ownerId, projectId, selectedModel.id, id); }} onRefresh={modelQuery.refresh} /></div>
+                <div className="composer-model"><SessionModelPicker profiles={modelQuery.data} selectedProfileId={selectedModel?.id} catalog={credentialModels} effectiveModelId={effectiveModelId} lockedLabel={state.active && run ? run.kind === "template" ? "现成模板 · 无模型调用" : `${lockedProfile?.name ?? "已保存配置"} · ${run.modelId ?? lockedProfile?.modelId ?? "模型"} · v${run.modelConfigVersion}` : undefined} disabled={pending || state.active} onProfile={(id) => { const next = modelQuery.data?.find((profile) => profile.id === id); setSelectedModelId(id); setModelOverrideId(null); setCustomModelMode(false); if (next) saveSessionModel(ownerId, projectId, id, next.modelId); }} onModel={(id) => { if (!selectedModel) return; setCustomModelMode(false); setModelOverrideId(id); saveSessionModel(ownerId, projectId, selectedModel.id, id); }} onCustom={(id) => { if (!selectedModel) return; setCustomModelMode(true); setModelOverrideId(id); saveSessionModel(ownerId, projectId, selectedModel.id, id); }} onRefresh={modelQuery.refresh} /></div>
                 <div className="composer-actions">{canStop && <Button type="button" variant="outline" size="sm" disabled={stopping || cancellation.isCancellationRequested} onClick={() => void stop()} aria-label={ui.text(queued ? "取消排队" : "停止任务", queued ? "Cancel queued task" : "Stop run")}>{stopping || cancellation.isCancellationRequested ? <><LoaderCircle className="spin" size={14} />{ui.text("正在停止", "Stopping")}</> : ui.text(queued ? "取消排队" : "停止", queued ? "Cancel" : "Stop")}</Button>}<Button type="submit" size="icon" disabled={submissionBlocked || !draft.trim() || tooLong || !modelReady} aria-label={clarification ? ui.text("发送回答", "Send answer") : ui.text("发送需求", "Send request")}>{pending ? <LoaderCircle className="spin" size={16} /> : <ArrowUp size={18} />}</Button></div>
               </div>
             </div>
@@ -466,7 +466,9 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
     {drawer === "checks" && <WorkbenchDrawer key="checks" title="检查结果" onClose={() => setDrawer(null)}>
       {revision ? <>{revision.id !== project.project.currentRevisionId ? <p className="a-drawer-context">正在查看{revision.status === "accepted" ? "历史" : "候选"} v{revision.revisionNo} 的检查记录；当前版本不会因此改变。</p>
         : project.latestCheckHistorical ? <p className="a-drawer-context">这是回滚目标原 Run 的历史检查；重建后的预览尚未重新验收。</p> : null}
-        <GenerationReview key={`${revision.id}:${state.active}`} revision={revision} latestCheck={project.latestCheck} generation={state.generation} checking={state.active && run?.phase === "review" && revision.runId === run.id} /></> : <p>生成首个版本后可查看检查结果。</p>}
+        {revision.templateSlug && revision.status === "accepted"
+          ? <p className="a-drawer-context">这是从现成模板导入的版本，已通过类型检查、生产构建和页面打开验证。模板导入没有调用模型，也没有执行完整的增量行为验收。</p>
+          : <GenerationReview key={`${revision.id}:${state.active}`} revision={revision} latestCheck={project.latestCheck} generation={state.generation} checking={state.active && run?.phase === "review" && revision.runId === run.id} />}</> : <p>生成首个版本后可查看检查结果。</p>}
     </WorkbenchDrawer>}
     {drawer === "publish" && <WorkbenchDrawer key="publish" title="发布作品" onClose={() => setDrawer(null)}>
       {project.currentRevision && <div className="a-publish-panel"><div className="a-publish-icon"><ExternalLink size={26} /></div><h3>让作品拥有自己的地址</h3>

@@ -99,6 +99,13 @@ jobs:
           npm test --workspace @pivloom/api -- tests/generation/executor.integration.test.ts
         env:
           PIVLOOM_EXECUTOR_INTEGRATION: '1'
+      - name: Verify model-free template import and accepted source baseline
+        run: |
+          export DATABASE_URL="$PIVLOOM_EXECUTOR_DATABASE_URL"
+          export PIVLOOM_ENVIRONMENT_ID="$PIVLOOM_EXECUTOR_ENVIRONMENT_ID"
+          npm test --workspace @pivloom/api -- tests/generation/template-import.integration.test.ts
+        env:
+          PIVLOOM_TEMPLATE_INTEGRATION: '1'
       - name: Continue an explicit candidate through real HTTP and PostgreSQL
         run: npm test --workspace @pivloom/api -- tests/generation/candidate-http.integration.test.ts
         env:

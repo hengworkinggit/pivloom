@@ -174,3 +174,51 @@ it("does not offer to start a run with a profile whose image capability is unver
   await act(async () => root.unmount());
   vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.resetModules();
 });
+
+it("creates a runnable template project directly without requiring a model", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubEnv("NEXT_PUBLIC_APP_MODE", "api");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://identity.example.test");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "fixture-public-key");
+  const ownerId = "1e5dce44-654d-4352-bb4b-7680138c1135";
+  const projectId = "6c9d405a-005a-4c6a-a177-b13dd8c5054c";
+  const runId = "82365098-ac6b-4956-9cba-89f98424ac41";
+  const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+  const user = { id: ownerId, email: "owner@example.test", aud: "authenticated",
+    app_metadata: {}, user_metadata: {}, created_at: "2026-09-22T00:00:00.000Z" };
+  const encode = (value: object) => btoa(JSON.stringify(value)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  localStorage.setItem("pivloom.auth.v1", JSON.stringify({
+    access_token: `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ sub: ownerId, exp: expiresAt })}.fixture`,
+    refresh_token: "fixture-refresh-token", token_type: "bearer", expires_in: 3600, expires_at: expiresAt, user,
+  }));
+  const posts: Array<{ url: string; key: string | null }> = [];
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "https://identity.example.test/auth/v1/user") return Response.json(user);
+    if (url === "/api/v1/me") return Response.json({ user: { id: ownerId, email: user.email, name: "Owner" } });
+    if (url === "/api/v1/model-profiles") return Response.json({ profiles: [] });
+    if (url === "/api/v1/projects" && init?.method !== "POST") return Response.json({ projects: [], nextCursor: null });
+    if (url === "/api/v1/templates/event-signup/projects" && init?.method === "POST") {
+      posts.push({ url, key: new Headers(init.headers).get("Idempotency-Key") });
+      return Response.json({ project: { id: projectId, title: "活动报名", currentRevisionId: null,
+        createdAt: "2026-09-22T00:00:00.000Z", updatedAt: "2026-09-22T00:00:00.000Z" },
+        runId, state: "queued", replayed: false }, { status: 202 });
+    }
+    throw new Error(`Unexpected fixture endpoint: ${url}`);
+  });
+  const { getApiWorkspace } = await import("@/lib/workspace");
+  const workspace = getApiWorkspace();
+  disposeWorkspace = workspace.dispose;
+  await workspace.initialize();
+  const { ProjectsPage } = await import("./projects-page");
+  const container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  await act(async () => root?.render(<ProjectsPage />));
+  const button = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("活动报名"));
+  expect(button).toBeDefined();
+  await act(async () => { button!.click(); });
+  expect(posts).toHaveLength(1);
+  expect(posts[0].key).toMatch(/^[a-f0-9-]{36}$/);
+  expect(navigation.push).toHaveBeenCalledWith(`/projects/${projectId}`);
+});
