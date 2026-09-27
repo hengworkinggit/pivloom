@@ -7,7 +7,7 @@ archive="${3:?archive or --rollback required}"
 host="${PIVLOOM_SSH_TARGET:?set PIVLOOM_SSH_TARGET to the authorised SSH host}"
 root="${PIVLOOM_REMOTE_ROOT:-/opt/pivloom}"
 public_url="${PIVLOOM_PUBLIC_URL:?set PIVLOOM_PUBLIC_URL to the HTTPS workbench origin}"
-existing_site="${PIVLOOM_EXISTING_SITE:?set PIVLOOM_EXISTING_SITE to the site to preserve}"
+existing_site="${PIVLOOM_EXISTING_SITE:-}"
 node="${PIVLOOM_REMOTE_NODE:-/usr/local/bin/node}"
 npm_cli="${PIVLOOM_REMOTE_NPM_CLI:-}"
 maintenance_env="${PIVLOOM_REMOTE_MAINTENANCE_ENV:?set the remote private maintenance env path (MIGRATION_DATABASE_URL)}"
@@ -21,7 +21,7 @@ disk_limit=$((10#$disk_limit))
 [[ "$component" = api || "$component" = web ]] || exit 2
 [[ "$release" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$ ]] || exit 2
 [[ "$root" =~ ^/[a-zA-Z0-9_/-]+$ && "$host" != -* ]] || exit 2
-[[ "$public_url" = https://* && "$existing_site" = https://* ]] || exit 2
+[[ "$public_url" = https://* && ( -z "$existing_site" || "$existing_site" = https://* ) ]] || exit 2
 ssh_options=()
 if [[ -n "${PIVLOOM_SSH_CONTROL_PATH:-}" ]]; then
   ssh_options+=(-o "ControlPath=$PIVLOOM_SSH_CONTROL_PATH")
@@ -149,14 +149,18 @@ try {
 } finally { await pool.end(); }
 JS
 fi
-curl --fail --silent --show-error --location --max-time 20 "$existing_site" >/dev/null
+if [[ -n "$existing_site" ]]; then
+  curl --fail --silent --show-error --location --max-time 20 "$existing_site" >/dev/null
+fi
 switch_to "$target"
 switched=1
 systemctl restart "$service"
 ready
 curl --fail --silent --show-error --retry 3 --retry-delay 1 --retry-all-errors --max-time 20 "${public_url%/}/login" >/dev/null
 curl --fail --silent --show-error --max-time 20 "${public_url%/}/api/v1/health/ready" >/dev/null
-curl --fail --silent --show-error --location --max-time 20 "$existing_site" >/dev/null
+if [[ -n "$existing_site" ]]; then
+  curl --fail --silent --show-error --location --max-time 20 "$existing_site" >/dev/null
+fi
 # Protect both actual symlink targets, even when rolling back to a very old
 # directory. Fill the remaining slots by recency; protected targets count in keep.
 prune_releases "$root/$component-releases" "$target" "$previous" "$keep" "$component"

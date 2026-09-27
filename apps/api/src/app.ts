@@ -136,7 +136,7 @@ export function createApp(options: CreateAppOptions = {}) {
         await registerModelRoutes(configured, { models, verifyIdentity: verifier.verify });
         if (env.OPENSANDBOX_BASE_URL && env.OPENSANDBOX_API_KEY && env.OPENSANDBOX_IMAGE && env.PREVIEW_BASE_URL) {
           const maxSandboxes = Number(env.SANDBOX_MAX_ACTIVE ?? 2);
-          if (!Number.isInteger(maxSandboxes) || maxSandboxes < 1 || maxSandboxes > 2) throw new Error("Invalid sandbox capacity");
+          if (!Number.isInteger(maxSandboxes) || maxSandboxes < 1 || maxSandboxes > 3) throw new Error("Invalid sandbox capacity");
           generation = createGenerationService({ database, sessionDatabase: sessionDatabase ?? database,
             models, identity: configuration.value, bootId,
             previewOrigin: env.PREVIEW_BASE_URL, maxSandboxes, sourceObjects: options.sourceObjects, dailyLimitByOwner,

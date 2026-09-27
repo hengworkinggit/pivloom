@@ -47,7 +47,8 @@ python3 infra/release/package.py web "$release"
 ```bash
 export PIVLOOM_SSH_TARGET=root@69.5.7.187
 export PIVLOOM_PUBLIC_URL=https://pivloom-69-5-7-187.sslip.io
-export PIVLOOM_EXISTING_SITE=https://beats-steps-69-5-7-187.sslip.io
+# Optional: set only while another site on this host must remain online.
+# export PIVLOOM_EXISTING_SITE=https://another-site.example
 # 此主机的 Node/npm 安装路径；其他主机可按实际路径覆盖。
 export PIVLOOM_REMOTE_NODE=/usr/local/bin/node
 export PIVLOOM_REMOTE_NPM_CLI=/opt/pivloom/tooling/npm/bin/npm-cli.js

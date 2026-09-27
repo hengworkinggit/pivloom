@@ -137,6 +137,12 @@ elif name == 'node':
         self.assertTrue((self.root / "web-releases/linked-release").is_symlink())
         self.assertIn('"retained": 2', result.stdout)
 
+    def test_retired_existing_site_does_not_block_pivloom_release(self):
+        self.env.pop("PIVLOOM_EXISTING_SITE")
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(any(call[0] == "curl" and "existing.example.test" in " ".join(call) for call in self.calls()))
+
     def test_rollback_preserves_old_target_and_previous_even_at_high_disk(self):
         old = self.release("old-target", 1)
         previous = self.release("current-release", 2)
