@@ -5,6 +5,7 @@ export * from "./models.js";
 export * from "./generation.js";
 export * from "./planning.js";
 export * from "./review.js";
+export * from "./app-data.js";
 
 export const ProjectSummarySchema = z.object({
   id: z.uuid(),
@@ -41,6 +42,7 @@ export type ProjectListResponse = z.infer<typeof ProjectListResponseSchema>;
 
 export const ProjectDetailResponseSchema = z.object({
   project: ProjectSummarySchema,
+  dataProfile: z.enum(["event-signup", "appointments"]).nullable().optional(),
   messages: z.array(ProjectMessageSchema),
   currentRevision: RevisionSchema.nullable(),
   activeRun: RunSchema.nullable(),

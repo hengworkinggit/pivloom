@@ -3,6 +3,7 @@ import { Pool } from "pg";
 import { describe, expect, test } from "vitest";
 import { PivloomDatabase } from "../../src/data/database.js";
 import { createGenerationRepository } from "../../src/data/generation.js";
+import { createRollbackRepository } from "../../src/data/rollback.js";
 import { createProjectRepository } from "../../src/data/projects.js";
 import { createCredentialVault } from "../../src/models/credentials.js";
 import { createModelProfileService } from "../../src/models/service.js";
@@ -62,8 +63,37 @@ describe.skipIf(process.env.PIVLOOM_TEMPLATE_INTEGRATION !== "1")("curated templ
       expect(completed).toMatchObject({ state: "completed", kind: "template", resultRevisionId: revisionId });
       expect((await projects.get(owner, first.project.id)).currentRevisionId).toBe(revisionId);
       expect((await repository.getRevision(owner, revisionId)).status).toBe("accepted");
+      expect(await repository.isRevisionEligible(owner, first.project.id, revisionId)).toBe(true);
       expect((await repository.getRun(owner, first.run.id)).plan?.behaviors).toHaveLength(5);
       await repository.markDestroyed(owner, first.run.id, sandboxId);
+
+      // A second accepted version makes v1 a historical rollback target. The
+      // fixture only supplies the current pointer; v1 is the real imported Run.
+      const secondId = randomUUID(), secondRunId = randomUUID();
+      const secondSource = await sources.save({ ownerId: owner, projectId: first.project.id, revisionId: secondId },
+        REACT_TEMPLATE_VERSION, [{ path: "src/App.tsx", content: "export default function App(){return <h1>Updated shelf</h1>}\n" }]);
+      await database.owned(owner, async (client) => {
+        await client.query(`INSERT INTO nano.runs
+          (id,owner_id,project_id,idempotency_key,request_hash,request_text,kind,template_slug,
+            state,phase,budget_json,deadline_at,executor_boot_id,plan_json,result_revision_id,finished_at)
+          VALUES($1,$2,$3,$4,$5,'测试当前版本','template','reading-list',
+            'completed','persist','{}',now()+interval '10 minutes',$6,$7,$8,now())`,
+        [secondRunId, owner, first.project.id, randomUUID(), "b".repeat(64), randomUUID(), starterPlan("reading-list"), secondId]);
+        await client.query(`INSERT INTO nano.revisions
+          (id,owner_id,project_id,run_id,revision_no,attempt,source_key,source_hash,template_version,
+            manifest_json,source_bytes,compressed_bytes,build_status,build_json,status,template_slug)
+          VALUES($1,$2,$3,$4,2,0,$5,$6,$7,$8,$9,$10,'passed',$11,'accepted','reading-list')`,
+        [secondId, owner, first.project.id, secondRunId, secondSource.key, secondSource.sourceHash,
+          secondSource.templateVersion, JSON.stringify(secondSource.manifest), secondSource.sourceBytes, secondSource.compressedBytes,
+          JSON.stringify({ ...build, sourceHash: secondSource.sourceHash })]);
+        await client.query("UPDATE nano.projects SET current_revision_id=$3,next_revision_no=3 WHERE owner_id=$1 AND id=$2",
+          [owner, first.project.id, secondId]);
+      });
+      const rollbacks = createRollbackRepository(database, { maxSandboxes: 5 });
+      const rollback = await rollbacks.begin(owner, first.project.id, { targetRevisionId: revisionId,
+        expectedCurrentRevisionId: secondId, idempotencyKey: randomUUID() });
+      expect(rollback.operation.targetRevisionId).toBe(revisionId);
+      await rollbacks.fail(owner, first.project.id, rollback.operation.id, { code: "TEST_STOP", message: "测试回滚目标后释放占用" });
     } finally { await database.close(); await admin.end(); }
   }, 30_000);
 });

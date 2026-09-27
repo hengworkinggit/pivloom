@@ -6,7 +6,9 @@ import { createRequire } from "node:module";
 import { describe, expect, test } from "vitest";
 import { starter, starterPlan, starterSlugs } from "../../src/starters/catalog.js";
 import { starterSource } from "../../src/starters/source.js";
+import { assertManagedDataSource } from "../../src/starters/data-contract.js";
 import { REACT_TEMPLATE } from "../../src/runtime/template.js";
+import type { SourceBundle } from "../../src/storage/source.js";
 
 const require = createRequire(import.meta.url);
 const dependencies = dirname(dirname(require.resolve("react/package.json")));
@@ -14,6 +16,15 @@ const tsc = require.resolve("typescript/bin/tsc");
 const vite = resolve(dirname(require.resolve("vite/package.json")), "bin/vite.js");
 
 describe("deployable starter sources", () => {
+  test("published data templates carry a source contract; old local-only source is refused", () => {
+    const files = starterSource("event-signup", "活动报名");
+    const bundle = (contents: Record<string, string>): SourceBundle => ({ schemaVersion: 1, templateVersion: "test",
+      files: Object.entries(contents).map(([path, content]) => ({ path, content, encoding: "utf8", sha256: "a".repeat(64) })), manifest: [] });
+    expect(() => assertManagedDataSource(bundle(files), "event-signup")).not.toThrow();
+    const old = { ...files };
+    delete old["pivloom.data.json"];
+    expect(() => assertManagedDataSource(bundle(old), "event-signup")).toThrowError(/托管数据源码/);
+  });
   test("every listed template has a preserved incremental baseline and a real production build", () => {
     const root = mkdtempSync(join(tmpdir(), "pivloom-starter-test-"));
     try {

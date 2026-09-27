@@ -4,23 +4,72 @@ const common = String.raw`
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17211e;background:#f6f7f2}button,input,select{font:inherit}button{cursor:pointer}a{color:inherit}.shell{--accent:#3b7567;--wash:#e5eee9;min-height:100vh;padding:28px max(24px,calc((100vw - 1180px)/2));}.top{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:8px 0 30px;border-bottom:1px solid #d8ded8}.brand{font-weight:800;letter-spacing:-.05em;font-size:20px}.top nav{display:flex;gap:24px;color:#60726b;font-size:14px}.top nav a{text-decoration:none}.top nav a:hover{color:var(--accent)}.eyebrow{display:block;text-transform:uppercase;letter-spacing:.18em;font-size:11px;font-weight:800;color:var(--accent)}h1,h2,h3,p{margin-top:0}h1{font-size:clamp(42px,6vw,82px);line-height:1.02;letter-spacing:-.07em;margin:16px 0 22px;max-width:820px}h2{font-size:28px;letter-spacing:-.04em}h3{font-size:17px;letter-spacing:-.03em}.hero{padding:68px 0 46px}.hero p{max-width:660px;font-size:18px;line-height:1.65;color:#5f6d65}.hero-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:28px}.button,.primary{border:0;border-radius:13px;padding:12px 18px;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--accent);color:white}.button:hover,.primary:hover{filter:brightness(.92)}.button.secondary{background:var(--wash);color:var(--accent)}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.card,.panel{background:white;border:1px solid #e1e6df;border-radius:20px;padding:24px;box-shadow:0 10px 35px rgba(30,58,45,.035)}.card p,.muted{color:#68786e;line-height:1.6}.panel{margin:20px 0}.section-head{display:flex;justify-content:space-between;align-items:end;gap:16px;margin:38px 0 18px}.section-head h2{margin:0}.stat-row{display:flex;gap:12px;flex-wrap:wrap}.stat{border:1px solid #e1e6df;background:white;border-radius:16px;padding:16px 20px;min-width:130px}.stat strong{display:block;font-size:28px;letter-spacing:-.06em}.stat small{color:#78877d}.form-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.field{display:grid;gap:7px;font-size:13px;font-weight:700;color:#526359}.field input,.field select,.search{width:100%;border:1px solid #d8e0d9;border-radius:11px;background:#fff;padding:12px;color:#17211e;outline:none}.field input:focus,.field select:focus,.search:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--wash)}.form-actions{display:flex;align-items:center;gap:12px;margin-top:16px}.error{color:#aa3131;font-size:13px}.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0}.toolbar .search{flex:1;min-width:190px}.toolbar select{border:1px solid #d8e0d9;border-radius:11px;padding:11px;background:white}.list{display:grid;gap:10px}.row{display:flex;align-items:center;justify-content:space-between;gap:16px;border:1px solid #e2e7e0;background:white;border-radius:15px;padding:16px 18px}.row strong{display:block}.row small{display:block;color:#718177;margin-top:4px}.row-actions{display:flex;gap:8px;align-items:center}.mini{border:0;border-radius:9px;padding:8px 11px;background:var(--wash);color:var(--accent);font-size:12px;font-weight:700}.mini.danger{background:#fff0ed;color:#a64436}.badge{font-size:12px;font-weight:700;border-radius:999px;padding:6px 10px;background:var(--wash);color:var(--accent)}.empty{padding:36px;text-align:center;color:#7b8a80;border:1px dashed #cfd9d0;border-radius:17px}.footer{border-top:1px solid #d8ded8;margin-top:70px;padding:26px 0;color:#7a8a7f;font-size:13px}.event{--accent:#a95b3c;--wash:#faeae1;background:#fbf7f0}.reading{--accent:#697447;--wash:#eef0e1;background:#faf9f2}.portfolio{--accent:#344e7c;--wash:#e8edf8;background:#f8f9fc}.booking{--accent:#397790;--wash:#e5f0f4;background:#f7fafb}.studio{--accent:#d74f3c;--wash:#f9e8e3;background:#f8f5f1}.tasks{--accent:#6761ae;--wash:#ecebfa;background:#f8f8fd}.cover{height:160px;border-radius:13px;margin-bottom:18px;background:linear-gradient(135deg,var(--wash),#fff 62%,var(--accent));opacity:.8}.project-no{font-size:12px;letter-spacing:.15em;color:var(--accent);font-weight:800}.portfolio .card,.studio .card{min-height:230px}.studio h1{font-weight:900;text-transform:uppercase}.studio .hero{padding:92px 0}.studio .hero p{font-size:20px}.columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.column{background:var(--wash);border-radius:18px;padding:16px;min-height:220px}.column .row{display:block;margin-top:10px}.column .row-actions{margin-top:14px}.progress{height:9px;border-radius:999px;background:#e2e7df;overflow:hidden}.progress span{display:block;height:100%;background:var(--accent)}@media(max-width:700px){.shell{padding:16px}.top{padding-bottom:20px}.top nav{gap:12px;font-size:12px}.hero{padding:45px 0 28px}.grid,.columns,.form-grid{grid-template-columns:1fr}.row{align-items:start;flex-direction:column}.row-actions{width:100%;justify-content:flex-start}.section-head{margin-top:28px}.studio .hero{padding:56px 0}}
 `;
 
+const managedData = String.raw`
+export type DataMode = 'preview' | 'published' | 'unavailable';
+export async function detectDataMode(kind: 'event-signup' | 'appointments'): Promise<DataMode> {
+  if (!document.querySelector('meta[name="pivloom-published"]')) return 'preview';
+  try {
+    const response = await fetch('/__pivloom/runtime', { cache: 'no-store' });
+    if (!response.ok || !(response.headers.get('content-type') || '').includes('application/json')) return 'unavailable';
+    const value: unknown = await response.json();
+    if (value && typeof value === 'object' && 'mode' in value && 'kind' in value
+      && value.mode === 'published' && value.kind === kind) return 'published';
+  } catch { /* A broken production API must never fall back to local-only writes. */ }
+  return 'unavailable';
+}
+export async function submitRecord(collection: 'registrations' | 'bookings', data: unknown, idempotencyKey: string) {
+  const response = await fetch('/__pivloom/data/' + collection, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(data),
+  });
+  let result: { error?: { message?: string } } | null = null;
+  try { result = await response.json(); } catch { /* Preserve the generic error. */ }
+  if (!response.ok) throw new Error(result?.error?.message || '提交未完成，请稍后重试。');
+}
+export async function occupiedSlots(date: string): Promise<string[]> {
+  const response = await fetch('/__pivloom/data/slots?date=' + encodeURIComponent(date), { cache: 'no-store' });
+  if (!response.ok) throw new Error('暂时无法读取可用时段，请稍后重试。');
+  const value: { occupied?: unknown } = await response.json();
+  if (!Array.isArray(value.occupied) || !value.occupied.every(item => typeof item === 'string'))
+    throw new Error('可用时段响应无效。');
+  return value.occupied;
+}
+`;
+
 const eventSignup = String.raw`
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { detectDataMode, submitRecord, type DataMode } from './pivloom-data';
 type Entry = { id: string; name: string; email: string; category: string; confirmed: boolean };
 const key = 'pivloom-event-signup-v1';
 function load(): Entry[] { try { const value = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(value) ? value : []; } catch { return []; } }
 export default function App() {
   const [items, setItems] = useState<Entry[]>(load); const [name, setName] = useState(''); const [email, setEmail] = useState('');
   const [category, setCategory] = useState('创意沙龙'); const [search, setSearch] = useState(''); const [filter, setFilter] = useState('all'); const [error, setError] = useState('');
-  useEffect(() => { localStorage.setItem(key, JSON.stringify(items)); }, [items]);
+  const [mode, setMode] = useState<DataMode | null>(null); const [busy, setBusy] = useState(false); const [success, setSuccess] = useState('');
+  const pending = useRef<{ key: string; payload: string } | null>(null);
+  useEffect(() => { let active = true; void detectDataMode('event-signup').then(value => { if (active) setMode(value); }); return () => { active = false; }; }, []);
+  useEffect(() => { if (mode === 'preview') localStorage.setItem(key, JSON.stringify(items)); }, [items, mode]);
   const shown = useMemo(() => items.filter(item => (filter === 'all' || (filter === 'confirmed') === item.confirmed) && (item.name + item.email + item.category).toLowerCase().includes(search.toLowerCase())), [items, filter, search]);
-  function add(event: React.FormEvent) { event.preventDefault(); if (!name.trim() || !email.trim()) { setError('请填写姓名和邮箱'); return; }
+  async function add(event: React.FormEvent) { event.preventDefault(); if (busy || !name.trim() || !email.trim()) { setError('请填写姓名和邮箱'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setError('请输入有效的邮箱地址'); return; }
-    setItems(list => [{ id: crypto.randomUUID(), name: name.trim(), email: email.trim(), category, confirmed: false }, ...list]); setName(''); setEmail(''); setError(''); }
-  return <main className="shell event"><header className="top"><span className="brand">gather<span style={{color:'var(--accent)'}}>.</span></span><nav><a href="#signup">报名</a><a href="#attendees">参与者</a></nav></header>
-    <section className="hero"><span className="eyebrow">EVENTS / COMMUNITY</span><h1>让每次相遇，<br/>都值得期待。</h1><p>一处轻巧的活动报名工作台。收集参与者信息，确认席位，随时掌握现场人数。</p><div className="stat-row"><div className="stat"><strong>{items.length}</strong><small>总报名</small></div><div className="stat"><strong>{items.filter(item => item.confirmed).length}</strong><small>已确认</small></div></div></section>
-    <section id="signup" className="panel"><h2>新增报名</h2><form onSubmit={add}><div className="form-grid"><label className="field">姓名<input value={name} onChange={event => setName(event.target.value)} placeholder="参与者姓名" required /></label><label className="field">邮箱<input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="name@example.com" required /></label><label className="field">活动类别<select value={category} onChange={event => setCategory(event.target.value)}><option>创意沙龙</option><option>产品分享</option><option>周末工作坊</option></select></label></div><div className="form-actions"><button className="primary" type="submit">添加报名 →</button>{error && <span className="error" role="alert">{error}</span>}</div></form></section>
-    <section id="attendees"><div className="section-head"><div><span className="eyebrow">ATTENDEES</span><h2>报名名单</h2></div><span className="muted">{shown.length} 位参与者</span></div><div className="toolbar"><input className="search" aria-label="搜索报名" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索姓名、邮箱或类别"/><select aria-label="筛选状态" value={filter} onChange={event => setFilter(event.target.value)}><option value="all">全部状态</option><option value="confirmed">已确认</option><option value="pending">待确认</option></select></div><div className="list">{shown.map(item => <article className="row" key={item.id}><div><strong>{item.name}</strong><small>{item.email} · {item.category}</small></div><div className="row-actions"><span className="badge">{item.confirmed ? '已确认' : '待确认'}</span><button className="mini" onClick={() => setItems(list => list.map(row => row.id === item.id ? {...row, confirmed: !row.confirmed} : row))}>{item.confirmed ? '撤销确认' : '确认席位'}</button><button className="mini danger" onClick={() => setItems(list => list.filter(row => row.id !== item.id))}>删除</button></div></article>)}{shown.length === 0 && <div className="empty">还没有符合条件的报名，先添加一位参与者吧。</div>}</div></section><footer className="footer">gather. · 所有信息仅保存在此浏览器</footer></main>;
+    const payload = { name: name.trim(), email: email.trim(), category }; setBusy(true); setError(''); setSuccess('');
+    try {
+      if (mode === 'published') {
+        const value = JSON.stringify(payload);
+        if (!pending.current || pending.current.payload !== value) pending.current = { key: crypto.randomUUID(), payload: value };
+        await submitRecord('registrations', payload, pending.current.key); pending.current = null;
+        setSuccess('报名已提交，感谢参与。');
+      } else if (mode === 'preview') setItems(list => [{ id: crypto.randomUUID(), ...payload, confirmed: false }, ...list]);
+      setName(''); setEmail('');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '提交未完成，请稍后重试。'); }
+    finally { setBusy(false); }
+  }
+  if (mode === null) return <main className="shell event"><p role="status">正在准备应用…</p></main>;
+  if (mode === 'unavailable') return <main className="shell event"><h1>数据服务暂时不可用</h1><p>请稍后刷新页面，当前输入不会被当作已提交的报名。</p></main>;
+  return <main className="shell event"><header className="top"><span className="brand">gather<span style={{color:'var(--accent)'}}>.</span></span><nav><a href="#signup">报名</a>{mode === 'preview' && <a href="#attendees">参与者</a>}</nav></header>
+    <section className="hero"><span className="eyebrow">EVENTS / COMMUNITY</span><h1>让每次相遇，<br/>都值得期待。</h1><p>{mode === 'published' ? '填写信息完成报名。报名记录会安全地交给活动组织者处理。' : '一处轻巧的活动报名工作台。收集参与者信息，确认席位，随时掌握现场人数。'}</p>{mode === 'preview' && <div className="stat-row"><div className="stat"><strong>{items.length}</strong><small>总报名</small></div><div className="stat"><strong>{items.filter(item => item.confirmed).length}</strong><small>已确认</small></div></div>}</section>
+    <section id="signup" className="panel"><h2>{mode === 'published' ? '活动报名' : '新增报名'}</h2><form onSubmit={add}><div className="form-grid"><label className="field">姓名<input value={name} onChange={event => setName(event.target.value)} placeholder="参与者姓名" required /></label><label className="field">邮箱<input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="name@example.com" required /></label><label className="field">活动类别<select value={category} onChange={event => setCategory(event.target.value)}><option>创意沙龙</option><option>产品分享</option><option>周末工作坊</option></select></label></div><div className="form-actions"><button className="primary" type="submit" disabled={busy}>{busy ? '提交中…' : '提交报名 →'}</button>{error && <span className="error" role="alert">{error}</span>}{success && <span role="status">{success}</span>}</div></form></section>
+    {mode === 'preview' && <section id="attendees"><div className="section-head"><div><span className="eyebrow">ATTENDEES</span><h2>报名名单</h2></div><span className="muted">{shown.length} 位参与者</span></div><div className="toolbar"><input className="search" aria-label="搜索报名" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索姓名、邮箱或类别"/><select aria-label="筛选状态" value={filter} onChange={event => setFilter(event.target.value)}><option value="all">全部状态</option><option value="confirmed">已确认</option><option value="pending">待确认</option></select></div><div className="list">{shown.map(item => <article className="row" key={item.id}><div><strong>{item.name}</strong><small>{item.email} · {item.category}</small></div><div className="row-actions"><span className="badge">{item.confirmed ? '已确认' : '待确认'}</span><button className="mini" onClick={() => setItems(list => list.map(row => row.id === item.id ? {...row, confirmed: !row.confirmed} : row))}>{item.confirmed ? '撤销确认' : '确认席位'}</button><button className="mini danger" onClick={() => setItems(list => list.filter(row => row.id !== item.id))}>删除</button></div></article>)}{shown.length === 0 && <div className="empty">还没有符合条件的报名，先添加一位参与者吧。</div>}</div></section>}<footer className="footer">{mode === 'published' ? 'gather. · 报名信息仅供活动组织者管理' : 'gather. · Preview 数据仅保存在此浏览器'}</footer></main>;
 }
 `;
 
@@ -49,14 +98,52 @@ export default function App() { return <main className="shell portfolio"><header
 `;
 
 const appointments = String.raw`
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { detectDataMode, occupiedSlots, submitRecord, type DataMode } from './pivloom-data';
 type Booking = { id: string; date: string; time: string; name: string; contact: string; confirmed: boolean };
 const key = 'pivloom-appointments-v1'; const slots = ['09:00', '10:30', '13:00', '14:30', '16:00'];
 function load(): Booking[] { try { const value = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(value) ? value : []; } catch { return []; } }
 export default function App() { const [bookings, setBookings] = useState<Booking[]>(load); const [date, setDate] = useState(''); const [time, setTime] = useState(slots[0]); const [name, setName] = useState(''); const [contact, setContact] = useState(''); const [error, setError] = useState('');
-  useEffect(() => { localStorage.setItem(key, JSON.stringify(bookings)); }, [bookings]); const sorted = useMemo(() => [...bookings].sort((a,b) => (a.date + a.time).localeCompare(b.date + b.time)), [bookings]);
-  function add(event: React.FormEvent) { event.preventDefault(); if (!date || !name.trim() || !contact.trim()) { setError('请填写完整预约信息'); return; } if (bookings.some(item => item.date === date && item.time === time)) { setError('这个时段已被预约，请选择其他时间'); return; } setBookings(list => [...list, { id: crypto.randomUUID(), date, time, name: name.trim(), contact: contact.trim(), confirmed: false }]); setName(''); setContact(''); setError(''); }
-  return <main className="shell booking"><header className="top"><span className="brand">time well spent.</span><nav><a href="#book">立即预约</a><a href="#schedule">预约列表</a></nav></header><section className="hero"><span className="eyebrow">APPOINTMENT STUDIO</span><h1>预约属于你的时间。</h1><p>选择合适的日子与时段，留下一点联系信息。简单安排，更从容地见面。</p><div className="stat-row"><div className="stat"><strong>{bookings.length}</strong><small>全部预约</small></div><div className="stat"><strong>{bookings.filter(item => item.confirmed).length}</strong><small>已确认</small></div></div></section><section id="book" className="panel"><h2>预约新时段</h2><form onSubmit={add}><div className="form-grid"><label className="field">日期<input type="date" min={new Date().toISOString().slice(0,10)} value={date} onChange={event => setDate(event.target.value)} required /></label><label className="field">时间段<select value={time} onChange={event => setTime(event.target.value)}>{slots.map(slot => <option key={slot}>{slot}</option>)}</select></label><label className="field">姓名<input value={name} onChange={event => setName(event.target.value)} placeholder="预约人姓名" required /></label><label className="field">联系方式<input value={contact} onChange={event => setContact(event.target.value)} placeholder="邮箱或电话" required /></label></div><div className="form-actions"><button className="primary" type="submit">确认预约 →</button>{error && <span className="error" role="alert">{error}</span>}</div></form></section><section id="schedule"><div className="section-head"><div><span className="eyebrow">YOUR SCHEDULE</span><h2>预约列表</h2></div></div><div className="list">{sorted.map(item => <article className="row" key={item.id}><div><strong>{item.date} · {item.time}</strong><small>{item.name} · {item.contact}</small></div><div className="row-actions"><span className="badge">{item.confirmed ? '已确认' : '待确认'}</span><button className="mini" onClick={() => setBookings(list => list.map(row => row.id === item.id ? {...row, confirmed: !row.confirmed} : row))}>{item.confirmed ? '撤销确认' : '确认预约'}</button><button className="mini danger" onClick={() => setBookings(list => list.filter(row => row.id !== item.id))}>取消</button></div></article>)}{sorted.length === 0 && <div className="empty">还没有预约，选择一个时间开始吧。</div>}</div></section><footer className="footer">time well spent. · 预约数据保存在此浏览器</footer></main>; }
+  const [mode, setMode] = useState<DataMode | null>(null); const [busy, setBusy] = useState(false); const [success, setSuccess] = useState(''); const [occupied, setOccupied] = useState<string[]>([]);
+  const pending = useRef<{ key: string; payload: string } | null>(null);
+  useEffect(() => { let active = true; void detectDataMode('appointments').then(value => { if (active) setMode(value); }); return () => { active = false; }; }, []);
+  useEffect(() => { if (mode === 'preview') localStorage.setItem(key, JSON.stringify(bookings)); }, [bookings, mode]);
+  useEffect(() => { if (mode !== 'published' || !date) return; let active = true; void occupiedSlots(date).then(value => { if (active) setOccupied(value); }).catch(() => { if (active) setError('暂时无法读取可用时段，请稍后重试。'); }); return () => { active = false; }; }, [mode, date]);
+  useEffect(() => { if (mode === 'published' && occupied.includes(time)) setTime(slots.find(slot => !occupied.includes(slot)) || slots[0]); }, [mode, occupied, time]);
+  const sorted = useMemo(() => [...bookings].sort((a,b) => (a.date + a.time).localeCompare(b.date + b.time)), [bookings]);
+  async function add(event: React.FormEvent) { event.preventDefault();
+    if (busy || !date || !name.trim() || !contact.trim()) { setError('请填写完整预约信息'); return; }
+    if (mode === 'preview' && bookings.some(item => item.date === date && item.time === time)) { setError('这个时段已被预约，请选择其他时间'); return; }
+    const payload = { date, time, name: name.trim(), contact: contact.trim() }; setBusy(true); setError(''); setSuccess('');
+    try {
+      if (mode === 'published') {
+        const value = JSON.stringify(payload);
+        if (!pending.current || pending.current.payload !== value) pending.current = { key: crypto.randomUUID(), payload: value };
+        await submitRecord('bookings', payload, pending.current.key); pending.current = null;
+        setOccupied(list => [...list, time]); setSuccess('预约已提交，请等待确认。');
+      } else if (mode === 'preview') setBookings(list => [...list, { id: crypto.randomUUID(), ...payload, confirmed: false }]);
+      setName(''); setContact('');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '预约未完成，请稍后重试。'); }
+    finally { setBusy(false); }
+  }
+  if (mode === null) return <main className="shell booking"><p role="status">正在准备应用…</p></main>;
+  if (mode === 'unavailable') return <main className="shell booking"><h1>数据服务暂时不可用</h1><p>请稍后刷新页面，当前输入不会被当作已提交的预约。</p></main>;
+  return <main className="shell booking">
+    <header className="top"><span className="brand">time well spent.</span><nav><a href="#book">立即预约</a>{mode === 'preview' && <a href="#schedule">预约列表</a>}</nav></header>
+    <section className="hero"><span className="eyebrow">APPOINTMENT STUDIO</span><h1>预约属于你的时间。</h1><p>选择合适的日子与时段，留下一点联系信息。简单安排，更从容地见面。</p>
+      {mode === 'preview' && <div className="stat-row"><div className="stat"><strong>{bookings.length}</strong><small>全部预约</small></div><div className="stat"><strong>{bookings.filter(item => item.confirmed).length}</strong><small>已确认</small></div></div>}
+    </section>
+    <section id="book" className="panel"><h2>预约新时段</h2><form onSubmit={add}><div className="form-grid">
+      <label className="field">日期<input type="date" min={new Date().toISOString().slice(0,10)} value={date} onChange={event => setDate(event.target.value)} required /></label>
+      <label className="field">时间段<select value={time} onChange={event => setTime(event.target.value)}>{slots.map(slot => <option key={slot} disabled={mode === 'published' && occupied.includes(slot)}>{slot}</option>)}</select></label>
+      <label className="field">姓名<input value={name} onChange={event => setName(event.target.value)} placeholder="预约人姓名" required /></label>
+      <label className="field">联系方式<input value={contact} onChange={event => setContact(event.target.value)} placeholder="邮箱或电话" required /></label>
+    </div><div className="form-actions"><button className="primary" type="submit" disabled={busy || mode === 'published' && occupied.length === slots.length}>{busy ? '提交中…' : '确认预约 →'}</button>{error && <span className="error" role="alert">{error}</span>}{success && <span role="status">{success}</span>}</div></form>
+      {mode === 'published' && occupied.length === slots.length && <p role="status">这一天的预约时段已满，请选择其他日期。</p>}
+    </section>
+    {mode === 'preview' && <section id="schedule"><div className="section-head"><div><span className="eyebrow">YOUR SCHEDULE</span><h2>预约列表</h2></div></div><div className="list">{sorted.map(item => <article className="row" key={item.id}><div><strong>{item.date} · {item.time}</strong><small>{item.name} · {item.contact}</small></div><div className="row-actions"><span className="badge">{item.confirmed ? '已确认' : '待确认'}</span><button className="mini" onClick={() => setBookings(list => list.map(row => row.id === item.id ? {...row, confirmed: !row.confirmed} : row))}>{item.confirmed ? '撤销确认' : '确认预约'}</button><button className="mini danger" onClick={() => setBookings(list => list.filter(row => row.id !== item.id))}>取消</button></div></article>)}{sorted.length === 0 && <div className="empty">还没有预约，选择一个时间开始吧。</div>}</div></section>}
+    <footer className="footer">{mode === 'published' ? 'time well spent. · 预约信息仅供服务提供者管理' : 'time well spent. · Preview 数据仅保存在此浏览器'}</footer>
+  </main>; }
 `;
 
 const creativeStudio = String.raw`
@@ -83,12 +170,16 @@ const applications: Record<StarterSlug, string> = {
 
 export function starterSource(slug: StarterSlug, title: string): Record<string, string> {
   const localData = ["event-signup", "reading-list", "appointments", "task-board"].includes(slug);
+  const serverData = slug === "event-signup" || slug === "appointments";
   return {
     "index.html": '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>' + title + '</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>',
     "src/App.tsx": applications[slug],
     "src/style.css": common.replaceAll("{", " {\n  ").replaceAll(";", ";\n  ").replaceAll("}", "\n}\n"),
-    "README.md": `# ${title}\n\n这是可编辑的 React + Vite 模板源码。项目可在 Pivloom 中预览和发布；本地运行可执行 \`npm ci\`、\`npm run build\`、\`npm run preview\`。\n\n${localData
-      ? "数据保存在当前访问者的浏览器 localStorage 中，不会跨设备或跨用户共享。需要共享数据时，请继续为项目添加后端。"
+    ...(serverData ? { "src/pivloom-data.ts": managedData,
+      "pivloom.data.json": JSON.stringify({ schemaVersion: 1, kind: slug, collection: slug === "event-signup" ? "registrations" : "bookings" }, null, 2) + "\n" } : {}),
+    "README.md": `# ${title}\n\n这是可编辑的 React + Vite 模板源码。项目可在 Pivloom 中预览和发布；本地运行可执行 \`npm ci\`、\`npm run build\`、\`npm run preview\`。\n\n${serverData
+      ? "Preview 的示例记录保存在当前浏览器。通过 Pivloom 发布后，访客提交写入项目专属的托管数据，项目主人在工作台管理；Preview 记录不会自动导入线上。项目源码版本回滚不会删除线上记录。"
+      : localData ? "数据保存在当前访问者的浏览器 localStorage 中，不会跨设备或跨用户共享。需要共享数据时，请继续为项目添加后端。"
       : "页面中的示例文案、案例和联系邮箱请在发布前替换为自己的内容。"}\n`,
   };
 }

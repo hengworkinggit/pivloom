@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowUp, Check, ChevronDown, Copy, ExternalLink, History, ListChecks, LoaderCircle, MessageSquare, Monitor, PanelLeftClose, PanelLeftOpen, RotateCcw, TriangleAlert, X } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, Copy, Database, ExternalLink, History, ListChecks, LoaderCircle, MessageSquare, Monitor, PanelLeftClose, PanelLeftOpen, RotateCcw, TriangleAlert, X } from "lucide-react";
 import { getApiWorkspace } from "@/lib/workspace";
 import { WorkspaceError } from "@/lib/api-workspace";
 import { usePrivateQuery, useWorkspaceAuth } from "@/lib/use-workspace";
@@ -28,6 +28,8 @@ import { createVersionHistoryApi } from "@/lib/version-history-api";
 import { useRollback } from "@/lib/use-rollback";
 import { VersionHistoryPanel } from "./version-history";
 import { summarizeTasks } from "@/lib/task-queue";
+import { createAppDataApi } from "@/lib/app-data-api";
+import { AppDataPanel } from "./app-data-panel";
 import type { Revision, TaskListItem } from "@pivloom/contracts";
 
 const rejectedSubmissions = new Set(["INVALID_INPUT", "PROJECT_BUSY", "CLEANUP_PENDING", "STALE_BASE", "IDEMPOTENCY_CONFLICT", "SERVICE_BUSY", "QUOTA_EXCEEDED", "NOT_FOUND", "UNAUTHENTICATED", "MODEL_PROFILE_NOT_FOUND", "MODEL_CONFIG_CHANGED", "MODEL_NOT_VERIFIED", "MODEL_VISION_NOT_VERIFIED", "MODEL_CONFIGURATION_MISSING"]);
@@ -54,6 +56,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const ui = useUiPreferences();
   const ownerId = user!.id;
   const state = useGenerationState(projectId);
+  const appData = useMemo(() => createAppDataApi(api), [api]);
   const models = useMemo(() => createModelsApi(api), [api]);
   const tasksLoader = useCallback(() => state.generation.listTasks(), [state.generation]);
   const tasksQuery = usePrivateQuery(tasksLoader);
@@ -109,7 +112,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const [publishing, setPublishing] = useState(false);
   const [publicationError, setPublicationError] = useState("");
   const [actionError, setActionError] = useState("");
-  const [drawer, setDrawer] = useState<"history" | "checks" | "publish" | "tasks" | null>(null);
+  const [drawer, setDrawer] = useState<"history" | "checks" | "publish" | "data" | "tasks" | null>(null);
   const [hashNotice, setHashNotice] = useState("");
   const [mobileTab, setMobileTab] = useState<"chat" | "result">("chat");
   const [collapsed, setCollapsed] = useState(false);
@@ -118,6 +121,8 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const [selectedRevisionId, setSelectedRevisionId] = useState(() => readCandidateBase(ownerId, projectId)?.revisionId ?? "");
   const [comparisonTarget, setComparisonTarget] = useState<{ from: string; to: string; key: string } | null>(null);
   const project = state.view?.project;
+  const currentDataSourceReady = !project?.dataProfile || Boolean(project.currentRevision?.manifest.some((file) => file.path === "pivloom.data.json")
+    && project.currentRevision?.manifest.some((file) => file.path === "src/pivloom-data.ts"));
   const run = state.view?.run;
   const historyApi = useMemo(() => createVersionHistoryApi(api), [api]);
   const historyLoader = useCallback(() => historyApi.list(projectId), [historyApi, projectId]);
@@ -372,7 +377,8 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
     </>}
     {project.latestCandidate && project.latestCandidate.id !== revision?.id && <Button type="button" variant="outline" size="sm"
       aria-label={`查看候选 v${project.latestCandidate.revisionNo}`} onClick={() => setSelectedRevisionId(project.latestCandidate!.id)}>查看候选 v{project.latestCandidate.revisionNo}</Button>}
-    {project.currentRevision && <button type="button" className="a-toolbar-publish" onClick={() => setDrawer("publish")}>发布<ChevronDown size={12} /></button>}
+      {project.currentRevision && <button type="button" className="a-toolbar-publish" onClick={() => setDrawer("publish")}>发布<ChevronDown size={12} /></button>}
+      {project.dataProfile && <button type="button" className="a-toolbar-check" onClick={() => setDrawer("data")}><Database size={14} />应用数据</button>}
     {hashNotice && <span className="a-toolbar-notice" role="status">{hashNotice}</span>}
   </>;
   return <div className="workbench-page a-workbench-page">
@@ -473,6 +479,8 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
     {drawer === "publish" && <WorkbenchDrawer key="publish" title="发布作品" onClose={() => setDrawer(null)}>
       {project.currentRevision && <div className="a-publish-panel"><div className="a-publish-icon"><ExternalLink size={26} /></div><h3>让作品拥有自己的地址</h3>
         <p>{publicationQuery.data?.revisionId === project.currentRevision.id ? "当前版本已永久发布；工作台上的预览仍是会到期的临时预览。" : publicationQuery.data ? "已发布作品仍是之前的版本；回滚不会自动更新它。" : "工作台上的预览是会到期的临时预览；正式发布后可用独立域名长期访问。"}</p>
+        {project.dataProfile && <p className="a-drawer-context">{project.dataProfile === "event-signup" ? "报名" : "预约"}的 Preview 示例数据不会进入线上。发布后访客提交由本项目的服务端数据区保存，可在“应用数据”管理；更换或回滚源码不会自动删除这些记录。</p>}
+        {!currentDataSourceReady && <p className="inline-error" role="alert">这个旧模板版本仍只使用浏览器数据。请<Link href={`/templates/${project.dataProfile}`}>使用最新模板</Link>重新创建项目，或在本项目增量加入托管数据代码后再发布。</p>}
         <div className="a-publish-version"><span>当前源码版本</span><strong>v{project.currentRevision.revisionNo}<code>{project.currentRevision.sourceHash.slice(0, 8)}</code></strong></div>
         {/* Which revision the permanent site actually serves. It is not always
             the current one, and the user cannot tell them apart otherwise. */}
@@ -485,9 +493,12 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
           </div>;
         })()}
         {publicationQuery.data && <a className="a-published-link" href={publicationQuery.data.url} target="_blank" rel="noopener noreferrer">访问已发布作品<ExternalLink size={15} /></a>}
-        {publicationQuery.data?.revisionId !== project.currentRevision.id && <Button disabled={publishing || busy} onClick={() => void publish()}>{publishing ? <><LoaderCircle className="spin" size={14} />正在发布…</> : publicationQuery.data ? "发布当前新版本" : "永久发布当前版本"}</Button>}
+        {publicationQuery.data?.revisionId !== project.currentRevision.id && <Button disabled={publishing || busy || !currentDataSourceReady} onClick={() => void publish()}>{publishing ? <><LoaderCircle className="spin" size={14} />正在发布…</> : publicationQuery.data ? "发布当前新版本" : "永久发布当前版本"}</Button>}
         {(publicationError || publicationQuery.error) && <p className="inline-error" role="alert">{publicationError || publicationQuery.error}</p>}
       </div>}
+    </WorkbenchDrawer>}
+    {drawer === "data" && project.dataProfile && <WorkbenchDrawer key="data" title="应用数据" onClose={() => setDrawer(null)}>
+      <AppDataPanel api={appData} projectId={projectId} kind={project.dataProfile} />
     </WorkbenchDrawer>}
     {drawer === "tasks" && <WorkbenchDrawer key="tasks" title={ui.text("我的任务", "My tasks")} onClose={() => setDrawer(null)}>
       <p className="a-drawer-context">{ui.text("这里只显示你自己的任务。排队中的任务不占用沙箱，取消后不会执行。",
