@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowUp, Check, ChevronDown, Copy, Database, ExternalLink, History, ListChecks, LoaderCircle, MessageSquare, Monitor, PanelLeftClose, PanelLeftOpen, RotateCcw, TriangleAlert, X } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, Copy, Database, ExternalLink, ListChecks, LoaderCircle, MessageSquare, Monitor, PanelLeftClose, PanelLeftOpen, RotateCcw, TriangleAlert, X } from "lucide-react";
 import { getApiWorkspace } from "@/lib/workspace";
 import { WorkspaceError } from "@/lib/api-workspace";
 import { usePrivateQuery, useWorkspaceAuth } from "@/lib/use-workspace";
@@ -120,9 +120,11 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const [collapsed, setCollapsed] = useState(false);
   const [candidateBase, setCandidateBase] = useState<CandidateBaseSelection | null>(() => readCandidateBase(ownerId, projectId));
   const [candidateBaseStored, setCandidateBaseStored] = useState(true);
-  const [selectedRevisionId, setSelectedRevisionId] = useState(() => readCandidateBase(ownerId, projectId)?.revisionId ?? "");
+  const [viewSelection, setViewSelection] = useState<{ revisionId: string; currentAtSelection: string | null } | null>(null);
   const [comparisonTarget, setComparisonTarget] = useState<{ from: string; to: string; key: string } | null>(null);
   const project = state.view?.project;
+  const selectedRevisionId = viewSelection?.currentAtSelection === project?.project.currentRevisionId
+    ? viewSelection?.revisionId : null;
   const personalData = project?.dataProfile === "reading-list" || project?.dataProfile === "task-board";
   const currentDataSourceReady = !project?.dataProfile || Boolean(project.currentRevision?.manifest.some((file) => file.path === "pivloom.data.json")
     && project.currentRevision?.manifest.some((file) => file.path === "src/pivloom-data.ts"));
@@ -169,6 +171,13 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   }, [revision?.id, revision?.sourceHash, revision?.runId, revision?.attempt, snapshotCheck?.id, state.generation]);
   const selectedCheckQuery = usePrivateQuery(selectedCheckLoader);
   const selectedCheck = snapshotCheck ?? selectedCheckQuery.data;
+  const currentRevisionId = project?.currentRevision?.id;
+  const currentCheckLoader = useCallback(() => currentRevisionId && revision?.id !== currentRevisionId
+    ? state.generation.getCheck(currentRevisionId) : Promise.resolve(null),
+  [currentRevisionId, revision?.id, state.generation]);
+  const currentCheckQuery = usePrivateQuery(currentCheckLoader);
+  const currentPassedGroups = currentCheckQuery.data?.verdict === "passed" && currentCheckQuery.data.groups
+    ? `${currentCheckQuery.data.groups.filter((group) => group.verdict === "passed").length}/${currentCheckQuery.data.groups.length}` : null;
   const checkBadge = selectedCheckQuery.error ? "检查异常" : selectedCheck?.groups ? `${selectedCheck.groups.filter((group) => group.verdict === "passed").length}/${selectedCheck.groups.length}`
     : selectedCheck?.verdict === "passed" ? "已通过" : revision?.templateSlug && revision.status === "accepted" ? "模板已构建" : "检查";
   const snapshotPreview = project?.preview;
@@ -187,9 +196,9 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const refreshPreview = previewQuery.refresh;
   const refreshPublication = publicationQuery.refresh;
   const refreshProject = state.refresh;
-  const onRollbackCommitted = useCallback(async (targetRevisionId: string) => {
+  const onRollbackCommitted = useCallback(async () => {
     setCandidateBase(null); saveCandidateBase(ownerId, projectId, null);
-    setSelectedRevisionId(targetRevisionId);
+    setViewSelection(null);
     setComparisonTarget(null);
     await refreshProject();
     refreshHistory();
@@ -220,7 +229,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   function chooseCandidateBase(value: Revision | null) {
     const selection = value ? { revisionId: value.id, expectedCurrentRevisionId: project!.project.currentRevisionId } : null;
     setCandidateBase(selection); setCandidateBaseStored(saveCandidateBase(ownerId, projectId, selection));
-    setSelectedRevisionId(value?.id ?? project?.project.currentRevisionId ?? "");
+    setViewSelection(value ? { revisionId: value.id, currentAtSelection: project?.project.currentRevisionId ?? null } : null);
     setDrawer(null);
   }
   async function send(replay?: RunSubmission) {
@@ -376,28 +385,21 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   if (!project) return <><AppHeader /><div className="page-loader" aria-label={ui.text("正在打开项目", "Opening project")}><LoaderCircle className="spin" size={24} /></div></>;
   const toolbarExtras = <>
     {revision && <>
-      <button type="button" className="a-toolbar-version" onClick={() => setDrawer("history")} aria-label={`版本历史，正在查看 v${revision.revisionNo}`}>
-        v{revision.revisionNo}<span>{revision.id === project.project.currentRevisionId ? "当前" : revision.status !== "accepted" ? state.active && revision.runId === run?.id ? "检查中" : "未通过" : "历史"}</span><ChevronDown size={12} />
+      <button type="button" className="a-toolbar-version" onClick={() => setDrawer("history")} aria-label={`选择查看版本，当前显示 v${revision.revisionNo}`}>
+        {revision.id === project.project.currentRevisionId ? "正式版" : "正在查看"} v{revision.revisionNo}<span>{revision.id === project.project.currentRevisionId ? "当前" : revision.status !== "accepted" ? state.active && revision.runId === run?.id ? "检查中" : "未通过" : "历史"}</span><ChevronDown size={12} />
       </button>
       {/* Viewing a historical version must never hide which version is really
           current: the two are labelled separately, and this returns to it. */}
-      {revision.id !== project.project.currentRevisionId && project.currentRevision && <button type="button" className="a-toolbar-current" onClick={() => setSelectedRevisionId(project.currentRevision!.id)} aria-label={`回到当前版本 v${project.currentRevision.revisionNo}`}>
-        {ui.text("当前", "Current")} v{project.currentRevision.revisionNo}<code>{project.currentRevision.sourceHash.slice(0, 8)}</code>
+      {revision.id !== project.project.currentRevisionId && project.currentRevision && <button type="button" className="a-toolbar-current" onClick={() => setViewSelection(null)} aria-label={`返回当前正式版本 v${project.currentRevision.revisionNo}`}>
+        返回正式版 v{project.currentRevision.revisionNo}<code>{project.currentRevision.sourceHash.slice(0, 8)}</code>
       </button>}
       <button type="button" className="a-toolbar-hash" title={revision.sourceHash} onClick={() => void copySourceHash()} aria-label="复制完整源码 hash">
         <span>hash</span><code data-testid="workbench-source-hash-short">{revision.sourceHash.slice(0, 8)}</code><Copy size={12} />
       </button>
-      <button type="button" className="a-toolbar-icon" title="版本历史" aria-label="版本历史" onClick={() => setDrawer("history")}><History size={16} /></button>
-      <button type="button" className="a-toolbar-check" aria-label={`检查结果 ${checkBadge}`} onClick={() => setDrawer("checks")}><Check size={14} />{project.latestCheckHistorical && revision.id === project.project.currentRevisionId ? "历史检查" : checkBadge}</button>
-      {revision.status !== "accepted" && revision.buildStatus === "passed" && (candidateBase?.revisionId === revision.id
-        ? <span className="a-toolbar-notice" role="status">下次从 v{revision.revisionNo} 修改</span>
-        : <Button type="button" variant="outline" size="sm" disabled={busy || !!unknownSubmission}
-          aria-label={`从版本 v${revision.revisionNo} 继续修改`}
-          onClick={() => chooseCandidateBase(revision)}>从 v{revision.revisionNo} 继续修改</Button>)}
+      <button type="button" className="a-toolbar-check" aria-label={`查看 v${revision.revisionNo} 的检查结果`} onClick={() => setDrawer("checks")}><Check size={14} />{revision.id === project.project.currentRevisionId
+        ? project.latestCheckHistorical ? "历史检查" : `检查 ${checkBadge}`
+        : revision.status === "accepted" ? "历史检查" : "未完成检查"}</button>
     </>}
-    {project.latestCandidate && project.latestCandidate.id !== revision?.id && <Button type="button" variant="outline" size="sm"
-      aria-label={`${state.active && project.latestCandidate.runId === run?.id ? "查看正在检查的版本" : "查看未通过的版本"} v${project.latestCandidate.revisionNo}`}
-      onClick={() => setSelectedRevisionId(project.latestCandidate!.id)}>{state.active && project.latestCandidate.runId === run?.id ? "查看检查中" : "查看未通过"} v{project.latestCandidate.revisionNo}</Button>}
       {project.currentRevision && <button type="button" className="a-toolbar-publish" onClick={() => setDrawer("publish")}>发布<ChevronDown size={12} /></button>}
       {project.dataProfile && !personalData && <button type="button" className="a-toolbar-check" onClick={() => setDrawer("data")}><Database size={14} />应用数据</button>}
     {hashNotice && <span className="a-toolbar-notice" role="status">{hashNotice}</span>}
@@ -480,7 +482,8 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
       {revisions.length ? <VersionHistoryPanel revisions={revisions} currentRevisionId={project.project.currentRevisionId} selectedRevision={revision}
         messages={project.messages} historyError={historyQuery.error} currentFromRollback={!!project.latestCheckHistorical}
         continueFromRevisionId={candidateBase?.revisionId}
-        onSelect={(id) => { setSelectedRevisionId(id); setComparisonTarget(null); }}
+        onContinueFrom={chooseCandidateBase} continueDisabled={busy || !!unknownSubmission}
+        onSelect={(id) => { setViewSelection({ revisionId: id, currentAtSelection: project.project.currentRevisionId }); setComparisonTarget(null); }}
         onCompare={(from, to) => setComparisonTarget({ from, to, key: crypto.randomUUID() })}
         comparison={comparisonTarget?.to === revision?.id ? diffQuery.data ?? null : null}
         comparing={!!comparisonTarget && !diffQuery.data && !diffQuery.error}
@@ -493,7 +496,8 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
           clearResult: rollback.clearResult }} /> : <p>还没有保存的版本。</p>}
     </WorkbenchDrawer>}
     {drawer === "checks" && <WorkbenchDrawer key="checks" title="检查结果" onClose={() => setDrawer(null)}>
-      {revision ? <>{revision.id !== project.project.currentRevisionId ? <p className="a-drawer-context">正在查看{revision.status === "accepted" ? "历史" : "待确认"} v{revision.revisionNo} 的检查记录；当前正式版本不会因此改变。</p>
+      {revision ? <>{revision.id !== project.project.currentRevisionId ? <p className="a-drawer-context">正在查看{revision.status === "accepted" ? "历史版本" : "未完成尝试"} v{revision.revisionNo} 的旧检查；{project.currentRevision
+        ? `当前正式版是 v${project.currentRevision.revisionNo}${currentPassedGroups ? `，检查 ${currentPassedGroups} 组通过` : ""}` : "目前没有正式版本"}。仅查看不会切换版本或发布内容。</p>
         : project.latestCheckHistorical ? <p className="a-drawer-context">这是回滚目标原 Run 的历史检查；重建后的预览尚未重新验收。</p> : null}
         {revision.templateSlug && revision.status === "accepted"
           ? <p className="a-drawer-context">这是从现成模板导入的版本，已通过类型检查、生产构建和页面打开验证。模板导入没有调用模型，也没有执行完整的增量行为验收。</p>

@@ -24,24 +24,26 @@ const rollbackPhases: Record<RollbackOperation["status"], [string, string]> = {
 
 function statusLabel(revision: Revision, currentRevisionId: string | null, english: boolean) {
   if (revision.id === currentRevisionId) return english ? "Current" : "当前";
-  return english ? { accepted: "Accepted", candidate: "Pending", rejected: "Did not pass" }[revision.status]
-    : { accepted: "已验收", candidate: "待确认", rejected: "未通过" }[revision.status];
+  return english ? { accepted: "Accepted", candidate: "Incomplete", rejected: "Did not pass" }[revision.status]
+    : { accepted: "已验收", candidate: "未完成", rejected: "未通过" }[revision.status];
 }
 
 export function VersionHistoryPanel({ revisions, currentRevisionId, selectedRevision, messages, onSelect, onCompare,
   comparison, comparing, comparisonError, historyError = "", currentFromRollback = false,
-  continueFromRevisionId = null, rollback }: {
+  continueFromRevisionId = null, onContinueFrom, continueDisabled = false, rollback }: {
   revisions: Revision[]; currentRevisionId: string | null; selectedRevision: Revision | null;
   messages: ProjectMessage[]; onSelect: (revisionId: string) => void;
   onCompare: (fromRevisionId: string, toRevisionId: string) => void;
   comparison: RevisionDiffResponse | null; comparing: boolean; comparisonError: string; historyError?: string;
   currentFromRollback?: boolean;
   continueFromRevisionId?: string | null;
+  onContinueFrom?: (revision: Revision | null) => void; continueDisabled?: boolean;
   rollback?: RollbackActions;
 }) {
   const ui = useUiPreferences();
   const english = ui.locale === "en";
   const [chosenBaseId, setChosenBaseId] = useState("");
+  const [showAttempts, setShowAttempts] = useState(() => !currentRevisionId || selectedRevision?.status !== "accepted");
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
   const [copyFailedHash, setCopyFailedHash] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<{ fromId: string; targetId: string } | null>(null);
@@ -56,13 +58,16 @@ export function VersionHistoryPanel({ revisions, currentRevisionId, selectedRevi
     ...(currentRollbackMessage ? [currentRollbackMessage] : []),
   ] : [];
   const current = revisions.find((revision) => revision.id === currentRevisionId);
+  const acceptedHistory = revisions.filter((revision) => revision.status === "accepted" && revision.id !== currentRevisionId);
+  const unfinished = revisions.filter((revision) => revision.status !== "accepted");
+  const showUnfinishedInPicker = showAttempts || selectedRevision?.status !== "accepted";
   const rollbackTarget = confirmation && revisions.find((revision) => revision.id === confirmation.targetId);
   const rollbackFrom = confirmation && revisions.find((revision) => revision.id === confirmation.fromId);
   const visibleDiff = comparison && comparison.toRevision.id === selectedRevision?.id && comparison.fromRevision.id === base?.id ? comparison : null;
   const selectedKind = selectedRevision?.id === currentRevisionId
     ? ui.text("当前成功版本", "Current accepted version")
     : selectedRevision?.status === "accepted" ? ui.text("历史已验收版本", "Previously accepted version")
-      : selectedRevision?.status === "candidate" ? ui.text("待确认版本 · 尚非正式版本", "Pending · not the current version")
+      : selectedRevision?.status === "candidate" ? ui.text("未完成的尝试 · 尚非正式版本", "Incomplete attempt · not the current version")
         : ui.text("未通过验收的版本", "Revision that did not pass review");
 
   async function copyCurrentHash() {
@@ -89,14 +94,32 @@ export function VersionHistoryPanel({ revisions, currentRevisionId, selectedRevi
         <details className="version-history-full-hash"><summary>{ui.text("查看完整源码 hash", "View full source hash")}</summary><code>{current.sourceHash}</code></details>
         {copyFailedHash === current.sourceHash && <p className="version-history-copy-error" role="status">{ui.text("无法自动复制，可展开并手动选择完整 hash。", "Copy unavailable. Expand and select the full hash manually.")}</p>}
       </> : <p>{ui.text("尚无通过检查的正式版本。", "No version has passed checks yet.")}</p>}
+      <p className="version-history-count-explanation">{ui.text(`这里有 ${revisions.length} 次源码保存，其中 ${acceptedHistory.length + (current ? 1 : 0)} 个版本通过检查、${unfinished.length} 次未完成。编号包含未完成尝试。`,
+        `${revisions.length} source snapshots: ${acceptedHistory.length + (current ? 1 : 0)} passed, ${unfinished.length} incomplete. Numbers include unfinished attempts.`)}</p>
       <p className="version-history-hash-note">{ui.text("这是作品源码版本标识，不是平台部署 SHA。", "This identifies the app source, not the platform deployment SHA.")}</p>
     </div>
     <div className="version-history-picker">
-      <label htmlFor="history-version-select">{ui.text("版本历史", "Version history")}</label>
+      <label htmlFor="history-version-select">{ui.text("查看版本", "View version")}</label>
       <select id="history-version-select" data-testid="history-version-select" value={selectedRevision?.id ?? ""} onChange={(event) => { setConfirmation(null); onSelect(event.target.value); }}>
-        {revisions.map((revision) => <option key={revision.id} value={revision.id}>v{revision.revisionNo} · {statusLabel(revision, currentRevisionId, english)}</option>)}
+        {current && <option value={current.id}>v{current.revisionNo} · {ui.text("当前正式版", "Current version")}</option>}
+        {acceptedHistory.length > 0 && <optgroup label={ui.text("通过检查的历史版本", "Previously accepted versions")}>{acceptedHistory.map((revision) =>
+          <option key={revision.id} value={revision.id}>v{revision.revisionNo} · {statusLabel(revision, currentRevisionId, english)}</option>)}</optgroup>}
+        {showUnfinishedInPicker && unfinished.length > 0 && <optgroup label={ui.text(`未完成尝试（${unfinished.length}）`, `Incomplete attempts (${unfinished.length})`)}>{unfinished.map((revision) =>
+          <option key={revision.id} value={revision.id}>v{revision.revisionNo} · {statusLabel(revision, currentRevisionId, english)}</option>)}</optgroup>}
       </select>
+      {current && unfinished.length > 0 && <button type="button" className="version-history-attempts-toggle" aria-expanded={showUnfinishedInPicker}
+        onClick={() => { const next = !showUnfinishedInPicker; setShowAttempts(next); if (!next && selectedRevision?.status !== "accepted") onSelect(current.id); }}>
+        {showUnfinishedInPicker ? ui.text("收起未完成尝试", "Hide incomplete attempts") : ui.text(`查看 ${unfinished.length} 次未完成尝试`, `View ${unfinished.length} incomplete attempts`)}
+      </button>}
     </div>
+    {onContinueFrom && selectedRevision && selectedRevision.status !== "accepted" && selectedRevision.buildStatus === "passed" &&
+      <div className="version-history-continue"><p>{selectedRevision.id === continueFromRevisionId
+        ? ui.text(`下次修改已选择从 v${selectedRevision.revisionNo} 开始；当前正式版与发布内容不变。`, `The next change starts from v${selectedRevision.revisionNo}; current and published versions stay unchanged.`)
+        : ui.text("这次尝试没有成为正式版本。若其中有想保留的修改，可以从它继续开发；仅查看版本不会改变下一次修改的起点。", "This attempt did not become current. Continue from it only if you want to keep its changes; viewing alone changes nothing.")}</p>
+        <button type="button" disabled={continueDisabled} onClick={() => onContinueFrom(selectedRevision.id === continueFromRevisionId ? null : selectedRevision)}>
+          {selectedRevision.id === continueFromRevisionId ? ui.text("改回从正式版继续", "Use current version instead")
+            : ui.text(`从 v${selectedRevision.revisionNo} 继续修改`, `Continue editing from v${selectedRevision.revisionNo}`)}
+        </button></div>}
     <div className="version-history-context" data-testid="selected-version-kind"><strong>{ui.text("正在查看", "Viewing")} {selectedRevision ? `v${selectedRevision.revisionNo}` : "—"}</strong>
       {selectedRevision && <span className="version-history-context-badge">{selectedKind}</span>}
       {selectedRevision && selectedRevision.id !== currentRevisionId && <p>{selectedRevision.id === continueFromRevisionId
