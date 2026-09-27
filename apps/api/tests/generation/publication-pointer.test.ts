@@ -33,5 +33,12 @@ test("one release pointer switches published code and version metadata together"
     expect((await store.publicFile(host, ""))?.bytes.toString()).toBe("second version");
     expect(await store.publicFile(host, ".publication.json")).toBeNull();
     expect((await readFile(join(projectRoot, "current", ".publication.json"), "utf8"))).toContain(second);
+    const reversible = await store.stageDelete(projectId);
+    expect(await store.get(projectId)).toBeNull();
+    await reversible.rollback();
+    expect((await store.get(projectId))?.revisionId).toBe(second);
+    const deletion = await store.stageDelete(projectId);
+    await deletion.commit();
+    expect(await store.get(projectId)).toBeNull();
   } finally { await rm(root, { recursive: true, force: true }); }
 });

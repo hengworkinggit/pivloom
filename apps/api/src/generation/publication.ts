@@ -152,5 +152,18 @@ export function createPublicationStore(options: { root: string; baseUrl: string;
     await rename(next, join(projectRoot, "current"));
     return record;
   }
-  return { get, fromHost, hostAllowed, publicFile, publish };
+  async function stageDelete(projectId: string) {
+    const live = location(projectId);
+    const staged = join(root, `.deleted-${projectId}-${randomUUID()}`);
+    try { await rename(live, staged); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      return { commit: async () => {}, rollback: async () => {} };
+    }
+    return {
+      commit: () => rm(staged, { recursive: true, force: true }),
+      rollback: () => rename(staged, live),
+    };
+  }
+  return { get, fromHost, hostAllowed, publicFile, publish, stageDelete };
 }

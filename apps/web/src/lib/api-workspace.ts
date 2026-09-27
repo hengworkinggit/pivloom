@@ -6,10 +6,12 @@ import {
   MeResponseSchema,
   ProjectDetailResponseSchema,
   ProjectListResponseSchema,
+  ProjectSummarySchema,
   ProjectQuotaSchema,
   type MeResponse,
 } from "@pivloom/contracts";
 import { clearDrafts } from "./drafts";
+import { z } from "zod";
 
 /** The external identity boundary. Access tokens never enter the UI snapshot. */
 export interface TokenSession { accessToken: string; userId: string }
@@ -216,7 +218,8 @@ export function createApiWorkspace(identity: IdentityPort, transport: typeof fet
     logout,
     request, requestStream, requestBlob,
     getQuota: async () => ProjectQuotaSchema.parse(await request("/me/quota")),
-    listProjects: async (cursor?: string) => ProjectListResponseSchema.parse(await request(`/projects${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`)),
+    listProjects: async (cursor?: string, archived = false) => ProjectListResponseSchema.parse(await request(
+      `/projects${cursor || archived ? `?${new URLSearchParams({ ...(cursor ? { cursor } : {}), ...(archived ? { archived: "true" } : {}) })}` : ""}`)),
     createProject: async (title?: string) => {
       const body = CreateProjectRequestSchema.parse(title ? { title } : {});
       return CreateProjectResponseSchema.parse(await request("/projects", { method: "POST", body: JSON.stringify(body) })).project;
@@ -226,6 +229,11 @@ export function createApiWorkspace(identity: IdentityPort, transport: typeof fet
         method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: "{}",
       })),
     getProject: async (id: string) => ProjectDetailResponseSchema.parse(await request(`/projects/${encodeURIComponent(id)}`)),
+    renameProject: async (id: string, title: string) => z.object({ project: ProjectSummarySchema }).parse(
+      await request(`/projects/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ title }) })).project,
+    setProjectArchived: async (id: string, archived: boolean) => z.object({ project: ProjectSummarySchema }).parse(
+      await request(`/projects/${encodeURIComponent(id)}/${archived ? "archive" : "restore"}`, { method: "POST" })).project,
+    deleteProject: async (id: string) => { await request(`/projects/${encodeURIComponent(id)}`, { method: "DELETE" }); },
     dispose: () => { unsubscribe?.(); requests.forEach((request) => request.abort()); listeners.clear(); },
   };
 }
