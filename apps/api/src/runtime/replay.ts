@@ -201,6 +201,16 @@ export function evaluateAssertions(
         return { index, kind: assertion.kind, passed: assertion.negated ? !equal : equal,
           detail: `目标 ${label} 数量 ${matches.length}，预期 ${assertion.negated ? '非 ' : ''}${assertion.count}` };
       }
+      // A scoped collection can have several visible children. For an absence
+      // assertion, inspect every child instead of requiring a single arbitrary
+      // match. The browser has already resolved the enclosing scope uniquely.
+      if (assertion.kind === 'target-text' && assertion.negated && 'within' in assertion.target && assertion.target.within) {
+        const expected = assertion.text.trim();
+        const found = matches.some((match) => assertion.match === 'contains'
+          ? match.text.trim().includes(expected) : match.text.trim() === expected);
+        return { index, kind: assertion.kind, passed: !found,
+          detail: `目标 ${label} 的 ${matches.length} 项文本中${found ? '存在' : '不存在'} ${JSON.stringify(expected)}` };
+      }
       if (matches.length !== 1) throw new RuntimeError('TEST_TARGET_AMBIGUOUS', `目标 ${label} 匹配 ${matches.length} 个，无法唯一判断结果`);
       const match = matches[0];
       if (assertion.kind === 'target-value' && match.value === null)

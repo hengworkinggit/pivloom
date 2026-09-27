@@ -158,6 +158,20 @@ describe('assertion evaluation reads only what the browser layer returned', () =
       { text: '短', observationText: `${'x'.repeat(20_000)}页脚文字`, refs: {}, logs: {} });
     expect(results[0].passed).toBe(true);
   });
+  test('a scoped absence assertion checks every history item, including multiple matches', () => {
+    const assertion: BehaviorAssertion = { kind: 'target-text',
+      target: { role: 'button', within: { role: 'list', name: '历史记录列表' } },
+      text: '1++2', match: 'contains', negated: true };
+    const evidence = (matches: Array<{ text: string; value: null }>) => ({
+      text: '', observationText: '', refs: {}, logs: {}, targetMatches: new Map([[0, matches]]),
+    });
+    expect(evaluateAssertions([assertion], evidence([
+      { text: '2+3 = 5', value: null }, { text: '4*5 = 20', value: null },
+    ]))[0].passed).toBe(true);
+    expect(evaluateAssertions([assertion], evidence([
+      { text: '2+3 = 5', value: null }, { text: '1++2 = 3', value: null },
+    ]))[0].passed).toBe(false);
+  });
 });
 
 test('the observation event is exactly the reviewer evidence shape', async () => {
