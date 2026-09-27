@@ -9,7 +9,8 @@ import { summarizeReviewCheckpoint } from "./review-checkpoint.js";
 import { RuntimeError, type ProbeEvent, type SandboxConfig, type SourceFile, type TrustedBuildRecord } from "../runtime/types.js";
 import { runCoordinator } from "../runtime/coordinator.js";
 import { createRunTokenBudget, type TokenUsage } from "../runtime/token-budget.js";
-import { ACCEPTED_PREVIEW_LEASE_MS, RESTORE_TIMEOUT_MS, RUN_IDLE_TIMEOUT_MS, RUN_TOOL_LIMIT, RUN_TOOL_LIMIT_CEILING, VERIFICATION_WALL_CLOCK_LIMIT_MS, generationToolLimitForPlan } from "../runtime/budgets.js";
+import { ACCEPTED_PREVIEW_LEASE_MS, RESTORE_TIMEOUT_MS, RUN_IDLE_TIMEOUT_MS, RUN_TOOL_LIMIT, RUN_TOOL_LIMIT_CEILING, generationToolLimitForPlan } from "../runtime/budgets.js";
+import { createVerificationAttemptWindow } from "../runtime/verification-attempt.js";
 import { ApiFailure } from "../routes/errors.js";
 import { destroyCandidateSandbox, runCandidate, type CandidateSnapshot } from "./candidate.js";
 import { restorePreview } from "./restore.js";
@@ -108,24 +109,8 @@ export function createGenerationExecutor(options: {
 
   async function execute(run: StoredRun, task: Task) {
     let toolLimit = requestedToolLimit;
-    const verificationNow=boundaries.monotonicNow??(()=>performance.now());
-    let verificationWindow:Parameters<typeof runReview>[0]['verificationWindow'];
-    const verificationAbort=new AbortController();
-    const candidateSignal=AbortSignal.any([task.controller.signal,verificationAbort.signal]);
-    let verificationTimer:ReturnType<typeof setTimeout>|undefined;
-    const verificationFailure=()=>new RuntimeError('REVIEW_TIMEOUT','本次改动从首次检查开始已超过统一验收时间上限（包含修复与复审），已完成的检查保留。');
-    const verificationExpired=()=>{
-      if(verificationWindow&&verificationNow()>=verificationWindow.deadlineAt)verificationAbort.abort('REVIEW_TIMEOUT');
-      return verificationAbort.signal.aborted;
-    };
-    const assertVerificationActive=()=>{if(verificationExpired())throw verificationFailure();};
-    const beginVerification=()=>{
-      if(verificationWindow)return;
-      const startedAt=verificationNow();
-      verificationWindow={startedAt,deadlineAt:startedAt+VERIFICATION_WALL_CLOCK_LIMIT_MS,startedAtWall:Date.now()};
-      verificationTimer=setTimeout(()=>verificationAbort.abort('REVIEW_TIMEOUT'),VERIFICATION_WALL_CLOCK_LIMIT_MS);
-      verificationTimer.unref?.();
-    };
+    const candidateSignal=task.controller.signal;
+    const assertVerificationActive=()=>task.controller.signal.throwIfAborted();
     const watchdog = createRunProgressWatchdog(run.deadlineAt, task.controller);
     const meaningfulProgress = createMeaningfulProgressGate();
     // The candidate sandbox for the current attempt. It is written from inside
@@ -371,7 +356,6 @@ export function createGenerationExecutor(options: {
             throw new RuntimeError("SANDBOX_LEASE_RENEW_FAILED", "候选预览续租未完整确认");
           tracked.expiresAt = expiresAt;
         };
-        beginVerification();
         await repository.queueReviewer(run.ownerId, run.id, { revisionId: candidateRevision.id });
         let reviewer = await repository.startReviewer(run.ownerId, run.id);
         let checked: Awaited<ReturnType<typeof runReview>>;
@@ -380,6 +364,7 @@ export function createGenerationExecutor(options: {
           assertVerificationActive();
           activeRoleId = reviewer.role.id;
           activeUsage = undefined;
+          const verificationWindow=createVerificationAttemptWindow({now:boundaries.monotonicNow});
           checked = await runReview({
             binding: reviewer.scope, sessionId: reviewer.role.sessionId, handoff: reviewer.handoff,
             expiresAt: currentResource()?.expiresAt ?? result.preview.expiresAt,
@@ -482,7 +467,6 @@ export function createGenerationExecutor(options: {
         task.commitUnknown = false;
       }
       if (error instanceof RuntimeError && error.usage) activeUsage = storedUsage(error.usage);
-      if(verificationExpired()&&!task.controller.signal.aborted)error=verificationFailure();
       let confirmed = true;
       const pending = currentResource();
       if (pending && resources.has(pending.sandboxId)) confirmed = await destroy(pending).catch(() => false);
@@ -537,7 +521,6 @@ export function createGenerationExecutor(options: {
         failureDetail: classifyFailure(error),
       });
     } finally {
-      clearTimeout(verificationTimer);
       watchdog.close();
       const leftover = currentResource();
       if (!retained && !task.commitUnknown && leftover && resources.has(leftover.sandboxId)) await destroy(leftover).catch(() => {});
