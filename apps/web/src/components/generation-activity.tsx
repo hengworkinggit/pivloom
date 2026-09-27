@@ -46,7 +46,8 @@ export function GenerationActivity({ run, events, roles = [] }: { run: Run; even
     <div className="assistant-message-heading"><LoomMark /><strong>Pivloom</strong><span>{queued ? ui.text("排队中", "Queued") : active ? ui.text("处理中", "Working") : ui.text("任务记录", "Run activity")}</span></div>
     <div className="assistant-message-body">
       <p className="run-label" role="status">{active && <LoaderCircle className="spin" size={13} />}{queued ? ui.text("已排队，资源可用后自动开始", "Queued; it starts as soon as capacity is free") : run.state === "accepted" ? ui.text("需求已接收", "Request accepted") : active ? (ui.locale === "en" ? phaseLabelsEn : phaseLabels)[run.phase] : ui.text("本次任务已结束", "Run finished")}</p>
-      <p className="generation-run-model">{ui.text("模型配置", "Model config")} v{run.modelConfigVersion}{run.modelId ? ` · ${run.modelId}` : ""} · {ui.text("任务", "Run")} {run.id.slice(0, 8)}</p>
+      <p className="generation-run-model">{run.kind === "template" ? ui.text("现成模板 · 0 次模型调用", "Ready-made template · 0 model calls")
+        : <>{ui.text("模型配置", "Model config")} v{run.modelConfigVersion}{run.modelId ? ` · ${run.modelId}` : ""}</>} · {ui.text("任务", "Run")} {run.id.slice(0, 8)}</p>
       {roles.length > 0 && <ul className="generation-role-activity" data-testid="role-activity" aria-label={ui.text("实际角色活动", "Role activity")}>{roles.filter((role) => role.runId === run.id).map((role) => <li key={role.id}>
         <strong>{(ui.locale === "en" ? roleLabelsEn : roleLabels)[role.role]}</strong><span>{(ui.locale === "en" ? roleStateLabelsEn : roleStateLabels)[role.state]}</span>
       </li>)}</ul>}
@@ -84,7 +85,7 @@ export function GenerationOutcome({ run, candidateSaved, check, failureDetail }:
   if (!TerminalRunStates.has(run.state)) return null;
   const unchecked = run.error?.code === "CHECK_BLOCKED" && !check;
   const heading = check ? (ui.locale === "en" ? { passed: "Key flows passed", failed: "Key flows failed", blocked: "Key flows blocked" } : { passed: "关键流程检查通过", failed: "关键流程检查未通过", blocked: "关键流程检查受阻" })[check.verdict] : unchecked && candidateSaved ? ui.text("候选已保存 · 尚未检查", "Candidate saved · not checked")
-    : unchecked ? ui.text("检查尚未完成", "Check incomplete") : run.state === "completed" ? ui.text("版本已保存", "Version saved")
+    : unchecked ? ui.text("检查尚未完成", "Check incomplete") : run.state === "completed" ? run.kind === "template" ? ui.text("模板项目已就绪", "Template project ready") : ui.text("版本已保存", "Version saved")
       : run.state === "needs_input" ? ui.text("还需要一点信息", "More information needed") : run.state === "cancelled" ? ui.text("任务已停止", "Run stopped") : ui.text("这次生成未完成", "Generation incomplete");
   return <div className="run-notice generation-outcome" role="status" data-testid="run-result">
     <TriangleAlert size={16} /><div><strong>{heading}</strong><p id={run.state === "needs_input" && run.clarification ? "clarification-question" : undefined}>{run.state === "needs_input" && run.clarification ? run.clarification.question : check?.summary ?? run.error?.message ?? run.summary ?? ui.text("可以查看已保存的任务记录。", "You can review the saved activity.")}</p>

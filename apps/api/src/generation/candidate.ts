@@ -62,6 +62,8 @@ export interface RunCandidateInput {
   seed?: SourceFile[];
   /** Rebuild a saved candidate without a Builder model call; hash must survive initialization and build. */
   recheckSourceHash?: string;
+  /** Curated, server-owned starter files; no model or Builder tools are invoked. */
+  starterFiles?: Record<string, string>;
   maxToolCalls?: number;
   tokenBudget?: RunTokenBudget;
   modelConfig: ModelConfig;
@@ -257,6 +259,8 @@ export async function runCandidate(
       throw new RuntimeError("INVALID_HANDOFF", "交接目标与当前生成任务不一致");
     if (input.recheckSourceHash && (!input.seed?.length || !/^[a-f0-9]{64}$/.test(input.recheckSourceHash)))
       throw new RuntimeError("INVALID_RECHECK_SOURCE", "复检必须绑定已保存的完整源码哈希");
+    if (input.starterFiles && (input.seed || input.recheckSourceHash))
+      throw new RuntimeError("INVALID_STARTER_SOURCE", "模板源码不能与已有候选混用");
     const builderPrompt = handoff
       ? `${handoff.task}\n\n已保存的实现目标与行为约定：\n${JSON.stringify(handoff.plan)}${handoff.failedChecks?.length ? `\n\n上一轮实际失败与诊断（逐项修复，不可忽略）：\n${JSON.stringify(handoff.failedChecks)}` : ""}`
       : input.prompt;
@@ -285,7 +289,11 @@ export async function runCandidate(
     });
     await initializeReactWorkspace(workspace, handle, input.seed);
     signal.throwIfAborted();
-    if (input.recheckSourceHash) {
+    if (input.starterFiles) {
+      await emit({ type: "stage", stage: "generating", message: "写入已审核的模板源码；无需调用模型" });
+      for (const [path, content] of Object.entries(input.starterFiles))
+        await workspace.write(handle, path, Buffer.from(content));
+    } else if (input.recheckSourceHash) {
       await emit({ type: "stage", stage: "generating", message: "复用已保存候选源码；未调用 Builder 模型" });
       const restored = snapshotSources(await workspace.listSourceFiles(handle));
       if (restored.snapshot.sourceHash !== input.recheckSourceHash)

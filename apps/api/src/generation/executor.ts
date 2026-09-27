@@ -18,6 +18,8 @@ import { restorePreview } from "./restore.js";
 import type { PreviewGateway } from "./preview.js";
 import { boundedProviderRetry, createMeaningfulProgressGate, createRunProgressWatchdog } from "./progress-watchdog.js";
 import { OpenSandboxWorkspace } from "../runtime/workspace.js";
+import { starter } from "../starters/catalog.js";
+import { starterSource } from "../starters/source.js";
 
 interface Resource {
   ownerId: string; runId: string; revisionId: string; sandboxId: string; expiresAt: string;
@@ -108,7 +110,126 @@ export function createGenerationExecutor(options: {
     return result.confirmed;
   }
 
+  /** A curated starter is imported from repository source, with no model lease. */
+  async function executeTemplate(run: StoredRun, task: Task) {
+    const watchdog = createRunProgressWatchdog(run.deadlineAt, task.controller);
+    const revisionId = randomUUID();
+    let resource: Resource | undefined;
+    let retained = false;
+    let resultRevisionId: string | null = null;
+    try {
+      const definition = run.templateSlug && starter(run.templateSlug);
+      if (!definition || !run.templateSlug) throw new ApiFailure(422, "TEMPLATE_NOT_FOUND", "模板已不存在，无法导入。");
+      const slug = run.templateSlug as Parameters<typeof starterSource>[0];
+      const started = await repository.setPhase(run.ownerId, run.id, { state: "building", phase: "provision" });
+      watchdog.touch(started.deadlineAt);
+      const candidate = await runCandidate({
+        runId: run.id, revisionId, prompt: run.requestText,
+        previewBasePath: `/p/${revisionId}/`, starterFiles: starterSource(slug, definition.title),
+        modelConfig: { provider: "curated-starter", id: "none", apiKey: "" },
+        sandboxConfig: sandbox, signal: task.controller.signal,
+        onEvent: async (event) => {
+          if (event.type !== "stage") return;
+          const next = event.stage === "building" ? "build" : event.stage === "previewing" ? "persist"
+            : event.stage === "generating" ? "implement" : "provision";
+          const changed = await repository.setPhase(run.ownerId, run.id, { state: "building", phase: next });
+          watchdog.touch(changed.deadlineAt);
+        },
+        onSandbox: async (registration) => {
+          if (registration.state === "created") {
+            resource = { ownerId: run.ownerId, runId: run.id, revisionId,
+              sandboxId: registration.sandboxId, expiresAt: registration.expiresAt };
+            task.sandboxId = registration.sandboxId;
+            resources.set(registration.sandboxId, resource);
+            await repository.registerSandbox(run.ownerId, run.id, { sandboxId: registration.sandboxId,
+              expiresAt: registration.expiresAt, state: "active" });
+          } else if (registration.state === "renewed") {
+            const tracked = resources.get(registration.sandboxId);
+            if (!tracked || !await repository.updateSandboxExpiry(run.ownerId, run.id,
+              registration.sandboxId, registration.expiresAt))
+              throw new RuntimeError("SANDBOX_LEASE_RENEW_FAILED", "模板沙箱续租未确认");
+            tracked.expiresAt = registration.expiresAt;
+          } else if (registration.state === "destroyed") {
+            await repository.markDestroyed(run.ownerId, run.id, registration.sandboxId);
+            resources.delete(registration.sandboxId);
+          } else if (registration.state === "cleanup_pending") {
+            await repository.markCleanupPending(run.ownerId, run.id, "模板沙箱清理尚未确认。");
+          }
+        },
+      }, boundaries);
+      task.controller.signal.throwIfAborted();
+      if (candidate.status !== "candidate") throw new ApiFailure(503, candidate.error.code,
+        candidate.error.message, true);
+      const source = await sources.save({ ownerId: run.ownerId, projectId: run.projectId, revisionId },
+        candidate.snapshot.bundle.templateVersion, candidate.snapshot.bundle.files);
+      if (source.sourceHash !== candidate.snapshot.sourceHash)
+        throw new ApiFailure(503, "SNAPSHOT_SAVE_FAILED", "模板源码快照与构建版本不一致。", true);
+      const revision = await repository.saveCandidate(run.ownerId, run.id, {
+        source, buildStatus: "passed", build: { ...candidate.trustedBuild },
+      });
+      resultRevisionId = revision.id;
+      await repository.bindPreview(run.ownerId, run.id, {
+        ...candidate.preview, markerVerified: true, writeRevoked: true, chromeClosed: true,
+      });
+      previews.register({ ...candidate.preview, ownerId: run.ownerId, projectId: run.projectId });
+      // A real HTTP request proves this particular built page is reachable.
+      const page = await fetch(candidate.preview.upstreamUrl + `/p/${revisionId}/`, {
+        headers: candidate.preview.headers,
+        signal: AbortSignal.any([task.controller.signal, AbortSignal.timeout(8_000)]),
+      });
+      const html = await page.text();
+      if (!page.ok || !page.headers.get("content-type")?.includes("text/html")
+        || !html.includes('<div id="root"></div>'))
+        throw new ApiFailure(503, "TEMPLATE_PAGE_FAILED", "模板已构建，但页面打开验证未通过。", true);
+      const tracked = resource;
+      if (!tracked) throw new RuntimeError("SANDBOX_LEASE_RENEW_FAILED", "模板预览沙箱已失去管理");
+      const manager = new OpenSandboxWorkspace(sandbox, boundaries.sandboxConnector);
+      const handle = { sandboxId: tracked.sandboxId, expiresAt: tracked.expiresAt };
+      try {
+        await manager.connect(handle);
+        const renewed = await manager.renewLease(handle, ACCEPTED_PREVIEW_LEASE_MS, task.controller.signal);
+        if (!await repository.updateSandboxExpiry(run.ownerId, run.id, tracked.sandboxId, renewed.expiresAt)
+          || !await previews.renew(run.ownerId, revisionId, tracked.sandboxId, renewed.expiresAt))
+          throw new RuntimeError("SANDBOX_LEASE_RENEW_FAILED", "模板预览续租未完整确认");
+        tracked.expiresAt = renewed.expiresAt;
+      } finally { await manager.releaseClient(handle).catch(() => {}); }
+      task.commitUnknown = true;
+      await repository.completeTemplate(run.ownerId, run.id, { revisionId, sourceHash: revision.sourceHash,
+        sandboxId: tracked.sandboxId, pageVerified: true });
+      task.commitUnknown = false;
+      retained = true;
+      task.retained = true;
+    } catch (error) {
+      if (task.commitUnknown) {
+        const persisted = await repository.getRun(run.ownerId, run.id);
+        if (persisted.state === "completed") { task.retained = true; return; }
+        task.commitUnknown = false;
+      }
+      let confirmed = true;
+      if (resource && resources.has(resource.sandboxId)) confirmed = await destroy(resource).catch(() => false);
+      if (task.controller.signal.reason === "CANCELLED") {
+        const input: Parameters<GenerationRepository["finishCancelled"]>[2] = { cleanupState: confirmed ? "confirmed" : "pending",
+          summary: confirmed ? "模板导入已取消。" : "模板导入已停止，沙箱回收仍在确认。" };
+        task.terminal = { kind: "cancelled", input };
+        await repository.finishCancelled(run.ownerId, run.id, input);
+      } else {
+        const failure = error instanceof ApiFailure ? error
+          : error instanceof RuntimeError ? new ApiFailure(503, error.code, error.message, true)
+            : new ApiFailure(503, "TEMPLATE_IMPORT_FAILED", "模板导入未完成，请重试。", true);
+        const input: FinishFailedInput = { code: failure.code, message: failure.message, retryable: failure.retryable,
+          resultRevisionId, cleanupState: confirmed ? "confirmed" : "pending" };
+        task.terminal = { kind: "failed", input };
+        await repository.finishFailed(run.ownerId, run.id, input);
+      }
+    } finally {
+      watchdog.close();
+      if (!retained && !task.commitUnknown && resource && resources.has(resource.sandboxId))
+        await destroy(resource).catch(() => {});
+    }
+  }
+
   async function execute(run: StoredRun, task: Task) {
+    if (run.kind === "template") return executeTemplate(run, task);
     let toolLimit = requestedToolLimit;
     const candidateSignal=task.controller.signal;
     const assertVerificationActive=()=>task.controller.signal.throwIfAborted();
@@ -172,6 +293,7 @@ export function createGenerationExecutor(options: {
       return revision;
     }
     try {
+      if (!run.credentialLeaseId) throw new RuntimeError("MODEL_CREDENTIAL_UNAVAILABLE", "任务缺少模型凭据");
       const [model, context] = await Promise.all([
         models.resolveLease(run.ownerId, run.credentialLeaseId),
         repository.getPlanningContext(run.ownerId, run.id),
@@ -544,7 +666,7 @@ export function createGenerationExecutor(options: {
       watchdog.close();
       const leftover = currentResource();
       if (!retained && !task.commitUnknown && leftover && resources.has(leftover.sandboxId)) await destroy(leftover).catch(() => {});
-      await models.releaseForRun(run.ownerId, run.credentialLeaseId);
+      if (run.credentialLeaseId) await models.releaseForRun(run.ownerId, run.credentialLeaseId);
     }
   }
 
@@ -575,7 +697,7 @@ export function createGenerationExecutor(options: {
       }
       if (cleanupState === "confirmed" && saved.cleanupState === "pending")
         await repository.confirmCleanup(run.ownerId, run.id);
-      await models.releaseForRun(run.ownerId, run.credentialLeaseId);
+      if (run.credentialLeaseId) await models.releaseForRun(run.ownerId, run.credentialLeaseId);
       task.settlementError = undefined;
       tasks.delete(run.id);
       taskRun.delete(run.id);

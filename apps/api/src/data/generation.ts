@@ -23,7 +23,10 @@ import { VerificationProgramAssetSchema, applyVerificationPrograms, verification
   type VerificationProgramAsset } from "../runtime/verification-program-contract.js";
 
 export interface StoredRun extends Run {
+  kind: NonNullable<Run["kind"]>;
+  templateSlug: string | null;
   ownerId: string;
+  /** Empty only for a curated template Run; persisted lease column remains NULL. */
   credentialLeaseId: string;
   executorBootId: string;
   builderRoleRunId: string | null;
@@ -89,6 +92,8 @@ export interface SaveVerificationProgramsInput {
 }
 export interface GenerationRepository {
   accept(ownerId: string, projectId: string, input: AcceptRunInput): Promise<{ run: StoredRun; replayed: boolean }>;
+  createTemplateProject(ownerId: string, input: { slug: string; title: string; plan: Plan; idempotencyKey: string }): Promise<{ project: ProjectSummary; run: StoredRun; replayed: boolean }>;
+  completeTemplate(ownerId: string, runId: string, input: { revisionId: string; sourceHash: string; sandboxId: string; pageVerified: true }): Promise<StoredRun>;
   readRunSnapshot(ownerId: string, runId: string): Promise<RunReadSnapshot>;
   readProjectSnapshot(ownerId: string, projectId: string): Promise<ProjectReadSnapshot>;
   getRun(ownerId: string, runId: string): Promise<StoredRun>;
@@ -212,7 +217,8 @@ function storedMessage(row: Row): ProjectMessage {
 }
 function storedRun(row: Row): StoredRun {
   return { ...RunSchema.parse({
-    id: row.id, projectId: row.project_id, state: row.state, phase: row.phase, attempt: row.attempt,
+    id: row.id, projectId: row.project_id, state: row.state, phase: row.phase, kind: row.kind,
+    templateSlug: row.template_slug ?? null, attempt: row.attempt,
     requestText: row.request_text, modelProfileId: row.model_profile_id, modelConfigVersion: row.model_config_version,
     modelId: row.model_id ?? null,
     baseRevisionId: row.base_revision_id, resultRevisionId: row.result_revision_id,
@@ -221,7 +227,8 @@ function storedRun(row: Row): StoredRun {
     cleanupState: row.cleanup_state, summary: row.summary,
     plan: row.plan_json ?? null, clarification: row.clarification_json ?? null, parentRunId: row.parent_run_id ?? null,
     error: row.error_code ? { code: row.error_code, message: row.error_message, retryable: row.error_retryable } : null,
-  }), ownerId: row.owner_id, credentialLeaseId: row.credential_lease_id, executorBootId: row.executor_boot_id,
+  }), kind: row.kind, templateSlug: row.template_slug ?? null,
+    ownerId: row.owner_id, credentialLeaseId: row.credential_lease_id ?? "", executorBootId: row.executor_boot_id,
     builderRoleRunId: row.builder_role_run_id, coordinatorRoleRunId: row.coordinator_role_run_id ?? null,
     expectedCurrentRevisionId: row.expected_current_revision_id, retryOfRunId: row.retry_of ?? null };
 }
@@ -231,6 +238,7 @@ function storedEvent(row: Row): RunEvent {
 }
 function storedRevision(row: Row): StoredRevision {
   const publicRevision = RevisionSchema.parse({ id: row.id, projectId: row.project_id, runId: row.run_id,
+    templateSlug: row.template_slug ?? null,
     revisionNo: row.revision_no, attempt: row.attempt, sourceHash: row.source_hash, templateVersion: row.template_version,
     buildStatus: row.build_status, status: row.status, createdAt: date(row.created_at).toISOString(), manifest: row.manifest_json });
   return { ...publicRevision, ownerId: row.owner_id, build: row.build_json, source: {
@@ -634,6 +642,73 @@ export function createGenerationRepository(
         binding: row.binding_json ? storedSandbox(row.binding_json) : null,
         lastRollbackAt: row.last_rollback_at ? date(row.last_rollback_at).toISOString() : null };
     }),
+    async createTemplateProject(ownerId, input) {
+      if (!z.uuid().safeParse(input.idempotencyKey).success || !input.slug || input.slug.length > 80
+        || !input.title.trim() || input.title.length > 120)
+        throw new ApiFailure(422, "INVALID_INPUT", "模板或请求标识无效。");
+      const plan = GroupedPlanSchema.parse(input.plan);
+      return owned(ownerId, async (client) => {
+        // A retry of the same POST must return the same project, even when the
+        // original response was lost after commit.
+        await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`template:${ownerId}:${input.idempotencyKey}`]);
+        const prior = (await client.query(`SELECT i.slug,p.*,r.id AS run_id FROM nano.template_imports i
+          JOIN nano.projects p ON p.id=i.project_id AND p.owner_id=i.owner_id
+          JOIN nano.runs r ON r.project_id=p.id AND r.owner_id=p.owner_id AND r.kind='template'
+          WHERE i.owner_id=$1 AND i.idempotency_key=$2`, [ownerId, input.idempotencyKey])).rows[0];
+        if (prior) {
+          if (prior.slug !== input.slug) throw new ApiFailure(409, "IDEMPOTENCY_CONFLICT", "同一请求标识对应了不同模板。");
+          return { project: storedProject(prior), run: storedRun(await run(client, ownerId, prior.run_id)), replayed: true };
+        }
+        const projectRow = (await client.query("INSERT INTO nano.projects(owner_id,title) VALUES($1,$2) RETURNING *", [ownerId, input.title])).rows[0];
+        const runId = randomUUID();
+        const requestText = `使用${input.title}模板创建项目`;
+        const requestHash = createHash("sha256").update(JSON.stringify([input.slug, input.title])).digest("hex");
+        const created = (await client.query(`INSERT INTO nano.runs
+          (id,owner_id,project_id,idempotency_key,request_hash,request_text,kind,template_slug,
+           state,phase,budget_json,deadline_at,executor_boot_id,plan_json,queued_at)
+          VALUES($1,$2,$3,$4,$5,$6,'template',$7,'queued','provision',$8,
+            now()+make_interval(secs=>$9),$10,$11,now()) RETURNING *`,
+        [runId, ownerId, projectRow.id, input.idempotencyKey, requestHash, requestText,
+          input.slug, { idleTimeoutMs: RUN_IDLE_TIMEOUT_MS, modelCalls: 0 }, RUN_IDLE_TIMEOUT_MS / 1000,
+          options.executorBootId, plan])).rows[0];
+        await client.query("INSERT INTO nano.template_imports(owner_id,idempotency_key,slug,project_id) VALUES($1,$2,$3,$4)",
+          [ownerId, input.idempotencyKey, input.slug, projectRow.id]);
+        await client.query("INSERT INTO nano.messages(owner_id,project_id,run_id,kind,content) VALUES($1,$2,$3,'user',$4)",
+          [ownerId, projectRow.id, runId, requestText]);
+        await event(client, created, { type: "run.accepted", payload: { state: "queued", phase: "provision",
+          kind: "template", templateSlug: input.slug, modelCalls: 0 } });
+        return { project: storedProject(projectRow), run: storedRun(created), replayed: false };
+      });
+    },
+    completeTemplate: (ownerId, runId, input) => owned(ownerId, async (client) => {
+      const { current, parent } = await lockedRun(client, ownerId, runId);
+      if (current.kind !== "template" || current.state !== "building" || input.pageVerified !== true
+        || parent.current_revision_id !== null)
+        throw new ApiFailure(409, "TEMPLATE_NOT_READY", "模板项目尚未完成源码、构建和页面核验。");
+      const saved = await revision(client, ownerId, input.revisionId);
+      const build = saved.build_json;
+      if (saved.run_id !== runId || current.result_revision_id !== saved.id || saved.status !== "candidate"
+        || saved.build_status !== "passed" || saved.source_hash !== input.sourceHash
+        || build?.schemaVersion !== 1 || build.sourceHash !== saved.source_hash
+        || build.typecheck?.exitCode !== 0 || build.build?.exitCode !== 0)
+        throw new ApiFailure(409, "BUILD_NOT_VERIFIED", "模板源码缺少与版本匹配的可信构建记录。");
+      const sandbox = (await client.query(`SELECT id FROM nano.sandboxes WHERE owner_id=$1 AND run_id=$2
+        AND revision_id=$3 AND source_hash=$4 AND remote_id=$5 AND purpose='candidate-preview'
+        AND state='active' AND expires_at>now()`, [ownerId, runId, saved.id, saved.source_hash, input.sandboxId])).rows[0];
+      if (!sandbox) throw new ApiFailure(409, "PREVIEW_BINDING_MISMATCH", "模板预览与保存的源码版本不一致。");
+      await client.query("UPDATE nano.revisions SET status='accepted' WHERE owner_id=$1 AND id=$2", [ownerId, saved.id]);
+      await client.query("UPDATE nano.sandboxes SET purpose='preview' WHERE owner_id=$1 AND id=$2", [ownerId, sandbox.id]);
+      await client.query("UPDATE nano.projects SET current_revision_id=$3,operation_kind=NULL,operation_id=NULL,operation_started_at=NULL,updated_at=now() WHERE owner_id=$1 AND id=$2 AND operation_id=$4",
+        [ownerId, current.project_id, saved.id, runId]);
+      const summary = "模板源码已导入并通过类型检查、生产构建与页面打开验证；可以直接预览、修改或发布。";
+      const completed = (await client.query(`UPDATE nano.runs SET state='completed',phase='persist',cleanup_state='clear',summary=$3,
+        finished_at=now() WHERE owner_id=$1 AND id=$2 RETURNING *`, [ownerId, runId, summary])).rows[0];
+      await client.query("INSERT INTO nano.messages(owner_id,project_id,run_id,kind,content) VALUES($1,$2,$3,'result',$4)",
+        [ownerId, current.project_id, runId, summary]);
+      await event(client, completed, { type: "run.finished", payload: { state: "completed", revisionId: saved.id,
+        kind: "template", sourceHash: saved.source_hash, modelCalls: 0, verification: "build-and-page-smoke" } });
+      return storedRun(completed);
+    }),
     async accept(ownerId, projectId, input) {
       const { idempotencyKey, ...body } = input;
       const parsed = CreateRunRequestSchema.safeParse(body);
@@ -659,7 +734,7 @@ export function createGenerationRepository(
           // when resources are free. A project may therefore hold several queued
           // requests, and dispatch keeps their execution serial.
           // Replays return above, so a retried idempotency key never consumes quota twice.
-          const used = (await client.query("SELECT count(*)::int AS accepted FROM nano.runs WHERE owner_id=$1 AND created_at > now() - interval '24 hours'", [ownerId])).rows[0].accepted as number;
+          const used = (await client.query("SELECT count(*)::int AS accepted FROM nano.runs WHERE owner_id=$1 AND kind<>'template' AND created_at > now() - interval '24 hours'", [ownerId])).rows[0].accepted as number;
           const dailyLimit = options.dailyLimitByOwner?.[ownerId] ?? DAILY_ACCEPTED_LIMIT;
           if (used >= dailyLimit)
             throw new ApiFailure(429, "QUOTA_EXCEEDED", `今日任务额度已用完（${dailyLimit} 个），请稍后再试。`, false);
@@ -1295,12 +1370,12 @@ export function createGenerationRepository(
         }
         const result = await client.query(`INSERT INTO nano.revisions
           (id,owner_id,project_id,run_id,revision_no,attempt,source_key,source_hash,template_version,manifest_json,
-           source_bytes,compressed_bytes,build_status,build_json,status)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'candidate') RETURNING *`,
+           source_bytes,compressed_bytes,build_status,build_json,status,template_slug)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'candidate',$15) RETURNING *`,
         [input.source.revisionId, ownerId, current.project_id, runId, parent.next_revision_no, current.attempt,
           input.source.key, input.source.sourceHash, input.source.templateVersion, JSON.stringify(input.source.manifest),
           // Trusted command arguments include up to 200 bounded source paths; this is separate from the 16 KiB event limit.
-          input.source.sourceBytes, input.source.compressedBytes, input.buildStatus, boundedJson(input.build, 256 * 1024)]);
+          input.source.sourceBytes, input.source.compressedBytes, input.buildStatus, boundedJson(input.build, 256 * 1024), current.template_slug ?? null]);
         await client.query("UPDATE nano.projects SET next_revision_no=next_revision_no+1,updated_at=now() WHERE owner_id=$1 AND id=$2", [ownerId, current.project_id]);
         await client.query("UPDATE nano.runs SET result_revision_id=$3 WHERE owner_id=$1 AND id=$2", [ownerId, runId, input.source.revisionId]);
         await event(client, current, { type: "revision.saved", payload: { revisionId: input.source.revisionId, sourceHash: input.source.sourceHash,
@@ -1568,6 +1643,7 @@ export function createGenerationRepository(
     prepareDispatch: (ownerId, runId) => owned(ownerId, async (client) => {
       const { current, parent } = await lockedRun(client, ownerId, runId, false);
       if (current.state !== "accepted") throw new ApiFailure(409, "RUN_NOT_ACTIVE", "这个任务不在待派发状态。");
+      if (current.kind === "template") return { run: storedRun(current), outcome: "ready" as const };
       // The queued request keeps the model selection it was accepted with. A
       // configuration that stopped being valid parks the task with a reason
       // instead of silently switching to another model. freezeInTransaction
@@ -1642,7 +1718,7 @@ export function createGenerationRepository(
         throw new ApiFailure(409, "SERVICE_BUSY", "沙箱容量已满，请在当前预览结束后重试。", true);
     }),
     quota: (ownerId) => owned(ownerId, async (client) => {
-      const row = (await client.query("SELECT count(*)::int AS accepted FROM nano.runs WHERE owner_id=$1 AND created_at > now() - interval '24 hours'", [ownerId])).rows[0];
+      const row = (await client.query("SELECT count(*)::int AS accepted FROM nano.runs WHERE owner_id=$1 AND kind<>'template' AND created_at > now() - interval '24 hours'", [ownerId])).rows[0];
       return { dailyLimit: options.dailyLimitByOwner?.[ownerId] ?? DAILY_ACCEPTED_LIMIT, dailyAccepted: row.accepted as number };
     }),
     // A repair stays inside the same run: same deadline, same shared token and

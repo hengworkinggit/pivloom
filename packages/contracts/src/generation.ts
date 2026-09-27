@@ -36,8 +36,10 @@ export const RunErrorSchema = z.object({
 });
 export const RunSchema = z.object({
   id: z.uuid(), projectId: z.uuid(), state: RunStateSchema, phase: RunPhaseSchema,
+  kind: z.enum(["generate", "modify", "retry", "clarify", "template"]).optional(),
+  templateSlug: z.string().max(80).nullable().optional(),
   attempt: z.number().int().min(0).max(2), requestText: z.string().max(8000),
-  modelProfileId: z.uuid(), modelConfigVersion: z.number().int().positive(),
+  modelProfileId: z.uuid().nullable(), modelConfigVersion: z.number().int().positive().nullable(),
   // The exact model this run used; null means the profile's default model.
   modelId: z.string().max(160).nullable().default(null),
   baseRevisionId: z.uuid().nullable(), resultRevisionId: z.uuid().nullable(),
@@ -68,6 +70,7 @@ export const SourceFileInfoSchema = z.object({
 export type SourceFileInfo = z.infer<typeof SourceFileInfoSchema>;
 export const RevisionSchema = z.object({
   id: z.uuid(), projectId: z.uuid(), runId: z.uuid(), revisionNo: z.number().int().positive(),
+  templateSlug: z.string().max(80).nullable().optional(),
   attempt: z.number().int().min(0).max(2), sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
   templateVersion: z.string(), buildStatus: z.enum(["passed", "failed"]),
   status: z.enum(["candidate", "accepted", "rejected"]),
@@ -180,7 +183,7 @@ export const TaskListItemSchema = z.object({
   runId: z.uuid(), projectId: z.uuid(), projectTitle: z.string().min(1).max(120),
   state: RunStateSchema, phase: RunPhaseSchema,
   queuedAt: z.iso.datetime().nullable(), queuePosition: z.number().int().positive().nullable(),
-  cancelable: z.boolean(), modelProfileId: z.uuid(), modelConfigVersion: z.number().int().positive(),
+  cancelable: z.boolean(), modelProfileId: z.uuid().nullable(), modelConfigVersion: z.number().int().positive().nullable(),
   modelId: z.string().max(160).nullable().default(null),
   error: RunErrorSchema.nullable(),
 });

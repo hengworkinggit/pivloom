@@ -22,6 +22,7 @@ import { createPreviewGateway } from "./preview.js";
 import { createRunEventHub, openRunEventStream, type RunEventLimits } from "./events.js";
 import { createPublicationStore } from "./publication.js";
 import { createGenerationScheduler } from "./scheduler.js";
+import { starter, starterPlan, type StarterSlug } from "../starters/catalog.js";
 
 export function createGenerationService(options: {
   database: PivloomDatabase; models: ModelProfileService; identity: IdentityConfig;
@@ -213,6 +214,12 @@ export function createGenerationService(options: {
     async accept(ownerId: string, projectId: string, input: CreateRunRequest, idempotencyKey: string) {
       return repository.accept(ownerId, projectId, { ...input, idempotencyKey });
     },
+    async createTemplateProject(ownerId: string, slug: string, idempotencyKey: string) {
+      const template = starter(slug);
+      if (!template) throw new ApiFailure(404, "TEMPLATE_NOT_FOUND", "找不到这个模板。");
+      return repository.createTemplateProject(ownerId, { slug, title: template.title,
+        plan: starterPlan(slug as StarterSlug), idempotencyKey });
+    },
     start(run: StoredRun) { executor.start(run); },
     /** Dispatches persisted queued tasks as capacity frees up. */
     wake() { scheduler.wake(); },
@@ -283,8 +290,14 @@ export function createGenerationService(options: {
       if (!project.currentRevisionId) throw new ApiFailure(409, "NO_ACCEPTED_REVISION", "项目尚无通过检查的版本。");
       const revision = await repository.getRevision(ownerId, project.currentRevisionId);
       const check = await repository.getRunCheck(ownerId, revision.runId);
+      const sourceRun = await repository.getRun(ownerId, revision.runId);
+      const curatedTemplate = sourceRun.kind === "template" && sourceRun.state === "completed"
+        && sourceRun.resultRevisionId === revision.id && !!sourceRun.templateSlug && !!starter(sourceRun.templateSlug)
+        && revision.build?.schemaVersion === 1 && revision.build?.sourceHash === revision.sourceHash
+        && (revision.build?.typecheck as { exitCode?: unknown } | undefined)?.exitCode === 0
+        && (revision.build?.build as { exitCode?: unknown } | undefined)?.exitCode === 0;
       if (revision.status !== "accepted" || revision.buildStatus !== "passed"
-        || check?.verdict !== "passed" || check.revisionId !== revision.id || check.sourceHash !== revision.sourceHash)
+        || !curatedTemplate && (check?.verdict !== "passed" || check.revisionId !== revision.id || check.sourceHash !== revision.sourceHash))
         throw new ApiFailure(409, "REVISION_NOT_VERIFIED", "当前版本尚未通过检查，不能发布。");
       const existing = await publications.get(projectId);
       if (existing?.revisionId === revision.id && existing.sourceHash === revision.sourceHash) return { publication: existing };
