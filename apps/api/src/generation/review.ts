@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { ReviewBindingSchema, MAX_CHECK_ARTIFACTS, type ReviewBinding, type ReviewResult, type Handoff } from '@pivloom/contracts';
+import { HandoffSchema, ReviewBindingSchema, MAX_CHECK_ARTIFACTS, type ReviewBinding, type ReviewResult, type Handoff } from '@pivloom/contracts';
 import { OpenSandboxWorkspace, type SandboxConnector } from '../runtime/workspace.js';
 import { RemoteBrowser } from '../runtime/browser.js';
 import { sourceHash } from '../runtime/generation.js';
@@ -9,6 +9,9 @@ import { runScriptedPlan, type RunScriptedPlanInput } from '../runtime/replay-pl
 import { preflightCapacity } from '../runtime/capacity.js';
 import { admitVerification } from '../runtime/verification-admission.js';
 import { createVisualJudgePort } from '../runtime/visual-judge-request.js';
+import { createVerificationProgramCompiler } from '../runtime/verification-program-request.js';
+import { prepareVerificationPrograms } from '../runtime/verification-programs.js';
+import type { VerificationProgramCache } from '../runtime/verification-program-contract.js';
 import { RuntimeError, type ModelConfig, type SandboxConfig, type ProbeEventSink, type ProbeEvent } from '../runtime/types.js';
 import { SANDBOX_LEASE_RENEW_THRESHOLD_MS, SANDBOX_LEASE_SEGMENT_MS, VERIFICATION_WALL_CLOCK_LIMIT_MS, REVIEW_FINALIZATION_RESERVE_MS } from '../runtime/budgets.js';
 import { type TokenUsage, type RunTokenBudget } from '../runtime/token-budget.js';
@@ -60,6 +63,7 @@ export interface ReviewInput {
   tokenBudget?:RunTokenBudget;maxToolCalls?:number;onEvent?:ProbeEventSink;assertActive():Promise<void>;
   onCheckpoint?(checkpoint:DurableReviewCheckpoint):Promise<void>;
   onLeaseRenewed(expiresAt:string):Promise<void>;
+  programCache?: VerificationProgramCache;
   /** All review/rebind/repair attempts of one Run inherit this same monotonic window. */
   verificationWindow?: { startedAt:number; deadlineAt:number; startedAtWall:number };
 }
@@ -67,6 +71,15 @@ function freeze<T>(value:T):T{
   if(value&&typeof value==='object'&&!Object.isFrozen(value)){
     Object.freeze(value);for(const child of Object.values(value))freeze(child);
   }return value;
+}
+function combinedUsage(parts: Array<TokenUsage | undefined>): Omit<TokenUsage,'elapsedMs'> {
+  const active=parts.filter((part):part is TokenUsage=>!!part&&(part.modelCalls>0||part.toolCalls>0));
+  const sum=(field:'input'|'output'|'total'|'cachedTokens')=>active.length&&active.every(part=>part[field]!==null)
+    ?active.reduce((total,part)=>total+part[field]!,0):null;
+  const input=sum('input'),output=sum('output'),total=sum('total'),cachedTokens=sum('cachedTokens');
+  const values=[input,output,total,cachedTokens];
+  return {input,output,total,cachedTokens,modelCalls:active.reduce((n,p)=>n+p.modelCalls,0),toolCalls:active.reduce((n,p)=>n+p.toolCalls,0),
+    source:values.every(value=>value===null)?'unreported':values.every(value=>value!==null)?'reported':'partial'};
 }
 /** The only receipt issuer verifies immutable objects, remote source + marker,
  * actual browser evidence and closing. Test injection is external sandbox/HTTP. */
@@ -98,6 +111,7 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
   let recoverableInfrastructureCode:VerifiedReviewReceipt['recoverableInfrastructureCode'];
   let incompleteReason:string|undefined;
   let evidence:ReviewObservationEvent[]=[],result:ReviewResult|undefined;
+  let programCompiler: ReturnType<typeof createVerificationProgramCompiler> | undefined;
   async function bounded<T>(operation:()=>Promise<T>,scopeSignal=signal):Promise<T>{
     const abortReason=()=>scopeSignal.reason==='CANCELLED'?new RuntimeError('CANCELLED','检查已取消')
       :scopeSignal.reason==='REVIEW_TIMEOUT'?new RuntimeError('REVIEW_TIMEOUT','检查已达到统一时间上限'):scopeSignal.reason;
@@ -156,7 +170,7 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
     await ensureLease(true);
     await verifyVersion();
     const files=(await bounded(()=>input.sources.load(input.source))).files;
-    reviewerStarted=true;preparationCompletedAt=now();
+    reviewerStarted=true;
     // Every event either layer emits has to walk the sandbox lease first: a
     // scripted pass performs no model request, so this is the only place that
     // notices the preview lease is close to expiry while the browser works.
@@ -172,8 +186,22 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
       await bounded(()=>input.onCheckpoint!({...checkpoint,artifacts:artifacts.filter(artifact=>screenshotIds.has(artifact.id))}),finalSignal);
       await finalActive();
     }:undefined;
-    const modelPath=()=>runReviewer({binding,sessionId:input.sessionId,handoff:input.handoff,browser,files,bootstrap:true,
-      modelConfig:input.modelConfig,signal,tokenBudget:input.tokenBudget,maxToolCalls:input.maxToolCalls,
+    let handoff=input.handoff;
+    let compileFailures:ReadonlyMap<string,string>|undefined;
+    if(handoff.plan.verificationMode==='programs'){
+      programCompiler=createVerificationProgramCompiler(input.modelConfig,signal,{tokenBudget:input.tokenBudget,deadlineAt:workDeadlineAt,now,onEvent:emitEvent});
+      const prepared=await bounded(()=>prepareVerificationPrograms({plan:handoff.plan,sourceHash:binding.sourceHash,files,
+        observe:()=>browser.open('/'),cache:input.programCache??{load:async()=>[],save:async assets=>assets},compiler:programCompiler!,
+        maxToolCalls:input.maxToolCalls,signal,assertActive:active,onEvent:emitEvent}));
+      handoff=HandoffSchema.parse({...handoff,plan:prepared.plan});
+      compileFailures=new Map(prepared.failures.map(item=>[item.behaviorId,item.reason]));
+      if(compileFailures.size)incompleteReason='VERIFICATION_PROGRAM_INVALID';
+      const finalAdmission=admitVerification(handoff.plan,{remainingMs:Math.max(0,workDeadlineAt-now()),maxArtifacts:MAX_CHECK_ARTIFACTS});
+      if(finalAdmission.budgetExceeded.length)throw new RuntimeError('VERIFICATION_CAPACITY',`编译后的检查工作量超出剩余预算：${finalAdmission.budgetExceeded.map(item=>`${item.resource} ${item.required}/${item.limit}`).join('；')}`);
+    }
+    preparationCompletedAt=now();
+    const modelPath=()=>runReviewer({binding,sessionId:input.sessionId,handoff,browser,files,bootstrap:true,
+      modelConfig:input.modelConfig,signal,tokenBudget:input.tokenBudget,maxToolCalls:input.maxToolCalls===undefined?undefined:Math.max(0,input.maxToolCalls-(programCompiler?.usage().toolCalls??0)),
       onEvent:emitEvent,assertActive:active,onCheckpoint,saveScreenshot,monotonicNow:now,deadlineAt:workDeadlineAt,
       preservePartialOnTimeout:true,preservePartialOnFailure:true});
     // Capacity pre-flight, in shadow mode: it compares this plan's envelope against the limits that
@@ -215,7 +243,7 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
       return ref&&candidates.some((candidate)=>candidate.ref===ref)?ref:undefined;
     };
     try{
-      const scripted=await runScriptedPlan({binding,handoff:input.handoff,browser,signal,
+      const scripted=await runScriptedPlan({binding,handoff,browser,signal,compileFailures,
         saveScreenshot,onEvent:emitEvent,onCheckpoint,
         // The appearance layer's one model call, built from the same configuration the review uses. It
         // is injected here so the replay and judgement modules keep holding no provider client, and it
@@ -266,7 +294,7 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
         message:`脚本回放因浏览器基础设施故障退回模型路径（${error.code}）`});
     }
     if(!reviewed)reviewed=await modelPath();
-    assertReviewerResult(reviewed);usage=reviewed.usage;evidence=reviewed.evidence;result=reviewed.result;incompleteReason=reviewed.incompleteReason;
+    assertReviewerResult(reviewed);usage=reviewed.usage;evidence=reviewed.evidence;result=reviewed.result;incompleteReason=reviewed.incompleteReason??incompleteReason;
     executionCompletedAt=now();finishing=true;clearTimeout(workTimer);
     await verifyVersion(true);markerVerified=true;
   }catch(error){
@@ -316,7 +344,7 @@ export async function runReview(input:ReviewInput,boundaries:{sandboxConnector?:
       await finalActive();
     }finally{clearTimeout(workTimer);clearTimeout(deadlineTimer);}
   }
-  usage={...(usage??{input:null,output:null,total:null,cachedTokens:null,modelCalls:0,toolCalls:0,source:'unreported' as const}),elapsedMs:Math.max(0,now()-attemptStartedAt)};
+  usage={...combinedUsage([usage,programCompiler?.usage()]),elapsedMs:Math.max(0,now()-attemptStartedAt)};
   const receipt:VerifiedReviewReceipt=freeze({binding,source:input.source,result:result!,artifacts,evidence,markerVerified,chromeClosed:true,
     verification:{startedAt:new Date(startedAtWall).toISOString(),deadlineAt:new Date(startedAtWall+deadlineAt-startedAt).toISOString(),elapsedMs:Math.max(0,now()-startedAt),timedOut:workAbort.signal.aborted,
       ...(incompleteReason?{incompleteReason}:{}),phasesMs:{

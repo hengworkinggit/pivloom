@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { OpenSandboxWorkspace, shellQuote } from "./workspace.js";
 import { browserProgramSource } from './browser-program-source.js';
+import type { BehaviorTargetLocator } from '@pivloom/contracts';
 import {
   RuntimeError,
   type WorkspaceHandle,
@@ -17,7 +18,7 @@ export interface BrowserObservation {
   truncated: boolean;
   refs: Record<string, { role?: string; name?: string }>;
 }
-export interface BrowserTarget { role: string; name?: string; within?: { role: string; name: string } }
+export type BrowserTarget = BehaviorTargetLocator;
 export interface BrowserInspection { observation: BrowserObservation; matches: Array<{ text: string; value: string | null }> }
 export interface BrowserProgramFrame { index: number; kind: 'observation' | 'screenshot'; observation?: BrowserObservation;
   image?: { base64: string; mimeType: 'image/png'; sha256: string }; batch?: Omit<BrowserKeyBatchResult,'observation'> }

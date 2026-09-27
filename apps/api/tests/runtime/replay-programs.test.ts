@@ -13,8 +13,9 @@ test('clearing a field passes with historical text present, but a wrong result c
   const fixture = formFixture(sessionId, { initial: { text: 'Result 0 Keypad 0 1 2 History 1+2=3' } });
   let resultText = '0';
   const browser = { ...fixture.browser, async inspect(target: BehaviorTargetLocator) {
+    const name = 'label' in target ? target.label : target.name;
     return { observation: await fixture.browser.observe(), matches: [
-      { text: target.name === 'Result' ? resultText : '', value: target.name === 'Expression' ? '' : null },
+      { text: name === 'Result' ? resultText : '', value: name === 'Expression' ? '' : null },
     ] };
   } };
   const input = { browser, signal: new AbortController().signal, rendersOnly: false, saveScreenshot,
@@ -66,7 +67,7 @@ test('all 21 computations use real keyboard events and the bounded history conta
     return { observation: await fixture.browser.observe(), startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
       steps: input.steps.map((step, index) => ({ ...step, index, success: true })) };
   }, async inspect(target: BehaviorTargetLocator) {
-    return { observation: await fixture.browser.observe(), matches: target.role === 'listitem'
+    return { observation: await fixture.browser.observe(), matches: 'role' in target && target.role === 'listitem'
       ? history.map(text => ({ text, value: null })) : [{ text: result, value: null }] };
   } };
   const keys = Array.from({ length: 21 }, (_, index) => ['Escape', ...`${index + 1}+${index + 1}`, 'Enter']).flat();
@@ -104,7 +105,7 @@ test('a saved form outcome is checked after asynchronous UI settling within its 
     ready = setTimeout(() => { saved = true; }, 1);
     return fixture.browser.act(action);
   }, async inspect(target: BehaviorTargetLocator) {
-    return { observation: await fixture.browser.observe(), matches: target.within?.name === 'Submission queue' && saved
+    return { observation: await fixture.browser.observe(), matches: 'role' in target && target.within?.name === 'Submission queue' && saved
       ? [{ text: 'Draft submitted', value: null }] : [] };
   } };
   try {

@@ -387,6 +387,13 @@ export function createGenerationExecutor(options: {
             sandboxConfig: sandbox, modelConfig, tokenBudget, signal: task.controller.signal,verificationWindow,
             maxToolCalls: remainingTools(),
             onEvent: recordEvent(reviewer.role.id),
+            programCache: {
+              load: plan => repository.loadVerificationPrograms(run.ownerId,run.projectId,plan),
+              save: assets => repository.saveVerificationPrograms(run.ownerId,run.id,{
+                roleRunId:reviewer.role.id,attempt:reviewer.role.attempt,revisionId:candidateRevision.id,
+                sourceHash:candidateRevision.sourceHash,assets,
+              }),
+            },
             onCheckpoint: async (checkpoint) => {
               await repository.appendEvent(run.ownerId, run.id, {
                 type: "tool.output", roleRunId: reviewer.role.id, progress: false,

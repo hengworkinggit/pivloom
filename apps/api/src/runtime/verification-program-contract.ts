@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { BehaviorProgramSchema, BehaviorTargetSchema, PlanSchema, type BehaviorTarget, type Plan } from '@pivloom/contracts';
+import { ProgramAssertionSchema, BehaviorProgramSchema, BehaviorTargetSchema, MAX_BEHAVIOR_ASSERTIONS, PlanSchema, type BehaviorTarget, type Plan } from '@pivloom/contracts';
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
@@ -12,6 +12,7 @@ export function verificationRequirementHash(behavior: BehaviorTarget): string {
 }
 
 export const VerificationProgramSpecSchema = BehaviorProgramSchema.safeExtend({
+  assertions: z.array(ProgramAssertionSchema).min(1).max(MAX_BEHAVIOR_ASSERTIONS),
   evidence: z.enum(['text', 'visual']),
 }).superRefine((program, context) => {
   if (program.evidence === 'text' && !program.assertions.some(assertion => assertion.kind.startsWith('target-')))

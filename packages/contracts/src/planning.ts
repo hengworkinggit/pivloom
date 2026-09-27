@@ -25,11 +25,13 @@ export type RoleUsage = z.infer<typeof RoleUsageSchema>;
  * runtime-only fields (observationId, ref, behaviorIds, capture).
  */
 const planControl = { role: nonempty(80).default("button"), name: nonempty(300) };
-/** User-facing targets, optionally narrowed to a named region or list. No arbitrary selectors/scripts. */
-export const BehaviorTargetLocatorSchema = z.strictObject({
-  role: nonempty(80), name: nonempty(300).optional(),
-  within: z.strictObject({ role: nonempty(80), name: nonempty(300) }).optional(),
-});
+/** User-facing targets. Explicit aria-labels also address legacy output divs
+ * without inventing an ARIA role. Neither variant accepts selectors or scripts. */
+export const BehaviorTargetLocatorSchema = z.union([
+  z.strictObject({ role: nonempty(80), name: nonempty(300).optional(),
+    within: z.strictObject({ role: nonempty(80), name: nonempty(300) }).optional() }),
+  z.strictObject({ label: nonempty(300).refine(value => !/[\u0000-\u001f\u007f]/u.test(value), '标签不能包含控制字符。') }),
+]);
 export type BehaviorTargetLocator = z.infer<typeof BehaviorTargetLocatorSchema>;
 /**
  * The browser CLI recognizes exactly these keys (BrowserPressKeySchema in
@@ -76,14 +78,18 @@ export type BehaviorStep = z.infer<typeof BehaviorStepSchema>;
  * they must not pretend to be script-decidable assertions.
  */
 const negated = z.boolean().default(false);
-export const BehaviorAssertionSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("text"), text: nonempty(500), negated }),
-  z.strictObject({ kind: z.literal("control"), ...planControl, negated }),
+/** New programs name an outcome target; console facts may supplement it. */
+export const ProgramAssertionSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("console-error"), negated }),
   z.strictObject({ kind: z.literal("target-text"), target: BehaviorTargetLocatorSchema,
     text: z.string().max(2000), match: z.enum(["exact", "contains"]).default("exact"), negated }),
   z.strictObject({ kind: z.literal("target-value"), target: BehaviorTargetLocatorSchema, value: z.string().max(2000), negated }),
   z.strictObject({ kind: z.literal("target-count"), target: BehaviorTargetLocatorSchema, count: z.number().int().min(0).max(500), negated }),
+]);
+export const BehaviorAssertionSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('text'), text: nonempty(500), negated }),
+  z.strictObject({ kind: z.literal('control'), ...planControl, negated }),
+  ...ProgramAssertionSchema.options,
 ]);
 export type BehaviorAssertion = z.infer<typeof BehaviorAssertionSchema>;
 /** Execution admission is stricter than the historical plan reader. */

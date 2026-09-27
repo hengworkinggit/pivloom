@@ -23,7 +23,7 @@ const CLICK_ADD = "'click' '@e2'";
  * `added` is injectable so the fallback test can script a page that already
  * changed, which keeps the model path's stub from having to fake a full check.
  */
-async function fixture(plan: Plan, options: { added?: () => boolean } = {}) {
+async function fixture(plan: Plan, options: { added?: (clicks: number) => boolean } = {}) {
   const blobs = new Map<string, Uint8Array>();
   const objects = { upload: async (key: string, body: Uint8Array) => { blobs.set(key, body); }, download: async (key: string) => blobs.get(key)!, list: async () => [] };
   const sources = createSourceStore({ url: 'http://fixture.invalid', secret: 'fixture', objects });
@@ -37,7 +37,7 @@ async function fixture(plan: Plan, options: { added?: () => boolean } = {}) {
   const remote = { clicks: 0, snapshots: 0, modelCalls: 0 };
   // The plan's one real interaction is the only thing that may change the page;
   // if the script did not actually click, the asserted text never appears.
-  const added = options.added ?? (() => remote.clicks > 0);
+  const added = () => options.added?.(remote.clicks) ?? remote.clicks > 0;
   const connection: SandboxConnection = { sandboxId: 'fixture', kill: async () => {}, isRunning: async () => true,
     renew: async () => {}, close: async () => {},
     endpoint: async () => ({ url: 'http://preview-fixture.invalid', headers: {} }),
@@ -49,6 +49,18 @@ async function fixture(plan: Plan, options: { added?: () => boolean } = {}) {
         const request = JSON.parse(Buffer.from(staging.get(command.split("'")[1])!).toString());
         stdoutTail = request.op === 'read' ? JSON.stringify({ data: files[0].content.toString('base64') })
           : JSON.stringify({ files: files.map((file) => file.path) });
+      } else if (command.startsWith('node /opt/pivloom/browser-program.mjs')) {
+        const request = JSON.parse(command.split("'")[1]) as { session: string;
+          operation: { kind: string; target?: { role?: string; name?: string } } };
+        if (request.operation.kind === 'reset') remote.clicks = 0;
+        const observation = { id: randomUUID(), sessionId: request.session, url: 'http://127.0.0.1:4173/',
+          tree: 'button 添加 [ref=e2]\nlist 书籍', text: added() ? '测试书名' : '空书单', truncated: false,
+          refs: { e2: { role: 'button', name: '添加' } } };
+        const target = request.operation.target;
+        const matches = target?.role === 'list' && target.name === '书籍'
+          ? [{ text: added() ? '测试书名' : '空书单', value: null }] : [];
+        stdoutTail = JSON.stringify({ success: true, data: request.operation.kind === 'inspect'
+          ? { observation, matches } : observation });
       } else {
         let data: Record<string, unknown> = {};
         if (command.endsWith("'get' 'url'")) data = { url: 'http://127.0.0.1:4173/' };
@@ -82,6 +94,41 @@ const scriptedPlan: Plan = { schemaVersion: 1, goal: '新增书籍', changeSumma
   behaviors: [{ id: 'B01', title: '添加书籍', precondition: '空书单', action: '点击添加按钮并查看列表', expected: '出现测试书名', required: true,
     steps: [{ type: 'open', path: '/' }, { type: 'click', role: 'button', name: '添加' }, { type: 'capture' }],
     assertions: [{ kind: 'text', text: '测试书名', negated: false }] }] };
+
+function compilerCompletion(program: unknown) {
+  const chunk = (delta: unknown, finish_reason: string | null, usage?: unknown) => ({
+    id: 'compiler-fixture', object: 'chat.completion.chunk', created: 1, model: 'fixture',
+    choices: [{ index: 0, delta, finish_reason }], ...(usage ? { usage } : {}),
+  });
+  return new Response([
+    chunk({ role: 'assistant', tool_calls: [{ index: 0, id: 'submit-1', type: 'function',
+      function: { name: 'submit_programs', arguments: JSON.stringify({ programs: [{ behaviorId: 'B01', program }] }) } }] }, null),
+    chunk({}, 'tool_calls', { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 }),
+  ].map(event => `data: ${JSON.stringify(event)}\n\n`).join('') + 'data: [DONE]\n\n',
+  { headers: { 'content-type': 'text/event-stream' } });
+}
+
+test.each([true, false])('prose requirements compile once, and the browser outcome alone decides pass=%s', async (succeeds) => {
+  const prose: Plan = { ...scriptedPlan, verificationMode: 'programs', behaviors: [{ ...scriptedPlan.behaviors[0],
+    steps: undefined, assertions: undefined }] };
+  const f = await fixture(prose, { added: clicks => succeeds && clicks > 0 });
+  const stored: unknown[] = [];
+  f.input.programCache = { load: async () => [], save: async assets => { stored.push(...assets); return assets; } };
+  f.input.modelConfig.fetch = async () => {
+    f.remote.modelCalls++;
+    return compilerCompletion({ initialState: 'fresh', evidence: 'text',
+      steps: [{ type: 'open', path: '/' }, { type: 'click', role: 'button', name: '添加' }],
+      assertions: [{ kind: 'target-text', target: { role: 'list', name: '书籍' }, text: '测试书名', match: 'exact', negated: false }] });
+  };
+  const { receipt, usage } = await runReview(f.input, f.boundaries);
+  assertVerifiedReviewReceipt(receipt);
+  expect(stored).toHaveLength(1);
+  expect(f.remote.modelCalls).toBe(1);
+  expect(f.remote.clicks).toBe(1);
+  expect(f.events.some(event => event.toolName === 'replay_fallback')).toBe(false);
+  expect(receipt.result.items[0].verdict).toBe(succeeds ? 'passed' : 'failed');
+  expect(usage).toMatchObject({ modelCalls: 1, toolCalls: 1 });
+}, 20_000);
 
 test('a compiled plan is accepted through finishReview without a single provider request', async () => {
   const f = await fixture(scriptedPlan);

@@ -194,7 +194,8 @@ export function evaluateAssertions(
     if ('target' in assertion) {
       const matches = evidence.targetMatches?.get(index);
       if (!matches) throw new RuntimeError('INVALID_TEST_PROGRAM', '目标断言缺少浏览器作用域证据');
-      const label = `${assertion.target.role}/${JSON.stringify(assertion.target.name ?? '*')}`;
+      const label = 'label' in assertion.target ? `aria-label/${JSON.stringify(assertion.target.label)}`
+        : `${assertion.target.role}/${JSON.stringify(assertion.target.name ?? '*')}`;
       if (assertion.kind === 'target-count') {
         const equal = matches.length === assertion.count;
         return { index, kind: assertion.kind, passed: assertion.negated ? !equal : equal,

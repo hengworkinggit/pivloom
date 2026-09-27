@@ -98,20 +98,27 @@ async function connectCdp() {
 }
 async function inspect(target) {
   await checkOrigin(); const send=await connectCdp();
+  let selected;
+  if('label' in target){
+    const {root}=await send('DOM.getDocument');
+    const result=await send('DOM.querySelectorAll',{nodeId:root.nodeId,selector:'[aria-label='+JSON.stringify(target.label)+']'});
+    selected=result.nodeIds.map(nodeId=>({nodeId}));
+  }else{
   const {nodes}=await send('Accessibility.getFullAXTree'); const byId=new Map(nodes.map(n=>[n.nodeId,n]));
   const matches=(n,t)=>!n.ignored && n.role?.value?.toLowerCase()===t.role.toLowerCase() && (t.name===undefined || n.name?.value===t.name);
   let scope;
   if(target.within){const scopes=nodes.filter(n=>matches(n,target.within));if(scopes.length!==1)fail('TEST_TARGET_AMBIGUOUS','检查范围无法唯一定位');scope=scopes[0].nodeId;}
   const inside=n=>{if(!scope)return true;let parent=n.parentId;while(parent){if(parent===scope)return true;parent=byId.get(parent)?.parentId;}return false;};
-  const selected=nodes.filter(n=>matches(n,target)&&inside(n)&&n.backendDOMNodeId);
+  selected=nodes.filter(n=>matches(n,target)&&inside(n)&&n.backendDOMNodeId).map(n=>({backendNodeId:n.backendDOMNodeId}));
+  }
   if(selected.length>256) fail('TEST_TARGET_AMBIGUOUS','检查对象超过可观察数量');
   const values=[];
   for(const node of selected){
-    const {object}=await send('DOM.resolveNode',{backendNodeId:node.backendDOMNodeId});
-    const result=await send('Runtime.callFunctionOn',{objectId:object.objectId,functionDeclaration:'function(){return {text:this.innerText ?? this.textContent ?? "",value:("value" in this && typeof this.value === "string")?this.value:null}}',returnByValue:true});
+    const {object}=await send('DOM.resolveNode',node);
+    const result=await send('Runtime.callFunctionOn',{objectId:object.objectId,functionDeclaration:'function(visibleOnly){if(visibleOnly){if(!(this instanceof Element)||!this.getClientRects().length)return {hidden:true};for(let e=this;e;e=e.parentElement){const s=getComputedStyle(e);if(s.display==="none"||s.visibility==="hidden"||s.visibility==="collapse"||s.opacity==="0")return {hidden:true}}}return {text:this.innerText ?? this.textContent ?? "",value:("value" in this && typeof this.value === "string")?this.value:null}}',arguments:[{value:'label' in target}],returnByValue:true});
     await send('Runtime.releaseObject',{objectId:object.objectId});
     if(result.exceptionDetails || !result.result?.value) fail('BROWSER_BLOCKED','无法读取目标控件');
-    const value=result.result.value;if(value.text.length>32000)fail('TEST_TARGET_AMBIGUOUS','目标文本超过观察上限');values.push(value);
+    const value=result.result.value;if(value.hidden)continue;if(value.text.length>32000)fail('TEST_TARGET_AMBIGUOUS','目标文本超过观察上限');values.push(value);
   }
   return {matches:values,observation:await observe()};
 }

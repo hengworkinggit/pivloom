@@ -223,6 +223,9 @@ export interface RunScriptedPlanInput extends Omit<ReplayRunProgramsInput, 'onPr
   onCheckpoint?(checkpoint: ReviewCheckpoint): Promise<void>;
   /** Monotonic deadline inherited from runReview, including time already spent preparing the sandbox. */
   deadlineAt?: number;
+  /** Preparation errors do not send an explicitly scripted plan to a new,
+   * unconstrained model walkthrough or remove its unmet requirements. */
+  compileFailures?: ReadonlyMap<string,string>;
 }
 export type ScriptedPlanOutcome =
   | { kind: 'scripted'; result: ReviewerResult }
@@ -253,7 +256,7 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
   const visualIds = new Set(compiled.uncompilable.filter((entry) => entry.reason === 'visual-evidence')
     .map((entry) => entry.behaviorId));
   const judgeVisual = Boolean(input.visualJudge) && visualIds.size > 0;
-  if (compiled.programs.length === 0 && !judgeVisual && !compiled.uncompilable.some(entry=>entry.reason==='invalid-setup')) {
+  if (compiled.programs.length === 0 && !judgeVisual && !input.compileFailures?.size && !compiled.uncompilable.some(entry=>entry.reason==='invalid-setup')) {
     // Nothing deterministic is available at all: no program to run and no behaviour the appearance
     // layer may judge. Only this state — not a partially compilable plan — sends the check back to the
     // model path, and it is reached before any browser work, so the model path starts from the page
@@ -368,7 +371,8 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
     // `blocked` is not a pass — `finishReview` still refuses to accept the revision.
     const reason = uncompilableReasons.get(behavior.id);
     if (reason) return { behaviorId: behavior.id, verdict: 'blocked' as const, expected: behavior.expected,
-      actual: blockedItemText(reason), observationEventIds: [], screenshotIds: [], reproSteps: [] };
+      actual: input.compileFailures?.has(behavior.id) ? `VERIFICATION_PROGRAM_INVALID：${input.compileFailures.get(behavior.id)!.slice(0,1800)}`
+        : blockedItemText(reason), observationEventIds: [], screenshotIds: [], reproSteps: [] };
     throw new RuntimeError('REPLAY_PROGRAM_MISSING', '脚本回放没有覆盖全部计划行为');
   });
   for (const item of items) {
