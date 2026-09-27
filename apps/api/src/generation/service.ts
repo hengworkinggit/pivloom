@@ -23,6 +23,8 @@ import { createRunEventHub, openRunEventStream, type RunEventLimits } from "./ev
 import { createPublicationStore } from "./publication.js";
 import { createGenerationScheduler } from "./scheduler.js";
 import { starter, starterPlan, type StarterSlug } from "../starters/catalog.js";
+import { createAppDataRepository } from "../data/app-data.js";
+import { assertManagedDataSource } from "../starters/data-contract.js";
 
 export function createGenerationService(options: {
   database: PivloomDatabase; models: ModelProfileService; identity: IdentityConfig;
@@ -37,6 +39,7 @@ export function createGenerationService(options: {
   recoverySweepMs?: number;
 }) {
   const projects = createProjectRepository(options.database);
+  const appData = createAppDataRepository(options.database);
   const eventHub = createRunEventHub();
   const repository = createGenerationRepository(options.database, options.models, {
     executorBootId: options.bootId, maxSandboxes: options.maxSandboxes,
@@ -240,7 +243,8 @@ export function createGenerationService(options: {
       if (selected) await rehydrateRollbackPreview(ownerId, projectId, selected.id, selectedBinding);
       const quota = await repository.quota(ownerId);
       const latestCheck = selected ? await repository.getRunCheck(ownerId, selected.runId) : null;
-      return ProjectDetailResponseSchema.parse({ project, messages, latestRun: visibleLatestRun, currentRevision, latestCandidate: visibleCandidate,
+      return ProjectDetailResponseSchema.parse({ project, messages, dataProfile: await appData.profileForOwner(ownerId, projectId),
+        latestRun: visibleLatestRun, currentRevision, latestCandidate: visibleCandidate,
         latestCheck, latestCheckHistorical: Boolean(latestCheck && lastRollbackAt
           && Date.parse(latestCheck.createdAt) <= Date.parse(lastRollbackAt) && selected?.id === currentRevision?.id),
         activeRun: visibleLatestRun && (!TerminalRunStates.has(visibleLatestRun.state) || visibleLatestRun.cleanupState === "pending") ? visibleLatestRun : null,
@@ -279,6 +283,7 @@ export function createGenerationService(options: {
       return repository.revisionExists(label);
     },
     publishedHostAllowed(host: string) { return publications?.hostAllowed(host) ?? Promise.resolve(false); },
+    publishedFromHost(host: string) { return publications?.fromHost(host) ?? Promise.resolve(null); },
     publishedFile(host: string, path: string) { return publications?.publicFile(host, path) ?? Promise.resolve(null); },
     async publication(ownerId: string, projectId: string) {
       await projects.get(ownerId, projectId);
@@ -289,16 +294,10 @@ export function createGenerationService(options: {
       const project = await projects.get(ownerId, projectId);
       if (!project.currentRevisionId) throw new ApiFailure(409, "NO_ACCEPTED_REVISION", "项目尚无通过检查的版本。");
       const revision = await repository.getRevision(ownerId, project.currentRevisionId);
-      const check = await repository.getRunCheck(ownerId, revision.runId);
-      const sourceRun = await repository.getRun(ownerId, revision.runId);
-      const curatedTemplate = sourceRun.kind === "template" && sourceRun.state === "completed"
-        && sourceRun.resultRevisionId === revision.id && !!sourceRun.templateSlug && !!starter(sourceRun.templateSlug)
-        && revision.build?.schemaVersion === 1 && revision.build?.sourceHash === revision.sourceHash
-        && (revision.build?.typecheck as { exitCode?: unknown } | undefined)?.exitCode === 0
-        && (revision.build?.build as { exitCode?: unknown } | undefined)?.exitCode === 0;
-      if (revision.status !== "accepted" || revision.buildStatus !== "passed"
-        || !curatedTemplate && (check?.verdict !== "passed" || check.revisionId !== revision.id || check.sourceHash !== revision.sourceHash))
+      if (!await repository.isRevisionEligible(ownerId, projectId, revision.id))
         throw new ApiFailure(409, "REVISION_NOT_VERIFIED", "当前版本尚未通过检查，不能发布。");
+      const dataProfile = await appData.profileForOwner(ownerId, projectId);
+      if (dataProfile) assertManagedDataSource(await sources.load(await sources.verify(revision.source)), dataProfile);
       const existing = await publications.get(projectId);
       if (existing?.revisionId === revision.id && existing.sourceHash === revision.sourceHash) return { publication: existing };
       const binding = await repository.getPreviewBinding(ownerId, projectId, revision.id);

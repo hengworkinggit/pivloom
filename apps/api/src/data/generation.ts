@@ -126,6 +126,7 @@ export interface GenerationRepository {
   finishBuildFailure(ownerId: string, runId: string, input: BuildFailureInput): Promise<BuildFailureCompletion>;
   getCheck(ownerId: string, checkId: string): Promise<Check>;
   getRunCheck(ownerId: string, runId: string): Promise<Check | null>;
+  isRevisionEligible(ownerId: string, projectId: string, revisionId: string): Promise<boolean>;
   getArtifact(ownerId: string, artifactId: string): Promise<StoredCheckArtifact>;
   saveCandidate(ownerId: string, runId: string, input: CandidateInput): Promise<StoredRevision>;
   getRevision(ownerId: string, revisionId: string): Promise<StoredRevision>;
@@ -673,6 +674,9 @@ export function createGenerationRepository(
           options.executorBootId, plan])).rows[0];
         await client.query("INSERT INTO nano.template_imports(owner_id,idempotency_key,slug,project_id) VALUES($1,$2,$3,$4)",
           [ownerId, input.idempotencyKey, input.slug, projectRow.id]);
+        if (input.slug === "event-signup" || input.slug === "appointments")
+          await client.query("INSERT INTO nano.app_data_profiles(project_id,owner_id,kind) VALUES($1,$2,$3)",
+            [projectRow.id, ownerId, input.slug]);
         await client.query("INSERT INTO nano.messages(owner_id,project_id,run_id,kind,content) VALUES($1,$2,$3,'user',$4)",
           [ownerId, projectRow.id, runId, requestText]);
         await event(client, created, { type: "run.accepted", payload: { state: "queued", phase: "provision",
@@ -1345,6 +1349,10 @@ export function createGenerationRepository(
       await run(client, ownerId, runId);
       const row = (await client.query(`${checkReadProjection} WHERE c.owner_id=$1 AND c.run_id=$2 ORDER BY c.attempt DESC LIMIT 1`, [ownerId, runId])).rows[0];
       return row ? storedCheck(row) : null;
+    }),
+    isRevisionEligible: (ownerId, projectId, revisionId) => owned(ownerId, async (client) => {
+      const row = (await client.query("SELECT nano.revision_eligible($1,$2,$3) AS eligible", [ownerId, projectId, revisionId])).rows[0];
+      return row?.eligible === true;
     }),
     getArtifact: (ownerId, artifactId) => owned(ownerId, async (client) => {
       if (!z.uuid().safeParse(artifactId).success) throw notFound();

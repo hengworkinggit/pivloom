@@ -30,7 +30,16 @@ export function createPublicationStore(options: { root: string; baseUrl: string;
   function url(projectId: string) { return `https://${projectId}.${base.host}/`; }
   async function get(projectId: string): Promise<Publication | null> {
     try {
-      const record: unknown = JSON.parse(await readFile(join(location(projectId), "publication.json"), "utf8"));
+      const projectRoot = location(projectId);
+      // New releases keep their metadata inside the immutable release tree. A
+      // single current-symlink swap therefore changes code and version together.
+      // The outer record is read only for releases made before this layout.
+      const metadata = await readFile(join(projectRoot, "current", ".publication.json"), "utf8")
+        .catch(async (error: NodeJS.ErrnoException) => {
+          if (error.code !== "ENOENT") throw error;
+          return readFile(join(projectRoot, "publication.json"), "utf8");
+        });
+      const record: unknown = JSON.parse(metadata);
       if (!record || typeof record !== "object") return null;
       const value = record as Partial<Publication>;
       if (value.projectId !== projectId || !value.revisionId || !uuid.test(value.revisionId)
@@ -43,19 +52,18 @@ export function createPublicationStore(options: { root: string; baseUrl: string;
       throw error;
     }
   }
-  async function hostAllowed(host: string) {
-    const suffix = `.${base.hostname.toLowerCase()}`;
-    const name = host.trim().toLowerCase().replace(/\.$/, "");
-    if (!name.endsWith(suffix)) return false;
-    const projectId = name.slice(0, -suffix.length);
-    return uuid.test(projectId) && !!await get(projectId);
-  }
-  async function publicFile(host: string, requestPath: string): Promise<{ bytes: Buffer; mime: string } | null> {
+  async function fromHost(host: string): Promise<Publication | null> {
     const suffix = `.${base.hostname.toLowerCase()}`;
     const name = host.trim().toLowerCase().replace(/\.$/, "");
     if (!name.endsWith(suffix)) return null;
     const projectId = name.slice(0, -suffix.length);
-    if (!uuid.test(projectId) || !await get(projectId)) return null;
+    return uuid.test(projectId) ? get(projectId) : null;
+  }
+  async function hostAllowed(host: string) { return !!await fromHost(host); }
+  async function publicFile(host: string, requestPath: string): Promise<{ bytes: Buffer; mime: string } | null> {
+    const publication = await fromHost(host);
+    if (!publication) return null;
+    const projectId = publication.projectId;
     let path: string;
     try { path = decodeURIComponent(requestPath); } catch { return null; }
     if (path.startsWith("/") || path.includes("\\") || path.includes("%") || path.length > 240) return null;
@@ -115,6 +123,7 @@ export function createPublicationStore(options: { root: string; baseUrl: string;
     const releases = join(projectRoot, "releases");
     const release = join(releases, `${revisionId}-${randomUUID()}`);
     const stage = join(releases, `.stage-${randomUUID()}`);
+    const record: Publication = { projectId, revisionId, sourceHash, publishedAt: new Date().toISOString(), url: url(projectId) };
     await mkdir(stage, { recursive: true });
     await chmod(projectRoot, 0o755);
     await chmod(releases, 0o755);
@@ -124,22 +133,24 @@ export function createPublicationStore(options: { root: string; baseUrl: string;
         const target = join(stage, path);
         await mkdir(dirname(target), { recursive: true });
         await chmod(dirname(target), 0o755);
-        const bytes = /\.(?:html|js|css|json|svg|txt|map)$/.test(path)
+        let bytes = /\.(?:html|js|css|json|svg|txt|map)$/.test(path)
           ? Buffer.from(original.toString("utf8").replaceAll(`/p/${revisionId}/`, "/")) : original;
+        if (path === "index.html") {
+          const html = bytes.toString("utf8");
+          if (!html.includes("</head>")) throw new ApiFailure(409, "PUBLICATION_BUILD_INVALID", "发布页面缺少文档头部。");
+          bytes = Buffer.from(html.replace("</head>", '<meta name="pivloom-published" content="1"></head>'));
+        }
         await writeFile(target, bytes);
         await chmod(target, 0o644);
       }
+      await writeFile(join(stage, ".publication.json"), JSON.stringify(record));
+      await chmod(join(stage, ".publication.json"), 0o644);
       await rename(stage, release);
     } catch (error) { await rm(stage, { recursive: true, force: true }); throw error; }
     const next = join(projectRoot, `.current-${randomUUID()}`);
     await symlink(release, next);
     await rename(next, join(projectRoot, "current"));
-    const record: Publication = { projectId, revisionId, sourceHash, publishedAt: new Date().toISOString(), url: url(projectId) };
-    const recordTemp = join(projectRoot, `.publication-${randomUUID()}.json`);
-    await writeFile(recordTemp, JSON.stringify(record));
-    await chmod(recordTemp, 0o644);
-    await rename(recordTemp, join(projectRoot, "publication.json"));
     return record;
   }
-  return { get, hostAllowed, publicFile, publish };
+  return { get, fromHost, hostAllowed, publicFile, publish };
 }

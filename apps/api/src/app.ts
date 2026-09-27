@@ -11,6 +11,7 @@ import { createModelProfileService } from "./models/service.js";
 import { registerModelRoutes } from "./routes/models.js";
 import { registerGenerationRoutes } from "./routes/generation.js";
 import { registerVersionHistoryRoutes } from "./routes/version-history.js";
+import { registerAppDataRoutes } from "./routes/app-data.js";
 import { createGenerationService, type GenerationService } from "./generation/service.js";
 import { createSourceStore, type SourceObjectStore } from "./storage/source.js";
 import { readApiBuildVersion } from "./build-version.js";
@@ -176,6 +177,9 @@ export function createApp(options: CreateAppOptions = {}) {
         loadProjectDetail: service ? (ownerId, projectId) => service.projectDetail(ownerId, projectId) : undefined,
         loadQuota: service ? (ownerId) => service.repository.quota(ownerId) : undefined });
       await registerGenerationRoutes(configured, { generation, verifyIdentity: verifier.verify });
+      await registerAppDataRoutes(configured, { database,
+        publishedFromHost: (host) => service?.publishedFromHost(host) ?? Promise.resolve(null),
+        verifyIdentity: verifier.verify });
       await registerVersionHistoryRoutes(configured, {
         generation,
         sources: generation ? createSourceStore({ url: configuration.value.supabaseUrl,

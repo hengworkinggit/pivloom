@@ -67,12 +67,10 @@ export function createRollbackRepository(
         if (input.targetRevisionId === input.expectedCurrentRevisionId)
           throw new ApiFailure(422, "ALREADY_CURRENT", "目标版本已经是当前版本。");
         const target = (await client.query(`SELECT v.* FROM nano.revisions v
-          JOIN nano.checks c ON c.owner_id=v.owner_id AND c.project_id=v.project_id
-            AND c.revision_id=v.id AND c.source_hash=v.source_hash AND c.verdict='passed'
           WHERE v.owner_id=$1 AND v.project_id=$2 AND v.id=$3
-            AND v.status='accepted' AND v.build_status='passed'`,
+            AND nano.revision_eligible($1,$2,$3)`,
         [ownerId, projectId, input.targetRevisionId])).rows[0];
-        if (!target) throw new ApiFailure(409, "ROLLBACK_TARGET_NOT_ACCEPTED", "只能回滚到本项目已验收且通过检查的版本。");
+        if (!target) throw new ApiFailure(409, "ROLLBACK_TARGET_NOT_ACCEPTED", "只能回滚到本项目已接受且验证有效的版本。");
         // A rollback rebuilds and re-checks the target revision in its own
         // sandbox, so it draws on the same capacity ledger as generation.
         // Admission and the row commit together: 'preparing' means it holds a
@@ -160,10 +158,8 @@ export function createRollbackRepository(
         if (row.status !== "prepared" || project.operation_id !== id || project.current_revision_id !== row.from_revision_id)
           throw new ApiFailure(409, "ROLLBACK_NOT_ACTIVE", "回滚已结束，或当前版本发生变化。");
         const target = (await client.query(`SELECT v.revision_no FROM nano.revisions v
-          JOIN nano.checks c ON c.owner_id=v.owner_id AND c.project_id=v.project_id AND c.revision_id=v.id
-            AND c.source_hash=v.source_hash AND c.verdict='passed'
           WHERE v.owner_id=$1 AND v.project_id=$2 AND v.id=$3 AND v.source_hash=$4
-            AND v.status='accepted' AND v.build_status='passed'`,
+            AND nano.revision_eligible($1,$2,$3)`,
         [ownerId, projectId, row.target_revision_id, row.source_hash])).rows[0];
         if (!target) throw new ApiFailure(409, "ROLLBACK_TARGET_NOT_ACCEPTED", "目标版本不再满足验收条件。");
         const from = (await client.query("SELECT revision_no FROM nano.revisions WHERE owner_id=$1 AND project_id=$2 AND id=$3", [ownerId, projectId, row.from_revision_id])).rows[0];
