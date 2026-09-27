@@ -374,30 +374,30 @@ describe.skipIf(process.env.PIVLOOM_EXECUTOR_INTEGRATION !== "1")("executor repa
     return {project,runId:claimed.id};
   }
 
-  test('infrastructure rebinds share the first Reviewer deadline instead of receiving another ten minutes', async () => {
+  test('an infrastructure rebind receives its own bounded Reviewer attempt and can complete', async () => {
     const {project,runId}=await legacyCandidate();
     let now=0;
     const f=await fixture('reviewer-infra-once',{monotonicNow:()=>now,
       onReviewerRequest:sessions=>{now=sessions===1?400_000:610_000;}});
     const snapshot=await run(f,project.id,true,runId);
     expect(f.reviewerSessions.size).toBe(2);
-    expect(snapshot.run.state).toBe('failed');
-    expect(snapshot.run.error?.code).toBe('REVIEW_TIMEOUT');
-    expect((await createProjectRepository(database).get(owner,snapshot.projectId)).currentRevisionId).toBeNull();
+    expect(snapshot.run.state).toBe('completed');
+    expect(snapshot.run.error).toBeNull();
+    expect((await createProjectRepository(database).get(owner,snapshot.projectId)).currentRevisionId).toBe(snapshot.run.resultRevisionId);
   },30_000);
 
-  test('repair Builder time spends the same verification window and is classified as timeout, not cancellation', async () => {
+  test('repair Builder work does not exhaust the next Reviewer attempt window', async () => {
     const {project,runId}=await legacyCandidate();
     let now=0;
     const f=await fixture('normal',{monotonicNow:()=>now,failFirstReview:true,
-      onReviewerRequest:()=>{now=400_000;},onBuilderRequest:()=>{now=610_000;}});
+      onReviewerRequest:sessions=>{now=sessions===1?400_000:650_000;},onBuilderRequest:()=>{now=610_000;}});
     const snapshot=await run(f,project.id,true,runId);
     expect(f.builderPrompts).toHaveLength(1);
-    expect(f.reviewerSessions.size).toBe(1);
-    expect(snapshot.run.state).toBe('failed');
-    expect(snapshot.run.error?.code).toBe('REVIEW_TIMEOUT');
-    expect((await repository.getRunCheck(owner,snapshot.run.id))?.verdict).toBe('failed');
-    expect((await createProjectRepository(database).get(owner,project.id)).currentRevisionId).toBeNull();
+    expect(f.reviewerSessions.size).toBe(2);
+    expect(snapshot.run.state).toBe('completed');
+    expect(snapshot.run.error).toBeNull();
+    expect((await repository.getRunCheck(owner,snapshot.run.id))?.verdict).toBe('passed');
+    expect((await createProjectRepository(database).get(owner,project.id)).currentRevisionId).toBe(snapshot.run.resultRevisionId);
   },30_000);
 
   test("capacity claims two projects at the ceiling, queues the rest durably, and keeps each project exclusive", async () => {
