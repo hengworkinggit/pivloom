@@ -49,6 +49,9 @@ test("history identifies current versus inspected versions and exposes full-tree
   await act(async () => compare.click());
   expect(onCompare).toHaveBeenCalledWith(rejected.id, selected.id);
   const pick = container.querySelector<HTMLSelectElement>("select[data-testid='history-version-select']")!;
+  expect(pick.options).toHaveLength(2);
+  await act(async () => container.querySelector<HTMLButtonElement>(".version-history-attempts-toggle")?.click());
+  expect(pick.options).toHaveLength(3);
   await act(async () => { pick.value = rejected.id; pick.dispatchEvent(new Event("change", { bubbles: true })); });
   expect(onSelect).toHaveBeenCalledWith(rejected.id);
   expect(current.id).toBe("00000000-0000-4000-8000-000000000003");

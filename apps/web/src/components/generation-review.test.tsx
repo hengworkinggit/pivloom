@@ -102,11 +102,11 @@ async function openWorkbench(options: { verdict?: Check["verdict"]; unchecked?: 
   await act(async () => root?.render(<ApiWorkbench projectId={projectId} />));
   const openChecks = async () => {
     await act(async () => container.querySelector<HTMLButtonElement>(".a-drawer-heading button")?.click());
-    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label^="检查结果"]')?.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('.a-toolbar-check')?.click());
   };
   const openHistory = async () => {
     await act(async () => container.querySelector<HTMLButtonElement>(".a-drawer-heading button")?.click());
-    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="版本历史"]')?.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('.a-toolbar-version')?.click());
   };
   await openChecks();
   return { container, requests, workspace, created, revoked, openChecks, openHistory, publishCheck() {
@@ -119,9 +119,13 @@ async function openWorkbench(options: { verdict?: Check["verdict"]; unchecked?: 
 it("shows a concise version-bound check, opens its details and loads a private screenshot only on request", async () => {
   const view = await openWorkbench();
   const card = view.container.querySelector<HTMLElement>('[aria-label="版本检查结果"]');
-  expect(card?.textContent).toContain("关键流程检查通过");
-  expect(card?.textContent).toContain("报名提交符合已保存的行为目标。");
-  const details = card?.querySelector<HTMLDetailsElement>("details");
+  expect(card?.textContent).toContain("本版检查通过");
+  expect(card?.textContent).toContain("1/1 项通过");
+  const diagnostics = card?.querySelector<HTMLDetailsElement>(".generation-review-diagnostics");
+  expect(diagnostics?.open).toBe(false);
+  await act(async () => diagnostics?.querySelector("summary")?.click());
+  expect(diagnostics?.textContent).toContain("报名提交符合已保存的行为目标。");
+  const details = card?.querySelector<HTMLDetailsElement>(".generation-review-details");
   expect(details?.open).toBe(false);
   expect(view.requests.filter((request) => request.url.includes("/artifacts/"))).toHaveLength(0);
   await act(async () => details?.querySelector("summary")?.click());
@@ -143,26 +147,28 @@ it("shows a concise version-bound check, opens its details and loads a private s
 });
 
 it.each([
-  ["failed", "关键流程检查未通过"], ["blocked", "关键流程检查受阻"],
-] as const)("keeps a %s check distinct from an unchecked candidate in both result and conversation", async (verdict, heading) => {
+  ["failed", "发现 1 项需要修复", "关键流程检查未通过"],
+  ["blocked", "检查未完成", "关键流程检查受阻"],
+] as const)("keeps a %s check distinct from an unchecked candidate in both result and conversation", async (verdict, heading, outcomeHeading) => {
   const view = await openWorkbench({ verdict });
   expect(view.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain(heading);
-  expect(view.container.querySelector('[data-testid="run-result"] strong')?.textContent).toBe(heading);
-  expect(view.container.textContent).not.toContain("关键流程检查通过");
+  expect(view.container.querySelector('[data-testid="run-result"] strong')?.textContent).toBe(outcomeHeading);
+  expect(view.container.textContent).not.toContain("本版检查通过");
   expect(view.container.textContent).not.toContain("版本已保存 · 等待检查");
 });
 
 it("does not label an unchecked candidate as a passed check", async () => {
   const view = await openWorkbench({ unchecked: true });
   expect(view.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain("尚未检查");
-  expect(view.container.textContent).not.toContain("关键流程检查通过");
+  expect(view.container.textContent).not.toContain("本版检查通过");
   expect(view.container.querySelector('[aria-label="版本检查结果"] details')).toBeNull();
 });
 
 it("shows all five server-derived groups and their six actual child results without turning one failure into 5/5", async () => {
   const view = await openWorkbench({ verdict: "failed", grouped: true });
   const card = view.container.querySelector<HTMLElement>('[aria-label="版本检查结果"]')!;
-  expect(card.textContent).toContain("4/5 组通过");
+  expect(card.textContent).toContain("发现 1 项需要修复");
+  expect(card.querySelectorAll(".generation-review-group")).toHaveLength(5);
   expect(card.textContent).toContain("6 项完整子检查");
   for (const name of ["数值运算", "输入键盘", "错误恢复", "结果历史", "视觉布局"])
     expect(card.textContent).toContain(name);
@@ -192,7 +198,7 @@ it("shows saved verification durations and actual partial counts without calling
   expect(metrics?.textContent).toContain("收尾3 秒");
   expect(metrics?.textContent).toContain("保存0.766 秒");
   expect(metrics?.textContent).toContain("REVIEW_TIMEOUT");
-  expect(view.container.textContent).not.toContain("关键流程检查通过");
+  expect(view.container.textContent).not.toContain("本版检查通过");
 });
 
 it("labels historical missing timing as unrecorded instead of inventing a zero duration", async () => {
@@ -207,14 +213,16 @@ it("labels a rejected candidate separately while the earlier accepted revision r
   const view = await openWorkbench({ verdict: "failed", previousCurrent: true });
   await view.openHistory();
   const picker = view.container.querySelector<HTMLSelectElement>("[data-testid=history-version-select]");
-  expect(Array.from(picker?.options ?? [], (option) => option.textContent)).toEqual(["v2 · 未通过", "v1 · 当前"]);
-  expect(picker?.selectedOptions[0].textContent).toBe("v1 · 当前");
+  expect(Array.from(picker?.options ?? [], (option) => option.textContent)).toEqual(["v1 · 当前正式版"]);
+  await act(async () => view.container.querySelector<HTMLButtonElement>(".version-history-attempts-toggle")?.click());
+  expect(Array.from(picker?.options ?? [], (option) => option.textContent)).toEqual(["v1 · 当前正式版", "v2 · 未通过"]);
+  expect(picker?.selectedOptions[0].textContent).toBe("v1 · 当前正式版");
   await act(async () => { if (picker) { picker.value = revisionId; picker.dispatchEvent(new Event("change", { bubbles: true })); } });
   const currentSummary = view.container.querySelector('[data-testid="current-version-summary"]');
   expect(currentSummary?.textContent).toContain("当前成功版本");
   expect(currentSummary?.querySelector("strong")?.textContent).toBe("v1");
   await view.openChecks();
-  expect(view.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain("关键流程检查未通过");
+  expect(view.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain("发现 1 项需要修复");
 });
 
 it("explains that two failed repairs reached the limit while the accepted revision stays current", async () => {
@@ -223,20 +231,20 @@ it("explains that two failed repairs reached the limit while the accepted revisi
   expect(outcome?.textContent).toContain("已尝试修复 2 轮，已达上限，停止自动修复。");
   expect(outcome?.textContent).toContain("报名提交尚未达到预期。");
   await view.openHistory();
-  expect(view.container.querySelector<HTMLSelectElement>("[data-testid=history-version-select]")?.selectedOptions[0].textContent).toBe("v1 · 当前");
+  expect(view.container.querySelector<HTMLSelectElement>("[data-testid=history-version-select]")?.selectedOptions[0].textContent).toBe("v1 · 当前正式版");
 });
 
 it("rejects a check bound to a different source snapshot before showing its verdict or screenshots", async () => {
   const view = await openWorkbench({ mismatch: true });
   expect(view.container.querySelector('[aria-label="版本检查结果"] [role="alert"]')?.textContent).toContain("版本不一致");
-  expect(view.container.textContent).not.toContain("关键流程检查通过");
+  expect(view.container.textContent).not.toContain("本版检查通过");
   expect(view.container.textContent).not.toContain("报名提交符合已保存的行为目标");
   expect(view.requests.filter((request) => request.url.includes("/artifacts/"))).toHaveLength(0);
 });
 
 it("offers the final saved screenshot even when no behavior item references it", async () => {
   const view = await openWorkbench({ finalScreenshot: true });
-  const details = view.container.querySelector<HTMLDetailsElement>('[aria-label="版本检查结果"] details');
+  const details = view.container.querySelector<HTMLDetailsElement>('[aria-label="版本检查结果"] .generation-review-details');
   await act(async () => details?.querySelector("summary")?.click());
   expect(view.requests.filter((request) => request.url.includes("/artifacts/"))).toHaveLength(0);
   const screenshot = details?.querySelector<HTMLButtonElement>('button[aria-label="查看检查截图 1"]');
@@ -249,7 +257,7 @@ it("offers the final saved screenshot even when no behavior item references it",
 
 it("explains an unavailable private screenshot without rendering its protected endpoint", async () => {
   const view = await openWorkbench({ screenshotDenied: true });
-  const details = view.container.querySelector<HTMLDetailsElement>('[aria-label="版本检查结果"] details');
+  const details = view.container.querySelector<HTMLDetailsElement>('[aria-label="版本检查结果"] .generation-review-details');
   await act(async () => details?.querySelector("summary")?.click());
   await act(async () => details?.querySelector<HTMLButtonElement>('button[aria-label="查看 B01 截图 1"]')?.click());
   expect(details?.querySelector('[role="alert"]')?.textContent).toContain("无法读取这张检查截图");
@@ -264,5 +272,5 @@ it("reads the authoritative saved check immediately after check.completed withou
   const reads = view.requests.filter((request) => request.url === `/api/v1/projects/${projectId}`).length;
   await act(async () => view.publishCheck());
   expect(view.requests.filter((request) => request.url === `/api/v1/projects/${projectId}`).length).toBeGreaterThan(reads);
-  expect(view.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain("关键流程检查通过");
+  expect(view.container.querySelector('[aria-label="版本检查结果"]')?.textContent).toContain("本版检查通过");
 });

@@ -40,7 +40,6 @@ function ReviewScreenshot({ checkId, artifact, label, generation }: {
 }
 
 const verdictLabels = { passed: "通过", failed: "未通过", blocked: "受阻" } as const;
-const checkLabels = { passed: "关键流程检查通过", failed: "关键流程检查未通过", blocked: "关键流程检查受阻" } as const;
 
 function VerificationMetrics({ check }: { check: Check }) {
   const ui = useUiPreferences();
@@ -82,9 +81,19 @@ export function GenerationReview({ revision, latestCheck, generation, checking }
   const [visibleScreenshots, setVisibleScreenshots] = useState<string[]>([]);
   const groups = check?.groups;
   const passedGroups = groups?.filter((group) => group.verdict === "passed").length ?? 0;
-  const title = check ? `${(ui.locale === "en" ? { passed: "Key flows passed", failed: "Key flows failed", blocked: "Key flows blocked" } : checkLabels)[check.verdict]}${groups ? ` · ${passedGroups}/5 ${ui.text("组通过", "groups passed")}`
-    : ` · ${ui.text("历史平铺", "historical flat")} ${check.items.filter((item) => item.verdict === "passed").length}/${check.items.length}`}` : query.error ? ui.text("暂时无法读取检查结果", "Check unavailable")
+  const passed = check?.items.filter((item) => item.verdict === "passed").length ?? 0;
+  const failed = check?.items.filter((item) => item.verdict === "failed").length ?? 0;
+  const blocked = check?.items.filter((item) => item.verdict === "blocked").length ?? 0;
+  const title = check?.verdict === "passed" ? `${ui.text("本版检查通过", "This version passed checks")}${groups ? ` · ${passedGroups}/${groups.length} ${ui.text("组", "groups")}` : ""}`
+    : check && failed > 0 ? ui.text(`发现 ${failed} 项需要修复`, `${failed} checks need fixes`)
+      : check ? ui.text("检查未完成 · 暂不能判定功能失败", "Checks incomplete · no feature failure confirmed")
+        : query.error ? ui.text("暂时无法读取检查结果", "Check unavailable")
     : checking ? ui.text("正在检查关键流程", "Checking key flows") : query.data === null ? ui.text("尚未检查", "Not checked") : ui.text("正在读取检查记录…", "Loading check…");
+  const plainSummary = check?.verdict === "passed" ? ui.text(`${passed}/${check.items.length} 项通过，这个版本可以继续使用。`, `${passed}/${check.items.length} checks passed. This version is ready to use.`)
+    : failed > 0 ? ui.text(`${passed} 项通过，${failed} 项未通过${blocked ? `，${blocked} 项尚无结论` : ""}。此版本尚未成为正式版。`, `${passed} passed, ${failed} failed${blocked ? `, ${blocked} inconclusive` : ""}. This version is not current.`)
+      : check ? blocked > 0
+        ? ui.text(`${passed} 项通过，${blocked} 项未取得结论；这不等于 ${blocked} 项功能失败。当前正式版本不受影响。`, `${passed} passed, ${blocked} inconclusive; that does not mean ${blocked} features failed. The current version is unchanged.`)
+        : ui.text("检查过程未完成，暂不能据此判定应用功能失败。当前正式版本不受影响。", "The checks did not finish, so no feature failure is confirmed. The current version is unchanged.") : "";
   const Icon = check?.verdict === "passed" ? CheckCircle2 : check || query.error ? TriangleAlert : CircleDashed;
   const renderItem = (item: Check["items"][number]) => <article className="generation-review-item" key={item.behaviorId} aria-label={ui.text(`行为 ${item.behaviorId}`, `Behavior ${item.behaviorId}`)}>
     <h3>{item.behaviorId}<span className={`review-verdict verdict-${item.verdict}`}>{ui.locale === "en" ? { passed: "Passed", failed: "Failed", blocked: "Blocked" }[item.verdict] : verdictLabels[item.verdict]}</span></h3>
@@ -99,9 +108,11 @@ export function GenerationReview({ revision, latestCheck, generation, checking }
   return <section className={`generation-review review-${check?.verdict ?? "unchecked"}`} aria-label={ui.text("版本检查结果", "Version check result")}>
     <div className="generation-review-heading"><Icon size={16} aria-hidden="true" /><strong role="status">{title}</strong><span>v{revision.revisionNo}</span></div>
     {query.error && !check ? <p className="generation-review-error" role="alert">{query.error}<button onClick={query.refresh}>{ui.text("重新读取检查", "Reload check")}</button></p>
-      : check ? <><p className="generation-review-summary">{check.summary}</p>
-        <VerificationMetrics check={check} />
-        <details className="generation-review-details"><summary>{groups ? ui.text(`查看 5 组 / ${check.items.length} 项完整子检查与截图`, `View 5 groups / ${check.items.length} complete checks and screenshots`)
+      : check ? <><p className="generation-review-summary">{plainSummary}</p>
+        <details className="generation-review-diagnostics"><summary>{ui.text("检查诊断与耗时", "Check diagnostics and timing")}</summary>
+          <p>{ui.text("保存的原始结论", "Saved raw conclusion")}: {check.summary}</p><VerificationMetrics check={check} />
+        </details>
+        <details className="generation-review-details"><summary>{groups ? ui.text(`查看 ${groups.length} 组 / ${check.items.length} 项完整子检查与截图`, `View ${groups.length} groups / ${check.items.length} complete checks and screenshots`)
           : ui.text(`查看 ${check.items.length} 项历史平铺检查与截图`, `View ${check.items.length} historical flat checks and screenshots`)}</summary>
           {groups ? groups.map((group) => <section className={`generation-review-group group-${group.verdict}`} key={group.id} aria-label={`${group.id} ${group.title}`}>
             <h4>{group.id} · {group.title}<span className={`review-verdict verdict-${group.verdict}`}>{ui.locale === "en" ? { passed: "Passed", failed: "Failed", blocked: "Blocked" }[group.verdict] : verdictLabels[group.verdict]}</span></h4>
