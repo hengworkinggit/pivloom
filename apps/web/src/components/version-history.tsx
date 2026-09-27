@@ -120,11 +120,11 @@ export function VersionHistoryPanel({ revisions, currentRevisionId, selectedRevi
     </div>
     {onContinueFrom && selectedRevision && selectedRevision.status !== "accepted" && selectedRevision.buildStatus === "passed" &&
       <div className="version-history-continue"><p>{selectedRevision.id === continueFromRevisionId
-        ? ui.text(`下次修改已选择从 ${label(selectedRevision)} 开始；当前正式版与发布内容不变。`, `The next change starts from ${label(selectedRevision)}; current and published versions stay unchanged.`)
-        : ui.text("这次尝试没有成为正式版本。若其中有想保留的修改，可以从它继续开发；仅查看版本不会改变下一次修改的起点。", "This attempt did not become current. Continue from it only if you want to keep its changes; viewing alone changes nothing.")}</p>
+        ? ui.text(`下一轮修改将使用 ${label(selectedRevision)} 的源码；它尚未通过完整检查。当前正式版与发布内容不变。`, `The next change will use the source from ${label(selectedRevision)}, which did not pass all checks. The current and published versions stay unchanged.`)
+        : ui.text("这次尝试没有通过完整检查。仅查看不会改变下一轮修改起点；默认使用当前正式版。若要保留其中的修改，可以明确选用它的源码。", "This attempt did not pass all checks. Viewing does not change the next edit's base; the current accepted version remains the default. You may explicitly use this source to keep its changes.")}</p>
         <button type="button" disabled={continueDisabled} onClick={() => onContinueFrom(selectedRevision.id === continueFromRevisionId ? null : selectedRevision)}>
-          {selectedRevision.id === continueFromRevisionId ? ui.text("改回从正式版继续", "Use current version instead")
-            : ui.text(`从 ${label(selectedRevision)} 继续修改`, `Continue editing from ${label(selectedRevision)}`)}
+          {selectedRevision.id === continueFromRevisionId ? ui.text("取消使用这次尝试", "Stop using this attempt")
+            : ui.text(`下一轮使用 ${label(selectedRevision)} 的源码`, `Use source from ${label(selectedRevision)} next time`)}
         </button></div>}
     <div className="version-history-context" data-testid="selected-version-kind"><strong>{ui.text("正在查看", "Viewing")} {selectedRevision ? label(selectedRevision) : "—"}</strong>
       {selectedRevision && <span className="version-history-context-badge">{selectedKind}</span>}
