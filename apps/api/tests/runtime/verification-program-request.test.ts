@@ -226,7 +226,9 @@ test('successive caller chunks share usage and emit one real stream-start event 
 
 test.each(['openai-completions', 'anthropic-messages'] as const)('%s visual requests accept a fractional remaining deadline through the real SDK adapter', async (api) => {
   let requests = 0;
-  const port = createVisualJudgePort(config(api, async () => {
+  const port = createVisualJudgePort(config(api, async (_url, init) => {
+    const request = JSON.parse(String(init?.body));
+    expect(request.max_tokens ?? request.max_completion_tokens).toBe(8_192);
     requests++;
     const events = api === 'openai-completions'
       ? [{ id: 'visual-response', object: 'chat.completion.chunk', created: 1, model: 'compiler-fixture',

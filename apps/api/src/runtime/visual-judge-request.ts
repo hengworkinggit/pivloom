@@ -18,7 +18,10 @@ import { createRoleTokenTracker, type RunTokenBudget, type TokenUsage } from './
  */
 export function createVisualJudgePort(config: ModelConfig, signal: AbortSignal,
   options: { tokenBudget?: RunTokenBudget; deadlineAt?: number; now?: () => number } = {}): VisualJudgePort & { usage(): TokenUsage } {
-  const maxTokens = config.maxTokens ?? 1024;
+  // A six-image judgement on the configured thinking model used all 1,024
+  // output tokens on reasoning and returned no answer. The real same-image
+  // request returned complete JSON with an 8,192-token allowance.
+  const maxTokens = config.maxTokens ?? 8_192;
   const tokens = createRoleTokenTracker(options.tokenBudget);
   const now = options.now ?? (() => performance.now());
   return {

@@ -86,6 +86,21 @@ test('a program exceeding the persisted screenshot-reference limit is blocked be
   expect(fixture.calls.screenshot).toBe(0);
 });
 
+test('a static initial-state check captures its real render before it can pass', async () => {
+  const plan = fixturePlan({ action: '查看初始页面', expected: '空书单',
+    steps: [{ type: 'open', path: '/' }], assertions: [{ kind: 'text', text: '空书单', negated: false }] });
+  expect(compilePlan(plan).programs[0].steps).toEqual([{ type: 'open', path: '/' }, { type: 'capture' }]);
+  const fixture = formFixture(SESSION);
+  const scope = binding(randomUUID());
+  const outcome = await runScriptedPlan({ binding: scope, handoff: handoffFor(plan, scope), browser: fixture.browser,
+    signal: new AbortController().signal, saveScreenshot: screenshotSink({ ownerId: PROJECT, projectId: PROJECT, revisionId: REVISION }).save });
+  expect(outcome.kind).toBe('scripted');
+  if (outcome.kind !== 'scripted') return;
+  expect(outcome.result.result.items[0]).toMatchObject({ verdict: 'passed', screenshotIds: [expect.any(String)] });
+  expect(fixture.calls.act).toBe(0);
+  expect(fixture.calls.screenshot).toBe(1);
+});
+
 test('a continuation with unavailable visual setup is blocked instead of testing the wrong initial state', async () => {
   const visual = fixturePlan({ initialState: 'fresh', evidence: 'visual',
     steps: [{ type: 'open', path: '/' }, { type: 'click', role: 'button', name: '添加' }, { type: 'capture' }] }).behaviors[0];

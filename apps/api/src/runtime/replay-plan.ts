@@ -1,6 +1,6 @@
 import { selectReviewBehaviors } from './review-scope.js';
 import { createHash, randomUUID } from 'node:crypto';
-import { HandoffSchema, ReviewResultSchema, ReviewItemSchema, BehaviorProgramSchema, allowsRenderOnlyEvidence,
+import { HandoffSchema, ReviewResultSchema, ReviewItemSchema, BehaviorProgramSchema, MAX_BEHAVIOR_STEPS, allowsRenderOnlyEvidence,
   type BehaviorStep, type BehaviorTarget, type Handoff, type ReviewBinding, type ReviewItem, type ReviewResult } from '@pivloom/contracts';
 import { REVIEW_EVIDENCE_LIMIT_BYTES } from './budgets.js';
 import { RuntimeError, type ProbeEventSink } from './types.js';
@@ -55,8 +55,11 @@ export function compilePlan(plan: Handoff['plan']): CompiledPlan {
     }
     const modern = behavior.assertions.some(assertion=>'target' in assertion) || behavior.steps.some(step=>step.type==='key_sequence');
     const captures = behavior.steps.filter(step => step.type === 'capture').length;
-    const referencesFit = ReviewItemSchema.shape.screenshotIds.safeParse(Array(captures).fill('00000000-0000-4000-8000-000000000000')).success;
-    if (!referencesFit || !BehaviorProgramSchema.safeParse({ ...behavior, initialState: behavior.initialState ?? (modern ? undefined : 'continue') }).success) {
+    const needsRenderCapture = allowsRenderOnlyEvidence(behavior) && captures === 0
+      && !behavior.steps.some(step => ['click', 'fill', 'select', 'press', 'key_sequence', 'reload'].includes(step.type));
+    const referencesFit = ReviewItemSchema.shape.screenshotIds.safeParse(Array(captures + Number(needsRenderCapture)).fill('00000000-0000-4000-8000-000000000000')).success;
+    if (!referencesFit || behavior.steps.length + Number(needsRenderCapture) > MAX_BEHAVIOR_STEPS
+      || !BehaviorProgramSchema.safeParse({ ...behavior, initialState: behavior.initialState ?? (modern ? undefined : 'continue') }).success) {
       uncompilable.push({ behaviorId: behavior.id, reason: 'invalid-setup' });
       continue;
     }
@@ -67,7 +70,7 @@ export function compilePlan(plan: Handoff['plan']): CompiledPlan {
       uncompilable.push({ behaviorId: behavior.id, reason: 'visual-evidence' });
       continue;
     }
-    programs.push({ behaviorId: behavior.id, steps: behavior.steps.map(toReplayStep), assertions: behavior.assertions,
+    programs.push({ behaviorId: behavior.id, steps: [...behavior.steps.map(toReplayStep), ...(needsRenderCapture ? [{ type: 'capture' as const }] : [])], assertions: behavior.assertions,
       ...(behavior.initialState ? { initialState: behavior.initialState } : {}) });
   }
   return { programs, uncompilable };

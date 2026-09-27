@@ -111,6 +111,18 @@ async function inspect(target) {
   const inside=n=>{if(!scope)return true;let parent=n.parentId;while(parent){if(parent===scope)return true;parent=byId.get(parent)?.parentId;}return false;};
   selected=nodes.filter(n=>matches(n,target)&&inside(n)&&n.backendDOMNodeId).map(n=>({backendNodeId:n.backendDOMNodeId}));
   }
+  // A plain visible status div has no accessible name, so AX can omit its generic
+  // node even though the user sees its exact text. Resolve that one legacy shape
+  // with fixed read-only code; an ambiguous match still cannot satisfy an assertion.
+  if(!('label' in target)&&target.role.toLowerCase()==='generic'&&target.name!==undefined&&!target.within&&selected.length===0){
+    const {root}=await send('DOM.getDocument');
+    const {object}=await send('DOM.resolveNode',{nodeId:root.nodeId});
+    const result=await send('Runtime.callFunctionOn',{objectId:object.objectId,functionDeclaration:'function(expected){const found=[];for(const e of this.querySelectorAll("*")){if(e.children.length||e.textContent?.trim()!==expected||!e.getClientRects().length)continue;let hidden=false;for(let a=e;a;a=a.parentElement){const s=getComputedStyle(a);if(s.display==="none"||s.visibility==="hidden"||s.visibility==="collapse"||s.opacity==="0"){hidden=true;break}}if(hidden)continue;found.push({text:e.innerText??e.textContent??"",value:null});if(found.length>256)break}return found}',arguments:[{value:target.name}],returnByValue:true});
+    await send('Runtime.releaseObject',{objectId:object.objectId});
+    const found=result.result?.value;
+    if(result.exceptionDetails||!Array.isArray(found)||found.length>256||found.some(value=>typeof value.text!=='string'||value.text.length>32000||value.value!==null))fail('BROWSER_BLOCKED','可见文本目标响应不完整');
+    return {matches:found,observation:await observe()};
+  }
   if(selected.length>256) fail('TEST_TARGET_AMBIGUOUS','检查对象超过可观察数量');
   const values=[];
   for(const node of selected){
