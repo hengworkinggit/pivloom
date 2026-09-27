@@ -83,7 +83,7 @@ it("explicitly continues a saved candidate after reopening while preserving the 
   selection = [...container.querySelectorAll<HTMLElement>('[role="status"]')]
     .find(element => element.textContent?.includes('下次修改将从 v2 开始'))!;
   expect(getComputedStyle(selection).display).not.toBe('none');
-  expect(container.textContent).toContain('下次修改从 v2 开始');
+  expect(container.textContent).toContain('下次从 v2 修改');
   const textarea = container.querySelector<HTMLTextAreaElement>("textarea")!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "在候选上增加搜索");
