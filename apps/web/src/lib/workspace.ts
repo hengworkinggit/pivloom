@@ -1,6 +1,7 @@
 import { createClient, type Session } from "@supabase/supabase-js";
 import { createApiWorkspace, INITIAL_AUTH, WorkspaceError, type AuthSnapshot, type TokenSession } from "./api-workspace";
 import { clearVisitedPrivatePreviews } from "./preview-session";
+import { clearVisitedPublishedOwners } from "./published-session";
 
 export const APP_MODE = process.env.NEXT_PUBLIC_APP_MODE ?? "api";
 export const isDemoMode = APP_MODE === "demo";
@@ -113,6 +114,7 @@ export function getApiWorkspace() {
         localStorage.removeItem(storageKey);
       }
       void clearVisitedPrivatePreviews();
+      void clearVisitedPublishedOwners();
       if (error) throw new WorkspaceError("LOGOUT_UNCONFIRMED",
         "已清除本机登录，但服务器退出未确认；旧预览可能暂时仍可访问，请稍后重试。");
     },

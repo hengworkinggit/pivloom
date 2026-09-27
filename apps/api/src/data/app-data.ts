@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import {
   AppDataKindSchema, AppRecordSchema, BookingSubmissionSchema, RegistrationSubmissionSchema,
-  type AppDataKind, type AppRecord, type BookingSubmission, type RegistrationSubmission,
+  ReadingListValueSchema, TaskBoardValueSchema,
+  type AppDataKind, type PublicAppDataKind, type PersonalAppDataKind,
+  type AppRecord, type BookingSubmission, type RegistrationSubmission,
 } from "@pivloom/contracts";
 import type { PivloomDatabase } from "./database.js";
 import { ApiFailure } from "../routes/errors.js";
@@ -12,7 +14,14 @@ interface RecordRow {
   id: string; collection: Collection; payload_json: Record<string, unknown>; confirmed: boolean;
   created_at: Date; updated_at: Date;
 }
-const collectionFor = (kind: AppDataKind): Collection => kind === "event-signup" ? "registrations" : "bookings";
+const collectionFor = (kind: PublicAppDataKind): Collection => kind === "event-signup" ? "registrations" : "bookings";
+const privateValue = (kind: PersonalAppDataKind, raw: unknown) => {
+  const parsed = kind === "reading-list" ? ReadingListValueSchema.safeParse(raw) : TaskBoardValueSchema.safeParse(raw);
+  if (!parsed.success) throw new ApiFailure(422, "INVALID_APP_DATA", "应用数据不符合要求，请检查后重试。");
+  if (Buffer.byteLength(JSON.stringify(parsed.data)) > 60_000)
+    throw new ApiFailure(413, "APP_DATA_LIMIT", "应用数据超过存储上限。");
+  return parsed.data;
+};
 const record = (row: RecordRow): AppRecord => AppRecordSchema.parse({
   id: row.id, collection: row.collection, ...row.payload_json, confirmed: row.confirmed,
   createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
@@ -31,7 +40,7 @@ export function createAppDataRepository(database: PivloomDatabase) {
         const row = (await client.query("SELECT * FROM nano.app_data_profile($1)", [projectId])).rows[0];
         return row ? { ownerId: row.o_owner_id as string, kind: AppDataKindSchema.parse(row.o_kind) } : null;
       }),
-    submit: (ownerId: string, projectId: string, kind: AppDataKind, raw: unknown, idempotencyKey: string) => {
+    submit: (ownerId: string, projectId: string, kind: PublicAppDataKind, raw: unknown, idempotencyKey: string) => {
       const parsed = kind === "event-signup" ? RegistrationSubmissionSchema.safeParse(raw) : BookingSubmissionSchema.safeParse(raw);
       if (!parsed.success) throw new ApiFailure(422, "INVALID_APP_DATA", "提交内容不符合要求，请检查后重试。");
       const data = parsed.data as Submission;
@@ -74,7 +83,7 @@ export function createAppDataRepository(database: PivloomDatabase) {
         [ownerId, projectId, date])).rows;
         return rows.map((row) => row.time as string);
       }),
-    list: (ownerId: string, projectId: string, kind: AppDataKind, offset = 0, limit = 50) =>
+    list: (ownerId: string, projectId: string, kind: PublicAppDataKind, offset = 0, limit = 50) =>
       database.owned(ownerId, async (client) => {
         const profile = (await client.query("SELECT kind FROM nano.app_data_profiles WHERE owner_id=$1 AND project_id=$2", [ownerId, projectId])).rows[0];
         if (profile?.kind !== kind) throw new ApiFailure(404, "NOT_FOUND", "找不到这个应用数据集合。");
@@ -97,5 +106,33 @@ export function createAppDataRepository(database: PivloomDatabase) {
         const removed = await client.query("DELETE FROM nano.app_records WHERE owner_id=$1 AND project_id=$2 AND id=$3 RETURNING id", [ownerId, projectId, id]);
         if (!removed.rowCount) throw new ApiFailure(404, "NOT_FOUND", "找不到这条记录。");
       }),
+    privateState: (ownerId: string, projectId: string, kind: PersonalAppDataKind) =>
+      database.owned(ownerId, async (client) => {
+        const profile = (await client.query("SELECT kind FROM nano.app_data_profiles WHERE owner_id=$1 AND project_id=$2",
+          [ownerId, projectId])).rows[0];
+        if (profile?.kind !== kind) throw new ApiFailure(404, "APP_DATA_UNAVAILABLE", "找不到这个应用数据集合。");
+        const row = (await client.query("SELECT version,value_json FROM nano.app_private_state WHERE owner_id=$1 AND project_id=$2",
+          [ownerId, projectId])).rows[0];
+        return row ? { version: Number(row.version), value: privateValue(kind, row.value_json) } : { version: 0, value: [] };
+      }),
+    savePrivateState: (ownerId: string, projectId: string, kind: PersonalAppDataKind, expectedVersion: number, raw: unknown) => {
+      const value = privateValue(kind, raw);
+      return database.owned(ownerId, async (client) => {
+        await client.query("SELECT id FROM nano.projects WHERE owner_id=$1 AND id=$2 FOR UPDATE", [ownerId, projectId]);
+        const profile = (await client.query("SELECT kind FROM nano.app_data_profiles WHERE owner_id=$1 AND project_id=$2",
+          [ownerId, projectId])).rows[0];
+        if (profile?.kind !== kind) throw new ApiFailure(404, "APP_DATA_UNAVAILABLE", "找不到这个应用数据集合。");
+        const current = (await client.query("SELECT version FROM nano.app_private_state WHERE owner_id=$1 AND project_id=$2 FOR UPDATE",
+          [ownerId, projectId])).rows[0];
+        if (Number(current?.version ?? 0) !== expectedVersion)
+          throw new ApiFailure(409, "APP_DATA_CONFLICT", "数据已在其他页面更新，请刷新后重试。");
+        const nextVersion = expectedVersion + 1;
+        if (current) await client.query(`UPDATE nano.app_private_state SET version=$4,value_json=$5::jsonb,updated_at=now()
+          WHERE owner_id=$1 AND project_id=$2 AND kind=$3`, [ownerId, projectId, kind, nextVersion, JSON.stringify(value)]);
+        else await client.query(`INSERT INTO nano.app_private_state(owner_id,project_id,kind,version,value_json)
+          VALUES($1,$2,$3,$4,$5::jsonb)`, [ownerId, projectId, kind, nextVersion, JSON.stringify(value)]);
+        return { version: nextVersion, value };
+      });
+    },
   };
 }

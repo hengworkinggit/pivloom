@@ -6,7 +6,7 @@ const common = String.raw`
 
 const managedData = String.raw`
 export type DataMode = 'preview' | 'published' | 'unavailable';
-export async function detectDataMode(kind: 'event-signup' | 'appointments'): Promise<DataMode> {
+export async function detectDataMode(kind: 'event-signup' | 'appointments' | 'reading-list' | 'task-board'): Promise<DataMode> {
   if (!document.querySelector('meta[name="pivloom-published"]')) return 'preview';
   try {
     const response = await fetch('/__pivloom/runtime', { cache: 'no-store' });
@@ -33,6 +33,24 @@ export async function occupiedSlots(date: string): Promise<string[]> {
   if (!Array.isArray(value.occupied) || !value.occupied.every(item => typeof item === 'string'))
     throw new Error('可用时段响应无效。');
   return value.occupied;
+}
+export async function loadPrivateState<T>(): Promise<{ version: number; value: T[] }> {
+  const response = await fetch('/__pivloom/data/private-state', { credentials: 'include', cache: 'no-store' });
+  if (response.status === 401) throw new Error('仅项目主人可查看数据。请登录 Pivloom，再从项目工作台打开已发布应用。');
+  if (!response.ok) throw new Error('暂时无法读取应用数据，请稍后重试。');
+  const result: { version?: unknown; value?: unknown } = await response.json();
+  if (typeof result.version !== 'number' || !Number.isSafeInteger(result.version) || !Array.isArray(result.value)) throw new Error('应用数据响应无效。');
+  return result as { version: number; value: T[] };
+}
+export async function savePrivateState<T>(version: number, value: T[]): Promise<{ version: number; value: T[] }> {
+  const response = await fetch('/__pivloom/data/private-state', {
+    method: 'PUT', credentials: 'include', cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version, value }),
+  });
+  if (response.status === 409) throw new Error('数据已在其他页面更新，请刷新后重试。');
+  if (response.status === 401) throw new Error('主人授权已失效，请从项目工作台重新打开应用。');
+  if (!response.ok) throw new Error('保存失败，请稍后重试。');
+  return response.json() as Promise<{ version: number; value: T[] }>;
 }
 `;
 
@@ -74,17 +92,34 @@ export default function App() {
 `;
 
 const readingList = String.raw`
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { detectDataMode, loadPrivateState, savePrivateState, type DataMode } from './pivloom-data';
 type Book = { id: string; title: string; author: string; status: '想读' | '在读' | '已读' };
 const key = 'pivloom-reading-list-v1';
 function load(): Book[] { try { const value = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(value) ? value : []; } catch { return []; } }
 export default function App() { const [books, setBooks] = useState<Book[]>(load); const [title, setTitle] = useState(''); const [author, setAuthor] = useState(''); const [status, setStatus] = useState<Book['status']>('想读'); const [search, setSearch] = useState(''); const [filter, setFilter] = useState('全部');
-  useEffect(() => { localStorage.setItem(key, JSON.stringify(books)); }, [books]); const finished = books.filter(book => book.status === '已读').length;
+  const [mode, setMode] = useState<DataMode | null>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const version = useRef(0);
+  useEffect(() => { let active = true; void detectDataMode('reading-list').then(async value => {
+    if (value !== 'published') { if (active) setMode(value); return; }
+    try { const stored = await loadPrivateState<Book>(); if (active) { version.current = stored.version; setBooks(stored.value); setMode('published'); } }
+    catch (cause) { if (active) { setError(cause instanceof Error ? cause.message : '应用数据暂时不可用。'); setMode('unavailable'); } }
+  }); return () => { active = false; }; }, []);
+  useEffect(() => { if (mode === 'preview') localStorage.setItem(key, JSON.stringify(books)); }, [books, mode]);
+  async function commit(next: Book[]) { if (busy) return false; if (mode === 'preview') { setBooks(next); return true; }
+    if (mode !== 'published') return false; setBusy(true); setError('');
+    try { const stored = await savePrivateState(version.current, next); version.current = stored.version; setBooks(stored.value); return true; }
+    catch (cause) { setError(cause instanceof Error ? cause.message : '保存失败，请稍后重试。'); return false; }
+    finally { setBusy(false); }
+  }
+  const finished = books.filter(book => book.status === '已读').length;
   const shown = useMemo(() => books.filter(book => (filter === '全部' || book.status === filter) && (book.title + book.author).toLowerCase().includes(search.toLowerCase())), [books, filter, search]);
-  function add(event: React.FormEvent) { event.preventDefault(); if (!title.trim() || !author.trim()) return; setBooks(list => [{ id: crypto.randomUUID(), title: title.trim(), author: author.trim(), status }, ...list]); setTitle(''); setAuthor(''); }
+  async function add(event: React.FormEvent) { event.preventDefault(); if (!title.trim() || !author.trim()) return;
+    if (await commit([{ id: crypto.randomUUID(), title: title.trim(), author: author.trim(), status }, ...books])) { setTitle(''); setAuthor(''); } }
+  if (mode === null) return <main className="shell reading"><p role="status">正在准备应用…</p></main>;
+  if (mode === 'unavailable') return <main className="shell reading"><h1>无法打开书架</h1><p role="alert">{error || '应用数据暂时不可用，请稍后重试。'}</p></main>;
   return <main className="shell reading"><header className="top"><span className="brand">the reading room</span><nav><a href="#shelf">我的书架</a><a href="#add">添加书籍</a></nav></header><section className="hero"><span className="eyebrow">A LITTLE SPACE FOR STORIES</span><h1>在书页之间，<br/>找到下一站。</h1><p>把想读、在读和读完的故事安放在这里。下一本好书，总会在合适的时间出现。</p><div className="stat-row"><div className="stat"><strong>{books.length}</strong><small>书架藏书</small></div><div className="stat"><strong>{finished}</strong><small>已经读完</small></div><div className="stat"><strong>{books.length ? Math.round(finished / books.length * 100) : 0}%</strong><small>阅读进度</small></div></div><div className="progress" style={{maxWidth:450,marginTop:20}}><span style={{width:(books.length ? finished / books.length * 100 : 0) + '%'}}/></div></section>
-    <section id="add" className="panel"><h2>把一本书放上书架</h2><form onSubmit={add}><div className="form-grid"><label className="field">书名<input value={title} onChange={event => setTitle(event.target.value)} placeholder="例如：悉达多" required /></label><label className="field">作者<input value={author} onChange={event => setAuthor(event.target.value)} placeholder="作者" required /></label><label className="field">阅读状态<select value={status} onChange={event => setStatus(event.target.value as Book['status'])}><option>想读</option><option>在读</option><option>已读</option></select></label></div><div className="form-actions"><button className="primary" type="submit">添加书籍 →</button></div></form></section>
-    <section id="shelf"><div className="section-head"><div><span className="eyebrow">YOUR LIBRARY</span><h2>我的书架</h2></div><span className="muted">{shown.length} 本书</span></div><div className="toolbar"><input className="search" aria-label="搜索书籍" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索书名或作者"/><select aria-label="筛选阅读状态" value={filter} onChange={event => setFilter(event.target.value)}><option>全部</option><option>想读</option><option>在读</option><option>已读</option></select></div><div className="list">{shown.map(book => <article className="row" key={book.id}><div><strong>{book.title}</strong><small>{book.author}</small></div><div className="row-actions"><span className="badge">{book.status}</span><select aria-label={book.title + ' 阅读状态'} value={book.status} onChange={event => setBooks(list => list.map(item => item.id === book.id ? {...item, status: event.target.value as Book['status']} : item))}><option>想读</option><option>在读</option><option>已读</option></select><button className="mini danger" onClick={() => setBooks(list => list.filter(item => item.id !== book.id))}>移除</button></div></article>)}{shown.length === 0 && <div className="empty">书架还是空的，添加一本想读的书吧。</div>}</div></section><footer className="footer">the reading room · 你的书单只保存在此浏览器</footer></main>;
+    <section id="add" className="panel"><h2>把一本书放上书架</h2><form onSubmit={add}><div className="form-grid"><label className="field">书名<input value={title} onChange={event => setTitle(event.target.value)} placeholder="例如：悉达多" required /></label><label className="field">作者<input value={author} onChange={event => setAuthor(event.target.value)} placeholder="作者" required /></label><label className="field">阅读状态<select value={status} onChange={event => setStatus(event.target.value as Book['status'])}><option>想读</option><option>在读</option><option>已读</option></select></label></div><div className="form-actions"><button className="primary" type="submit" disabled={busy}>{busy ? '保存中…' : '添加书籍 →'}</button>{error && <span className="error" role="alert">{error}</span>}</div></form></section>
+    <section id="shelf"><div className="section-head"><div><span className="eyebrow">YOUR LIBRARY</span><h2>我的书架</h2></div><span className="muted">{shown.length} 本书</span></div><div className="toolbar"><input className="search" aria-label="搜索书籍" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索书名或作者"/><select aria-label="筛选阅读状态" value={filter} onChange={event => setFilter(event.target.value)}><option>全部</option><option>想读</option><option>在读</option><option>已读</option></select></div><div className="list">{shown.map(book => <article className="row" key={book.id}><div><strong>{book.title}</strong><small>{book.author}</small></div><div className="row-actions"><span className="badge">{book.status}</span><select aria-label={book.title + ' 阅读状态'} value={book.status} disabled={busy} onChange={event => void commit(books.map(item => item.id === book.id ? {...item, status: event.target.value as Book['status']} : item))}><option>想读</option><option>在读</option><option>已读</option></select><button className="mini danger" disabled={busy} onClick={() => void commit(books.filter(item => item.id !== book.id))}>移除</button></div></article>)}{shown.length === 0 && <div className="empty">书架还是空的，添加一本想读的书吧。</div>}</div></section><footer className="footer">{mode === 'published' ? 'the reading room · 数据只属于项目主人' : 'the reading room · Preview 数据仅保存在此浏览器'}</footer></main>;
 }
 `;
 
@@ -153,14 +188,31 @@ export default function App() { return <main className="shell studio"><header cl
 `;
 
 const taskBoard = String.raw`
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { detectDataMode, loadPrivateState, savePrivateState, type DataMode } from './pivloom-data';
 type Stage = '待办' | '进行中' | '已完成'; type Priority = '普通' | '重要' | '紧急'; type Task = { id: string; title: string; stage: Stage; priority: Priority };
 const key = 'pivloom-task-board-v1'; const stages: Stage[] = ['待办', '进行中', '已完成'];
 function load(): Task[] { try { const value = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(value) ? value : []; } catch { return []; } }
 export default function App() { const [tasks, setTasks] = useState<Task[]>(load); const [title, setTitle] = useState(''); const [priority, setPriority] = useState<Priority>('普通'); const [search, setSearch] = useState(''); const [filter, setFilter] = useState('全部');
-  useEffect(() => { localStorage.setItem(key, JSON.stringify(tasks)); }, [tasks]); const shown = useMemo(() => tasks.filter(task => task.title.toLowerCase().includes(search.toLowerCase()) && (filter === '全部' || task.priority === filter)), [tasks, search, filter]);
-  function add(event: React.FormEvent) { event.preventDefault(); if (!title.trim()) return; setTasks(list => [{ id: crypto.randomUUID(), title: title.trim(), priority, stage: '待办' }, ...list]); setTitle(''); }
-  return <main className="shell tasks"><header className="top"><span className="brand">flowboard / 01</span><nav><a href="#board">看板</a><a href="#new">新任务</a></nav></header><section className="hero"><span className="eyebrow">PLAN · FOCUS · FINISH</span><h1>专注眼前，<br/>完成更多。</h1><p>把待办、进行中和完成的事放在同一张清晰的看板上，让每一步进展都看得见。</p><div className="stat-row">{stages.map(stage => <div className="stat" key={stage}><strong>{tasks.filter(task => task.stage === stage).length}</strong><small>{stage}</small></div>)}</div></section><section id="new" className="panel"><h2>添加新任务</h2><form onSubmit={add}><div className="form-grid"><label className="field">任务名称<input value={title} onChange={event => setTitle(event.target.value)} placeholder="下一步要完成什么？" required /></label><label className="field">优先级<select value={priority} onChange={event => setPriority(event.target.value as Priority)}><option>普通</option><option>重要</option><option>紧急</option></select></label></div><div className="form-actions"><button className="primary" type="submit">加入看板 →</button></div></form></section><section id="board"><div className="section-head"><div><span className="eyebrow">YOUR WORKFLOW</span><h2>任务看板</h2></div></div><div className="toolbar"><input className="search" aria-label="搜索任务" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索任务"/><select aria-label="筛选优先级" value={filter} onChange={event => setFilter(event.target.value)}><option>全部</option><option>普通</option><option>重要</option><option>紧急</option></select></div><div className="columns">{stages.map(stage => <div className="column" key={stage}><span className="eyebrow">{stage} / {shown.filter(task => task.stage === stage).length}</span>{shown.filter(task => task.stage === stage).map(task => <article className="row" key={task.id}><strong>{task.title}</strong><div className="row-actions"><span className="badge">{task.priority}</span><select aria-label={task.title + ' 状态'} value={task.stage} onChange={event => setTasks(list => list.map(item => item.id === task.id ? {...item, stage: event.target.value as Stage} : item))}>{stages.map(value => <option key={value}>{value}</option>)}</select><button className="mini danger" onClick={() => setTasks(list => list.filter(item => item.id !== task.id))}>删除</button></div></article>)}</div>)}</div></section><footer className="footer">flowboard · 你的任务只保存在此浏览器</footer></main>; }
+  const [mode, setMode] = useState<DataMode | null>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const version = useRef(0);
+  useEffect(() => { let active = true; void detectDataMode('task-board').then(async value => {
+    if (value !== 'published') { if (active) setMode(value); return; }
+    try { const stored = await loadPrivateState<Task>(); if (active) { version.current = stored.version; setTasks(stored.value); setMode('published'); } }
+    catch (cause) { if (active) { setError(cause instanceof Error ? cause.message : '应用数据暂时不可用。'); setMode('unavailable'); } }
+  }); return () => { active = false; }; }, []);
+  useEffect(() => { if (mode === 'preview') localStorage.setItem(key, JSON.stringify(tasks)); }, [tasks, mode]);
+  async function commit(next: Task[]) { if (busy) return false; if (mode === 'preview') { setTasks(next); return true; }
+    if (mode !== 'published') return false; setBusy(true); setError('');
+    try { const stored = await savePrivateState(version.current, next); version.current = stored.version; setTasks(stored.value); return true; }
+    catch (cause) { setError(cause instanceof Error ? cause.message : '保存失败，请稍后重试。'); return false; }
+    finally { setBusy(false); }
+  }
+  const shown = useMemo(() => tasks.filter(task => task.title.toLowerCase().includes(search.toLowerCase()) && (filter === '全部' || task.priority === filter)), [tasks, search, filter]);
+  async function add(event: React.FormEvent) { event.preventDefault(); if (!title.trim()) return;
+    if (await commit([{ id: crypto.randomUUID(), title: title.trim(), priority, stage: '待办' }, ...tasks])) setTitle(''); }
+  if (mode === null) return <main className="shell tasks"><p role="status">正在准备应用…</p></main>;
+  if (mode === 'unavailable') return <main className="shell tasks"><h1>无法打开任务看板</h1><p role="alert">{error || '应用数据暂时不可用，请稍后重试。'}</p></main>;
+  return <main className="shell tasks"><header className="top"><span className="brand">flowboard / 01</span><nav><a href="#board">看板</a><a href="#new">新任务</a></nav></header><section className="hero"><span className="eyebrow">PLAN · FOCUS · FINISH</span><h1>专注眼前，<br/>完成更多。</h1><p>把待办、进行中和完成的事放在同一张清晰的看板上，让每一步进展都看得见。</p><div className="stat-row">{stages.map(stage => <div className="stat" key={stage}><strong>{tasks.filter(task => task.stage === stage).length}</strong><small>{stage}</small></div>)}</div></section><section id="new" className="panel"><h2>添加新任务</h2><form onSubmit={add}><div className="form-grid"><label className="field">任务名称<input value={title} onChange={event => setTitle(event.target.value)} placeholder="下一步要完成什么？" required /></label><label className="field">优先级<select value={priority} onChange={event => setPriority(event.target.value as Priority)}><option>普通</option><option>重要</option><option>紧急</option></select></label></div><div className="form-actions"><button className="primary" type="submit" disabled={busy}>{busy ? '保存中…' : '加入看板 →'}</button>{error && <span className="error" role="alert">{error}</span>}</div></form></section><section id="board"><div className="section-head"><div><span className="eyebrow">YOUR WORKFLOW</span><h2>任务看板</h2></div></div><div className="toolbar"><input className="search" aria-label="搜索任务" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索任务"/><select aria-label="筛选优先级" value={filter} onChange={event => setFilter(event.target.value)}><option>全部</option><option>普通</option><option>重要</option><option>紧急</option></select></div><div className="columns">{stages.map(stage => <div className="column" key={stage}><span className="eyebrow">{stage} / {shown.filter(task => task.stage === stage).length}</span>{shown.filter(task => task.stage === stage).map(task => <article className="row" key={task.id}><strong>{task.title}</strong><div className="row-actions"><span className="badge">{task.priority}</span><select aria-label={task.title + ' 状态'} value={task.stage} disabled={busy} onChange={event => void commit(tasks.map(item => item.id === task.id ? {...item, stage: event.target.value as Stage} : item))}>{stages.map(value => <option key={value}>{value}</option>)}</select><button className="mini danger" disabled={busy} onClick={() => void commit(tasks.filter(item => item.id !== task.id))}>删除</button></div></article>)}</div>)}</div></section><footer className="footer">{mode === 'published' ? 'flowboard · 数据只属于项目主人' : 'flowboard · Preview 数据仅保存在此浏览器'}</footer></main>; }
 `;
 
 const applications: Record<StarterSlug, string> = {
@@ -170,15 +222,18 @@ const applications: Record<StarterSlug, string> = {
 
 export function starterSource(slug: StarterSlug, title: string): Record<string, string> {
   const localData = ["event-signup", "reading-list", "appointments", "task-board"].includes(slug);
-  const serverData = slug === "event-signup" || slug === "appointments";
+  const serverData = localData;
   return {
     "index.html": '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>' + title + '</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>',
     "src/App.tsx": applications[slug],
     "src/style.css": common.replaceAll("{", " {\n  ").replaceAll(";", ";\n  ").replaceAll("}", "\n}\n"),
     ...(serverData ? { "src/pivloom-data.ts": managedData,
-      "pivloom.data.json": JSON.stringify({ schemaVersion: 1, kind: slug, collection: slug === "event-signup" ? "registrations" : "bookings" }, null, 2) + "\n" } : {}),
+      "pivloom.data.json": JSON.stringify({ schemaVersion: 1, kind: slug,
+        collection: ({ "event-signup": "registrations", appointments: "bookings", "reading-list": "books", "task-board": "tasks" } as Record<string, string>)[slug] }, null, 2) + "\n" } : {}),
     "README.md": `# ${title}\n\n这是可编辑的 React + Vite 模板源码。项目可在 Pivloom 中预览和发布；本地运行可执行 \`npm ci\`、\`npm run build\`、\`npm run preview\`。\n\n${serverData
-      ? "Preview 的示例记录保存在当前浏览器。通过 Pivloom 发布后，访客提交写入项目专属的托管数据，项目主人在工作台管理；Preview 记录不会自动导入线上。项目源码版本回滚不会删除线上记录。"
+      ? slug === "event-signup" || slug === "appointments"
+        ? "Preview 的示例记录保存在当前浏览器。通过 Pivloom 发布后，访客提交写入项目专属的托管数据，项目主人在工作台管理；Preview 记录不会自动导入线上。项目源码版本回滚不会删除线上记录。"
+        : "Preview 的个人数据保存在当前浏览器。通过 Pivloom 发布后，只有项目主人从工作台授权打开应用，才能读取和修改项目专属的服务端数据；Preview 数据不会自动导入线上。源码版本回滚不会删除线上数据。"
       : localData ? "数据保存在当前访问者的浏览器 localStorage 中，不会跨设备或跨用户共享。需要共享数据时，请继续为项目添加后端。"
       : "页面中的示例文案、案例和联系邮箱请在发布前替换为自己的内容。"}\n`,
   };
