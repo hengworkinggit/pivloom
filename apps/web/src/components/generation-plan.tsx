@@ -8,16 +8,16 @@ function Behavior({ behavior }: { behavior: BehaviorTarget }) {
   </li>;
 }
 
-export function GenerationPlan({ plan }: { plan: Plan }) {
+export function GenerationPlan({ plan, origin = "coordinator" }: { plan: Plan; origin?: "coordinator" | "template" }) {
   return <section className="generation-plan" aria-label="已保存目标">
-    <p className="generation-plan-label">协调者 · 已保存目标</p>
+    <p className="generation-plan-label">{origin === "template" ? "现成模板 · 后续增量基线" : "协调者 · 已保存目标"}</p>
     <h3>{plan.goal}</h3>
     <p>{plan.changeSummary}</p>
     {plan.outOfScope.length > 0 && <div className="generation-plan-scope" aria-label="本次范围说明">
       <strong>本次范围说明</strong><ul>{plan.outOfScope.map((item, index) => <li key={index}>{item}</li>)}</ul>
     </div>}
     <details className="generation-plan-behaviors">
-      <summary>{plan.schemaVersion === 2 ? `五组完整目标 · ${plan.behaviors.length} 项子检查` : `历史平铺目标 · ${plan.behaviors.length} 项`}</summary>
+      <summary>{origin === "template" ? `五组模板能力 · ${plan.behaviors.length} 项` : plan.schemaVersion === 2 ? `五组完整目标 · ${plan.behaviors.length} 项子检查` : `历史平铺目标 · ${plan.behaviors.length} 项`}</summary>
       {plan.schemaVersion === 2 ? <>
         {plan.groups.map((group) => <section className="generation-plan-group" key={group.id} aria-label={`${group.id} ${group.title}`}>
           <h4>{group.id} · {group.title} <span>{group.behaviorIds.length} 项</span></h4>

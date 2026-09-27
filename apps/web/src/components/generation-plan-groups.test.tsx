@@ -22,6 +22,10 @@ test("new plan shows all five named groups and every child; historical flat plan
   for (const title of ["数值运算", "输入键盘", "错误恢复", "历史状态", "视觉布局"])
     expect(newHtml).toContain(title);
   for (const id of ["B01", "B02", "B03", "B04", "B05", "B06"]) expect(newHtml).toContain(id);
+  const templateHtml = renderToStaticMarkup(<GenerationPlan plan={grouped} origin="template" />);
+  expect(templateHtml).toContain("现成模板 · 后续增量基线");
+  expect(templateHtml).toContain("五组模板能力 · 6 项");
+  expect(templateHtml).not.toContain("协调者 · 已保存目标");
   const old = LegacyPlanSchema.parse({ schemaVersion: 1, goal: "旧报名页", changeSummary: "表单", assumptions: [], outOfScope: [], behaviors: [atom("B01")] });
   const oldHtml = renderToStaticMarkup(<GenerationPlan plan={old} />);
   expect(oldHtml).toContain("历史平铺目标 · 1 项");

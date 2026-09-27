@@ -51,7 +51,7 @@ export function GenerationActivity({ run, events, roles = [] }: { run: Run; even
       {roles.length > 0 && <ul className="generation-role-activity" data-testid="role-activity" aria-label={ui.text("实际角色活动", "Role activity")}>{roles.filter((role) => role.runId === run.id).map((role) => <li key={role.id}>
         <strong>{(ui.locale === "en" ? roleLabelsEn : roleLabels)[role.role]}</strong><span>{(ui.locale === "en" ? roleStateLabelsEn : roleStateLabels)[role.state]}</span>
       </li>)}</ul>}
-      {run.plan && <GenerationPlan plan={run.plan} />}
+      {run.plan && <GenerationPlan plan={run.plan} origin={run.kind === "template" ? "template" : "coordinator"} />}
       {latest.length > 0 && <ul className="generation-activity-list">{latest.map((event) => <li key={event.eventId}>{describe(event, ui.locale)}</li>)}</ul>}
       {visible.length > 0 && <details className="generation-event-log"><summary>{ui.text("查看真实执行记录", "View activity log")} <span>{visible.length}</span></summary>
         <ol>{visible.map((event) => <li key={event.eventId}><strong>{describe(event, ui.locale)}</strong><time dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleTimeString(ui.locale === "en" ? "en-US" : "zh-CN", { hour12: false })}</time>
