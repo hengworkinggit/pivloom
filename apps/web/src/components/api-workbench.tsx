@@ -480,7 +480,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
       {project.currentRevision && <div className="a-publish-panel"><div className="a-publish-icon"><ExternalLink size={26} /></div><h3>让作品拥有自己的地址</h3>
         <p>{publicationQuery.data?.revisionId === project.currentRevision.id ? "当前版本已永久发布；工作台上的预览仍是会到期的临时预览。" : publicationQuery.data ? "已发布作品仍是之前的版本；回滚不会自动更新它。" : "工作台上的预览是会到期的临时预览；正式发布后可用独立域名长期访问。"}</p>
         {project.dataProfile && <p className="a-drawer-context">{project.dataProfile === "event-signup" ? "报名" : "预约"}的 Preview 示例数据不会进入线上。发布后访客提交由本项目的服务端数据区保存，可在“应用数据”管理；更换或回滚源码不会自动删除这些记录。</p>}
-        {!currentDataSourceReady && <p className="inline-error" role="alert">这个旧模板版本仍只使用浏览器数据。请从最新模板重新创建项目，或在本项目增量加入托管数据代码后再发布。</p>}
+        {!currentDataSourceReady && <p className="inline-error" role="alert">这个旧模板版本仍只使用浏览器数据。请<Link href={`/templates/${project.dataProfile}`}>使用最新模板</Link>重新创建项目，或在本项目增量加入托管数据代码后再发布。</p>}
         <div className="a-publish-version"><span>当前源码版本</span><strong>v{project.currentRevision.revisionNo}<code>{project.currentRevision.sourceHash.slice(0, 8)}</code></strong></div>
         {/* Which revision the permanent site actually serves. It is not always
             the current one, and the user cannot tell them apart otherwise. */}
