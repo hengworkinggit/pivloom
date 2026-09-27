@@ -377,7 +377,7 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
   const toolbarExtras = <>
     {revision && <>
       <button type="button" className="a-toolbar-version" onClick={() => setDrawer("history")} aria-label={`版本历史，正在查看 v${revision.revisionNo}`}>
-        v{revision.revisionNo}<span>{revision.id === project.project.currentRevisionId ? "当前" : revision.status !== "accepted" ? state.active ? "检查中" : "未通过" : "历史"}</span><ChevronDown size={12} />
+        v{revision.revisionNo}<span>{revision.id === project.project.currentRevisionId ? "当前" : revision.status !== "accepted" ? state.active && revision.runId === run?.id ? "检查中" : "未通过" : "历史"}</span><ChevronDown size={12} />
       </button>
       {/* Viewing a historical version must never hide which version is really
           current: the two are labelled separately, and this returns to it. */}
@@ -396,8 +396,8 @@ function GenerationWorkspace({ projectId }: { projectId: string }) {
           onClick={() => chooseCandidateBase(revision)}>从此版本继续修改</Button>)}
     </>}
     {project.latestCandidate && project.latestCandidate.id !== revision?.id && <Button type="button" variant="outline" size="sm"
-      aria-label={`${state.active ? "查看正在检查的版本" : "查看未通过的版本"} v${project.latestCandidate.revisionNo}`}
-      onClick={() => setSelectedRevisionId(project.latestCandidate!.id)}>{state.active ? "查看正在检查的版本" : "查看未通过的版本"} v{project.latestCandidate.revisionNo}</Button>}
+      aria-label={`${state.active && project.latestCandidate.runId === run?.id ? "查看正在检查的版本" : "查看未通过的版本"} v${project.latestCandidate.revisionNo}`}
+      onClick={() => setSelectedRevisionId(project.latestCandidate!.id)}>{state.active && project.latestCandidate.runId === run?.id ? "查看正在检查的版本" : "查看未通过的版本"} v{project.latestCandidate.revisionNo}</Button>}
       {project.currentRevision && <button type="button" className="a-toolbar-publish" onClick={() => setDrawer("publish")}>发布<ChevronDown size={12} /></button>}
       {project.dataProfile && !personalData && <button type="button" className="a-toolbar-check" onClick={() => setDrawer("data")}><Database size={14} />应用数据</button>}
     {hashNotice && <span className="a-toolbar-notice" role="status">{hashNotice}</span>}
