@@ -1,23 +1,24 @@
 import { expect, it } from "vitest";
-import { CheckSchema, ReviewResultSchema } from "@pivloom/contracts";
+import { CheckSchema, MAX_REVIEW_RESULT_BYTES, ReviewResultSchema } from "@pivloom/contracts";
 
 function reportAtLimit() {
-  return {
+  const report = {
     revisionId: "09d00eb6-661f-4ed7-9e96-a46f4e2c800e", sourceHash: "a".repeat(64),
-    items: Array.from({ length: 5 }, (_, index) => ({
-      behaviorId: `B0${index + 1}`, verdict: "blocked", expected: "预".repeat(1000), actual: "实".repeat(1000),
-      observationEventIds: [], screenshotIds: [], reproSteps: Array.from({ length: 8 }, () => "步".repeat(148)),
+    items: Array.from({ length: 12 }, (_, index) => ({
+      behaviorId: `B${String(index + 1).padStart(2, "0")}`, verdict: "blocked", expected: "预".repeat(1000), actual: "实".repeat(1000),
+      observationEventIds: [], screenshotIds: [], reproSteps: Array.from({ length: 8 }, () => "步".repeat(162)),
     })),
-    // Worked UTF-8 fixture: 48,673 bytes before this 479-byte ASCII suffix.
-    summary: "fixture" + "x".repeat(479),
+    summary: "fixture",
   };
+  const padding = MAX_REVIEW_RESULT_BYTES - new TextEncoder().encode(JSON.stringify(report)).length;
+  return { ...report, summary: report.summary + "x".repeat(padding) };
 }
 
-it("accepts a 48 KiB UTF-8 report and rejects the next byte before persistence", () => {
+it("accepts a 120 KiB UTF-8 report and rejects the next byte before persistence", () => {
   const allowed = reportAtLimit();
   const oversized = { ...allowed, summary: allowed.summary + "x" };
-  expect(new TextEncoder().encode(JSON.stringify(allowed))).toHaveLength(49_152);
-  expect(new TextEncoder().encode(JSON.stringify(oversized))).toHaveLength(49_153);
+  expect(new TextEncoder().encode(JSON.stringify(allowed))).toHaveLength(MAX_REVIEW_RESULT_BYTES);
+  expect(new TextEncoder().encode(JSON.stringify(oversized))).toHaveLength(MAX_REVIEW_RESULT_BYTES + 1);
   expect(ReviewResultSchema.safeParse(allowed).success).toBe(true);
   expect(ReviewResultSchema.safeParse(oversized).success).toBe(false);
 });

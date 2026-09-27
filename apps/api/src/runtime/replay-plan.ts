@@ -1,6 +1,6 @@
 import { selectReviewBehaviors } from './review-scope.js';
 import { createHash, randomUUID } from 'node:crypto';
-import { HandoffSchema, ReviewResultSchema, ReviewItemSchema, BehaviorProgramSchema, MAX_BEHAVIOR_STEPS, allowsRenderOnlyEvidence,
+import { HandoffSchema, ReviewResultSchema, ReviewItemSchema, BehaviorProgramSchema, MAX_BEHAVIOR_STEPS, MAX_REVIEW_RESULT_BYTES, allowsRenderOnlyEvidence,
   type BehaviorStep, type BehaviorTarget, type Handoff, type ReviewBinding, type ReviewItem, type ReviewResult } from '@pivloom/contracts';
 import { REVIEW_EVIDENCE_LIMIT_BYTES } from './budgets.js';
 import { RuntimeError, type ProbeEventSink } from './types.js';
@@ -388,8 +388,7 @@ export async function runScriptedPlan(input: RunScriptedPlanInput): Promise<Scri
     const capture = captures.get(item.behaviorId);
     if (capture && !completed.has(item.behaviorId)) await checkpoint(item, capture.evidence, capture.artifacts);
   }
-  const result: ReviewResult = ReviewResultSchema.parse({ revisionId: input.binding.revisionId, sourceHash: input.binding.sourceHash,
-    items, summary: summarize(items) });
+  const result = fitScriptedReviewResult(input.binding, items);
   const visualEvidence = captures ? [...captures.values()].flatMap((capture) => capture.evidence) : [];
   const visualArtifacts = captures ? [...captures.values()].flatMap((capture) => capture.artifacts) : [];
   const assembled = markReviewerResultVerified({ result,
@@ -426,6 +425,26 @@ function summarize(items: ReviewItem[]): string {
   // the unverifiable behaviours marked blocked; a summary that reported only pass/fail would read as a
   // complete check when `finishReview` is about to record the run as blocked.
   return `脚本回放 ${items.length} 项行为：${passed} 项通过，${failed} 项未通过，${blocked} 项未取得确定性判定。`;
+}
+
+/** A full browser run can exceed the report envelope. Preserve the earliest
+ * verified items and mark only the overflow as pending for the next same-source
+ * Reviewer; provisional checkpoints alone never count as final passes. */
+export function fitScriptedReviewResult(binding: Pick<ReviewBinding, 'revisionId' | 'sourceHash'>,
+  items: ReviewItem[]): ReviewResult {
+  const fitted = [...items];
+  for (let index = fitted.length; index >= 0; index--) {
+    const candidate = { revisionId: binding.revisionId, sourceHash: binding.sourceHash,
+      items: fitted, summary: summarize(fitted) };
+    if (Buffer.byteLength(JSON.stringify(candidate)) <= MAX_REVIEW_RESULT_BYTES)
+      return ReviewResultSchema.parse(candidate);
+    if (index === 0) break;
+    const item = fitted[index - 1];
+    fitted[index - 1] = { behaviorId: item.behaviorId, expected: item.expected,
+      verdict: 'blocked', actual: 'REVIEW_REPORT_CAPACITY：本项浏览器证据已采集，报告容量不足；需在同一源码上单独复检。',
+      observationEventIds: [], screenshotIds: [], reproSteps: [] };
+  }
+  throw new RuntimeError('VERIFICATION_CAPACITY', '检查条目超出持久化容量，已停止并保留候选源码');
 }
 /**
  * Why a behaviour the plan could not compile is recorded `blocked`. The reason token travels with the

@@ -1200,9 +1200,10 @@ export function createGenerationRepository(
         const verificationIncomplete = persistenceTimedOut || receipt.verification?.timedOut || receipt.verification?.incompleteReason
           || receipt.verification && Date.now() >= Date.parse(receipt.verification.deadlineAt);
         if (verificationIncomplete) result.summary = `${receipt.verification?.incompleteReason ?? 'REVIEW_TIMEOUT'}：已保留完成的检查，本次验收未完整完成，候选尚未通过。`;
-        const verdict = verificationIncomplete || !receipt.markerVerified || groups?.some((group) => group.verdict === "blocked")
-          || result.items.some((item) => item.verdict === "blocked") ? "blocked"
-          : groups?.some((group) => group.verdict === "failed") || result.items.some((item) => item.verdict === "failed") ? "failed" : "passed";
+        const requiredIds = new Set(plan.behaviors.filter((behavior) => behavior.required).map((behavior) => behavior.id));
+        const requiredItems = result.items.filter((item) => requiredIds.has(item.behaviorId));
+        const verdict = verificationIncomplete || !receipt.markerVerified || requiredItems.some((item) => item.verdict === "blocked")
+          ? "blocked" : requiredItems.some((item) => item.verdict === "failed") ? "failed" : "passed";
         const repairNextAttempt = verdict === "failed" && current.attempt < 2 ? current.attempt + 1 : null;
         if (verdict === "passed" && plan.behaviors.some((behavior) => behavior.required && !result.items.some((item) => item.behaviorId === behavior.id && item.verdict === "passed"))) {
           throw new ApiFailure(422, "AGENT_OUTPUT_INVALID", "仍有必需行为未完成检查。");

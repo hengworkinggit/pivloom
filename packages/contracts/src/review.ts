@@ -7,6 +7,10 @@ export const CheckVerdictSchema = z.enum(["passed", "failed", "blocked"]);
 export type CheckVerdict = z.infer<typeof CheckVerdictSchema>;
 /** A grouped plan can contain 80 distinct targets, each needing its own post-action image. */
 export const MAX_CHECK_ARTIFACTS = 80;
+/** Sized for the supported 80-item plan, including observation UUIDs and replay steps. */
+export const MAX_REVIEW_ITEMS_BYTES = 128 * 1024;
+/** Leaves room for PostgreSQL JSONB formatting around the items. */
+export const MAX_REVIEW_RESULT_BYTES = 120 * 1024;
 
 /** Scope is supplied by the service, never by a model's submitted result. */
 export const ReviewBindingSchema = z.strictObject({
@@ -45,14 +49,13 @@ export function allowsRenderOnlyEvidence(target: Pick<BehaviorTarget, "action">)
   return renderOnly && !timeAdvance && !interaction;
 }
 const reviewItems = z.array(ReviewItemSchema).max(80)
-  .refine((items) => new TextEncoder().encode(JSON.stringify(items)).length <= 64 * 1024, "检查条目不得超过 64 KiB。");
+  .refine((items) => new TextEncoder().encode(JSON.stringify(items)).length <= MAX_REVIEW_ITEMS_BYTES, "检查条目超过容量上限。");
 
 export const ReviewResultSchema = z.strictObject({
   revisionId: z.uuid(), sourceHash, items: reviewItems.min(1), summary: text(4000),
 }).refine((result) => new Set(result.items.map((item) => item.behaviorId)).size === result.items.length, "检查目标不能重复。")
   // New submissions leave room for PostgreSQL JSONB's separators and escaping.
-  // Stored Check reads retain their original 64 KiB item limit.
-  .refine((result) => new TextEncoder().encode(JSON.stringify(result)).length <= 48 * 1024, "检查报告不得超过 48 KiB。");
+  .refine((result) => new TextEncoder().encode(JSON.stringify(result)).length <= MAX_REVIEW_RESULT_BYTES, "检查报告超过容量上限。");
 export type ReviewResult = z.infer<typeof ReviewResultSchema>;
 
 export const CheckGroupSchema = z.strictObject({
@@ -60,10 +63,23 @@ export const CheckGroupSchema = z.strictObject({
   verdict: CheckVerdictSchema, requiredCount: z.number().int().min(1).max(80),
   passedCount: z.number().int().nonnegative(), failedCount: z.number().int().nonnegative(),
   blockedCount: z.number().int().nonnegative(),
+  // Absent on checks saved before required-only group verdicts were introduced.
+  requiredPassedCount: z.number().int().nonnegative().optional(),
+  requiredFailedCount: z.number().int().nonnegative().optional(),
+  requiredBlockedCount: z.number().int().nonnegative().optional(),
 }).superRefine((group, context) => {
+  const requiredCounts = [group.requiredPassedCount, group.requiredFailedCount, group.requiredBlockedCount];
+  const hasRequiredCounts = requiredCounts.every((count) => count !== undefined);
+  const partialRequiredCounts = requiredCounts.some((count) => count !== undefined) && !hasRequiredCounts;
+  const verdictBlocked = hasRequiredCounts ? group.requiredBlockedCount! : group.blockedCount;
+  const verdictFailed = hasRequiredCounts ? group.requiredFailedCount! : group.failedCount;
   if (group.passedCount + group.failedCount + group.blockedCount !== group.behaviorIds.length
     || group.requiredCount > group.behaviorIds.length
-    || group.verdict !== (group.blockedCount ? "blocked" : group.failedCount ? "failed" : "passed"))
+    || partialRequiredCounts
+    || hasRequiredCounts && (group.requiredPassedCount! + group.requiredFailedCount! + group.requiredBlockedCount! !== group.requiredCount
+      || group.requiredPassedCount! > group.passedCount || group.requiredFailedCount! > group.failedCount
+      || group.requiredBlockedCount! > group.blockedCount)
+    || group.verdict !== (verdictBlocked ? "blocked" : verdictFailed ? "failed" : "passed"))
     context.addIssue({ code: "custom", message: "检查组计数与结论不一致。" });
 });
 export type CheckGroup = z.infer<typeof CheckGroupSchema>;
@@ -81,9 +97,13 @@ export function aggregateCheckGroups(plan: GroupedPlan, items: ReviewItem[]): Ch
     const passedCount = children.filter((item) => item?.verdict === "passed" && item.observationEventIds.length > 0).length;
     const failedCount = children.filter((item) => item?.verdict === "failed").length;
     const blockedCount = children.length - passedCount - failedCount;
+    const required = group.behaviorIds.filter((id) => expected.get(id)?.required).map((id) => actual.get(id)!);
+    const requiredPassedCount = required.filter((item) => item.verdict === "passed" && item.observationEventIds.length > 0).length;
+    const requiredFailedCount = required.filter((item) => item.verdict === "failed").length;
+    const requiredBlockedCount = required.length - requiredPassedCount - requiredFailedCount;
     return CheckGroupSchema.parse({ id: group.id, title: group.title, behaviorIds: group.behaviorIds,
-      verdict: blockedCount ? "blocked" : failedCount ? "failed" : "passed",
-      requiredCount: group.behaviorIds.filter((id) => expected.get(id)?.required).length,
+      verdict: requiredBlockedCount ? "blocked" : requiredFailedCount ? "failed" : "passed",
+      requiredCount: required.length, requiredPassedCount, requiredFailedCount, requiredBlockedCount,
       passedCount, failedCount, blockedCount });
   });
 }

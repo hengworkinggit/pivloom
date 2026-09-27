@@ -425,7 +425,8 @@ export function createGenerationExecutor(options: {
           }
           break;
         }
-        if (checked.receipt.result.items.every((item) => item.verdict === "passed")) {
+        if (reviewer.handoff.plan.behaviors.filter((behavior) => behavior.required).every((behavior) =>
+          checked.receipt.result.items.some((item) => item.behaviorId === behavior.id && item.verdict === "passed"))) {
           const tracked = currentResource();
           if (!tracked) throw new RuntimeError("SANDBOX_LEASE_RENEW_FAILED", "候选预览已不受当前任务管理");
           const manager = new OpenSandboxWorkspace(sandbox, boundaries.sandboxConnector);

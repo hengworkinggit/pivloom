@@ -61,7 +61,7 @@ it("refreshes authentication before loading a private screenshot and verifies it
 });
 
 it("rejects oversized UTF-8 check items at the public response boundary with a readable error", async () => {
-  const oversized = { ...check, items: Array.from({ length: 5 }, (_, index) => ({ ...check.items[0], behaviorId: `B0${index + 1}`,
+  const oversized = { ...check, items: Array.from({ length: 6 }, (_, index) => ({ ...check.items[0], behaviorId: `B0${index + 1}`,
     expected: "测".repeat(2000), actual: "试".repeat(2000), reproSteps: Array.from({ length: 8 }, () => "步".repeat(500)) })) };
   const workspace = createApiWorkspace(identity(), async (input) => String(input).endsWith("/me")
     ? Response.json({ user: { id: owner, name: "Owner", email: "owner@example.test" } }) : Response.json({ check: oversized }));

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, vi } from 'vitest';
-import { HandoffSchema, ReviewBindingSchema, type Handoff, type Plan } from '@pivloom/contracts';
-import { captureVisualPrograms, compilePlan, runPrograms, runScriptedPlan, type ReplayUncompilable } from '../../src/runtime/replay-plan.js';
+import { HandoffSchema, ReviewBindingSchema, MAX_REVIEW_RESULT_BYTES, type Handoff, type Plan, type ReviewItem } from '@pivloom/contracts';
+import { captureVisualPrograms, compilePlan, fitScriptedReviewResult, runPrograms, runScriptedPlan, type ReplayUncompilable } from '../../src/runtime/replay-plan.js';
 import { assertReviewerResult } from '../../src/runtime/reviewer.js';
 import type { ProbeEvent } from '../../src/runtime/types.js';
 import type { StoredArtifact } from '../../src/storage/artifacts.js';
@@ -598,4 +598,24 @@ test.each(['text', 'visual'] as const)('a %s program exceeding shared evidence c
   expect(outcome.result.result.items[1].verdict).toBe('passed');
   expect(outcome.result.result.items[2]).toMatchObject({ verdict: 'blocked', actual: expect.stringContaining('REVIEW_EVIDENCE_TOO_LARGE') });
   expect(outcome.result.evidence.every(event => event.behaviorId !== 'B03')).toBe(true);
+});
+
+test('an oversized completed report retains verified prefix and rechecks only overflow on the same source', () => {
+  const scope = binding(randomUUID());
+  const items: ReviewItem[] = Array.from({ length: 80 }, (_, index) => ({
+    behaviorId: `B${String(index + 1).padStart(2, '0')}`, verdict: 'passed',
+    expected: '正确显示运算结果', actual: '浏览器验证通过。'.repeat(150),
+    observationEventIds: Array.from({ length: 8 }, randomUUID), screenshotIds: [],
+    reproSteps: ['打开应用', '输入表达式', '检查结果'],
+  }));
+  expect(Buffer.byteLength(JSON.stringify({ revisionId: scope.revisionId, sourceHash: scope.sourceHash,
+    items, summary: '完整检查' }))).toBeGreaterThan(MAX_REVIEW_RESULT_BYTES);
+  const result = fitScriptedReviewResult(scope, items);
+  expect(result.items).toHaveLength(80);
+  const passed = result.items.filter((item) => item.verdict === 'passed').length;
+  expect(passed).toBeGreaterThan(0);
+  expect(passed).toBeLessThan(80);
+  expect(result.items.slice(passed).every((item) => item.verdict === 'blocked'
+    && item.actual.includes('REVIEW_REPORT_CAPACITY') && item.observationEventIds.length === 0)).toBe(true);
+  expect(result.items.slice(0, passed).every((item) => item.observationEventIds.length === 8)).toBe(true);
 });

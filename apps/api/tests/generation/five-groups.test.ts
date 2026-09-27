@@ -125,3 +125,19 @@ test("server group aggregate cannot call a failed, blocked or missing child 5/5"
   expect(CheckSchema.safeParse({ ...groupedCheck, items: items.map((item) => item.behaviorId === "B02"
     ? { ...item, verdict: "failed" } : item) }).success).toBe(false);
 });
+
+test("an optional failed check remains visible without blocking a fully passed required group", () => {
+  const plan = GroupedPlanSchema.parse({ ...base, behaviors: base.behaviors.map((item) =>
+    item.id === "B02" ? { ...item, required: false } : item) });
+  const items = plan.behaviors.map((item) => ({ behaviorId: item.id,
+    verdict: item.id === "B02" ? "failed" as const : "passed" as const,
+    expected: item.expected, actual: "浏览器已观察", observationEventIds: [randomUUID()], screenshotIds: [], reproSteps: [] }));
+  const groups = aggregateCheckGroups(plan, items);
+  expect(groups[0]).toMatchObject({ verdict: "passed", requiredCount: 1, requiredPassedCount: 1,
+    passedCount: 1, failedCount: 1 });
+  expect(groups.every((group) => group.verdict === "passed")).toBe(true);
+  expect(CheckSchema.safeParse({ id: randomUUID(), runId: randomUUID(), roleRunId: randomUUID(), attempt: 0,
+    revisionId: randomUUID(), sourceHash: "a".repeat(64), sandboxId: "fixture-sandbox", browserSessionId: "fixture-session",
+    verdict: "passed", items, groups, summary: "必需项全部通过，非必需项保留失败记录", artifacts: [],
+    createdAt: new Date().toISOString() }).success).toBe(true);
+});
