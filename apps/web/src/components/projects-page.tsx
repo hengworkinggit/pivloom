@@ -24,22 +24,32 @@ import { useUiPreferences } from "@/lib/ui-preferences";
 const DemoProjects = dynamic(() => import("./demo-projects-page").then((module) => module.ProjectsPage));
 function ProjectCard({ project, generation, onManage }: { project: ProjectSummary; generation: GenerationApi; onManage(project: ProjectSummary): void }) {
   const ui = useUiPreferences();
+  const loadCheck = useCallback(() => project.currentRevisionId ? generation.getCheck(project.currentRevisionId) : Promise.resolve(null), [generation, project.currentRevisionId]);
+  const { data: check } = usePrivateQuery(loadCheck);
+  const artifact = check?.verdict === "passed" ? check.artifacts.at(-1) : undefined;
   const [coverImage, setCoverImage] = useState<{ revisionId: string; url: string } | null>(null);
   useEffect(() => {
     const revisionId = project.currentRevisionId;
     if (!revisionId) return;
     const controller = new AbortController();
     let url: string | undefined;
-    void generation.getCover(revisionId, controller.signal).then((cover) => {
-      if (!cover || controller.signal.aborted) return;
-      url = URL.createObjectURL(cover);
-      setCoverImage({ revisionId, url });
-    }).catch(() => { /* Review or template fallback remains available. */ });
+    // Import completion can become visible a few seconds before its noncritical
+    // screenshot finishes saving. Retry only for a newly updated version.
+    const recent = Date.now() - Date.parse(project.updatedAt) < 60_000 && !artifact;
+    void (async () => {
+      for (let attempt = 0; attempt < (recent ? 15 : 1) && !controller.signal.aborted; attempt++) {
+        const cover = await generation.getCover(revisionId, controller.signal);
+        if (cover) {
+          if (controller.signal.aborted) return;
+          url = URL.createObjectURL(cover);
+          setCoverImage({ revisionId, url });
+          return;
+        }
+        if (recent && attempt < 14) await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    })().catch(() => { /* Review or template fallback remains available. */ });
     return () => { controller.abort(); if (url) URL.revokeObjectURL(url); };
-  }, [generation, project.currentRevisionId]);
-  const loadCheck = useCallback(() => project.currentRevisionId ? generation.getCheck(project.currentRevisionId) : Promise.resolve(null), [generation, project.currentRevisionId]);
-  const { data: check } = usePrivateQuery(loadCheck);
-  const artifact = check?.verdict === "passed" ? check.artifacts.at(-1) : undefined;
+  }, [artifact, generation, project.currentRevisionId, project.updatedAt]);
   const [image, setImage] = useState<{ key: string; url: string } | null>(null);
   useEffect(() => {
     if (!artifact || !check) return;
