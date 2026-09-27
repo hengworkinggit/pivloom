@@ -24,6 +24,19 @@ import { useUiPreferences } from "@/lib/ui-preferences";
 const DemoProjects = dynamic(() => import("./demo-projects-page").then((module) => module.ProjectsPage));
 function ProjectCard({ project, generation, onManage }: { project: ProjectSummary; generation: GenerationApi; onManage(project: ProjectSummary): void }) {
   const ui = useUiPreferences();
+  const [coverImage, setCoverImage] = useState<{ revisionId: string; url: string } | null>(null);
+  useEffect(() => {
+    const revisionId = project.currentRevisionId;
+    if (!revisionId) return;
+    const controller = new AbortController();
+    let url: string | undefined;
+    void generation.getCover(revisionId, controller.signal).then((cover) => {
+      if (!cover || controller.signal.aborted) return;
+      url = URL.createObjectURL(cover);
+      setCoverImage({ revisionId, url });
+    }).catch(() => { /* Review or template fallback remains available. */ });
+    return () => { controller.abort(); if (url) URL.revokeObjectURL(url); };
+  }, [generation, project.currentRevisionId]);
   const loadCheck = useCallback(() => project.currentRevisionId ? generation.getCheck(project.currentRevisionId) : Promise.resolve(null), [generation, project.currentRevisionId]);
   const { data: check } = usePrivateQuery(loadCheck);
   const artifact = check?.verdict === "passed" ? check.artifacts.at(-1) : undefined;
@@ -42,7 +55,8 @@ function ProjectCard({ project, generation, onManage }: { project: ProjectSummar
   const thumbnail = image?.key === `${check?.id}:${artifact?.id}` ? image.url : null;
   const templateScreenshot = project.thumbnailTemplateSlug === "reading-list" ? "/template-thumbnails/reading-list.png"
     : project.thumbnailTemplateSlug === "event-signup" ? "/template-thumbnails/event-signup.png" : null;
-  const screenshot = thumbnail ?? templateScreenshot;
+  const screenshot = (coverImage?.revisionId === project.currentRevisionId ? coverImage.url : null)
+    ?? thumbnail ?? templateScreenshot;
   // The card reports the project's real task state: a task waiting for capacity
   // must not read as an idle saved version, and the position comes from the
   // scheduler rather than an estimate. A blocked task reports no position.

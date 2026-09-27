@@ -24,17 +24,19 @@ const rollbackPhases: Record<RollbackOperation["status"], [string, string]> = {
 
 function statusLabel(revision: Revision, currentRevisionId: string | null, english: boolean) {
   if (revision.id === currentRevisionId) return english ? "Current" : "当前";
-  return english ? { accepted: "Accepted", candidate: "Candidate", rejected: "Rejected" }[revision.status]
-    : { accepted: "已验收", candidate: "候选", rejected: "未通过" }[revision.status];
+  return english ? { accepted: "Accepted", candidate: "Pending", rejected: "Did not pass" }[revision.status]
+    : { accepted: "已验收", candidate: "待确认", rejected: "未通过" }[revision.status];
 }
 
 export function VersionHistoryPanel({ revisions, currentRevisionId, selectedRevision, messages, onSelect, onCompare,
-  comparison, comparing, comparisonError, historyError = "", currentFromRollback = false, rollback }: {
+  comparison, comparing, comparisonError, historyError = "", currentFromRollback = false,
+  continueFromRevisionId = null, rollback }: {
   revisions: Revision[]; currentRevisionId: string | null; selectedRevision: Revision | null;
   messages: ProjectMessage[]; onSelect: (revisionId: string) => void;
   onCompare: (fromRevisionId: string, toRevisionId: string) => void;
   comparison: RevisionDiffResponse | null; comparing: boolean; comparisonError: string; historyError?: string;
   currentFromRollback?: boolean;
+  continueFromRevisionId?: string | null;
   rollback?: RollbackActions;
 }) {
   const ui = useUiPreferences();
@@ -60,7 +62,7 @@ export function VersionHistoryPanel({ revisions, currentRevisionId, selectedRevi
   const selectedKind = selectedRevision?.id === currentRevisionId
     ? ui.text("当前成功版本", "Current accepted version")
     : selectedRevision?.status === "accepted" ? ui.text("历史已验收版本", "Previously accepted version")
-      : selectedRevision?.status === "candidate" ? ui.text("候选版本 · 尚未验收", "Candidate · not accepted yet")
+      : selectedRevision?.status === "candidate" ? ui.text("待确认版本 · 尚非正式版本", "Pending · not the current version")
         : ui.text("未通过验收的版本", "Revision that did not pass review");
 
   async function copyCurrentHash() {
@@ -86,7 +88,7 @@ export function VersionHistoryPanel({ revisions, currentRevisionId, selectedRevi
           <button type="button" onClick={() => void copyCurrentHash()} aria-label={ui.text("复制完整源码 hash", "Copy full source hash")}>{copiedHash === current.sourceHash ? ui.text("已复制", "Copied") : ui.text("复制完整 hash", "Copy full hash")}</button></div>
         <details className="version-history-full-hash"><summary>{ui.text("查看完整源码 hash", "View full source hash")}</summary><code>{current.sourceHash}</code></details>
         {copyFailedHash === current.sourceHash && <p className="version-history-copy-error" role="status">{ui.text("无法自动复制，可展开并手动选择完整 hash。", "Copy unavailable. Expand and select the full hash manually.")}</p>}
-      </> : <p>{ui.text("候选版本尚未成为下一轮生成的基线。", "A candidate has not become the baseline for the next run.")}</p>}
+      </> : <p>{ui.text("尚无通过检查的正式版本。", "No version has passed checks yet.")}</p>}
       <p className="version-history-hash-note">{ui.text("这是作品源码版本标识，不是平台部署 SHA。", "This identifies the app source, not the platform deployment SHA.")}</p>
     </div>
     <div className="version-history-picker">
@@ -97,8 +99,10 @@ export function VersionHistoryPanel({ revisions, currentRevisionId, selectedRevi
     </div>
     <div className="version-history-context" data-testid="selected-version-kind"><strong>{ui.text("正在查看", "Viewing")} {selectedRevision ? `v${selectedRevision.revisionNo}` : "—"}</strong>
       {selectedRevision && <span className="version-history-context-badge">{selectedKind}</span>}
-      {selectedRevision && selectedRevision.id !== currentRevisionId && <p>{ui.text("当前只读；下一轮生成仍以当前成功版本为基线。", "Read only; the next run still uses the current accepted version as its baseline.")}</p>}
-      {selectedRevision?.id === currentRevisionId && currentFromRollback && <p>{ui.text("从历史版本恢复的当前基线", "Current baseline restored from history")}</p>}
+      {selectedRevision && selectedRevision.id !== currentRevisionId && <p>{selectedRevision.id === continueFromRevisionId
+        ? ui.text("下次修改将从此版本开始；当前正式版本与发布内容不变。", "The next change starts here; the current and published versions stay unchanged.")
+        : ui.text("当前仅供查看；下次修改默认从正式版本开始。", "Viewing only; the next change starts from the current version by default.")}</p>}
+      {selectedRevision?.id === currentRevisionId && currentFromRollback && <p>{ui.text("当前正式版本由历史版本恢复", "Current version restored from history")}</p>}
     </div>
     {rollback && selectedRevision?.status === "accepted" && selectedRevision.buildStatus === "passed"
       && currentRevisionId && selectedRevision.id !== currentRevisionId && !rollback.busy && !confirmation &&

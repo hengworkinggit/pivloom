@@ -84,13 +84,13 @@ export function GenerationOutcome({ run, candidateSaved, check, failureDetail }:
   const ui = useUiPreferences();
   if (!TerminalRunStates.has(run.state)) return null;
   const unchecked = run.error?.code === "CHECK_BLOCKED" && !check;
-  const heading = check ? (ui.locale === "en" ? { passed: "Key flows passed", failed: "Key flows failed", blocked: "Key flows blocked" } : { passed: "关键流程检查通过", failed: "关键流程检查未通过", blocked: "关键流程检查受阻" })[check.verdict] : unchecked && candidateSaved ? ui.text("候选已保存 · 尚未检查", "Candidate saved · not checked")
+  const heading = check ? (ui.locale === "en" ? { passed: "Key flows passed", failed: "Key flows failed", blocked: "Key flows blocked" } : { passed: "关键流程检查通过", failed: "关键流程检查未通过", blocked: "关键流程检查受阻" })[check.verdict] : unchecked && candidateSaved ? ui.text("版本已保存 · 等待检查", "Revision saved · awaiting checks")
     : unchecked ? ui.text("检查尚未完成", "Check incomplete") : run.state === "completed" ? run.kind === "template" ? ui.text("模板项目已就绪", "Template project ready") : ui.text("版本已保存", "Version saved")
       : run.state === "needs_input" ? ui.text("还需要一点信息", "More information needed") : run.state === "cancelled" ? ui.text("任务已停止", "Run stopped") : ui.text("这次生成未完成", "Generation incomplete");
   return <div className="run-notice generation-outcome" role="status" data-testid="run-result">
     <TriangleAlert size={16} /><div><strong>{heading}</strong><p id={run.state === "needs_input" && run.clarification ? "clarification-question" : undefined}>{run.state === "needs_input" && run.clarification ? run.clarification.question : check?.summary ?? run.error?.message ?? run.summary ?? ui.text("可以查看已保存的任务记录。", "You can review the saved activity.")}</p>
       {run.state === "needs_input" && run.clarification && <p>{ui.text("本次任务已结束。填写回答后会接着原需求继续。", "Answer the question to continue the original request.")}</p>}
-      {unchecked && candidateSaved && <p>{ui.text("构建与源码保存已完成，行为检查尚未完成。此候选尚未成为当前版本。", "Build and source are saved, but this candidate has not passed review.")}</p>}
+      {unchecked && candidateSaved && <p>{ui.text("构建与源码保存已完成，行为检查尚未完成。当前正式版本不变。", "Build and source are saved, but checks are not complete. The current version is unchanged.")}</p>}
       {run.state === "needs_changes" && run.attempt > 0 && <p>{ui.text(`已尝试修复 ${run.attempt} 轮${run.attempt >= 2 ? "，已达上限，停止自动修复。" : "。"}`, `${run.attempt} repair rounds attempted${run.attempt >= 2 ? "; limit reached." : "."}`)}</p>}
       <details><summary>{ui.text("任务详情", "Run details")}</summary><p className="generation-identifier">{run.id}</p>{run.error && <p>{run.error.code}</p>}
         {failureDetail && <p className="generation-failure-cause" data-testid="failure-cause">{ui.text("真实原因", "Real cause")}: <strong>{failureDetail.causeClass}</strong>{typeof failureDetail.detail?.code === "string" ? ` ${failureDetail.detail.code}` : ""} · {failureDetail.phase}{failureCauseText(failureDetail) ? ` — ${failureCauseText(failureDetail)}` : ""}</p>}

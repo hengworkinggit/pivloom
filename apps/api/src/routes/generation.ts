@@ -83,6 +83,12 @@ export async function registerGenerationRoutes(app: FastifyInstance, options: {
     secured.post("/api/v1/projects/:id/publication", async (request) =>
       service().publish(requireOwner(request), id(request)));
     secured.get("/api/v1/revisions/:id/check", async (request) => service().check(requireOwner(request), id(request)));
+    secured.get("/api/v1/revisions/:id/cover", async (request, reply) => {
+      const cover = await service().cover(requireOwner(request), id(request));
+      if (!cover) throw new ApiFailure(404, "COVER_NOT_FOUND", "这个版本尚无应用截图。");
+      return reply.header("cache-control", "private, no-store").header("x-content-type-options", "nosniff")
+        .header("etag", `"${cover.sha256}"`).type("image/png").send(cover.bytes);
+    });
     secured.get("/api/v1/checks/:id/artifacts/:artifactId", async (request, reply) => {
       const params = parseInput(z.object({ id: z.uuid(), artifactId: z.uuid() }), request.params);
       const bytes = await service().artifact(requireOwner(request), params.id, params.artifactId);

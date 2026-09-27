@@ -4,6 +4,7 @@ import type { FinishFailedInput, GenerationRepository, StoredRestore, StoredRevi
 import type { ModelProfileService } from "../models/service.js";
 import { sourceBundleFiles, type SourceStore } from "../storage/source.js";
 import type { ArtifactStore } from "../storage/artifacts.js";
+import type { createCoverRepository } from "../data/covers.js";
 import { runReview } from "./review.js";
 import { classifyReviewRoute } from "./review-routing.js";
 import { summarizeReviewCheckpoint } from "./review-checkpoint.js";
@@ -20,6 +21,7 @@ import { boundedProviderRetry, createMeaningfulProgressGate, createRunProgressWa
 import { OpenSandboxWorkspace } from "../runtime/workspace.js";
 import { starter } from "../starters/catalog.js";
 import { starterSource } from "../starters/source.js";
+import { capturePreviewCover } from "./cover.js";
 
 interface Resource {
   ownerId: string; runId: string; revisionId: string; sandboxId: string; expiresAt: string;
@@ -67,6 +69,7 @@ export async function settleTerminalReview<T extends { run: { state: RunState };
 /** Single-process dispatcher. Only persisted, newly accepted runs enter here. */
 export function createGenerationExecutor(options: {
   repository: GenerationRepository; models: ModelProfileService; sources: SourceStore; artifacts: ArtifactStore;
+  covers?: ReturnType<typeof createCoverRepository>;
   previews: PreviewGateway; sandbox: SandboxConfig; maxSandboxes: number;
   /** Notifies the durable queue that a capacity slot may have been released. */
   onTaskSettled?: (runId: string) => void;
@@ -80,7 +83,7 @@ export function createGenerationExecutor(options: {
   if (!Number.isInteger(settlementRetryMs) || settlementRetryMs < 1) throw new Error("Settlement retry interval must be positive");
   const cleanupSweepMs = boundaries.cleanupSweepMs ?? 30_000;
   if (!Number.isInteger(cleanupSweepMs) || cleanupSweepMs < 1) throw new Error("Cleanup sweep interval must be positive");
-  const { repository, models, sources, artifacts, previews, sandbox } = options;
+  const { repository, models, sources, artifacts, covers, previews, sandbox } = options;
   const tasks = new Map<string, Task>();
   const taskRun = new Map<string, StoredRun>();
   const pendingRestoreFailures = new Map<string, {
@@ -89,6 +92,19 @@ export function createGenerationExecutor(options: {
   const resources = new Map<string, Resource>();
   let closing = false;
   let sweep: Promise<void> | undefined;
+
+  async function savePreviewCover(ownerId: string, projectId: string, revisionId: string,
+    binding: { sandboxId: string; expiresAt: string }) {
+    if (!covers) return;
+    try {
+      const bytes = await capturePreviewCover({ sandbox, connector: boundaries.sandboxConnector,
+        sandboxId: binding.sandboxId, expiresAt: binding.expiresAt, revisionId });
+      await covers.save(ownerId, projectId, revisionId, bytes);
+    } catch (error) {
+      const reason = error instanceof RuntimeError ? error.code : error instanceof Error ? error.name : "unknown";
+      console.error(`revision ${revisionId} card screenshot unavailable (${reason})`);
+    }
+  }
 
   async function destroy(resource: Resource) {
     resource.cleanupPending = true;
@@ -199,6 +215,7 @@ export function createGenerationExecutor(options: {
       task.commitUnknown = false;
       retained = true;
       task.retained = true;
+      await savePreviewCover(run.ownerId, run.projectId, revisionId, tracked);
     } catch (error) {
       if (task.commitUnknown) {
         const persisted = await repository.getRun(run.ownerId, run.id);
@@ -576,6 +593,10 @@ export function createGenerationExecutor(options: {
           // evidence, but must release the candidate sandbox immediately.
           // Only the accepted current revision keeps a live Preview.
           if (settledReview.retained) { retained = true; task.retained = true; }
+          if (settledReview.retained && checked.receipt.artifacts.length === 0) {
+            const tracked = currentResource();
+            if (tracked) await savePreviewCover(run.ownerId, run.projectId, candidateRevision.id, tracked);
+          }
           break;
         }
         // The rejected candidate keeps its saved source for inspection, but its
@@ -777,6 +798,8 @@ export function createGenerationExecutor(options: {
           upstreamUrl: result.upstreamUrl, headers: result.headers });
         await repository.bindRestore(revision.ownerId, revision.projectId, record.id,
           { sandboxId: result.handle.sandboxId, expiresAt: result.handle.expiresAt });
+        if (covers && revision.status === "accepted" && !await covers.exists(revision.ownerId, revision.id).catch(() => true))
+          await savePreviewCover(revision.ownerId, revision.projectId, revision.id, result.handle);
       } catch (error) {
         if (tracked.current && resources.has(tracked.current.sandboxId)) await destroy(tracked.current).catch(() => false);
         const code = controller.signal.reason === "RESTORE_TIMEOUT" ? "RESTORE_TIMEOUT"

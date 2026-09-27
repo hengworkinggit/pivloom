@@ -154,7 +154,7 @@ export function GenerationResult({ projectId, revision, preview, generation, act
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
         event.preventDefault(); const next = value === "preview" ? "code" : "preview"; setTab(next); document.getElementById(`${next}-tab`)?.focus();
       }}>{value === "preview" ? <Monitor size={14} /> : <Code2 size={15} />}{value === "preview" ? ui.text("预览", "Preview") : ui.text("代码", "Code")}</button>)}
-    </div>{revision && <span className="version-badge">v{revision.revisionNo}{candidate ? ui.text(" 候选", " Candidate") : ""}</span>}</div>
+    </div>{revision && <span className="version-badge">v{revision.revisionNo}{candidate ? ui.text(" 待确认", " Pending") : ""}</span>}</div>
       {tab === "preview" && <div className="preview-actions"><div className="device-toggle" aria-label={ui.text("预览宽度", "Preview width")}>
         <button aria-label={ui.text("桌面预览", "Desktop preview")} aria-pressed={device === "desktop"} onClick={() => setDevice("desktop")}><Monitor size={14} /></button>
         <button aria-label={ui.text("窄屏预览", "Narrow preview")} aria-pressed={device === "mobile"} onClick={() => setDevice("mobile")}><Smartphone size={13} /></button>
@@ -166,13 +166,13 @@ export function GenerationResult({ projectId, revision, preview, generation, act
       </div>}
       {toolbarExtras && <div className="a-result-toolbar-extras">{toolbarExtras}</div>}
     </div>
-    {revision && <><div className="previous-version-note">{candidate ? ui.text("候选已保存", "Candidate saved") : ui.text("已保存版本", "Saved version")}{active ? ui.text(queued ? " · 新任务已排队，当前显示此版本" : " · 新任务正在执行，当前显示此版本", queued ? " · New task queued; showing this version" : " · New run in progress; showing this version") : ""}</div>
+    {revision && <><div className="previous-version-note">{candidate ? ui.text("待确认版本已保存；正式版本未变", "Pending revision saved; current version unchanged") : ui.text("已保存版本", "Saved version")}{active ? ui.text(queued ? " · 新任务已排队，当前显示此版本" : " · 新任务正在执行，当前显示此版本", queued ? " · New task queued; showing this version" : " · New run in progress; showing this version") : ""}</div>
       {showReview && historicalCheck && <p className="historical-check-note" data-testid="historical-check-note">{ui.text(
         `以下是 v${revision.revisionNo} 原 Run ${revision.runId.slice(0, 8)} 的历史验收记录；回滚重建后的预览尚未重新验收。`,
         `The check below belongs to the original v${revision.revisionNo} run ${revision.runId.slice(0, 8)}. The preview rebuilt by rollback has not been reverified.`)}</p>}
       {showReview && <GenerationReview key={`${revision.id}:${checking}`} revision={revision} latestCheck={latestCheck} generation={generation} checking={checking} />}</>}
     <div id="code-panel" role="tabpanel" aria-labelledby="code-tab" className="code-panel" hidden={tab !== "code"}>
-      {tab === "code" && (revision ? <SourceViewer key={revision.id} revision={revision} generation={generation} /> : <div className="preview-empty"><Code2 size={28} /><h2>{ui.text("还没有生成源码", "No source yet")}</h2><p>{ui.text("候选保存后，可以查看对应的多文件快照。", "Saved candidates will show their source files here.")}</p></div>)}
+      {tab === "code" && (revision ? <SourceViewer key={revision.id} revision={revision} generation={generation} /> : <div className="preview-empty"><Code2 size={28} /><h2>{ui.text("还没有生成源码", "No source yet")}</h2><p>{ui.text("版本保存后，可以在这里查看源码文件。", "Saved revisions show their source files here.")}</p></div>)}
     </div>
     <div id="preview-panel" role="tabpanel" aria-labelledby="preview-tab" className={cn("preview-canvas", device === "mobile" && "preview-canvas-mobile")} hidden={tab !== "preview"}>
       {restoring && <div className="preview-empty" role="status" data-testid="preview-restoring"><LoaderCircle className="spin" size={22} />
@@ -185,7 +185,7 @@ export function GenerationResult({ projectId, revision, preview, generation, act
         : <><LoaderCircle className="spin" size={22} /><p>{ui.text("正在验证预览访问…", "Authorizing preview access…")}</p></>}</div>
         : <div className="preview-empty"><div className="empty-preview-icon"><Monitor size={27} /></div>
         <h2>{preview?.state === "queued" ? ui.text("已排队等待沙箱容量", "Queued for sandbox capacity") : expired ? ui.text("预览已到期", "Preview expired") : revision ? ui.text("预览暂不可用", "Preview unavailable") : active ? ui.text("正在构建你的应用", "Building your app") : ui.text("你的应用，将从这里开始", "Your app starts here")}</h2>
-        <p>{preview?.state === "queued" ? preview.error ?? ui.text("资源可用后会自动开始重建预览，不会调用模型。", "It starts by itself once capacity is free, without calling a model.") : expired ? ui.text("源码快照已保存，可以在代码页查看；重新启动预览不会调用模型。", "Source is saved in Code. Restarting the preview will not call a model.") : revision ? preview?.error ?? ui.text("候选源码已保存，尚未获得可访问的预览。", "Candidate source is saved; the preview is not available yet.") : active ? ui.text("实际构建与快照保存完成后，候选预览会出现在这里。", "The preview appears here after build and snapshot complete.") : ui.text("在左侧描述需求，开始第一次真实构建。", "Describe your request on the left to start building.")}</p>
+        <p>{preview?.state === "queued" ? preview.error ?? ui.text("资源可用后会自动开始重建预览，不会调用模型。", "It starts by itself once capacity is free, without calling a model.") : expired ? ui.text("源码快照已保存，可以在代码页查看；重新启动预览不会调用模型。", "Source is saved in Code. Restarting the preview will not call a model.") : revision ? preview?.error ?? ui.text("源码已保存，预览暂时不可访问。", "Source is saved; Preview is temporarily unavailable.") : active ? ui.text("构建并保存源码后，预览会出现在这里。", "The preview appears after build and source save.") : ui.text("在左侧描述需求，开始第一次真实构建。", "Describe your request on the left to start building.")}</p>
         {(expired || preview?.state === "unavailable" || !preview) && revision && revision.buildStatus === "passed" && onRestore &&
           <Button onClick={onRestore} disabled={restoring}>{restoring ? <><LoaderCircle className="spin" size={14} />{ui.text("正在重建…", "Restoring…")}</> : ui.text("重新启动预览", "Restart preview")}</Button>}
       </div>}

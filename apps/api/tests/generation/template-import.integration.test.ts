@@ -5,6 +5,7 @@ import { PivloomDatabase } from "../../src/data/database.js";
 import { createGenerationRepository } from "../../src/data/generation.js";
 import { createRollbackRepository } from "../../src/data/rollback.js";
 import { createProjectRepository } from "../../src/data/projects.js";
+import { createCoverRepository } from "../../src/data/covers.js";
 import { createCredentialVault } from "../../src/models/credentials.js";
 import { createModelProfileService } from "../../src/models/service.js";
 import { createSourceStore } from "../../src/storage/source.js";
@@ -67,6 +68,11 @@ describe.skipIf(process.env.PIVLOOM_TEMPLATE_INTEGRATION !== "1")("curated templ
       });
       expect((await projects.list(owner)).projects[0].thumbnailTemplateSlug).toBe("reading-list");
       expect((await repository.getRevision(owner, revisionId)).status).toBe("accepted");
+      const covers = createCoverRepository(database);
+      const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
+      expect(await covers.save(owner, first.project.id, revisionId, png)).toBe(true);
+      expect((await covers.read(owner, revisionId))?.bytes).toEqual(png);
+      expect(await covers.read(randomUUID(), revisionId)).toBeNull();
       expect(await repository.isRevisionEligible(owner, first.project.id, revisionId)).toBe(true);
       expect((await repository.getRun(owner, first.run.id)).plan?.behaviors).toHaveLength(5);
       await repository.markDestroyed(owner, first.run.id, sandboxId);
@@ -106,6 +112,7 @@ describe.skipIf(process.env.PIVLOOM_TEMPLATE_INTEGRATION !== "1")("curated templ
       await expect(projects.remove(randomUUID(), first.project.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
       await projects.remove(owner, first.project.id);
       await expect(projects.get(owner, first.project.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(await covers.read(owner, revisionId)).toBeNull();
     } finally { await database.close(); await admin.end(); }
   }, 30_000);
 });
