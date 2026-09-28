@@ -225,4 +225,30 @@ describe.skipIf(process.env.PIVLOOM_REPAIR_INTEGRATION !== "1")("build failure r
       await raised.cancel(owner, admitted.run.id);
     }
   }, 90_000);
+
+  test("a test-account quota reset restores its full allowance without changing saved Run history", async () => {
+    const project = await createProjectRepository(database).create(owner, "quota-reset-fixture");
+    const input = { text: "生成计数器", expectedCurrentRevisionId: null,
+      modelProfileId: profile, modelConfigVersion: 1, idempotencyKey: randomUUID() };
+    const before = await repo.quota(owner);
+    const oldRun = await repo.accept(owner, project.id, input);
+    await repo.cancel(owner, oldRun.run.id);
+    const oldCreatedAt = (await admin.query("SELECT created_at FROM nano.runs WHERE id=$1", [oldRun.run.id])).rows[0].created_at as Date;
+    const resetAt = ((await admin.query("SELECT clock_timestamp() AS reset_at")).rows[0].reset_at as Date).toISOString();
+    const reset = createGenerationRepository(database, models, { executorBootId: randomUUID(), maxSandboxes: 5,
+      dailyLimitByOwner: { [owner]: 1 }, quotaResetAtByOwner: { [owner]: resetAt } });
+    expect(await reset.quota(owner)).toEqual({ dailyLimit: 1, dailyAccepted: 0 });
+    expect((await reset.quota(otherOwner)).dailyLimit).toBe(20);
+    const newRun = await reset.accept(owner, project.id, { ...input, idempotencyKey: randomUUID() });
+    try {
+      expect(await reset.quota(owner)).toEqual({ dailyLimit: 1, dailyAccepted: 1 });
+      await expect(reset.accept(owner, project.id, { ...input, idempotencyKey: randomUUID() }))
+        .rejects.toMatchObject({ code: "QUOTA_EXCEEDED" });
+      expect((await repo.quota(owner)).dailyAccepted).toBe(before.dailyAccepted + 2);
+      expect((await admin.query("SELECT created_at FROM nano.runs WHERE id=$1", [oldRun.run.id])).rows[0].created_at)
+        .toEqual(oldCreatedAt);
+    } finally {
+      await reset.cancel(owner, newRun.run.id);
+    }
+  }, 90_000);
 });

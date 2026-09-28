@@ -46,6 +46,9 @@ export function createApp(options: CreateAppOptions = {}) {
   const dailyLimitByOwner = env.DAILY_RUN_LIMIT_OVERRIDES
     ? z.record(z.uuid(), z.number().int().min(1).max(1000)).parse(JSON.parse(env.DAILY_RUN_LIMIT_OVERRIDES))
     : undefined;
+  const quotaResetAtByOwner = env.DAILY_RUN_QUOTA_RESET_AT
+    ? z.record(z.uuid(), z.iso.datetime()).parse(JSON.parse(env.DAILY_RUN_QUOTA_RESET_AT))
+    : undefined;
   const configuration = readIdentityConfig(env);
   const bootId = randomUUID();
   const recovering: { run?: () => Promise<number> } = {};
@@ -130,6 +133,7 @@ export function createApp(options: CreateAppOptions = {}) {
           generation = createGenerationService({ database, sessionDatabase: sessionDatabase ?? database,
             models, identity: configuration.value, bootId,
             previewOrigin: env.PREVIEW_BASE_URL, maxSandboxes, sourceObjects: options.sourceObjects, dailyLimitByOwner,
+            quotaResetAtByOwner,
             publishedBaseUrl: env.PUBLISHED_APP_BASE_URL, publishedRoot: env.PUBLISHED_APP_ROOT,
             generationBoundaries: options.generationBoundaries,
             // Active candidates renew short leases as real Run progress continues.

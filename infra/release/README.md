@@ -35,7 +35,8 @@ python3 infra/release/package.py web "$release"
 
 - API 使用 [`infra/api/pivloom-api.service`](../api/pivloom-api.service)，Web 使用 [`pivloom-web.service`](pivloom-web.service)。先创建各自的系统账号、`/var/lib/pivloom-api` 和 `/var/lib/pivloom-web`，按账号赋权，再安装 unit。Web standalone 运行在 `127.0.0.1:18012`；API 和预览分别运行在 `127.0.0.1:18010/18011`。
 - 私有环境文件保持在 `/etc/pivloom/api.env` 和 `/etc/pivloom/web.env`，由主机维护者设置权限。API 的 `APP_ORIGIN` 与 `PREVIEW_BASE_URL` 必须与 Web 构建来源一致；保留现有 `MODEL_CREDENTIALS_ENCRYPTION_KEY`，不能在发布时重新生成。用户 provider key 存在加密的数据库记录中，不写入这两个环境文件。
-- 可用 `DAILY_RUN_LIMIT_OVERRIDES='{"<owner UUID>":100}'` 仅提高指定测试账号的日额度；每个 key 必须是 UUID，额度是 1–1000 的整数。当前两个测试账号为 100，其余账号仍用默认 20。不要改成全体用户无限额度，也不要把测试账号密码写入发布记录。
+- 可用 `DAILY_RUN_LIMIT_OVERRIDES='{"<owner UUID>":100}'` 仅提高指定测试账号的日额度；每个 key 必须是 UUID，额度是 1–1000 的整数。未列入配置的账号仍用默认 20。不要改成全体用户无限额度，也不要把测试账号密码写入发布记录。
+- 一次性恢复测试账号的完整额度可设置 `DAILY_RUN_QUOTA_RESET_AT='{"<owner UUID>":"2026-09-28T00:00:00.000Z"}'`。显示额度与新任务准入都会只计重置时刻之后、且仍在滚动 24 小时内的 Run；原 Run 和时间戳不修改。重置时刻过了 24 小时便不再影响窗口统计。
 - 迁移使用独立的维护配置及管理员凭据；运行时 API 环境不放迁移管理员 URL。按目标环境 ID 执行现有工具，例如 `node --env-file=/path/to/private-maintenance.env --import tsx apps/api/scripts/supabase/manage.ts migrate --environment-id <配置中的环境ID>`。同一工具支持 `seed` / `verify`；其账号 manifest 仅保存到被忽略的 `.cache/identity`。主机上另外准备仅 root 可读的维护文件（例如 `/etc/pivloom/maintenance.env`，权限 0600），保存已有的 `MIGRATION_DATABASE_URL`，供发布时跨 owner 查询空闲状态；不使用受 RLS 限制的运行时连接冒充全局检查。不要重置已有数据库或删除持久卷。
 - 生产启动项始终是编译后的 `apps/api/dist/server.js`。`NODE_ENV=production` 拒绝 `TEST_PROFILE` 与程序注入；独立故障启动器 `apps/api/scripts/testing/repair-server.mjs` 仅连接独立的 `_e2e_test_` 数据库，不打入发布包，也不替换公网 unit。
 - 复用已有宿主 Caddy：原站点仍代理 3000，Pivloom 命名站点代理 Web 18012，预览按 Host 代理 18011 并保留请求 Host。逐版本预览证书的按需签发通过 API 的 `/api/v1/preview/tls-check?domain=` 限制为已保存版本。修改代理前备份，执行 `caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile` 后才 reload；失败恢复备份，不覆盖原站点。发布脚本本身不会修改这些路由。
