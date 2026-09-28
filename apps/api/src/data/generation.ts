@@ -356,10 +356,18 @@ export function createGenerationRepository(
   options: {
     executorBootId: string; maxSandboxes?: number;
     dailyLimitByOwner?: Readonly<Record<string, number>>;
+    quotaResetAtByOwner?: Readonly<Record<string, string>>;
     onCommittedEvent?: (ownerId: string, event: RunEvent) => void | Promise<void>;
   },
 ): GenerationRepository {
   const transactionEvents = new WeakMap<PoolClient, RunEvent[]>();
+  async function dailyUsed(client: PoolClient, ownerId: string): Promise<number> {
+    const resetAt = options.quotaResetAtByOwner?.[ownerId] ?? null;
+    const row = (await client.query(`SELECT count(*)::int AS accepted FROM nano.runs
+      WHERE owner_id=$1 AND kind<>'template' AND created_at > now() - interval '24 hours'
+        AND ($2::timestamptz IS NULL OR created_at > $2::timestamptz)`, [ownerId, resetAt])).rows[0];
+    return row.accepted as number;
+  }
   async function owned<T>(ownerId: string, operation: (client: PoolClient) => Promise<T>): Promise<T> {
     const committed: RunEvent[] = [];
     const result = await database.owned(ownerId, async (client) => {
@@ -738,7 +746,7 @@ export function createGenerationRepository(
           // when resources are free. A project may therefore hold several queued
           // requests, and dispatch keeps their execution serial.
           // Replays return above, so a retried idempotency key never consumes quota twice.
-          const used = (await client.query("SELECT count(*)::int AS accepted FROM nano.runs WHERE owner_id=$1 AND kind<>'template' AND created_at > now() - interval '24 hours'", [ownerId])).rows[0].accepted as number;
+          const used = await dailyUsed(client, ownerId);
           const dailyLimit = options.dailyLimitByOwner?.[ownerId] ?? DAILY_ACCEPTED_LIMIT;
           if (used >= dailyLimit)
             throw new ApiFailure(429, "QUOTA_EXCEEDED", `今日任务额度已用完（${dailyLimit} 个），请稍后再试。`, false);
@@ -1725,10 +1733,10 @@ export function createGenerationRepository(
       if (result.rows[0].admitted !== true)
         throw new ApiFailure(409, "SERVICE_BUSY", "沙箱容量已满，请在当前预览结束后重试。", true);
     }),
-    quota: (ownerId) => owned(ownerId, async (client) => {
-      const row = (await client.query("SELECT count(*)::int AS accepted FROM nano.runs WHERE owner_id=$1 AND kind<>'template' AND created_at > now() - interval '24 hours'", [ownerId])).rows[0];
-      return { dailyLimit: options.dailyLimitByOwner?.[ownerId] ?? DAILY_ACCEPTED_LIMIT, dailyAccepted: row.accepted as number };
-    }),
+    quota: (ownerId) => owned(ownerId, async (client) => ({
+      dailyLimit: options.dailyLimitByOwner?.[ownerId] ?? DAILY_ACCEPTED_LIMIT,
+      dailyAccepted: await dailyUsed(client, ownerId),
+    })),
     // A repair stays inside the same run: same deadline, same shared token and
     // tool ledgers. Only the attempt number, the builder role and the handoff
     // change, so every attempt keeps its own immutable candidate revision.

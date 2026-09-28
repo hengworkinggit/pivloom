@@ -32,6 +32,7 @@ export function createGenerationService(options: {
   sessionDatabase?: PivloomDatabase;
   sandbox: SandboxConfig; previewOrigin: string; bootId: string; maxSandboxes: number;
   dailyLimitByOwner?: Readonly<Record<string, number>>;
+  quotaResetAtByOwner?: Readonly<Record<string, string>>;
   generationBoundaries?: Parameters<typeof createGenerationExecutor>[1];
   sourceObjects?: SourceObjectStore;
   artifactObjects?: ArtifactObjects;
@@ -46,6 +47,7 @@ export function createGenerationService(options: {
   const repository = createGenerationRepository(options.database, options.models, {
     executorBootId: options.bootId, maxSandboxes: options.maxSandboxes,
     dailyLimitByOwner: options.dailyLimitByOwner,
+    quotaResetAtByOwner: options.quotaResetAtByOwner,
     onCommittedEvent: eventHub.publish,
   });
   const rollbacks = createRollbackRepository(options.database, { maxSandboxes: options.maxSandboxes });
